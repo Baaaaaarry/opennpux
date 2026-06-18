@@ -1,0 +1,17 @@
+# -*- mode:python -*-
+
+# Copyright (c) 2025
+# All rights reserved.
+#
+# A minimal NPU device model, primarily intended as a stub
+# interface for experimentation and integration testing.
+
+Import('*')
+
+SimObject('NPUDevice.py', sim_objects=['NPUDevice'])
+
+Source('coral_stagea_backend.cc')
+Source('coral_verilated_backend.cc')
+Source('npu_device.cc')
+
+DebugFlag('NPUDevice')

@@ -8,9 +8,11 @@ Move the active Coral + gem5 system simulation flow to an x86 Linux host.
 
 1. Clone this superproject and initialize submodules.
 2. Check out the pinned commits from `thirdparty/PINNED_COMMITS.md`.
-3. Apply `sim/gem5/patches/0001-coral-stagea-integration.patch` inside
-   `thirdparty/gem5`.
-4. Copy files from `sim/gem5/overlay/` into the corresponding gem5 paths.
+3. Keep local gem5 and Coral source changes under `sim/gem5/` and
+   `sim/coralnpu/` using the same relative paths as upstream.
+4. Run `sim/gem5/apply_patchset.sh` and `sim/coralnpu/apply_patchset.sh` to
+   merge those local source deltas into `thirdparty/gem5` and
+   `thirdparty/coralnpu`.
 5. Run the Coral phase-1 tooling from `tools/coralnpu/`.
 6. Continue RTL bridge and runtime work from this repository, not directly in
    the submodules.

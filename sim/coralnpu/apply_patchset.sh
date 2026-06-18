@@ -1,0 +1,39 @@
+#!/bin/sh
+
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SUPER_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd)"
+CORAL_REPO="${CORAL_REPO:-${SUPER_ROOT}/thirdparty/coralnpu}"
+
+if ! git -C "${CORAL_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "error: coralnpu submodule not found: ${CORAL_REPO}" >&2
+    exit 1
+fi
+
+has_delta=0
+for path in doc examples hdl hw_sim internal rules sw tests toolchain third_party util WORKSPACE BUILD.bazel MODULE.bazel; do
+    if [ -e "${SCRIPT_DIR}/${path}" ]; then
+        has_delta=1
+        break
+    fi
+done
+
+if [ "${has_delta}" -ne 1 ]; then
+    echo "error: no mirrored coralnpu delta paths found under ${SCRIPT_DIR}" >&2
+    exit 1
+fi
+
+echo "[coralnpu-patchset] syncing mirrored paths into ${CORAL_REPO}"
+for path in doc examples hdl hw_sim internal rules sw tests toolchain third_party util WORKSPACE BUILD.bazel MODULE.bazel; do
+    if [ -e "${SCRIPT_DIR}/${path}" ]; then
+        if [ -d "${SCRIPT_DIR}/${path}" ]; then
+            mkdir -p "${CORAL_REPO}/${path}"
+            cp -R "${SCRIPT_DIR}/${path}/." "${CORAL_REPO}/${path}/"
+        else
+            cp "${SCRIPT_DIR}/${path}" "${CORAL_REPO}/${path}"
+        fi
+    fi
+done
+
+echo "[coralnpu-patchset] done"

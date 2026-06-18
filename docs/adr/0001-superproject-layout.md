@@ -16,7 +16,8 @@ Use a superproject layout:
 
 - Track `gem5` and `coralnpu` as submodules under `thirdparty/`.
 - Keep local integration logic outside those submodules.
-- Represent gem5 deltas as patches plus overlays under `sim/gem5/`.
+- Represent gem5 and Coral deltas under `sim/gem5/` and `sim/coralnpu/`
+  using the same relative directory structure as their upstream trees.
 - Keep runtime scripts, RTL wrappers, and validation tooling in top-level
   project directories.
 
@@ -24,4 +25,5 @@ Use a superproject layout:
 
 - Upstream sync is explicit and reviewable.
 - Phase-specific tooling becomes host-agnostic and easier to move to x86.
-- Existing local modifications require patch/overlay application before use.
+- Existing local modifications are merged into the submodule worktrees at build
+  time from the mirrored `sim/gem5` and `sim/coralnpu` directory trees.

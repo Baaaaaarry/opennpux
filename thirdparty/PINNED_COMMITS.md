@@ -11,6 +11,6 @@
 ## Update policy
 
 - Keep both submodules close to their official upstream histories.
-- Land local integration changes in this superproject as patches, overlays,
-  wrappers, scripts, and runbooks.
+- Land local integration changes in this superproject as mirrored source trees
+  under `sim/`, plus wrappers, scripts, and runbooks.
 - Avoid carrying long-lived product code directly inside either submodule.

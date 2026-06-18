@@ -2,7 +2,9 @@
 
 This tree now carries two distinct Coral integration layers:
 
-- `sim/gem5/*`: the gem5-side patches, overlays, and integration notes.
+- `sim/gem5/*`: the gem5-side local source deltas and integration notes.
+- `sim/coralnpu/*`: the Coral-side local source deltas used to build on top of
+  the official Coral submodule.
 - `thirdparty/coralnpu`: the official RTL/software framework submodule to be
   modified for real execution and custom accelerator RTL work.
 
@@ -83,12 +85,16 @@ Guideline:
 
 ## Repository Responsibilities
 
-### Inside this gem5 tree
+### Inside this superproject
 
-- `sim/gem5/patches/*`
-  - public SimObject parameters
-- `sim/gem5/overlay/src/dev/npu/*`
+- `sim/gem5/configs/*`
+  - local board and configuration deltas for gem5
+- `sim/gem5/src/dev/npu/*`
   - SoC shell and backend selection
+- `sim/gem5/src/mem/*`
+  - local gem5 memory-system fixes needed by checkpoint/restore
+- `sim/coralnpu/*`
+  - local Coral source deltas applied on top of official upstream
 - `runtime/host/bootscripts/*`
   - temporary bring-up scripts
 - `tools/coralnpu/*`

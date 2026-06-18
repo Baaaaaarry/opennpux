@@ -1,0 +1,8 @@
+.DS_Store
+.cache/
+.venv/
+build/
+m5out/
+simout/
+run_upstream_smoke.log
+*.log

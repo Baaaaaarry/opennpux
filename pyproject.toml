@@ -1,0 +1,9 @@
+[project]
+name = "gem5-coral-x86"
+version = "0.1.0"
+description = "Superproject for x86-hosted gem5 + Coral NPU system simulation"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

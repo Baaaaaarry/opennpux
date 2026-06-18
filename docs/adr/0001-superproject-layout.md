@@ -16,7 +16,7 @@ Use a superproject layout:
 
 - Track `gem5` and `coralnpu` as submodules under `thirdparty/`.
 - Keep local integration logic outside those submodules.
-- Represent gem5 deltas as patches plus overlays under `sim/gem5_sim/`.
+- Represent gem5 deltas as patches plus overlays under `sim/gem5/`.
 - Keep runtime scripts, RTL wrappers, and validation tooling in top-level
   project directories.
 

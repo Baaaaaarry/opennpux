@@ -7,7 +7,7 @@ simulation work.
 
 - `thirdparty/gem5`: pinned gem5 submodule
 - `thirdparty/coralnpu`: pinned official Coral submodule
-- `sim/gem5_sim`: gem5-side patches, overlays, and wrapper notes
+- `sim/gem5`: gem5-side patches, overlays, and wrapper notes
 - `sim/coralnpu_sim`: Coral standalone simulation notes and scripts
 - `runtime/host`: host-side bootscripts and runtime bring-up assets
 - `runtime/npu`: NPU-side program placeholders and notes
@@ -19,8 +19,8 @@ simulation work.
 
 1. Update submodules to the pinned commits recorded in
    `thirdparty/PINNED_COMMITS.md`.
-2. Apply the gem5 patch set in `sim/gem5_sim/patches`.
-3. Copy or merge new-file overlays from `sim/gem5_sim/overlay` into the gem5
+2. Apply the gem5 patch set in `sim/gem5/patches`.
+3. Copy or merge new-file overlays from `sim/gem5/overlay` into the gem5
    worktree when a patch alone is insufficient.
 4. Use the runbooks under `docs/runbooks` to validate phase-1 and later system
    flows on an x86 Linux host.

@@ -2,7 +2,7 @@
 
 This tree now carries two distinct Coral integration layers:
 
-- `sim/gem5_sim/*`: the gem5-side patches, overlays, and integration notes.
+- `sim/gem5/*`: the gem5-side patches, overlays, and integration notes.
 - `thirdparty/coralnpu`: the official RTL/software framework submodule to be
   modified for real execution and custom accelerator RTL work.
 
@@ -85,9 +85,9 @@ Guideline:
 
 ### Inside this gem5 tree
 
-- `sim/gem5_sim/patches/*`
+- `sim/gem5/patches/*`
   - public SimObject parameters
-- `sim/gem5_sim/overlay/src/dev/npu/*`
+- `sim/gem5/overlay/src/dev/npu/*`
   - SoC shell and backend selection
 - `runtime/host/bootscripts/*`
   - temporary bring-up scripts

@@ -12,8 +12,15 @@ if ! git -C "${GEM5_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 has_delta=0
-for path in configs src ext include system util; do
+for path in configs src ext include system util tests scripts; do
     if [ -e "${SCRIPT_DIR}/${path}" ]; then
+        has_delta=1
+        break
+    fi
+done
+
+for file in SConstruct requirements.txt run_multicore.sh; do
+    if [ -e "${SCRIPT_DIR}/${file}" ]; then
         has_delta=1
         break
     fi
@@ -25,10 +32,16 @@ if [ "${has_delta}" -ne 1 ]; then
 fi
 
 echo "[gem5-patchset] syncing mirrored directories into ${GEM5_REPO}"
-for path in configs src ext include system util; do
+for path in configs src ext include system util tests scripts; do
     if [ -e "${SCRIPT_DIR}/${path}" ]; then
         mkdir -p "${GEM5_REPO}/${path}"
         cp -R "${SCRIPT_DIR}/${path}/." "${GEM5_REPO}/${path}/"
+    fi
+done
+
+for file in SConstruct requirements.txt run_multicore.sh; do
+    if [ -e "${SCRIPT_DIR}/${file}" ]; then
+        cp "${SCRIPT_DIR}/${file}" "${GEM5_REPO}/${file}"
     fi
 done
 

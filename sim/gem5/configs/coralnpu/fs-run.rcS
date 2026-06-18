@@ -1,0 +1,182 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+mkdir -p /dev
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+[ -c /dev/mem ] || mknod /dev/mem c 1 1 2>/dev/null || true
+
+NPU_BASE=0x1D000000
+RESET_CSR=0x1D030000
+PC_START_CSR=0x1D030004
+STATUS_CSR=0x1D030008
+
+DEVMEM=
+for candidate in /usr/bin/devmem /usr/sbin/devmem /sbin/devmem /bin/devmem; do
+    if [ -x "$candidate" ]; then
+        DEVMEM="$candidate"
+        break
+    fi
+done
+
+if [ -z "$DEVMEM" ] && command -v devmem >/dev/null 2>&1; then
+    DEVMEM="$(command -v devmem)"
+fi
+
+DEVMEM_WRAPPER=
+if [ -z "$DEVMEM" ] && command -v busybox >/dev/null 2>&1; then
+    if busybox --list 2>/dev/null | grep -qx devmem; then
+        DEVMEM_WRAPPER="busybox"
+    fi
+fi
+
+if [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] && command -v toybox >/dev/null 2>&1; then
+    if toybox --list 2>/dev/null | grep -qx devmem; then
+        DEVMEM_WRAPPER="toybox"
+    fi
+fi
+
+PYTHON_BIN=
+for candidate in /usr/bin/python3 /bin/python3 /usr/bin/python /bin/python; do
+    if [ -x "$candidate" ]; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
+
+echo "[coralnpu] bring-up script started"
+echo "[coralnpu] aperture base: ${NPU_BASE}"
+echo "[coralnpu] /dev/mem present: $(if [ -c /dev/mem ]; then echo yes; else echo no; fi)"
+echo "[coralnpu] devmem tool: ${DEVMEM:-none}"
+echo "[coralnpu] devmem wrapper: ${DEVMEM_WRAPPER:-none}"
+echo "[coralnpu] python tool: ${PYTHON_BIN:-none}"
+
+if [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] && { [ -z "$PYTHON_BIN" ] || [ ! -c /dev/mem ]; }; then
+    echo "[coralnpu] ERROR: no MMIO-capable devmem path is available"
+    if command -v m5 >/dev/null 2>&1; then
+        m5 --inst exit
+    fi
+    exit 1
+fi
+
+read32() {
+    if [ -n "$DEVMEM" ]; then
+        "$DEVMEM" "$1" 32
+        return
+    fi
+
+    if [ -n "$DEVMEM_WRAPPER" ]; then
+        "$DEVMEM_WRAPPER" devmem "$1" 32
+        return
+    fi
+
+    "$PYTHON_BIN" - "$1" <<'PY'
+import mmap
+import os
+import struct
+import sys
+
+addr = int(sys.argv[1], 0)
+page = mmap.PAGESIZE
+base = addr & ~(page - 1)
+offset = addr - base
+fd = os.open("/dev/mem", os.O_RDWR | os.O_SYNC)
+try:
+    mm = mmap.mmap(fd, offset + 4, flags=mmap.MAP_SHARED,
+                   prot=mmap.PROT_READ | mmap.PROT_WRITE, offset=base)
+    try:
+        value = struct.unpack_from("<I", mm, offset)[0]
+    finally:
+        mm.close()
+finally:
+    os.close(fd)
+print(hex(value))
+PY
+}
+
+write32() {
+    if [ -n "$DEVMEM" ]; then
+        "$DEVMEM" "$1" 32 "$2" >/dev/null
+        return
+    fi
+
+    if [ -n "$DEVMEM_WRAPPER" ]; then
+        "$DEVMEM_WRAPPER" devmem "$1" 32 "$2" >/dev/null
+        return
+    fi
+
+    "$PYTHON_BIN" - "$1" "$2" <<'PY'
+import mmap
+import os
+import struct
+import sys
+
+addr = int(sys.argv[1], 0)
+value = int(sys.argv[2], 0)
+page = mmap.PAGESIZE
+base = addr & ~(page - 1)
+offset = addr - base
+fd = os.open("/dev/mem", os.O_RDWR | os.O_SYNC)
+try:
+    mm = mmap.mmap(fd, offset + 4, flags=mmap.MAP_SHARED,
+                   prot=mmap.PROT_READ | mmap.PROT_WRITE, offset=base)
+    try:
+        struct.pack_into("<I", mm, offset, value)
+        mm.flush()
+    finally:
+        mm.close()
+finally:
+    os.close(fd)
+PY
+}
+
+RESET_BEFORE="$(read32 ${RESET_CSR})" || RESET_BEFORE="<read-failed>"
+STATUS_BEFORE="$(read32 ${STATUS_CSR})" || STATUS_BEFORE="<read-failed>"
+
+echo "[coralnpu] reset_control(before)=${RESET_BEFORE}"
+echo "[coralnpu] status(before)=${STATUS_BEFORE}"
+if [ "${RESET_BEFORE}" = "<read-failed>" ] || [ "${STATUS_BEFORE}" = "<read-failed>" ]; then
+    echo "[coralnpu] read error detail:"
+    echo "[coralnpu] MMIO access failed; guest lacks a working devmem/mmap path"
+    if command -v m5 >/dev/null 2>&1; then
+        m5 --inst exit
+    fi
+    exit 1
+fi
+
+write32 "${PC_START_CSR}" 0x0
+write32 "${RESET_CSR}" 0x1
+write32 "${RESET_CSR}" 0x0
+
+status_hex=
+halted=0
+i=0
+while [ "$i" -lt 100 ]; do
+    status_hex="$(read32 ${STATUS_CSR})" || status_hex=""
+    if [ -z "$status_hex" ]; then
+        echo "[coralnpu] read error detail:"
+        echo "[coralnpu] MMIO access failed during polling"
+        break
+    fi
+    status_val=$((status_hex))
+    if [ $((status_val & 0x1)) -ne 0 ]; then
+        halted=1
+        break
+    fi
+    usleep 1000 2>/dev/null || true
+    i=$((i + 1))
+done
+
+echo "[coralnpu] status(after)=${status_hex}"
+
+if [ "$halted" -eq 1 ]; then
+    echo "[coralnpu] PASS: Coral NPU MMIO is reachable and stage-A execution halted"
+else
+    echo "[coralnpu] FAIL: Coral NPU did not reach halted state"
+fi
+
+if command -v m5 >/dev/null 2>&1; then
+    m5 --inst exit
+fi

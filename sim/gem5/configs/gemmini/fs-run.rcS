@@ -1,0 +1,23 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+
+INSMOD=/sbin/insmod
+if ! command -v "$INSMOD" >/dev/null 2>&1; then
+    INSMOD=insmod
+fi
+
+if [ -x /root/gemmini/gemmini_dev_a_user ] && command -v "$INSMOD" >/dev/null 2>&1; then
+    "$INSMOD" /root/gemmini/gemmini_dev_a_drv.ko
+    taskset -c 0 /root/gemmini/gemmini_dev_a_user 2
+else
+    echo "Gemmini driver/app not available (check 9p mount and kmod tools)"
+fi
+
+# Signal gem5 to exit if m5 is available
+if command -v m5 >/dev/null 2>&1; then
+    m5 exit
+fi

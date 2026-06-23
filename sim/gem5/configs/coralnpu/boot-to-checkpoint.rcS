@@ -58,14 +58,34 @@ for candidate in /usr/bin/python3 /bin/python3 /usr/bin/python /bin/python; do
     fi
 done
 
+DD_BIN=
+for candidate in /bin/dd /usr/bin/dd; do
+    if [ -x "$candidate" ]; then
+        DD_BIN="$candidate"
+        break
+    fi
+done
+
+OD_BIN=
+for candidate in /usr/bin/od /bin/od; do
+    if [ -x "$candidate" ]; then
+        OD_BIN="$candidate"
+        break
+    fi
+done
+
 echo "[coralnpu] bring-up script started"
 echo "[coralnpu] aperture base: ${NPU_BASE}"
 echo "[coralnpu] /dev/mem present: $(if [ -c /dev/mem ]; then echo yes; else echo no; fi)"
 echo "[coralnpu] devmem tool: ${DEVMEM:-none}"
 echo "[coralnpu] devmem wrapper: ${DEVMEM_WRAPPER:-none}"
 echo "[coralnpu] python tool: ${PYTHON_BIN:-none}"
+echo "[coralnpu] dd tool: ${DD_BIN:-none}"
+echo "[coralnpu] od tool: ${OD_BIN:-none}"
 
-if [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] && { [ -z "$PYTHON_BIN" ] || [ ! -c /dev/mem ]; }; then
+if [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] \
+    && { [ -z "$PYTHON_BIN" ] || [ ! -c /dev/mem ]; } \
+    && { [ -z "$DD_BIN" ] || [ -z "$OD_BIN" ] || [ ! -c /dev/mem ]; }; then
     echo "[coralnpu] ERROR: no MMIO-capable devmem path is available"
     /sbin/m5 --inst exit
 fi
@@ -78,6 +98,13 @@ read32() {
 
     if [ -n "$DEVMEM_WRAPPER" ]; then
         "$DEVMEM_WRAPPER" devmem "$1" 32
+        return
+    fi
+
+    if [ -n "$DD_BIN" ] && [ -n "$OD_BIN" ]; then
+        "$DD_BIN" if=/dev/mem bs=1 skip=$(($1)) count=4 2>/tmp/coralnpu-dd.err \
+            | "$OD_BIN" -An -tx4 -v \
+            | { read v; printf '0x%s\n' "$v"; }
         return
     fi
 
@@ -113,6 +140,21 @@ write32() {
 
     if [ -n "$DEVMEM_WRAPPER" ]; then
         "$DEVMEM_WRAPPER" devmem "$1" 32 "$2" >/dev/null
+        return
+    fi
+
+    if [ -n "$DD_BIN" ]; then
+        value=$(($2))
+        b0=$((value & 255))
+        b1=$(((value >> 8) & 255))
+        b2=$(((value >> 16) & 255))
+        b3=$(((value >> 24) & 255))
+        {
+            printf "\\$(printf '%03o' "$b0")"
+            printf "\\$(printf '%03o' "$b1")"
+            printf "\\$(printf '%03o' "$b2")"
+            printf "\\$(printf '%03o' "$b3")"
+        } | "$DD_BIN" of=/dev/mem bs=1 seek=$(($1)) count=4 conv=notrunc 2>/tmp/coralnpu-dd.err
         return
     fi
 

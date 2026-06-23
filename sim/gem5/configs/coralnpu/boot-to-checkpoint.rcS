@@ -102,9 +102,15 @@ read32() {
     fi
 
     if [ -n "$DD_BIN" ] && [ -n "$OD_BIN" ]; then
-        "$DD_BIN" if=/dev/mem bs=1 skip=$(($1)) count=4 2>/tmp/coralnpu-dd.err \
-            | "$OD_BIN" -An -tx4 -v \
-            | { read v; printf '0x%s\n' "$v"; }
+        v="$(
+            "$DD_BIN" if=/dev/mem bs=1 skip=$(($1)) count=4 2>/tmp/coralnpu-dd.err \
+                | "$OD_BIN" -An -tx4 -v \
+                | { read word; printf '%s' "$word"; }
+        )"
+        if [ -z "$v" ]; then
+            return 1
+        fi
+        printf '0x%s\n' "$v"
         return
     fi
 
@@ -188,8 +194,12 @@ STATUS_BEFORE="$(read32 ${STATUS_CSR})" || STATUS_BEFORE="<read-failed>"
 
 echo "[coralnpu] reset_control(before)=${RESET_BEFORE}"
 echo "[coralnpu] status(before)=${STATUS_BEFORE}"
-if [ "${RESET_BEFORE}" = "<read-failed>" ] || [ "${STATUS_BEFORE}" = "<read-failed>" ]; then
+if [ "${RESET_BEFORE}" = "<read-failed>" ] || [ "${STATUS_BEFORE}" = "<read-failed>" ] \
+    || [ "${RESET_BEFORE}" = "0x" ] || [ "${STATUS_BEFORE}" = "0x" ]; then
     echo "[coralnpu] read error detail:"
+    if [ -s /tmp/coralnpu-dd.err ]; then
+        cat /tmp/coralnpu-dd.err
+    fi
     echo "[coralnpu] MMIO access failed; guest lacks a working devmem/mmap path"
     /sbin/m5 --inst exit
 fi
@@ -205,6 +215,9 @@ while [ "$i" -lt 100 ]; do
     status_hex="$(read32 ${STATUS_CSR})" || status_hex=""
     if [ -z "$status_hex" ]; then
         echo "[coralnpu] read error detail:"
+        if [ -s /tmp/coralnpu-dd.err ]; then
+            cat /tmp/coralnpu-dd.err
+        fi
         echo "[coralnpu] MMIO access failed during polling"
         break
     fi

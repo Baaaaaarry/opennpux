@@ -710,11 +710,8 @@ def build(options):
         )
         # Attach MMIO port to the IO bus, similar to other devices.
         system.npu.pio = system.iobus.mem_side_ports
-        # CPU-originated PIO reaches the IO bus through iobridge. The NPU
-        # aperture must be included in the bridge ranges and the generated DTB.
-        system.iobridge.ranges = list(system.iobridge.ranges) + [
-            AddrRange(options.npu_pio_addr, size=options.npu_pio_size)
-        ]
+        # The default VExpress off-chip bridge range already covers the NPU
+        # aperture. Do not add a duplicate sub-range for the same bridge port.
         # For DMA, prefer to connect the NPU behind the last-level caches
         # so that accesses flow through the same SLC/DDR path as the CPUs.
         if hasattr(system, "toSLCBus"):

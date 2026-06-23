@@ -13,6 +13,19 @@ RESET_CSR=0x1D030000
 PC_START_CSR=0x1D030004
 STATUS_CSR=0x1D030008
 
+MMIO32=
+for candidate in \
+    /usr/local/bin/mmio32 \
+    /data/usr/local/bin/mmio32 \
+    /bin/mmio32 \
+    /data/bin/mmio32
+do
+    if [ -x "$candidate" ]; then
+        MMIO32="$candidate"
+        break
+    fi
+done
+
 DEVMEM=
 for candidate in /usr/bin/devmem /usr/sbin/devmem /sbin/devmem /bin/devmem; do
     if [ -x "$candidate" ]; then
@@ -46,14 +59,35 @@ for candidate in /usr/bin/python3 /bin/python3 /usr/bin/python /bin/python; do
     fi
 done
 
+DD_BIN=
+for candidate in /bin/dd /usr/bin/dd; do
+    if [ -x "$candidate" ]; then
+        DD_BIN="$candidate"
+        break
+    fi
+done
+
+OD_BIN=
+for candidate in /usr/bin/od /bin/od; do
+    if [ -x "$candidate" ]; then
+        OD_BIN="$candidate"
+        break
+    fi
+done
+
 echo "[coralnpu] bring-up script started"
 echo "[coralnpu] aperture base: ${NPU_BASE}"
 echo "[coralnpu] /dev/mem present: $(if [ -c /dev/mem ]; then echo yes; else echo no; fi)"
+echo "[coralnpu] mmio32 tool: ${MMIO32:-none}"
 echo "[coralnpu] devmem tool: ${DEVMEM:-none}"
 echo "[coralnpu] devmem wrapper: ${DEVMEM_WRAPPER:-none}"
 echo "[coralnpu] python tool: ${PYTHON_BIN:-none}"
+echo "[coralnpu] dd tool: ${DD_BIN:-none}"
+echo "[coralnpu] od tool: ${OD_BIN:-none}"
 
-if [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] && { [ -z "$PYTHON_BIN" ] || [ ! -c /dev/mem ]; }; then
+if [ -z "$MMIO32" ] && [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] \
+    && { [ -z "$PYTHON_BIN" ] || [ ! -c /dev/mem ]; } \
+    && { [ -z "$DD_BIN" ] || [ -z "$OD_BIN" ] || [ ! -c /dev/mem ]; }; then
     echo "[coralnpu] ERROR: no MMIO-capable devmem path is available"
     if command -v m5 >/dev/null 2>&1; then
         m5 --inst exit
@@ -62,6 +96,11 @@ if [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] && { [ -z "$PYTHON_BIN" ] || [ !
 fi
 
 read32() {
+    if [ -n "$MMIO32" ]; then
+        "$MMIO32" read "$1"
+        return
+    fi
+
     if [ -n "$DEVMEM" ]; then
         "$DEVMEM" "$1" 32
         return
@@ -69,6 +108,19 @@ read32() {
 
     if [ -n "$DEVMEM_WRAPPER" ]; then
         "$DEVMEM_WRAPPER" devmem "$1" 32
+        return
+    fi
+
+    if [ -n "$DD_BIN" ] && [ -n "$OD_BIN" ]; then
+        v="$(
+            "$DD_BIN" if=/dev/mem bs=1 skip=$(($1)) count=4 2>/tmp/coralnpu-dd.err \
+                | "$OD_BIN" -An -tx4 -v \
+                | { read word; printf '%s' "$word"; }
+        )"
+        if [ -z "$v" ]; then
+            return 1
+        fi
+        printf '0x%s\n' "$v"
         return
     fi
 
@@ -97,6 +149,11 @@ PY
 }
 
 write32() {
+    if [ -n "$MMIO32" ]; then
+        "$MMIO32" write "$1" "$2"
+        return
+    fi
+
     if [ -n "$DEVMEM" ]; then
         "$DEVMEM" "$1" 32 "$2" >/dev/null
         return
@@ -104,6 +161,21 @@ write32() {
 
     if [ -n "$DEVMEM_WRAPPER" ]; then
         "$DEVMEM_WRAPPER" devmem "$1" 32 "$2" >/dev/null
+        return
+    fi
+
+    if [ -n "$DD_BIN" ]; then
+        value=$(($2))
+        b0=$((value & 255))
+        b1=$(((value >> 8) & 255))
+        b2=$(((value >> 16) & 255))
+        b3=$(((value >> 24) & 255))
+        {
+            printf "\\$(printf '%03o' "$b0")"
+            printf "\\$(printf '%03o' "$b1")"
+            printf "\\$(printf '%03o' "$b2")"
+            printf "\\$(printf '%03o' "$b3")"
+        } | "$DD_BIN" of=/dev/mem bs=1 seek=$(($1)) count=4 conv=notrunc 2>/tmp/coralnpu-dd.err
         return
     fi
 
@@ -137,8 +209,12 @@ STATUS_BEFORE="$(read32 ${STATUS_CSR})" || STATUS_BEFORE="<read-failed>"
 
 echo "[coralnpu] reset_control(before)=${RESET_BEFORE}"
 echo "[coralnpu] status(before)=${STATUS_BEFORE}"
-if [ "${RESET_BEFORE}" = "<read-failed>" ] || [ "${STATUS_BEFORE}" = "<read-failed>" ]; then
+if [ "${RESET_BEFORE}" = "<read-failed>" ] || [ "${STATUS_BEFORE}" = "<read-failed>" ] \
+    || [ "${RESET_BEFORE}" = "0x" ] || [ "${STATUS_BEFORE}" = "0x" ]; then
     echo "[coralnpu] read error detail:"
+    if [ -s /tmp/coralnpu-dd.err ]; then
+        cat /tmp/coralnpu-dd.err
+    fi
     echo "[coralnpu] MMIO access failed; guest lacks a working devmem/mmap path"
     if command -v m5 >/dev/null 2>&1; then
         m5 --inst exit
@@ -157,6 +233,9 @@ while [ "$i" -lt 100 ]; do
     status_hex="$(read32 ${STATUS_CSR})" || status_hex=""
     if [ -z "$status_hex" ]; then
         echo "[coralnpu] read error detail:"
+        if [ -s /tmp/coralnpu-dd.err ]; then
+            cat /tmp/coralnpu-dd.err
+        fi
         echo "[coralnpu] MMIO access failed during polling"
         break
     fi

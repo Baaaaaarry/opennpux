@@ -25,6 +25,19 @@ RESET_CSR=0x1D030000
 PC_START_CSR=0x1D030004
 STATUS_CSR=0x1D030008
 
+MMIO32=
+for candidate in \
+    /usr/local/bin/mmio32 \
+    /data/usr/local/bin/mmio32 \
+    /bin/mmio32 \
+    /data/bin/mmio32
+do
+    if [ -x "$candidate" ]; then
+        MMIO32="$candidate"
+        break
+    fi
+done
+
 DEVMEM=
 for candidate in /usr/bin/devmem /usr/sbin/devmem /sbin/devmem /bin/devmem; do
     if [ -x "$candidate" ]; then
@@ -77,13 +90,14 @@ done
 echo "[coralnpu] bring-up script started"
 echo "[coralnpu] aperture base: ${NPU_BASE}"
 echo "[coralnpu] /dev/mem present: $(if [ -c /dev/mem ]; then echo yes; else echo no; fi)"
+echo "[coralnpu] mmio32 tool: ${MMIO32:-none}"
 echo "[coralnpu] devmem tool: ${DEVMEM:-none}"
 echo "[coralnpu] devmem wrapper: ${DEVMEM_WRAPPER:-none}"
 echo "[coralnpu] python tool: ${PYTHON_BIN:-none}"
 echo "[coralnpu] dd tool: ${DD_BIN:-none}"
 echo "[coralnpu] od tool: ${OD_BIN:-none}"
 
-if [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] \
+if [ -z "$MMIO32" ] && [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] \
     && { [ -z "$PYTHON_BIN" ] || [ ! -c /dev/mem ]; } \
     && { [ -z "$DD_BIN" ] || [ -z "$OD_BIN" ] || [ ! -c /dev/mem ]; }; then
     echo "[coralnpu] ERROR: no MMIO-capable devmem path is available"
@@ -91,6 +105,11 @@ if [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] \
 fi
 
 read32() {
+    if [ -n "$MMIO32" ]; then
+        "$MMIO32" read "$1"
+        return
+    fi
+
     if [ -n "$DEVMEM" ]; then
         "$DEVMEM" "$1" 32
         return
@@ -139,6 +158,11 @@ PY
 }
 
 write32() {
+    if [ -n "$MMIO32" ]; then
+        "$MMIO32" write "$1" "$2"
+        return
+    fi
+
     if [ -n "$DEVMEM" ]; then
         "$DEVMEM" "$1" 32 "$2" >/dev/null
         return

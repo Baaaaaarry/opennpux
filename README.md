@@ -28,6 +28,19 @@ simulation work.
 4. Use the runbooks under `docs/runbooks` to validate phase-1 and later system
    flows on an x86 Linux host.
 
+## Guest MMIO Tool
+
+The Coral bring-up scripts need a guest-side MMIO helper because `dd` reads from
+`/dev/mem` can fail on device memory with `Bad address`. On the x86 Linux host:
+
+```sh
+tools/guest_tools/build_mmio32.sh
+sudo tools/guest_tools/install_mmio32_to_image.sh \
+  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+```
+
+Then rebuild the boot checkpoint so Linux sees the updated disk contents.
+
 ## Scope
 
 This superproject intentionally excludes macOS-specific build caches, ARM guest

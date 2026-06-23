@@ -694,15 +694,6 @@ def build(options):
     if issubclass(big_model, KvmCluster):
         _build_kvm(options, system, all_cpus)
 
-    # Linux device tree
-    if options.dtb is not None:
-        system.workload.dtb_filename = SysPaths.binary(options.dtb)
-    else:
-        system.workload.dtb_filename = os.path.join(
-            m5.options.outdir, "system.dtb"
-        )
-        system.generateDtb(system.workload.dtb_filename)
-
     # Optionally instantiate the stage-A Coral NPU model.
     if getattr(options, "enable_npu", False):
         # Import here to avoid hard dependency if the object is not built.
@@ -719,6 +710,11 @@ def build(options):
         )
         # Attach MMIO port to the IO bus, similar to other devices.
         system.npu.pio = system.iobus.mem_side_ports
+        # CPU-originated PIO reaches the IO bus through iobridge. The NPU
+        # aperture must be included in the bridge ranges and the generated DTB.
+        system.iobridge.ranges = list(system.iobridge.ranges) + [
+            AddrRange(options.npu_pio_addr, size=options.npu_pio_size)
+        ]
         # For DMA, prefer to connect the NPU behind the last-level caches
         # so that accesses flow through the same SLC/DDR path as the CPUs.
         if hasattr(system, "toSLCBus"):
@@ -728,6 +724,15 @@ def build(options):
         else:
             # Fallback: connect directly to the main memory bus.
             system.npu.dma = system.membus.cpu_side_ports
+
+    # Linux device tree
+    if options.dtb is not None:
+        system.workload.dtb_filename = SysPaths.binary(options.dtb)
+    else:
+        system.workload.dtb_filename = os.path.join(
+            m5.options.outdir, "system.dtb"
+        )
+        system.generateDtb(system.workload.dtb_filename)
 
     if getattr(options, "enable_gemmini", False):
         if getattr(options, "gemmini_mmio_iobus", False):

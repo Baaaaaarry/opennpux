@@ -2,7 +2,6 @@
 
 set -e
 
-CALLER_DIR="$(pwd)"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 GEM5_ROOT="${SCRIPT_DIR}"
 SUPER_ROOT="$(CDPATH= cd -- "${GEM5_ROOT}/../.." && pwd -P)"
@@ -20,7 +19,7 @@ export CORAL_DISK_IMG_BUILT_ALT2="${GEM5_ROOT}/image/out/ubuntu-18.04-arm64-dev-
 export CORAL_DISK_IMG_BUILT_ALT3="${GEM5_ROOT}/image/out/ubuntu-18.04-arm64-dev.img"
 export CORAL_DISK_IMG_FALLBACK="/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img"
 export CORAL_DISK_IMG="${CORAL_DISK_IMG:-${IMAGE_PATH}/ubuntu-18.04-arm64-docker.img}"
-export CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${CALLER_DIR}/m5out/coralnpu_ckpt}"
+export CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${SUPER_ROOT}/m5out/coralnpu_ckpt}"
 export CORAL_BOOTED_CKPT="${CORAL_CKPT_ROOT}/booted"
 export CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}"
 export CORAL_CKPT_IMAGE_META="${CORAL_CKPT_ROOT}/disk_image_path.txt"
@@ -69,34 +68,31 @@ if [ "${CORAL_REBUILD_CKPT}" = "1" ]; then
   rm -rf "${CORAL_CKPT_ROOT}"
 fi
 
-if [ -d "${CORAL_BOOTED_CKPT}" ] && [ "${CORAL_CKPT_BOOTSCRIPT}" -nt "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
-  echo "Bootstrap script changed; rebuilding boot checkpoint"
-  rm -rf "${CORAL_CKPT_ROOT}"
-fi
-
-if [ -d "${CORAL_BOOTED_CKPT}" ] && [ "${CORAL_DISK_IMG}" -nt "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ "${CORAL_DISK_IMG}" -nt "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
   echo "Disk image contents changed; rebuilding boot checkpoint"
   rm -rf "${CORAL_CKPT_ROOT}"
 fi
 
-if [ -d "${CORAL_BOOTED_CKPT}" ] && [ ! -f "${CORAL_CKPT_IMAGE_META}" ]; then
-  echo "Legacy checkpoint metadata missing; rebuilding boot checkpoint"
-  rm -rf "${CORAL_CKPT_ROOT}"
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ ! -f "${CORAL_CKPT_IMAGE_META}" ]; then
+  echo "Legacy checkpoint image metadata missing; recording current image"
+  mkdir -p "${CORAL_CKPT_ROOT}"
+  printf '%s\n' "${CORAL_DISK_IMG}" > "${CORAL_CKPT_IMAGE_META}"
 fi
 
-if [ -d "${CORAL_BOOTED_CKPT}" ] && [ -f "${CORAL_CKPT_IMAGE_META}" ]; then
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ -f "${CORAL_CKPT_IMAGE_META}" ]; then
   if [ "$(cat "${CORAL_CKPT_IMAGE_META}")" != "${CORAL_DISK_IMG}" ]; then
     echo "Disk image changed; rebuilding boot checkpoint"
     rm -rf "${CORAL_CKPT_ROOT}"
   fi
 fi
 
-if [ -d "${CORAL_BOOTED_CKPT}" ] && [ ! -f "${CORAL_CKPT_INIT_META}" ]; then
-  echo "Legacy kernel-init metadata missing; rebuilding boot checkpoint"
-  rm -rf "${CORAL_CKPT_ROOT}"
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ ! -f "${CORAL_CKPT_INIT_META}" ]; then
+  echo "Legacy checkpoint kernel-init metadata missing; recording current init"
+  mkdir -p "${CORAL_CKPT_ROOT}"
+  printf '%s\n' "${CORAL_KERNEL_INIT}" > "${CORAL_CKPT_INIT_META}"
 fi
 
-if [ -d "${CORAL_BOOTED_CKPT}" ] && [ -f "${CORAL_CKPT_INIT_META}" ]; then
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ -f "${CORAL_CKPT_INIT_META}" ]; then
   if [ "$(cat "${CORAL_CKPT_INIT_META}")" != "${CORAL_KERNEL_INIT}" ]; then
     echo "Kernel init changed; rebuilding boot checkpoint"
     rm -rf "${CORAL_CKPT_ROOT}"
@@ -119,7 +115,7 @@ ls -lh "${CORAL_DISK_IMG}" || exit 1
 echo "Building build/ARM/gem5.opt with -j${BUILD_JOBS}"
 scons build/ARM/gem5.opt -j"${BUILD_JOBS}"
 
-if [ -d "${CORAL_BOOTED_CKPT}" ]; then
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
   echo "Mode: restore from booted checkpoint"
   echo "Checkpoint: ${CORAL_BOOTED_CKPT}"
   echo "Resume script: ${CORAL_RESUME_BOOTSCRIPT}"

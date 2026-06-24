@@ -39,6 +39,9 @@ sudo tools/guest_tools/install_mmio32_to_image.sh \
   /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
 ```
 
+Rebuild the boot checkpoint after modifying the disk image so Linux sees the
+updated contents.
+
 ## Phase 2: Coral RTL bridge
 
 On the supported x86 Linux host, build the official `CoreMiniAxi` Verilator
@@ -75,7 +78,10 @@ CORAL_NPU_BACKEND=verilated-coral ./thirdparty/gem5/run_multicore.sh
 The default remains `stage-a`. Set `CORAL_RTL_TICK_PERIOD` and
 `CORAL_RTL_CYCLES_PER_EVENT` to tune the RTL scheduling quantum.
 
-Then rebuild the boot checkpoint so Linux sees the updated disk contents.
+The boot checkpoint is stored at `m5out/coralnpu_ckpt` relative to the
+superproject root. Pulling code or changing the injected resume script does
+not rebuild it. Use `CORAL_REBUILD_CKPT=1` only when the booted guest state
+must be recreated.
 
 ## Scope
 

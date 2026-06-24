@@ -27,6 +27,7 @@ The bridge currently supports:
 Run on x86 Linux:
 
 ```bash
+./tools/coralnpu/phase2_prepare_bazel.sh
 ./tools/coralnpu/phase2_check_abi.sh
 ./tools/coralnpu/phase2_build_bridge.sh
 ./sim/gem5/apply_patchset.sh

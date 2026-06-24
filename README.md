@@ -45,8 +45,17 @@ On the supported x86 Linux host, build the official `CoreMiniAxi` Verilator
 model and the OpenNPUX C ABI adapter:
 
 ```bash
+./tools/coralnpu/phase2_prepare_bazel.sh
 ./tools/coralnpu/phase2_check_abi.sh
 ./tools/coralnpu/phase2_build_bridge.sh
+```
+
+If the x86 host cannot resolve `releases.bazel.build`, download
+`bazel-8.6.0-linux-x86_64` on another machine and install it with:
+
+```bash
+BAZEL_BINARY=/path/to/bazel-8.6.0-linux-x86_64 \
+  ./tools/coralnpu/phase2_prepare_bazel.sh
 ```
 
 The staged shared library is:

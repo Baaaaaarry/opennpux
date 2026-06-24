@@ -5,7 +5,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 CORAL_REPO="${CORAL_REPO:-${ROOT_DIR}/thirdparty/coralnpu}"
-TARGET="//hw_sim/gem5_bridge:libcoralnpu_gem5_bridge.so"
+TARGET="//hw_sim:libcoralnpu_gem5_bridge.so"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -45,7 +45,7 @@ cd "${CORAL_REPO}"
 BAZEL_BIN="$("${BAZEL}" \
     --output_user_root="${BAZEL_OUTPUT_ROOT}" \
     info bazel-bin)"
-BRIDGE="${BAZEL_BIN}/hw_sim/gem5_bridge/libcoralnpu_gem5_bridge.so"
+BRIDGE="${BAZEL_BIN}/hw_sim/libcoralnpu_gem5_bridge.so"
 
 if [ ! -f "${BRIDGE}" ]; then
     echo "error: Bazel completed but bridge was not found: ${BRIDGE}" >&2

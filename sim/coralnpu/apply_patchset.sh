@@ -5,6 +5,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SUPER_ROOT="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd)"
 CORAL_REPO="${CORAL_REPO:-${SUPER_ROOT}/thirdparty/coralnpu}"
+DELETE_LIST="${SCRIPT_DIR}/overlay_delete.txt"
 
 if ! git -C "${CORAL_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "error: coralnpu submodule not found: ${CORAL_REPO}" >&2
@@ -25,6 +26,19 @@ if [ "${has_delta}" -ne 1 ]; then
 fi
 
 echo "[coralnpu-patchset] syncing mirrored paths into ${CORAL_REPO}"
+if [ -f "${DELETE_LIST}" ]; then
+    while IFS= read -r path; do
+        case "${path}" in
+            ""|\#*) continue ;;
+            /*|../*|*/../*)
+                echo "error: unsafe overlay delete path: ${path}" >&2
+                exit 1
+                ;;
+        esac
+        rm -rf "${CORAL_REPO}/${path}"
+    done < "${DELETE_LIST}"
+fi
+
 for path in doc examples hdl hw_sim internal rules sw tests toolchain third_party util WORKSPACE BUILD.bazel MODULE.bazel; do
     if [ -e "${SCRIPT_DIR}/${path}" ]; then
         if [ -d "${SCRIPT_DIR}/${path}" ]; then

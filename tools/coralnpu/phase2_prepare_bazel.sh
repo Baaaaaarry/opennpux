@@ -32,10 +32,12 @@ if [ -n "${BAZEL_BINARY:-}" ]; then
         exit 1
     fi
     cp "${BAZEL_BINARY}" "${DEST}"
-elif [ ! -x "${DEST}" ]; then
+elif [ -s "${DEST}" ]; then
+    echo "[phase2-bazel] reusing cached ${DEST}"
+else
     URL="${BAZEL_DOWNLOAD_URL:-https://releases.bazel.build/${VERSION}/release/bazel-${VERSION}-linux-x86_64}"
     TMP="${DEST}.tmp"
-    rm -f "${TMP}"
+    rm -f "${DEST}" "${TMP}"
     echo "[phase2-bazel] downloading ${URL}"
     if command -v curl >/dev/null 2>&1; then
         curl -fL --retry 3 --connect-timeout 20 -o "${TMP}" "${URL}"

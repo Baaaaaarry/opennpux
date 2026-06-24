@@ -1,21 +1,11 @@
-From 8a5bd5c71e67f08315fd445bb84bad15e1fc6d82 Mon Sep 17 00:00:00 2001
-From: OpenNPUX <opennpux@example.com>
-Date: Wed, 24 Jun 2026 15:00:00 +0800
-Subject: [PATCH] Separate SystemC and C++ Verilator runtimes
-
----
- dependency_support/verilator/verilator.BUILD.bazel | 64 +++++++++++++++++++++
- verilator/BUILD.bazel                               |  6 +-
- verilator/defs.bzl                                  |  7 ++-
- 3 files changed, 75 insertions(+), 2 deletions(-)
-
 diff --git a/dependency_support/verilator/verilator.BUILD.bazel b/dependency_support/verilator/verilator.BUILD.bazel
-index 4d3f595..a5f1ea1 100644
+index 7863081..474a126 100644
 --- a/dependency_support/verilator/verilator.BUILD.bazel
 +++ b/dependency_support/verilator/verilator.BUILD.bazel
-@@ -383,5 +383,70 @@ cc_library(
+@@ -405,6 +405,71 @@ cc_library(
      ],
  )
+ 
 +
 +cc_library(
 +    name = "verilator_cpp",
@@ -85,37 +75,35 @@ index 4d3f595..a5f1ea1 100644
  # `cc_library` target to be renamed to avoid a `liblibverilator.a`
  # output name.
 diff --git a/verilator/BUILD.bazel b/verilator/BUILD.bazel
-index 1387e11..7cdedb1 100644
+index e41b3d8..160b8ae 100644
 --- a/verilator/BUILD.bazel
 +++ b/verilator/BUILD.bazel
-@@ -28,8 +28,13 @@ verilator_toolchain(
-     name = "verilator_toolchain_impl",
-     verilator = "@verilator//:verilator_executable",
-     deps = [
-+        "@net_zlib//:zlib",
-+        "@verilator//:libverilator",
-+        "@verilator//:svdpi",
-+    ],
-+    cpp_deps = [
-         "@net_zlib//:zlib",
--        "@verilator//:libverilator",
-+        "@verilator//:verilator_cpp",
+@@ -32,6 +32,11 @@ verilator_toolchain(
+         "@verilator//:libverilator",
          "@verilator//:svdpi",
      ],
++    cpp_deps = [
++        "@net_zlib//:zlib",
++        "@verilator//:verilator_cpp",
++        "@verilator//:svdpi",
++    ],
  )
+ 
+ toolchain(
 diff --git a/verilator/defs.bzl b/verilator/defs.bzl
-index fc8af53..94d5f46 100644
+index c28ccf3..25dab41 100644
 --- a/verilator/defs.bzl
 +++ b/verilator/defs.bzl
-@@ -182,6 +182,6 @@ def _verilator_cc_library(ctx):
+@@ -182,7 +182,7 @@ def _verilator_cc_library(ctx):
          defines = defines,
          runfiles = runfiles,
          includes = [verilator_output_hpp.path],
 -        deps = verilator_toolchain.deps,
 +        deps = verilator_toolchain.deps if ctx.attr.systemc else verilator_toolchain.cpp_deps,
      )
+ 
  verilator_cc_library = rule(
-@@ -235,6 +235,7 @@ def _verilator_toolchain_impl(ctx):
+@@ -241,6 +241,7 @@ def _verilator_toolchain_impl(ctx):
      return [platform_common.ToolchainInfo(
          verilator = ctx.executable.verilator,
          deps = ctx.attr.deps,
@@ -123,7 +111,7 @@ index fc8af53..94d5f46 100644
          extra_vopts = ctx.attr.extra_vopts,
          all_files = all_files,
      )]
-@@ -247,6 +248,10 @@ verilator_toolchain = rule(
+@@ -253,6 +254,10 @@ verilator_toolchain = rule(
              doc = "Global Verilator dependencies to link into downstream targets.",
              providers = [CcInfo],
          ),

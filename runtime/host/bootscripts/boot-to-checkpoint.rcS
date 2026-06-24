@@ -24,6 +24,7 @@ NPU_BASE=0x1D000000
 RESET_CSR=0x1D030000
 PC_START_CSR=0x1D030004
 STATUS_CSR=0x1D030008
+BACKEND_ID_CSR=0x1D030FFC
 
 MMIO32=
 for candidate in \
@@ -213,6 +214,16 @@ finally:
 PY
 }
 
+BACKEND_ID="$(read32 ${BACKEND_ID_CSR})" || BACKEND_ID="<read-failed>"
+case "${BACKEND_ID}" in
+    0x4e505501|0x4E505501) BACKEND_NAME="stage-a" ;;
+    0x4e505502|0x4E505502) BACKEND_NAME="verilated-coral" ;;
+    *) BACKEND_NAME="unknown" ;;
+esac
+
+echo "[coralnpu] backend_id=${BACKEND_ID}"
+echo "[coralnpu] backend=${BACKEND_NAME}"
+
 RESET_BEFORE="$(read32 ${RESET_CSR})" || RESET_BEFORE="<read-failed>"
 STATUS_BEFORE="$(read32 ${STATUS_CSR})" || STATUS_BEFORE="<read-failed>"
 
@@ -257,7 +268,7 @@ done
 echo "[coralnpu] status(after)=${status_hex}"
 
 if [ "$halted" -eq 1 ]; then
-    echo "[coralnpu] PASS: Coral NPU MMIO is reachable and stage-A execution halted"
+    echo "[coralnpu] PASS: Coral NPU MMIO is reachable and ${BACKEND_NAME} execution halted"
 else
     echo "[coralnpu] FAIL: Coral NPU did not reach halted state"
 fi

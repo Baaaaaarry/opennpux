@@ -10,22 +10,35 @@
 #include "debug/NPUDevice.hh"
 #include "dev/npu/coral_stagea_backend.hh"
 #include "dev/npu/coral_verilated_backend.hh"
+#include "mem/packet_access.hh"
 
 namespace gem5
 {
+
+namespace
+{
+
+constexpr Addr kBackendIdOffset = 0x30ffc;
+constexpr uint32_t kStageABackendId = 0x4e505501;
+constexpr uint32_t kVerilatedCoralBackendId = 0x4e505502;
+
+} // namespace
 
 NPUDevice::NPUDevice(const Params &p)
   : DmaVirtDevice(p),
     pioAddr(p.pioAddr),
     pioSize(p.pioSize),
     pioDelay(p.pioDelay),
+    backendId(0),
     backendEvent(*this)
 {
     if (p.backendType == "stage-a") {
+        backendId = kStageABackendId;
         backend = std::make_unique<CoralStageABackend>(
             pioAddr, pioSize, p.itcmSize, p.dtcmSize, p.executionLatency,
             p.autoHalt);
     } else if (p.backendType == "verilated-coral") {
+        backendId = kVerilatedCoralBackendId;
         backend = std::make_unique<CoralVerilatedBackend>(
             p.coralRepo, p.verilatedWrapper, p.rtlTickPeriod,
             p.rtlCyclesPerEvent);
@@ -67,7 +80,12 @@ NPUDevice::read(PacketPtr pkt)
     DPRINTFR(NPUDevice, "backend=%s read addr=%#x size=%u\n",
              backend->name(), pkt->getAddr(), pkt->getSize());
 
-    if (!backend->read(pkt, pioAddr)) {
+    const Addr offset = pkt->getAddr() - pioAddr;
+    if (offset == kBackendIdOffset &&
+        pkt->getSize() == sizeof(backendId)) {
+        pkt->setLE<uint32_t>(backendId);
+        pkt->makeAtomicResponse();
+    } else if (!backend->read(pkt, pioAddr)) {
         DPRINTFR(NPUDevice, "backend=%s bad read addr=%#x size=%u\n",
                  backend->name(), pkt->getAddr(), pkt->getSize());
         pkt->makeAtomicResponse();

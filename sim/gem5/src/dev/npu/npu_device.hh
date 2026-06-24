@@ -10,6 +10,7 @@
 #ifndef __DEV_NPU_NPU_DEVICE_HH__
 #define __DEV_NPU_NPU_DEVICE_HH__
 
+#include <cstdint>
 #include <memory>
 
 #include "dev/dma_virt_device.hh"
@@ -26,6 +27,7 @@ class NPUDevice : public DmaVirtDevice
     Addr pioAddr;
     Addr pioSize;
     Tick pioDelay;
+    uint32_t backendId;
 
     void processBackendEvent();
     void syncBackendEvent();

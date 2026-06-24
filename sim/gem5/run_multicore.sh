@@ -108,7 +108,7 @@ mkdir -p "${CORAL_CKPT_ROOT}"
 # 默认启动命令d9300，可对应修改d9300 -> d9200
 #./build/ARM/gem5.opt configs/example/arm/arm_multicore_d9200.py --cpu-type="D9200" --disk=${IMAGE_PATH}/ubuntu-18.04-arm64-docker.img --kernel=${IMAGE_PATH}/vmlinux.arm64 --enable-gemmini --gemmini-cpu-idx 0
 #./build/ARM/gem5.opt configs/example/arm/arm_multicore_d9200.py --cpu-type="D9200" --disk=${IMAGE_PATH}/ubuntu-18.04-arm64-docker.img --kernel=${IMAGE_PATH}/vmlinux.arm64 --bootscript configs/gemmini/fs-run.rcS --enable-gemmini --gemmini-mmio-iobus --gemmini-ctrl-addr 0x10030000 --gemmini-ctrl-size 0x1000
-echo "Launching ARM multicore FS with Coral NPU stage-A enabled"
+echo "Launching ARM multicore FS with Coral NPU enabled"
 echo "Guest terminal socket: ./util/term/gem5term localhost 4567"
 echo "Disk image: ${CORAL_DISK_IMG}"
 echo "Kernel init: ${CORAL_KERNEL_INIT}"

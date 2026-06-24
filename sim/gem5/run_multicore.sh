@@ -31,10 +31,18 @@ export CORAL_RTL_TICK_PERIOD="${CORAL_RTL_TICK_PERIOD:-1ns}"
 export CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}"
 
 NPU_BACKEND_ARGS="--npu-backend=${CORAL_NPU_BACKEND}"
+BOOTSTRAP_NPU_BACKEND_ARGS="--npu-backend=stage-a"
 if [ "${CORAL_NPU_BACKEND}" = "verilated-coral" ]; then
   if [ ! -f "${CORAL_RTL_BRIDGE}" ]; then
     echo "Coral RTL bridge not found: ${CORAL_RTL_BRIDGE}" >&2
     echo "Build it with tools/coralnpu/phase2_build_bridge.sh" >&2
+    exit 1
+  fi
+  if command -v ldd >/dev/null 2>&1 &&
+     ldd "${CORAL_RTL_BRIDGE}" 2>/dev/null | grep -qi systemc; then
+    echo "Coral RTL bridge links libsystemc and is incompatible with gem5:" >&2
+    echo "  ${CORAL_RTL_BRIDGE}" >&2
+    echo "Rebuild it with ./tools/coralnpu/phase2_build_bridge.sh" >&2
     exit 1
   fi
   NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-verilated-wrapper=${CORAL_RTL_BRIDGE}"
@@ -127,6 +135,7 @@ if [ -d "${CORAL_BOOTED_CKPT}" ]; then
     --bootscript="${CORAL_RESUME_BOOTSCRIPT}"
 else
   echo "Mode: bootstrap and create checkpoint"
+  echo "Bootstrap NPU backend: stage-a"
   echo "Bootstrap script: ${CORAL_CKPT_BOOTSCRIPT}"
   echo "Set CORAL_REBUILD_CKPT=1 to force rebuilding the boot checkpoint"
   ./build/ARM/gem5.opt configs/example/arm/arm_multicore_d9300.py \
@@ -135,7 +144,7 @@ else
     --kernel="${IMAGE_PATH}/vmlinux.arm64" \
     --kernel-init="${CORAL_KERNEL_INIT}" \
     --enable-npu \
-    ${NPU_BACKEND_ARGS} \
+    ${BOOTSTRAP_NPU_BACKEND_ARGS} \
     --ckpt-dir="${CORAL_CKPT_ROOT}" \
     --exit-after-checkpoint \
     --bootscript="${CORAL_CKPT_BOOTSCRIPT}"

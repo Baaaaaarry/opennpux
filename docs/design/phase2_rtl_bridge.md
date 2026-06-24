@@ -22,6 +22,11 @@ The bridge currently supports:
 - halted/WFI detection
 - the official simulator mailbox behavior for external AXI accesses
 
+The bridge uses the non-SystemC Verilator C++ model and runtime. Linking
+Accellera SystemC into `gem5.opt` through the shared library is prohibited
+because gem5 already provides its own SystemC implementation and the two
+lifecycles conflict during process teardown.
+
 ## Build
 
 Run on x86 Linux:

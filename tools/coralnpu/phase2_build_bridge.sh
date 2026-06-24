@@ -34,6 +34,7 @@ fi
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
 
 mkdir -p "${BAZEL_OUTPUT_ROOT}" "${REPO_CACHE}" "${DISTDIR}"
+rm -f "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
 
 cd "${CORAL_REPO}"
 "${BAZEL}" \
@@ -55,5 +56,13 @@ fi
 mkdir -p "${OUT_DIR}"
 cp "${BRIDGE}" "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
 chmod 0755 "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
+
+if command -v ldd >/dev/null 2>&1 &&
+   ldd "${OUT_DIR}/libcoralnpu_gem5_bridge.so" 2>/dev/null |
+       grep -qi systemc; then
+    echo "error: Coral gem5 bridge unexpectedly links libsystemc" >&2
+    echo "       rerun after applying the current Coral overlay" >&2
+    exit 1
+fi
 
 echo "built: ${OUT_DIR}/libcoralnpu_gem5_bridge.so"

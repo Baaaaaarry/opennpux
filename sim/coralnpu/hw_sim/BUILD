@@ -24,7 +24,7 @@ cc_library(
     ],
     deps = [
         "@com_google_absl//absl/types:span",
-        "@verilator//:libverilator",
+        "@verilator//:verilator_cpp",
     ],
 )
 

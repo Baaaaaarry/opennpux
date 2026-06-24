@@ -1,0 +1,136 @@
+From 8a5bd5c71e67f08315fd445bb84bad15e1fc6d82 Mon Sep 17 00:00:00 2001
+From: OpenNPUX <opennpux@example.com>
+Date: Wed, 24 Jun 2026 15:00:00 +0800
+Subject: [PATCH] Separate SystemC and C++ Verilator runtimes
+
+---
+ dependency_support/verilator/verilator.BUILD.bazel | 64 +++++++++++++++++++++
+ verilator/BUILD.bazel                               |  6 +-
+ verilator/defs.bzl                                  |  7 ++-
+ 3 files changed, 75 insertions(+), 2 deletions(-)
+
+diff --git a/dependency_support/verilator/verilator.BUILD.bazel b/dependency_support/verilator/verilator.BUILD.bazel
+index 4d3f595..a5f1ea1 100644
+--- a/dependency_support/verilator/verilator.BUILD.bazel
++++ b/dependency_support/verilator/verilator.BUILD.bazel
+@@ -383,5 +383,70 @@ cc_library(
+     ],
+ )
++
++cc_library(
++    name = "verilator_cpp",
++    srcs = [
++        "include/gtkwave/fastlz.h",
++        "include/gtkwave/fst_config.h",
++        "include/gtkwave/fstapi.h",
++        "include/gtkwave/lz4.h",
++        "include/gtkwave/wavealloca.h",
++        "include/verilated_fst_c.cpp",
++        "include/verilated_imp.h",
++        "include/verilated_syms.h",
++        "include/verilated_threads.cpp",
++        "include/verilated_vcd_c.cpp",
++        "include/verilated_vpi.cpp",
++        "include/verilated.cpp",
++    ],
++    hdrs = [
++        "include/verilated_config.h",
++        "include/verilated_dpi.h",
++        "include/verilated_fst_c.h",
++        "include/verilated_funcs.h",
++        "include/verilated_intrinsics.h",
++        "include/verilated_sym_props.h",
++        "include/verilated_threads.h",
++        "include/verilated_timing.h",
++        "include/verilated_trace_imp.h",
++        "include/verilated_trace.h",
++        "include/verilated_types.h",
++        "include/verilated_vcd_c.h",
++        "include/verilated_vpi.h",
++        "include/verilated.h",
++    ],
++    copts = [
++        "-Wno-unused-const-variable",
++        "-Wno-sign-compare",
++        "-Wno-unused-variable",
++        "-Wno-unused-parameter",
++        "-Wno-unused-but-set-variable",
++        "-std=c++17",
++        "-ffp-contract=off",
++    ],
++    includes = [
++        "_virtual_includes/verilator_cpp",
++        "_virtual_includes/vltstd",
++        "_virtual_includes/verilatedos",
++        "_virtual_includes/svdpi",
++    ],
++    linkopts = [
++        "-lpthread",
++    ],
++    strip_include_prefix = "include/",
++    textual_hdrs = [
++        "include/gtkwave/fastlz.c",
++        "include/gtkwave/fstapi.c",
++        "include/gtkwave/lz4.c",
++    ],
++    visibility = ["//visibility:public"],
++    deps = [
++        "@net_zlib//:zlib",
++        ":vltstd",
++        ":verilatedos",
++    ],
++)
++
+ # This alias is for supporting the legacy name but while allowing the
+ # `cc_library` target to be renamed to avoid a `liblibverilator.a`
+ # output name.
+diff --git a/verilator/BUILD.bazel b/verilator/BUILD.bazel
+index 1387e11..7cdedb1 100644
+--- a/verilator/BUILD.bazel
++++ b/verilator/BUILD.bazel
+@@ -28,8 +28,13 @@ verilator_toolchain(
+     name = "verilator_toolchain_impl",
+     verilator = "@verilator//:verilator_executable",
+     deps = [
++        "@net_zlib//:zlib",
++        "@verilator//:libverilator",
++        "@verilator//:svdpi",
++    ],
++    cpp_deps = [
+         "@net_zlib//:zlib",
+-        "@verilator//:libverilator",
++        "@verilator//:verilator_cpp",
+         "@verilator//:svdpi",
+     ],
+ )
+diff --git a/verilator/defs.bzl b/verilator/defs.bzl
+index fc8af53..94d5f46 100644
+--- a/verilator/defs.bzl
++++ b/verilator/defs.bzl
+@@ -182,6 +182,6 @@ def _verilator_cc_library(ctx):
+         defines = defines,
+         runfiles = runfiles,
+         includes = [verilator_output_hpp.path],
+-        deps = verilator_toolchain.deps,
++        deps = verilator_toolchain.deps if ctx.attr.systemc else verilator_toolchain.cpp_deps,
+     )
+ verilator_cc_library = rule(
+@@ -235,6 +235,7 @@ def _verilator_toolchain_impl(ctx):
+     return [platform_common.ToolchainInfo(
+         verilator = ctx.executable.verilator,
+         deps = ctx.attr.deps,
++        cpp_deps = ctx.attr.cpp_deps,
+         extra_vopts = ctx.attr.extra_vopts,
+         all_files = all_files,
+     )]
+@@ -247,6 +248,10 @@ verilator_toolchain = rule(
+             doc = "Global Verilator dependencies to link into downstream targets.",
+             providers = [CcInfo],
+         ),
++        "cpp_deps": attr.label_list(
++            doc = "Verilator dependencies for non-SystemC C++ models.",
++            providers = [CcInfo],
++        ),
+         "extra_vopts": attr.string_list(
+             doc = "Extra flags to pass to Verilator compile actions.",
+         ),

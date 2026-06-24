@@ -5,6 +5,7 @@ set -e
 CALLER_DIR="$(pwd)"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 GEM5_ROOT="${SCRIPT_DIR}"
+SUPER_ROOT="$(CDPATH= cd -- "${GEM5_ROOT}/../.." && pwd -P)"
 cd "${GEM5_ROOT}"
 
 export IMAGE_PATH="/home/barry/wlk/gem5_arm_linux_images"
@@ -24,6 +25,22 @@ export CORAL_BOOTED_CKPT="${CORAL_CKPT_ROOT}/booted"
 export CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}"
 export CORAL_CKPT_IMAGE_META="${CORAL_CKPT_ROOT}/disk_image_path.txt"
 export CORAL_CKPT_INIT_META="${CORAL_CKPT_ROOT}/kernel_init_path.txt"
+export CORAL_NPU_BACKEND="${CORAL_NPU_BACKEND:-stage-a}"
+export CORAL_RTL_BRIDGE="${CORAL_RTL_BRIDGE:-${SUPER_ROOT}/build/coralnpu/libcoralnpu_gem5_bridge.so}"
+export CORAL_RTL_TICK_PERIOD="${CORAL_RTL_TICK_PERIOD:-1ns}"
+export CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}"
+
+NPU_BACKEND_ARGS="--npu-backend=${CORAL_NPU_BACKEND}"
+if [ "${CORAL_NPU_BACKEND}" = "verilated-coral" ]; then
+  if [ ! -f "${CORAL_RTL_BRIDGE}" ]; then
+    echo "Coral RTL bridge not found: ${CORAL_RTL_BRIDGE}" >&2
+    echo "Build it with tools/coralnpu/phase2_build_bridge.sh" >&2
+    exit 1
+  fi
+  NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-verilated-wrapper=${CORAL_RTL_BRIDGE}"
+  NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-rtl-tick-period=${CORAL_RTL_TICK_PERIOD}"
+  NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-rtl-cycles-per-event=${CORAL_RTL_CYCLES_PER_EVENT}"
+fi
 
 if [ "${CORAL_DISK_IMG}" = "${IMAGE_PATH}/ubuntu-18.04-arm64-docker.img" ]; then
   for candidate in \
@@ -88,6 +105,8 @@ echo "Guest terminal socket: ./util/term/gem5term localhost 4567"
 echo "Disk image: ${CORAL_DISK_IMG}"
 echo "Kernel init: ${CORAL_KERNEL_INIT}"
 echo "Checkpoint root: ${CORAL_CKPT_ROOT}"
+echo "NPU backend: ${CORAL_NPU_BACKEND}"
+[ "${CORAL_NPU_BACKEND}" != "verilated-coral" ] || echo "Coral RTL bridge: ${CORAL_RTL_BRIDGE}"
 ls -lh "${CORAL_DISK_IMG}" || exit 1
 echo "Building build/ARM/gem5.opt with -j${BUILD_JOBS}"
 scons build/ARM/gem5.opt -j"${BUILD_JOBS}"
@@ -102,6 +121,7 @@ if [ -d "${CORAL_BOOTED_CKPT}" ]; then
     --kernel="${IMAGE_PATH}/vmlinux.arm64" \
     --kernel-init="${CORAL_KERNEL_INIT}" \
     --enable-npu \
+    ${NPU_BACKEND_ARGS} \
     --ckpt-dir="${CORAL_CKPT_ROOT}" \
     --restore-from="${CORAL_BOOTED_CKPT}" \
     --bootscript="${CORAL_RESUME_BOOTSCRIPT}"
@@ -115,6 +135,7 @@ else
     --kernel="${IMAGE_PATH}/vmlinux.arm64" \
     --kernel-init="${CORAL_KERNEL_INIT}" \
     --enable-npu \
+    ${NPU_BACKEND_ARGS} \
     --ckpt-dir="${CORAL_CKPT_ROOT}" \
     --exit-after-checkpoint \
     --bootscript="${CORAL_CKPT_BOOTSCRIPT}"

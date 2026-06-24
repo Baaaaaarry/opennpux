@@ -76,7 +76,7 @@ default_coral_repo = os.path.abspath(
         "..",
         "..",
         "..",
-        "third_party",
+        "..",
         "coralnpu",
     )
 )
@@ -520,7 +520,13 @@ def addOptions(parser):
         "--npu-rtl-tick-period",
         type=str,
         default="1ns",
-        help="Tick quantum for future Verilated Coral backend"
+        help="gem5 time between Verilated Coral backend events"
+    )
+    parser.add_argument(
+        "--npu-rtl-cycles-per-event",
+        type=int,
+        default=1,
+        help="Coral RTL cycles evaluated per gem5 backend event"
     )
 
     # Gemmini/NDP integration
@@ -710,6 +716,7 @@ def build(options):
             coralRepo=options.npu_coral_repo,
             verilatedWrapper=options.npu_verilated_wrapper,
             rtlTickPeriod=options.npu_rtl_tick_period,
+            rtlCyclesPerEvent=options.npu_rtl_cycles_per_event,
         )
         # Attach MMIO port to the IO bus, similar to other devices.
         system.npu.pio = system.iobus.mem_side_ports

@@ -8,6 +8,9 @@
 
 Import('*')
 
+if env['PLATFORM'] != 'darwin':
+    env.Append(LIBS=['dl'])
+
 SimObject('NPUDevice.py', sim_objects=['NPUDevice'])
 
 Source('coral_stagea_backend.cc')

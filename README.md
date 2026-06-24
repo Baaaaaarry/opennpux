@@ -39,6 +39,33 @@ sudo tools/guest_tools/install_mmio32_to_image.sh \
   /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
 ```
 
+## Phase 2: Coral RTL bridge
+
+On the supported x86 Linux host, build the official `CoreMiniAxi` Verilator
+model and the OpenNPUX C ABI adapter:
+
+```bash
+./tools/coralnpu/phase2_check_abi.sh
+./tools/coralnpu/phase2_build_bridge.sh
+```
+
+The staged shared library is:
+
+```text
+build/coralnpu/libcoralnpu_gem5_bridge.so
+```
+
+Apply the gem5 overlay and run the existing full-system flow with the RTL
+backend:
+
+```bash
+./sim/gem5/apply_patchset.sh
+CORAL_NPU_BACKEND=verilated-coral ./thirdparty/gem5/run_multicore.sh
+```
+
+The default remains `stage-a`. Set `CORAL_RTL_TICK_PERIOD` and
+`CORAL_RTL_CYCLES_PER_EVENT` to tune the RTL scheduling quantum.
+
 Then rebuild the boot checkpoint so Linux sees the updated disk contents.
 
 ## Scope

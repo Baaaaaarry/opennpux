@@ -1,13 +1,15 @@
 /*
- * Placeholder backend for future official Coral RTL integration.
+ * Runtime-loaded bridge to the official Coral CoreMiniAxi RTL model.
  */
 
 #ifndef __DEV_NPU_CORAL_VERILATED_BACKEND_HH__
 #define __DEV_NPU_CORAL_VERILATED_BACKEND_HH__
 
+#include <cstdint>
 #include <string>
 
 #include "dev/npu/coral_backend.hh"
+#include "dev/npu/coralnpu_gem5_abi.h"
 
 namespace gem5
 {
@@ -15,22 +17,49 @@ namespace gem5
 class CoralVerilatedBackend : public CoralBackend
 {
   private:
+    using AbiVersionFn = uint32_t (*)();
+    using CreateFn = coral_gem5_handle *(*)();
+    using DestroyFn = void (*)(coral_gem5_handle *);
+    using ResetFn = int (*)(coral_gem5_handle *);
+    using MmioReadFn =
+        int (*)(coral_gem5_handle *, uint32_t, void *, size_t);
+    using MmioWriteFn =
+        int (*)(coral_gem5_handle *, uint32_t, const void *, size_t);
+    using StepFn = int (*)(coral_gem5_handle *, uint32_t);
+
     std::string coralRepo;
     std::string wrapperPath;
     Tick rtlTickPeriod;
+    uint32_t rtlCyclesPerEvent;
+
+    void *libraryHandle;
+    coral_gem5_handle *modelHandle;
+    DestroyFn destroyModel;
+    MmioReadFn mmioRead;
+    MmioWriteFn mmioWrite;
+    StepFn stepModel;
+
+    bool running;
+    Tick pendingEventTick;
+    uint32_t resetControl;
+
+    template <class Function>
+    Function loadSymbol(const char *name);
 
   public:
     CoralVerilatedBackend(const std::string &coral_repo,
                           const std::string &wrapper_path,
-                          Tick rtl_tick_period);
+                          Tick rtl_tick_period,
+                          uint32_t rtl_cycles_per_event);
+    ~CoralVerilatedBackend() override;
 
     const char *name() const override { return "verilated-coral"; }
     bool read(PacketPtr pkt, Addr pio_addr) override;
     bool write(PacketPtr pkt, Addr pio_addr) override;
     TranslationGenPtr translate(Addr vaddr, Addr size) override;
 
-    bool hasPendingEvent() const override { return false; }
-    Tick nextEventTick() const override { return 0; }
+    bool hasPendingEvent() const override;
+    Tick nextEventTick() const override;
     void processEvent() override;
 };
 

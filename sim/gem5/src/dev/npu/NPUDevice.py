@@ -50,7 +50,11 @@ class NPUDevice(DmaVirtDevice):
     )
     rtlTickPeriod = Param.Latency(
         "1ns",
-        "Backend tick quantum for the future Verilated Coral bridge",
+        "gem5 time between Verilated Coral backend events",
+    )
+    rtlCyclesPerEvent = Param.Unsigned(
+        1,
+        "Number of Coral RTL cycles evaluated per backend event",
     )
 
     def generateDeviceTree(self, state):

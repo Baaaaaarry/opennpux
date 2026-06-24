@@ -27,7 +27,8 @@ NPUDevice::NPUDevice(const Params &p)
             p.autoHalt);
     } else if (p.backendType == "verilated-coral") {
         backend = std::make_unique<CoralVerilatedBackend>(
-            p.coralRepo, p.verilatedWrapper, p.rtlTickPeriod);
+            p.coralRepo, p.verilatedWrapper, p.rtlTickPeriod,
+            p.rtlCyclesPerEvent);
     } else {
         fatal("Unknown NPU backend type '%s'", p.backendType);
     }

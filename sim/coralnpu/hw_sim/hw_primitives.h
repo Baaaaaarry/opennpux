@@ -454,6 +454,18 @@ class AxiMasterReadDriver : Clock::Observer {
 
  private:
   void OnFallingEdge() final {
+    const bool addr_handshake =
+        *read_addr_valid_ && *read_addr_ready_;
+    const bool response_handshake =
+        response_presented_ && *read_data_ready_;
+
+    if (response_handshake) {
+      data_queue_.pop();
+      deferred_request_pending_ = false;
+      wait_for_addr_valid_low_ = true;
+      response_presented_ = false;
+    }
+
     if (wait_for_addr_valid_low_ && !*read_addr_valid_) {
       wait_for_addr_valid_low_ = false;
     }
@@ -462,22 +474,17 @@ class AxiMasterReadDriver : Clock::Observer {
 
     // Send Data
     *read_data_valid_ = !data_queue_.empty();
-    clock().Eval();
     if (!data_queue_.empty()) {
       *read_data_bits_data_ = data_queue_.front().read_data_bits_data;
       *read_data_bits_id_ = data_queue_.front().read_data_bits_id;
       *read_data_bits_resp_ = data_queue_.front().read_data_bits_resp;
       *read_data_bits_last_ = data_queue_.front().read_data_bits_last;
-      if (*read_data_ready_) {
-        data_queue_.pop();
-        deferred_request_pending_ = false;
-        wait_for_addr_valid_low_ = true;
-      }
-      clock().Eval();
+      response_presented_ = true;
     }
+    clock().Eval();
 
     // Receive Address
-    if (*read_addr_valid_ && *read_addr_ready_) {
+    if (addr_handshake) {
       axi_addr_.addr_bits_addr = *read_addr_bits_addr_;
       axi_addr_.addr_bits_prot = *read_addr_bits_prot_;
       axi_addr_.addr_bits_id = *read_addr_bits_id_;
@@ -530,6 +537,7 @@ class AxiMasterReadDriver : Clock::Observer {
   std::function<void(const AxiAddr&)> deferred_read_cb_;
   bool deferred_request_pending_ = false;
   bool wait_for_addr_valid_low_ = false;
+  bool response_presented_ = false;
 };
 
 // Struct representing the data transferred in an AXI4 read data channel.
@@ -601,7 +609,19 @@ class AxiMasterWriteDriver : Clock::Observer {
 
  private:
   void OnFallingEdge() final {
-    bool response_completed = false;
+    const bool request_handshake =
+        *write_addr_valid_ && *write_addr_ready_ &&
+        *write_data_valid_ && *write_data_ready_;
+    const bool response_handshake =
+        response_presented_ && *write_resp_ready_;
+
+    if (response_handshake) {
+      resp_queue_.pop();
+      deferred_request_pending_ = false;
+      wait_for_request_valid_low_ = true;
+      response_presented_ = false;
+    }
+
     if (wait_for_request_valid_low_ &&
         !*write_addr_valid_ && !*write_data_valid_) {
       wait_for_request_valid_low_ = false;
@@ -609,22 +629,15 @@ class AxiMasterWriteDriver : Clock::Observer {
 
     // Send Response
     *write_resp_valid_ = !resp_queue_.empty();
-    clock().Eval();
     if (!resp_queue_.empty()) {
       *write_resp_bits_id_ = resp_queue_.front().write_resp_bits_id;
       *write_resp_bits_resp_ = resp_queue_.front().write_resp_bits_resp;
-      if (*write_resp_ready_) {
-        resp_queue_.pop();
-        deferred_request_pending_ = false;
-        wait_for_request_valid_low_ = true;
-        response_completed = true;
-      }
-      clock().Eval();
+      response_presented_ = true;
     }
+    clock().Eval();
 
     // Receive Addr
-    if (!response_completed && !wait_for_request_valid_low_ &&
-        *write_addr_valid_ && !deferred_request_pending_) {
+    if (request_handshake) {
       axi_addr_.addr_bits_addr = *write_addr_bits_addr_;
       axi_addr_.addr_bits_prot = *write_addr_bits_prot_;
       axi_addr_.addr_bits_id = *write_addr_bits_id_;
@@ -637,18 +650,13 @@ class AxiMasterWriteDriver : Clock::Observer {
       axi_addr_.addr_bits_region = *write_addr_bits_region_;
     }
     // Receive Data
-    if (!response_completed && !wait_for_request_valid_low_ &&
-        *write_data_valid_ && !deferred_request_pending_) {
+    if (request_handshake) {
       axi_data_.write_data_bits_data = *write_data_bits_data_;
       axi_data_.write_data_bits_strb = *write_data_bits_strb_;
       axi_data_.write_data_bits_last = *write_data_bits_last_;
     }
 
-    if (!response_completed && !wait_for_request_valid_low_ &&
-        !deferred_request_pending_ &&
-        *write_addr_valid_ && *write_data_valid_) {
-      *write_addr_ready_ = 1;
-      *write_data_ready_ = 1;
+    if (request_handshake) {
       if (deferred_write_cb_) {
         deferred_request_pending_ = true;
         deferred_write_cb_(axi_addr_, axi_data_);
@@ -658,10 +666,13 @@ class AxiMasterWriteDriver : Clock::Observer {
       } else {
         assert(false && "Write callback is empty!");
       }
-    } else {
-      *write_addr_ready_ = 0;
-      *write_data_ready_ = 0;
     }
+
+    const bool accept_request =
+        !deferred_request_pending_ && !wait_for_request_valid_low_;
+    *write_addr_ready_ = accept_request;
+    *write_data_ready_ = accept_request;
+    clock().Eval();
   }
 
   // Signals
@@ -698,6 +709,7 @@ class AxiMasterWriteDriver : Clock::Observer {
       deferred_write_cb_;
   bool deferred_request_pending_ = false;
   bool wait_for_request_valid_low_ = false;
+  bool response_presented_ = false;
 };
 
 #endif  // HW_SIM_HW_PRIMITIVES_H_

@@ -11,3 +11,15 @@ Phase-2 smoke sequence:
 ./sim/gem5/apply_patchset.sh
 CORAL_NPU_BACKEND=verilated-coral ./thirdparty/gem5/run_multicore.sh
 ```
+
+After installing `coralctl` in the guest image, the resume script
+automatically prefers it over the legacy shell/MMIO sequence:
+
+```bash
+./tools/guest_tools/build_coralctl.sh
+sudo ./tools/guest_tools/install_coralctl_to_image.sh /path/to/arm64.img
+CORAL_NPU_BACKEND=verilated-coral ./thirdparty/gem5/run_multicore.sh
+```
+
+Expected runtime output includes `backend=verilated-coral` and
+`status=0x00000001`.

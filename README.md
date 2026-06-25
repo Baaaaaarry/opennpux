@@ -42,6 +42,17 @@ sudo tools/guest_tools/install_mmio32_to_image.sh \
 Rebuild the boot checkpoint after modifying the disk image so Linux sees the
 updated contents.
 
+The Phase-3 userspace control utility can be built and installed similarly:
+
+```sh
+tools/guest_tools/build_coralctl.sh
+sudo tools/guest_tools/install_coralctl_to_image.sh \
+  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+```
+
+Use `coralctl info` to inspect the active backend and `coralctl run` to start
+the staged firmware and wait for completion.
+
 ## Phase 2: Coral RTL bridge
 
 On the supported x86 Linux host, build the official `CoreMiniAxi` Verilator

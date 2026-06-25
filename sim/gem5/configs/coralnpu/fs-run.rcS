@@ -15,6 +15,19 @@ STATUS_CSR=0x1D030008
 BACKEND_ID_CSR=0x1D030FFC
 FIRMWARE_ENTRY_CSR=0x1D030FF8
 
+CORALCTL=
+for candidate in \
+    /usr/local/bin/coralctl \
+    /data/usr/local/bin/coralctl \
+    /bin/coralctl \
+    /data/bin/coralctl
+do
+    if [ -x "$candidate" ]; then
+        CORALCTL="$candidate"
+        break
+    fi
+done
+
 MMIO32=
 for candidate in \
     /usr/local/bin/mmio32 \
@@ -80,12 +93,26 @@ done
 echo "[coralnpu] bring-up script started"
 echo "[coralnpu] aperture base: ${NPU_BASE}"
 echo "[coralnpu] /dev/mem present: $(if [ -c /dev/mem ]; then echo yes; else echo no; fi)"
+echo "[coralnpu] coralctl tool: ${CORALCTL:-none}"
 echo "[coralnpu] mmio32 tool: ${MMIO32:-none}"
 echo "[coralnpu] devmem tool: ${DEVMEM:-none}"
 echo "[coralnpu] devmem wrapper: ${DEVMEM_WRAPPER:-none}"
 echo "[coralnpu] python tool: ${PYTHON_BIN:-none}"
 echo "[coralnpu] dd tool: ${DD_BIN:-none}"
 echo "[coralnpu] od tool: ${OD_BIN:-none}"
+
+if [ -n "$CORALCTL" ]; then
+    if "$CORALCTL" info "${NPU_BASE}" &&
+       "$CORALCTL" run "${NPU_BASE}"; then
+        echo "[coralnpu] PASS: coralctl completed the NPU run"
+    else
+        echo "[coralnpu] FAIL: coralctl could not complete the NPU run"
+    fi
+    if command -v m5 >/dev/null 2>&1; then
+        m5 --inst exit
+    fi
+    exit
+fi
 
 if [ -z "$MMIO32" ] && [ -z "$DEVMEM" ] && [ -z "$DEVMEM_WRAPPER" ] \
     && { [ -z "$PYTHON_BIN" ] || [ ! -c /dev/mem ]; } \

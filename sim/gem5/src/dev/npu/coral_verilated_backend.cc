@@ -77,6 +77,7 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     resetControl(kResetBit | kClockGateBit),
     firmwareEntry(0),
     dmaRequestPending(false),
+    wfiObserved(false),
     pendingDmaRequest()
 {
     fatal_if(wrapperPath.empty(),
@@ -260,7 +261,15 @@ CoralVerilatedBackend::processEvent()
     const int result = stepModel(modelHandle, rtlCyclesPerEvent);
     fatal_if(result < 0, "Coral RTL bridge failed while stepping model");
 
-    if (result == 2) {
+    if (result == 3) {
+        if (!wfiObserved) {
+            DPRINTFR(NPUDevice,
+                     "Coral RTL entered WFI; keeping backend scheduled\n");
+            wfiObserved = true;
+        }
+        pendingEventTick = curTick() + rtlTickPeriod;
+    } else if (result == 2) {
+        wfiObserved = false;
         coral_gem5_dma_request request = {};
         fatal_if(dmaRequestGet(modelHandle, &request) != 1,
                  "Coral RTL reported DMA wait without a request");
@@ -285,10 +294,12 @@ CoralVerilatedBackend::processEvent()
                      "read" : "write",
                  pendingDmaRequest.addr, pendingDmaRequest.size);
     } else if (result > 0) {
+        wfiObserved = false;
         running = false;
         pendingEventTick = 0;
         DPRINTFR(NPUDevice, "Coral RTL reached halted/WFI state\n");
     } else {
+        wfiObserved = false;
         pendingEventTick = curTick() + rtlTickPeriod;
     }
 }

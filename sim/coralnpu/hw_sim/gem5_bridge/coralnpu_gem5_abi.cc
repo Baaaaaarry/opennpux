@@ -127,11 +127,19 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
   if (handle->dma_pending) {
     return 2;
   }
-  const bool stopped = handle->wrapper.WaitForTermination(cycles);
-  if (handle->dma_pending) {
-    return 2;
+  for (uint32_t i = 0; i < cycles; ++i) {
+    if (handle->wrapper.IsHalted()) {
+      return 1;
+    }
+    handle->wrapper.Step();
+    if (handle->dma_pending) {
+      return 2;
+    }
+    if (handle->wrapper.IsHalted()) {
+      return 1;
+    }
   }
-  return stopped ? 1 : 0;
+  return handle->wrapper.IsWfi() ? 3 : 0;
 }
 
 extern "C" int

@@ -218,6 +218,10 @@ class CoreMiniAxiWrapper {
            master_write_driver_.HasDeferredRequest();
   }
 
+  bool IsHalted() const { return *halted_; }
+
+  bool IsWfi() const { return *wfi_; }
+
   void WriteWord(uint32_t addr, uint32_t word) {
     absl::Span<const uint8_t> data_span(reinterpret_cast<uint8_t*>(&word),
                                         sizeof(word));

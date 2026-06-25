@@ -94,6 +94,14 @@ cp "${FIRMWARE}" "${OUT_DIR}/gem5_smoke_halt.elf"
 cp "${DMA_FIRMWARE}" "${OUT_DIR}/gem5_dma_smoke.elf"
 chmod 0755 "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
 
+if command -v nm >/dev/null 2>&1 &&
+   nm -D --undefined-only \
+       "${OUT_DIR}/libcoralnpu_gem5_bridge.so" 2>/dev/null |
+       grep -Eq '[[:space:]]sram_(init|read|write)$'; then
+    echo "error: Coral gem5 bridge has unresolved SRAM backdoor symbols" >&2
+    exit 1
+fi
+
 if command -v ldd >/dev/null 2>&1 &&
    ldd "${OUT_DIR}/libcoralnpu_gem5_bridge.so" 2>/dev/null |
        grep -qi systemc; then

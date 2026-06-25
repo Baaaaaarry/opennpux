@@ -12,13 +12,18 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 IMAGE="$1"
 BIN="${2:-${ROOT_DIR}/build/guest-tools/coralctl-aarch64}"
 MNT="$(mktemp -d)"
+LOOP=
 
 cleanup()
 {
-    if mountpoint -q "${MNT}" 2>/dev/null; then
+    set +e
+    if mountpoint -q "${MNT}"; then
         sudo umount "${MNT}"
     fi
-    rmdir "${MNT}"
+    if [ -n "${LOOP}" ]; then
+        sudo losetup -d "${LOOP}"
+    fi
+    rmdir "${MNT}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -32,7 +37,20 @@ if [ ! -x "${BIN}" ]; then
     exit 1
 fi
 
-sudo mount -o loop,offset=$((2048 * 512)) "${IMAGE}" "${MNT}"
+LOOP="$(sudo losetup --find --partscan --show "${IMAGE}")"
+PART="${LOOP}p1"
+if [ ! -b "${PART}" ]; then
+    PART="${LOOP}"
+fi
+
+if ! sudo mount "${PART}" "${MNT}"; then
+    echo "error: unable to mount image filesystem from ${PART}" >&2
+    echo "detected loop layout:" >&2
+    lsblk -f "${LOOP}" >&2 || true
+    sudo blkid "${LOOP}" "${LOOP}"p* >&2 || true
+    exit 1
+fi
+
 sudo install -D -m 0755 "${BIN}" "${MNT}/usr/local/bin/coralctl"
 sync
 echo "installed ${BIN} to ${IMAGE}:/usr/local/bin/coralctl"

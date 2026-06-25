@@ -144,6 +144,7 @@ cc_binary(
 cc_test(
     name = "gem5_axi_master_drivers_test",
     srcs = [
+        "gem5_bridge/coralnpu_gem5_abi.h",
         "gem5_bridge/gem5_axi_master_drivers.h",
         "gem5_bridge/gem5_axi_master_drivers_test.cc",
         "gem5_bridge/gem5_dma_request_builder.h",

@@ -130,6 +130,7 @@ cc_binary(
         "gem5_bridge/coralnpu_gem5_abi.h",
         "gem5_bridge/gem5_axi_master_drivers.h",
         "gem5_bridge/gem5_core_mini_axi_wrapper.h",
+        "gem5_bridge/gem5_dma_request_builder.h",
     ],
     linkshared = True,
     visibility = ["//visibility:public"],
@@ -145,6 +146,7 @@ cc_test(
     srcs = [
         "gem5_bridge/gem5_axi_master_drivers.h",
         "gem5_bridge/gem5_axi_master_drivers_test.cc",
+        "gem5_bridge/gem5_dma_request_builder.h",
     ],
     deps = [
         ":hw_primitives",

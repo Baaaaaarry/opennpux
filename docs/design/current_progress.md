@@ -98,6 +98,8 @@ dma_test=PASS
   wrapper and primitives.
 - A signal-level adapter test covers independent write channels, held-valid
   request suppression, and delayed response handshakes without Linux boot.
+- Unsupported DMA request shapes return AXI `SLVERR` locally instead of
+  reaching gem5 as zero-length DMA operations.
 - Extend the verified single 16-byte beat to bursts and multiple IDs.
 - Define checkpoint behavior for an in-flight RTL/DMA transaction.
 

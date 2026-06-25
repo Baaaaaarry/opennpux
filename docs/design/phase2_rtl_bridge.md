@@ -91,7 +91,9 @@ and checkpointing an in-flight transaction remain future increments.
 `phase2_test_axi_adapter.sh` runs a signal-level regression without Linux or
 the Coral core. It covers independent `AW`/`W` arrival, held-valid replay
 prevention, deferred responses, and response-ready changes after a rising-edge
-handshake.
+handshake. Unsupported bursts, transfers crossing the 16-byte AXI data word,
+non-final write beats, and partial strobes are rejected with AXI `SLVERR`
+instead of being forwarded as invalid zero-length gem5 DMA requests.
 
 The detailed failure analysis and AXI timing resolution are documented in
 `docs/design/phase2_dma_root_cause_report.md`.

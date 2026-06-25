@@ -1,4 +1,5 @@
 #include "hw_sim/gem5_bridge/gem5_axi_master_drivers.h"
+#include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -198,6 +199,50 @@ TestIndependentWriteChannels()
   Check(captured_data == 0x4e505544, "second write data changed");
 }
 
+void
+TestDmaRequestValidation()
+{
+  AxiAddr addr = {};
+  addr.addr_bits_addr = 0x20000004;
+  addr.addr_bits_id = 7;
+  addr.addr_bits_size = 2;
+  addr.addr_bits_len = 0;
+  coral_gem5_dma_request request = {};
+  uint32_t lane = 0;
+
+  Check(BuildGem5DmaReadRequest(addr, &request, &lane),
+        "valid read request was rejected");
+  Check(request.size == 4 && lane == 4,
+        "valid read request was encoded incorrectly");
+
+  addr.addr_bits_len = 1;
+  Check(!BuildGem5DmaReadRequest(addr, &request, &lane),
+        "read burst was accepted before burst support");
+  addr.addr_bits_len = 0;
+  addr.addr_bits_addr = 0x2000000f;
+  Check(!BuildGem5DmaReadRequest(addr, &request, &lane),
+        "read crossing the AXI data word was accepted");
+
+  addr.addr_bits_addr = 0x20000004;
+  AxiWData data = {};
+  data.write_data_bits_data[1] = 0x11223344;
+  data.write_data_bits_strb = 0x00f0;
+  data.write_data_bits_last = 1;
+  Check(BuildGem5DmaWriteRequest(addr, data, &request, &lane),
+        "valid write request was rejected");
+  Check(request.size == 4 && request.data[0] == 0x44 &&
+            request.data[3] == 0x11,
+        "valid write request was encoded incorrectly");
+
+  data.write_data_bits_strb = 0x0070;
+  Check(!BuildGem5DmaWriteRequest(addr, data, &request, &lane),
+        "partial write strobe was accepted without byte enables");
+  data.write_data_bits_strb = 0x00f0;
+  data.write_data_bits_last = 0;
+  Check(!BuildGem5DmaWriteRequest(addr, data, &request, &lane),
+        "non-final write beat was accepted");
+}
+
 }  // namespace
 
 int
@@ -205,6 +250,7 @@ main()
 {
   TestDeferredRead();
   TestIndependentWriteChannels();
+  TestDmaRequestValidation();
   std::puts("PASS: gem5 Coral AXI master adapter");
   return 0;
 }

@@ -5,6 +5,13 @@
 #include <vector>
 
 #include "hw_sim/gem5_bridge/gem5_core_mini_axi_wrapper.h"
+#include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
+
+namespace {
+
+constexpr uint8_t kAxiSlvErr = 2;
+
+}  // namespace
 
 struct coral_gem5_handle {
   VerilatedContext context;
@@ -17,45 +24,26 @@ struct coral_gem5_handle {
       : context(), wrapper(&context), pending_dma(), dma_pending(false),
         dma_lane(0) {
     wrapper.RegisterDeferredReadCallback([this](const AxiAddr& addr) {
-      std::memset(&pending_dma, 0, sizeof(pending_dma));
-      pending_dma.type = CORAL_GEM5_DMA_READ;
-      pending_dma.addr = addr.addr_bits_addr;
-      pending_dma.size = addr.addr_bits_len == 0 &&
-                                 addr.addr_bits_size <= 4 ?
-          (1u << addr.addr_bits_size) : 0;
-      pending_dma.id = addr.addr_bits_id;
-      dma_lane = addr.addr_bits_addr & (CORAL_GEM5_DMA_DATA_BYTES - 1);
-      if (pending_dma.size > CORAL_GEM5_DMA_DATA_BYTES ||
-          dma_lane + pending_dma.size > CORAL_GEM5_DMA_DATA_BYTES) {
-        pending_dma.size = 0;
+      if (!BuildGem5DmaReadRequest(
+              addr, &pending_dma, &dma_lane)) {
+        AxiRData response = {};
+        response.read_data_bits_id = addr.addr_bits_id;
+        response.read_data_bits_resp = kAxiSlvErr;
+        response.read_data_bits_last = 1;
+        wrapper.QueueReadResponse(response);
+        return;
       }
       dma_pending = true;
     });
     wrapper.RegisterDeferredWriteCallback(
         [this](const AxiAddr& addr, const AxiWData& data) {
-          std::memset(&pending_dma, 0, sizeof(pending_dma));
-          pending_dma.type = CORAL_GEM5_DMA_WRITE;
-          pending_dma.addr = addr.addr_bits_addr;
-          pending_dma.size = addr.addr_bits_len == 0 &&
-                                     addr.addr_bits_size <= 4 ?
-              (1u << addr.addr_bits_size) : 0;
-          pending_dma.id = addr.addr_bits_id;
-          dma_lane = addr.addr_bits_addr &
-              (CORAL_GEM5_DMA_DATA_BYTES - 1);
-          const auto* src =
-              reinterpret_cast<const uint8_t*>(&data.write_data_bits_data[0]);
-          if (pending_dma.size > CORAL_GEM5_DMA_DATA_BYTES ||
-              dma_lane + pending_dma.size > CORAL_GEM5_DMA_DATA_BYTES) {
-            pending_dma.size = 0;
-          } else {
-            for (uint32_t i = 0; i < pending_dma.size; ++i) {
-              const uint32_t lane = dma_lane + i;
-              if ((data.write_data_bits_strb & (1u << lane)) == 0) {
-                pending_dma.size = 0;
-                break;
-              }
-              pending_dma.data[i] = src[lane];
-            }
+          if (!BuildGem5DmaWriteRequest(
+                  addr, data, &pending_dma, &dma_lane)) {
+            AxiWResp response = {};
+            response.write_resp_bits_id = addr.addr_bits_id;
+            response.write_resp_bits_resp = kAxiSlvErr;
+            wrapper.QueueWriteResponse(response);
+            return;
           }
           dma_pending = true;
         });

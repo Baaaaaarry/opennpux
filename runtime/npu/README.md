@@ -10,7 +10,9 @@ interface:
 ```sh
 coralctl info
 coralctl run
+coralctl dma-test
 ```
 
-The next runtime increment will add shared-buffer allocation and command
-submission after the Coral AXI master path is connected to gem5 DMA.
+`dma-test` discovers the reserved shared-memory window from the NPU shell,
+writes two operands, starts the Coral DMA smoke firmware, and verifies the
+coherent read/modify/write result.

@@ -81,9 +81,9 @@ the Coral toolchain output, and RTL execution are connected end to end.
 ### Phase 2 completion
 
 - The single-outstanding asynchronous AXI-to-gem5 DMA transport is implemented.
-- Add a Linux-owned physically contiguous shared buffer and pass its address
-  to Coral firmware.
-- Add firmware that reads and writes CPU-owned shared memory.
+- A DT reserved-memory buffer maps Coral EXTMEM onto SoC physical memory.
+- DMA smoke firmware and `coralctl dma-test` verify coherent shared-memory
+  reads and writes.
 - Extend the verified single 16-byte beat to bursts and multiple IDs.
 - Define checkpoint behavior for an in-flight RTL/DMA transaction.
 

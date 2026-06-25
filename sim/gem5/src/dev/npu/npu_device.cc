@@ -4,6 +4,8 @@
 
 #include "dev/npu/npu_device.hh"
 
+#include <limits>
+
 #include "base/addr_range.hh"
 #include "base/logging.hh"
 #include "base/trace.hh"
@@ -20,6 +22,8 @@ namespace
 
 constexpr Addr kBackendIdOffset = 0x30ffc;
 constexpr Addr kFirmwareEntryOffset = 0x30ff8;
+constexpr Addr kSharedSizeOffset = 0x30ff4;
+constexpr Addr kSharedBaseOffset = 0x30ff0;
 constexpr uint32_t kStageABackendId = 0x4e505501;
 constexpr uint32_t kVerilatedCoralBackendId = 0x4e505502;
 
@@ -30,11 +34,17 @@ NPUDevice::NPUDevice(const Params &p)
     pioAddr(p.pioAddr),
     pioSize(p.pioSize),
     pioDelay(p.pioDelay),
+    dmaExtmemBase(p.dmaExtmemBase),
+    dmaSharedBase(p.dmaSharedBase),
+    dmaSharedSize(p.dmaSharedSize),
     backendId(0),
     firmwareEntry(0),
     dmaActive(false),
     backendEvent(*this)
 {
+    fatal_if(dmaSharedSize == 0, "Coral NPU DMA shared size is zero");
+    fatal_if(dmaSharedBase > std::numeric_limits<uint32_t>::max(),
+             "Coral NPU DMA shared base must fit the 32-bit shell CSR");
     if (p.backendType == "stage-a") {
         backendId = kStageABackendId;
         backend = std::make_unique<CoralStageABackend>(
@@ -72,6 +82,16 @@ NPUDevice::startBackendDma()
     }
 
     const CoralDmaRequest &request = backend->dmaRequest();
+    fatal_if(request.addr < dmaExtmemBase ||
+                 request.addr - dmaExtmemBase >= dmaSharedSize ||
+                 request.size >
+                     dmaSharedSize - (request.addr - dmaExtmemBase),
+             "Coral DMA address %#x size=%u is outside EXTMEM window "
+             "[%#x:%#x]",
+             request.addr, request.size, dmaExtmemBase,
+             dmaExtmemBase + dmaSharedSize - 1);
+    const Addr hostAddr =
+        dmaSharedBase + (request.addr - dmaExtmemBase);
     auto *callback =
         new DmaVirtCallback<std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES>>(
             [this](const auto &data) { completeBackendDma(data); },
@@ -79,10 +99,10 @@ NPUDevice::startBackendDma()
     dmaActive = true;
 
     if (request.type == CoralDmaType::Read) {
-        dmaReadVirt(request.addr, request.size, callback,
+        dmaReadVirt(hostAddr, request.size, callback,
                     callback->dmaBuffer.data());
     } else {
-        dmaWriteVirt(request.addr, request.size, callback,
+        dmaWriteVirt(hostAddr, request.size, callback,
                      callback->dmaBuffer.data());
     }
 }
@@ -121,7 +141,15 @@ NPUDevice::read(PacketPtr pkt)
              backend->name(), pkt->getAddr(), pkt->getSize());
 
     const Addr offset = pkt->getAddr() - pioAddr;
-    if (offset == kFirmwareEntryOffset &&
+    if (offset == kSharedBaseOffset &&
+        pkt->getSize() == sizeof(uint32_t)) {
+        pkt->setLE<uint32_t>(dmaSharedBase);
+        pkt->makeAtomicResponse();
+    } else if (offset == kSharedSizeOffset &&
+        pkt->getSize() == sizeof(uint32_t)) {
+        pkt->setLE<uint32_t>(dmaSharedSize);
+        pkt->makeAtomicResponse();
+    } else if (offset == kFirmwareEntryOffset &&
         pkt->getSize() == sizeof(firmwareEntry)) {
         pkt->setLE<uint32_t>(firmwareEntry);
         pkt->makeAtomicResponse();

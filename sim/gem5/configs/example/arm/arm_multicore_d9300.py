@@ -530,6 +530,24 @@ def addOptions(parser):
         default=1,
         help="Coral RTL cycles evaluated per gem5 backend event"
     )
+    parser.add_argument(
+        "--npu-dma-extmem-base",
+        type=lambda v: int(v, 0),
+        default=0x20000000,
+        help="Coral EXTMEM base translated to the SoC shared buffer"
+    )
+    parser.add_argument(
+        "--npu-dma-shared-base",
+        type=lambda v: int(v, 0),
+        default=0x8FF00000,
+        help="Reserved SoC physical base for Coral coherent DMA"
+    )
+    parser.add_argument(
+        "--npu-dma-shared-size",
+        type=str,
+        default="4KiB",
+        help="Reserved SoC shared-buffer size for Coral coherent DMA"
+    )
 
     # Gemmini/NDP integration
     parser.add_argument(
@@ -721,6 +739,9 @@ def build(options):
             rtlFirmware=options.npu_rtl_firmware,
             rtlTickPeriod=options.npu_rtl_tick_period,
             rtlCyclesPerEvent=options.npu_rtl_cycles_per_event,
+            dmaExtmemBase=options.npu_dma_extmem_base,
+            dmaSharedBase=options.npu_dma_shared_base,
+            dmaSharedSize=options.npu_dma_shared_size,
         )
         # Attach MMIO port to the IO bus, similar to other devices.
         system.npu.pio = system.iobus.mem_side_ports

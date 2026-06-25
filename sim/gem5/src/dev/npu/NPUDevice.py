@@ -60,10 +60,53 @@ class NPUDevice(DmaVirtDevice):
         1,
         "Number of Coral RTL cycles evaluated per backend event",
     )
+    dmaExtmemBase = Param.Addr(
+        0x20000000,
+        "Coral external-memory address mapped onto the SoC shared buffer",
+    )
+    dmaSharedBase = Param.Addr(
+        0x8FF00000,
+        "Reserved SoC physical address used for Coral coherent DMA",
+    )
+    dmaSharedSize = Param.MemorySize(
+        "4KiB",
+        "Size of the reserved Coral coherent DMA buffer",
+    )
 
     def generateDeviceTree(self, state):
+        shared_key = f"coralnpu-shared-{int(self.dmaSharedBase):x}"
+        root = FdtNode("/")
+        reserved = FdtNode("reserved-memory")
+        reserved.append(state.addrCellsProperty())
+        reserved.append(state.sizeCellsProperty())
+        reserved.append(FdtProperty("ranges"))
+        shared = FdtNode(
+            f"coralnpu-shared@{int(self.dmaSharedBase):x}"
+        )
+        shared.append(
+            FdtPropertyWords(
+                "reg",
+                state.addrCells(self.dmaSharedBase)
+                + state.sizeCells(self.dmaSharedSize),
+            )
+        )
+        shared.append(FdtProperty("no-map"))
+        shared.appendPhandle(shared_key)
+        reserved.append(shared)
+        root.append(reserved)
+        yield root
+
         node = self.generateBasicPioDeviceNode(
             state, "coralnpu", self.pioAddr, self.pioSize
         )
         node.appendCompatible(["google,coralnpu", "google,coralnpu-stagea"])
+        node.append(
+            FdtPropertyWords("memory-region", [state.phandle(shared_key)])
+        )
+        node.append(
+            FdtPropertyWords(
+                "google,dma-extmem-base",
+                state.addrCells(self.dmaExtmemBase),
+            )
+        )
         yield node

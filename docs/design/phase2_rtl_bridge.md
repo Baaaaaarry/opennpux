@@ -85,10 +85,16 @@ The current transport intentionally supports one outstanding AXI request and
 one beat of up to 16 bytes. Burst splitting, multiple IDs, error propagation,
 and checkpointing an in-flight transaction remain future increments.
 
+## Coherent DMA smoke
+
+The full-system test reserves `0x8ff00000-0x8ff00fff` in the generated device
+tree. Coral EXTMEM address `0x20000000` maps onto that SoC physical window.
+`coralctl dma-test` writes operands `7` and `35`, starts
+`gem5_dma_smoke.elf`, and verifies that Coral writes back `42` and
+`0x4e505544`.
+
 ## Remaining Phase-2 work
 
-- provide a Linux-owned physically contiguous shared buffer
-- pass that buffer address to Coral firmware
-- add an end-to-end read/modify/write firmware smoke
+- promote the fixed reserved-memory smoke page into driver-managed allocation
 - add burst and multiple-outstanding support after the single-beat path is
   verified

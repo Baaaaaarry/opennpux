@@ -12,6 +12,8 @@
 #define RESET_CONTROL UINT64_C(0x30000)
 #define PC_START UINT64_C(0x30004)
 #define STATUS UINT64_C(0x30008)
+#define SHARED_BASE UINT64_C(0x30ff0)
+#define SHARED_SIZE UINT64_C(0x30ff4)
 #define FIRMWARE_ENTRY UINT64_C(0x30ff8)
 #define BACKEND_ID UINT64_C(0x30ffc)
 
@@ -31,8 +33,9 @@ usage(const char *prog)
     fprintf(stderr,
             "usage:\n"
             "  %s info [base]\n"
-            "  %s run [base [entry [poll-count]]]\n",
-            prog, prog);
+            "  %s run [base [entry [poll-count]]]\n"
+            "  %s dma-test [base [poll-count]]\n",
+            prog, prog, prog);
 }
 
 static int
@@ -151,9 +154,44 @@ print_info(struct coral_regs *regs, uint64_t base)
     printf("backend=%s\n", backend_name(backend));
     printf("firmware_entry=0x%08" PRIx32 "\n",
            read_reg(regs, base, FIRMWARE_ENTRY));
+    printf("shared_base=0x%08" PRIx32 "\n",
+           read_reg(regs, base, SHARED_BASE));
+    printf("shared_size=0x%08" PRIx32 "\n",
+           read_reg(regs, base, SHARED_SIZE));
     printf("reset_control=0x%08" PRIx32 "\n",
            read_reg(regs, base, RESET_CONTROL));
     printf("status=0x%08" PRIx32 "\n", read_reg(regs, base, STATUS));
+}
+
+static int
+run_npu(struct coral_regs *regs, uint64_t base, uint32_t entry,
+        uint64_t polls)
+{
+    printf("backend=%s\n",
+           backend_name(read_reg(regs, base, BACKEND_ID)));
+    printf("entry=0x%08" PRIx32 "\n", entry);
+    write_reg(regs, base, PC_START, entry);
+    write_reg(regs, base, RESET_CONTROL, 1);
+    write_reg(regs, base, RESET_CONTROL, 0);
+
+    uint32_t status = 0;
+    for (uint64_t i = 0; i < polls; ++i) {
+        status = read_reg(regs, base, STATUS);
+        if ((status & 0x3) != 0) {
+            break;
+        }
+    }
+    printf("status=0x%08" PRIx32 "\n", status);
+
+    if ((status & 0x2) != 0) {
+        fprintf(stderr, "Coral NPU reported an execution fault\n");
+        return 1;
+    }
+    if ((status & 0x1) == 0) {
+        fprintf(stderr, "Coral NPU did not halt within the poll limit\n");
+        return 1;
+    }
+    return 0;
 }
 
 int
@@ -166,11 +204,14 @@ main(int argc, char **argv)
 
     const int command_info = strcmp(argv[1], "info") == 0;
     const int command_run = strcmp(argv[1], "run") == 0;
-    if (!command_info && !command_run) {
+    const int command_dma_test = strcmp(argv[1], "dma-test") == 0;
+    if (!command_info && !command_run && !command_dma_test) {
         usage(argv[0]);
         return 2;
     }
-    if ((command_info && argc > 3) || (command_run && argc > 5)) {
+    if ((command_info && argc > 3) ||
+        (command_run && argc > 5) ||
+        (command_dma_test && argc > 4)) {
         usage(argv[0]);
         return 2;
     }
@@ -194,41 +235,67 @@ main(int argc, char **argv)
 
     uint64_t entry = read_reg(&regs, base, FIRMWARE_ENTRY);
     uint64_t polls = 1000;
-    if (argc >= 4 && parse_u64(argv[3], &entry) != 0) {
+    if (command_run && argc >= 4 && parse_u64(argv[3], &entry) != 0) {
         fprintf(stderr, "invalid entry address: %s\n", argv[3]);
         close_regs(&regs);
         return 2;
     }
-    if (argc >= 5 && (parse_u64(argv[4], &polls) != 0 || polls == 0)) {
-        fprintf(stderr, "invalid poll count: %s\n", argv[4]);
+    const int poll_arg = command_dma_test ? 3 : 4;
+    if (argc > poll_arg &&
+        (parse_u64(argv[poll_arg], &polls) != 0 || polls == 0)) {
+        fprintf(stderr, "invalid poll count: %s\n", argv[poll_arg]);
         close_regs(&regs);
         return 2;
     }
 
-    printf("backend=%s\n",
-           backend_name(read_reg(&regs, base, BACKEND_ID)));
-    printf("entry=0x%08" PRIx64 "\n", entry);
-    write_reg(&regs, base, PC_START, (uint32_t)entry);
-    write_reg(&regs, base, RESET_CONTROL, 1);
-    write_reg(&regs, base, RESET_CONTROL, 0);
-
-    uint32_t status = 0;
-    for (uint64_t i = 0; i < polls; ++i) {
-        status = read_reg(&regs, base, STATUS);
-        if ((status & 0x3) != 0) {
-            break;
-        }
+    if (command_run) {
+        const int result = run_npu(&regs, base, (uint32_t)entry, polls);
+        close_regs(&regs);
+        return result;
     }
-    printf("status=0x%08" PRIx32 "\n", status);
+
+    const uint32_t shared_base = read_reg(&regs, base, SHARED_BASE);
+    const uint32_t shared_size = read_reg(&regs, base, SHARED_SIZE);
+    if (shared_size < 16) {
+        fprintf(stderr, "Coral shared DMA window is too small\n");
+        close_regs(&regs);
+        return 1;
+    }
+
+    const long page_size = sysconf(_SC_PAGESIZE);
+    const uint64_t page_mask = (uint64_t)page_size - 1;
+    const uint64_t map_base = shared_base & ~page_mask;
+    const size_t map_offset = shared_base & page_mask;
+    const size_t map_size = map_offset + shared_size;
+    void *mapping = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+                         regs.fd, (off_t)map_base);
+    if (mapping == MAP_FAILED) {
+        perror("mmap(Coral shared DMA window)");
+        close_regs(&regs);
+        return 1;
+    }
+
+    volatile uint32_t *shared =
+        (volatile uint32_t *)((uint8_t *)mapping + map_offset);
+    shared[0] = 7;
+    shared[1] = 35;
+    shared[2] = 0;
+    __sync_synchronize();
+
+    const int run_result =
+        run_npu(&regs, base, (uint32_t)entry, polls);
+    __sync_synchronize();
+    printf("dma_result=%" PRIu32 "\n", shared[0]);
+    printf("dma_magic=0x%08" PRIx32 "\n", shared[2]);
+    const int valid = shared[0] == 42 &&
+                      shared[2] == UINT32_C(0x4e505544);
+    munmap(mapping, map_size);
     close_regs(&regs);
 
-    if ((status & 0x2) != 0) {
-        fprintf(stderr, "Coral NPU reported an execution fault\n");
+    if (run_result != 0 || !valid) {
+        fprintf(stderr, "Coral coherent DMA smoke failed\n");
         return 1;
     }
-    if ((status & 0x1) == 0) {
-        fprintf(stderr, "Coral NPU did not halt within the poll limit\n");
-        return 1;
-    }
+    printf("dma_test=PASS\n");
     return 0;
 }

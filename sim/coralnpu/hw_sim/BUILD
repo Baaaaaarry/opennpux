@@ -142,3 +142,10 @@ coralnpu_v2_binary(
         "gem5_bridge/gem5_smoke_halt.c",
     ],
 )
+
+coralnpu_v2_binary(
+    name = "gem5_dma_smoke",
+    srcs = [
+        "gem5_bridge/gem5_dma_smoke.c",
+    ],
+)

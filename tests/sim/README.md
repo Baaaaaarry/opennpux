@@ -52,3 +52,34 @@ this change:
 cd thirdparty/gem5
 scons build/ARM/gem5.opt -j"$(nproc)"
 ```
+
+## Coherent DMA smoke
+
+Build and install the updated guest tool:
+
+```bash
+./tools/guest_tools/build_coralctl.sh
+sudo ./tools/guest_tools/install_coralctl_to_image.sh \
+  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+```
+
+Build the bridge, DMA firmware, and gem5 as shown above. Then run the DMA test
+twice. The first invocation creates the format-v4 checkpoint with the
+reserved-memory DT and updated `coralctl`; the second restores and tests:
+
+```bash
+./tools/coralnpu/run_dma_smoke_test.sh
+./tools/coralnpu/run_dma_smoke_test.sh
+```
+
+Expected output:
+
+```text
+[coral-dma-test] tool=/tmp/coralctl
+shared_base=0x8ff00000
+shared_size=0x00001000
+dma_result=42
+dma_magic=0x4e505544
+dma_test=PASS
+[coral-dma-test] PASS
+```

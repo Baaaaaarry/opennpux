@@ -52,6 +52,8 @@ sudo tools/guest_tools/install_coralctl_to_image.sh \
 
 Use `coralctl info` to inspect the active backend and `coralctl run` to start
 the staged firmware and wait for completion.
+Use `coralctl dma-test` with the DMA smoke firmware to verify coherent
+shared-memory reads and writes.
 
 ## Phase 2: Coral RTL bridge
 
@@ -77,6 +79,7 @@ The staged Phase-2 artifacts are:
 ```text
 build/coralnpu/libcoralnpu_gem5_bridge.so
 build/coralnpu/gem5_smoke_halt.elf
+build/coralnpu/gem5_dma_smoke.elf
 ```
 
 Apply the gem5 overlay and run the existing full-system flow with the RTL

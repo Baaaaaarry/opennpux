@@ -28,6 +28,9 @@ class NPUDevice : public DmaVirtDevice
     Addr pioAddr;
     Addr pioSize;
     Tick pioDelay;
+    Addr dmaExtmemBase;
+    Addr dmaSharedBase;
+    Addr dmaSharedSize;
     uint32_t backendId;
     uint32_t firmwareEntry;
     bool dmaActive;

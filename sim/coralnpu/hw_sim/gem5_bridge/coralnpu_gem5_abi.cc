@@ -4,11 +4,11 @@
 #include <new>
 #include <vector>
 
-#include "hw_sim/core_mini_axi_wrapper.h"
+#include "hw_sim/gem5_bridge/gem5_core_mini_axi_wrapper.h"
 
 struct coral_gem5_handle {
   VerilatedContext context;
-  CoreMiniAxiWrapper wrapper;
+  Gem5CoreMiniAxiWrapper wrapper;
   coral_gem5_dma_request pending_dma;
   bool dma_pending;
   uint32_t dma_lane;

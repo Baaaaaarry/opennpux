@@ -61,6 +61,16 @@ PASS: Coral NPU MMIO is reachable and verilated-coral execution halted
 This proves that Linux, gem5, the runtime-loaded bridge, official Coral RTL,
 the Coral toolchain output, and RTL execution are connected end to end.
 
+The coherent DMA smoke is also complete:
+
+```text
+dma_requests=4
+dma_completions=4
+dma_result=42
+dma_magic=0x4e505544
+dma_test=PASS
+```
+
 ## Problems Resolved
 
 - Missing and incompatible macOS Coral toolchains.
@@ -80,10 +90,12 @@ the Coral toolchain output, and RTL execution are connected end to end.
 
 ### Phase 2 completion
 
-- The single-outstanding asynchronous AXI-to-gem5 DMA transport is implemented.
+- The single-outstanding asynchronous AXI-to-gem5 DMA transport is verified.
 - A DT reserved-memory buffer maps Coral EXTMEM onto SoC physical memory.
 - DMA smoke firmware and `coralctl dma-test` verify coherent shared-memory
   reads and writes.
+- gem5-specific asynchronous AXI handling is isolated from the official Coral
+  wrapper and primitives.
 - Extend the verified single 16-byte beat to bursts and multiple IDs.
 - Define checkpoint behavior for an in-flight RTL/DMA transaction.
 

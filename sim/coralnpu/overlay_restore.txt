@@ -1,1 +1,3 @@
 hdl/chisel/src/coralnpu/SRAM.scala
+hw_sim/core_mini_axi_wrapper.h
+hw_sim/hw_primitives.h

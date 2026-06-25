@@ -35,6 +35,7 @@ Run on x86 Linux:
 ```bash
 ./tools/coralnpu/phase2_prepare_bazel.sh
 ./tools/coralnpu/phase2_check_abi.sh
+./tools/coralnpu/phase2_check_overlay_boundary.sh
 ./tools/coralnpu/phase2_build_bridge.sh
 ./sim/gem5/apply_patchset.sh
 ```
@@ -68,8 +69,9 @@ MMIO, stepping, and halt messages.
 
 ## AXI master DMA bridge
 
-The official wrapper's synchronous AXI callbacks have been extended with a
-deferred response mode. When Coral issues an external access:
+The gem5 bridge uses dedicated asynchronous AXI master drivers rather than
+modifying the official wrapper's synchronous callbacks. When Coral issues an
+external access:
 
 1. the wrapper captures one AXI request and deasserts its ready signal
 2. `coral_gem5_step` returns a DMA-wait result
@@ -84,6 +86,9 @@ other cache-bypassing backdoors.
 The current transport intentionally supports one outstanding AXI request and
 one beat of up to 16 bytes. Burst splitting, multiple IDs, error propagation,
 and checkpointing an in-flight transaction remain future increments.
+
+The detailed failure analysis and AXI timing resolution are documented in
+`docs/design/phase2_dma_root_cause_report.md`.
 
 ## Coherent DMA smoke
 

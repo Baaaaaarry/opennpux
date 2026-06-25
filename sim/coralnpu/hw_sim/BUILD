@@ -128,11 +128,14 @@ cc_binary(
     srcs = [
         "gem5_bridge/coralnpu_gem5_abi.cc",
         "gem5_bridge/coralnpu_gem5_abi.h",
+        "gem5_bridge/gem5_axi_master_drivers.h",
+        "gem5_bridge/gem5_core_mini_axi_wrapper.h",
     ],
     linkshared = True,
     visibility = ["//visibility:public"],
     deps = [
-        ":core_mini_axi_wrapper",
+        ":hw_primitives",
+        "//hdl/chisel/src/coralnpu:core_mini_axi_cc_library_cc",
     ],
 )
 

@@ -448,7 +448,6 @@ class AxiMasterReadDriver : Clock::Observer {
 
   void QueueReadResponse(const AxiRData& response) {
     data_queue_.push(response);
-    deferred_request_pending_ = false;
   }
 
   bool HasDeferredRequest() const { return deferred_request_pending_; }
@@ -467,6 +466,7 @@ class AxiMasterReadDriver : Clock::Observer {
       *read_data_bits_last_ = data_queue_.front().read_data_bits_last;
       if (*read_data_ready_) {
         data_queue_.pop();
+        deferred_request_pending_ = false;
       }
       clock().Eval();
     }
@@ -589,13 +589,14 @@ class AxiMasterWriteDriver : Clock::Observer {
 
   void QueueWriteResponse(const AxiWResp& response) {
     resp_queue_.push(response);
-    deferred_request_pending_ = false;
   }
 
   bool HasDeferredRequest() const { return deferred_request_pending_; }
 
  private:
   void OnFallingEdge() final {
+    bool response_completed = false;
+
     // Send Response
     *write_resp_valid_ = !resp_queue_.empty();
     clock().Eval();
@@ -604,12 +605,15 @@ class AxiMasterWriteDriver : Clock::Observer {
       *write_resp_bits_resp_ = resp_queue_.front().write_resp_bits_resp;
       if (*write_resp_ready_) {
         resp_queue_.pop();
+        deferred_request_pending_ = false;
+        response_completed = true;
       }
       clock().Eval();
     }
 
     // Receive Addr
-    if (*write_addr_valid_ && !deferred_request_pending_) {
+    if (!response_completed &&
+        *write_addr_valid_ && !deferred_request_pending_) {
       axi_addr_.addr_bits_addr = *write_addr_bits_addr_;
       axi_addr_.addr_bits_prot = *write_addr_bits_prot_;
       axi_addr_.addr_bits_id = *write_addr_bits_id_;
@@ -622,13 +626,14 @@ class AxiMasterWriteDriver : Clock::Observer {
       axi_addr_.addr_bits_region = *write_addr_bits_region_;
     }
     // Receive Data
-    if (*write_data_valid_ && !deferred_request_pending_) {
+    if (!response_completed &&
+        *write_data_valid_ && !deferred_request_pending_) {
       axi_data_.write_data_bits_data = *write_data_bits_data_;
       axi_data_.write_data_bits_strb = *write_data_bits_strb_;
       axi_data_.write_data_bits_last = *write_data_bits_last_;
     }
 
-    if (!deferred_request_pending_ &&
+    if (!response_completed && !deferred_request_pending_ &&
         *write_addr_valid_ && *write_data_valid_) {
       *write_addr_ready_ = 1;
       *write_data_ready_ = 1;

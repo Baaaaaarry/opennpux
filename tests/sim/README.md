@@ -28,7 +28,8 @@ To test only `coralctl` and fail instead of falling back to `mmio32`, restore
 the existing checkpoint with the dedicated resume script:
 
 ```bash
-CORAL_NPU_BACKEND=verilated-coral \
-CORAL_RESUME_BOOTSCRIPT="$PWD/sim/gem5/configs/coralnpu/coralctl-test.rcS" \
-./thirdparty/gem5/run_multicore.sh
+./tools/coralnpu/run_coralctl_test.sh
 ```
+
+This wrapper applies the current gem5 overlay before launching, so the
+submodule cannot silently use an older `run_multicore.sh` or resume script.

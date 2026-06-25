@@ -23,3 +23,12 @@ CORAL_NPU_BACKEND=verilated-coral ./thirdparty/gem5/run_multicore.sh
 
 Expected runtime output includes `backend=verilated-coral` and
 `status=0x00000001`.
+
+To test only `coralctl` and fail instead of falling back to `mmio32`, restore
+the existing checkpoint with the dedicated resume script:
+
+```bash
+CORAL_NPU_BACKEND=verilated-coral \
+CORAL_RESUME_BOOTSCRIPT="$PWD/sim/gem5/configs/coralnpu/coralctl-test.rcS" \
+./thirdparty/gem5/run_multicore.sh
+```

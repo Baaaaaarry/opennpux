@@ -211,9 +211,12 @@ Not yet covered:
 - checkpoint serialization during an in-flight DMA request;
 - sustained randomized AXI backpressure.
 
-## 10. Next development step
+## 10. Protocol regression gate
 
-The next increment should add an adapter-level unit test with randomized and
-independent `AW`, `W`, `B`, `AR`, and `R` timing. This test should run without
-booting Linux and become the protocol regression gate before extending the
-bridge to bursts and multiple outstanding requests.
+The adapter-level unit test now runs without booting Linux. It verifies
+independent `AW` and `W` arrival in both orders, held-valid replay prevention,
+deferred read and write responses, and a target that drops `RREADY` or
+`BREADY` immediately after the rising-edge handshake.
+
+Randomized backpressure, bursts, and multiple outstanding requests remain the
+next protocol extensions.

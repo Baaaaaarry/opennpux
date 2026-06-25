@@ -140,6 +140,17 @@ cc_binary(
     ],
 )
 
+cc_test(
+    name = "gem5_axi_master_drivers_test",
+    srcs = [
+        "gem5_bridge/gem5_axi_master_drivers.h",
+        "gem5_bridge/gem5_axi_master_drivers_test.cc",
+    ],
+    deps = [
+        ":hw_primitives",
+    ],
+)
+
 coralnpu_v2_binary(
     name = "gem5_smoke_halt",
     srcs = [

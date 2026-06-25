@@ -96,6 +96,8 @@ dma_test=PASS
   reads and writes.
 - gem5-specific asynchronous AXI handling is isolated from the official Coral
   wrapper and primitives.
+- A signal-level adapter test covers independent write channels, held-valid
+  request suppression, and delayed response handshakes without Linux boot.
 - Extend the verified single 16-byte beat to bursts and multiple IDs.
 - Define checkpoint behavior for an in-flight RTL/DMA transaction.
 

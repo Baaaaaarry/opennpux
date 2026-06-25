@@ -36,6 +36,7 @@ Run on x86 Linux:
 ./tools/coralnpu/phase2_prepare_bazel.sh
 ./tools/coralnpu/phase2_check_abi.sh
 ./tools/coralnpu/phase2_check_overlay_boundary.sh
+./tools/coralnpu/phase2_test_axi_adapter.sh
 ./tools/coralnpu/phase2_build_bridge.sh
 ./sim/gem5/apply_patchset.sh
 ```
@@ -86,6 +87,11 @@ other cache-bypassing backdoors.
 The current transport intentionally supports one outstanding AXI request and
 one beat of up to 16 bytes. Burst splitting, multiple IDs, error propagation,
 and checkpointing an in-flight transaction remain future increments.
+
+`phase2_test_axi_adapter.sh` runs a signal-level regression without Linux or
+the Coral core. It covers independent `AW`/`W` arrival, held-valid replay
+prevention, deferred responses, and response-ready changes after a rising-edge
+handshake.
 
 The detailed failure analysis and AXI timing resolution are documented in
 `docs/design/phase2_dma_root_cause_report.md`.

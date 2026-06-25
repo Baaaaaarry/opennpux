@@ -37,3 +37,7 @@ submodule cannot silently use an older `run_multicore.sh` or resume script.
 The first run after introducing the dynamic resume trampoline rebuilds the
 boot checkpoint and exits. Run the same command a second time; subsequent
 resume-script changes do not require another checkpoint rebuild.
+
+The checkpoint script copies `coralctl` into tmpfs and waits for the virtio
+block queue to become idle before checkpointing. This avoids post-restore disk
+reads for the test binary and stale virtqueue descriptors.

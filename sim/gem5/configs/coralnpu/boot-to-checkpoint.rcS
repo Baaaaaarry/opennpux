@@ -7,6 +7,35 @@ mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 
 echo "[coralnpu] boot checkpoint script started"
+
+for candidate in \
+    /usr/local/bin/coralctl \
+    /data/usr/local/bin/coralctl \
+    /bin/coralctl \
+    /data/bin/coralctl
+do
+    if [ -x "$candidate" ]; then
+        cp "$candidate" /tmp/coralctl
+        chmod 0700 /tmp/coralctl
+        echo "[coralnpu] preloaded coralctl into checkpoint tmpfs"
+        break
+    fi
+done
+
+sync
+if [ -r /sys/block/vda/inflight ]; then
+    i=0
+    while [ "$i" -lt 1000 ]; do
+        set -- $(cat /sys/block/vda/inflight)
+        if [ "${1:-1}" = "0" ] && [ "${2:-1}" = "0" ]; then
+            break
+        fi
+        usleep 1000 2>/dev/null || true
+        i=$((i + 1))
+    done
+    echo "[coralnpu] virtio block inflight before checkpoint: $(cat /sys/block/vda/inflight)"
+fi
+
 echo "[coralnpu] requesting checkpoint after Linux boot"
 /sbin/m5 --inst checkpoint
 

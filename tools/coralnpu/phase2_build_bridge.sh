@@ -47,11 +47,28 @@ cd "${CORAL_REPO}"
     --repository_cache="${REPO_CACHE}" \
     --distdir="${DISTDIR}" \
     "${TARGET}" "${FIRMWARE_TARGET}" "$@"
-BAZEL_BIN="$("${BAZEL}" \
+EXEC_ROOT="$("${BAZEL}" \
     --output_user_root="${BAZEL_OUTPUT_ROOT}" \
-    info bazel-bin)"
-BRIDGE="${BAZEL_BIN}/hw_sim/libcoralnpu_gem5_bridge.so"
-FIRMWARE="${BAZEL_BIN}/hw_sim/gem5_smoke_halt.elf"
+    info execution_root)"
+
+resolve_output()
+{
+    target="$1"
+    output="$("${BAZEL}" \
+        --output_user_root="${BAZEL_OUTPUT_ROOT}" \
+        cquery \
+        --repository_cache="${REPO_CACHE}" \
+        --distdir="${DISTDIR}" \
+        --output=files \
+        "${target}")"
+    case "${output}" in
+        /*) printf '%s\n' "${output}" ;;
+        *) printf '%s\n' "${EXEC_ROOT}/${output}" ;;
+    esac
+}
+
+BRIDGE="$(resolve_output "${TARGET}")"
+FIRMWARE="$(resolve_output "${FIRMWARE_TARGET}")"
 
 if [ ! -f "${BRIDGE}" ]; then
     echo "error: Bazel completed but bridge was not found: ${BRIDGE}" >&2

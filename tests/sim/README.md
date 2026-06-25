@@ -33,3 +33,7 @@ the existing checkpoint with the dedicated resume script:
 
 This wrapper applies the current gem5 overlay before launching, so the
 submodule cannot silently use an older `run_multicore.sh` or resume script.
+
+The first run after introducing the dynamic resume trampoline rebuilds the
+boot checkpoint and exits. Run the same command a second time; subsequent
+resume-script changes do not require another checkpoint rebuild.

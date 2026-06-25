@@ -24,6 +24,8 @@ export CORAL_BOOTED_CKPT="${CORAL_CKPT_ROOT}/booted"
 export CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}"
 export CORAL_CKPT_IMAGE_META="${CORAL_CKPT_ROOT}/disk_image_path.txt"
 export CORAL_CKPT_INIT_META="${CORAL_CKPT_ROOT}/kernel_init_path.txt"
+export CORAL_CKPT_FORMAT_META="${CORAL_CKPT_ROOT}/format_version.txt"
+export CORAL_CKPT_FORMAT_VERSION=2
 export CORAL_NPU_BACKEND="${CORAL_NPU_BACKEND:-stage-a}"
 export CORAL_RTL_BRIDGE="${CORAL_RTL_BRIDGE:-${SUPER_ROOT}/build/coralnpu/libcoralnpu_gem5_bridge.so}"
 export CORAL_RTL_FIRMWARE="${CORAL_RTL_FIRMWARE:-${SUPER_ROOT}/build/coralnpu/gem5_smoke_halt.elf}"
@@ -73,6 +75,14 @@ fi
 
 if [ "${CORAL_REBUILD_CKPT}" = "1" ]; then
   rm -rf "${CORAL_CKPT_ROOT}"
+fi
+
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
+  saved_format="$(cat "${CORAL_CKPT_FORMAT_META}" 2>/dev/null || true)"
+  if [ "${saved_format}" != "${CORAL_CKPT_FORMAT_VERSION}" ]; then
+    echo "Checkpoint lacks the dynamic resume trampoline; rebuilding once"
+    rm -rf "${CORAL_CKPT_ROOT}"
+  fi
 fi
 
 if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ "${CORAL_DISK_IMG}" -nt "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
@@ -154,6 +164,7 @@ else
     --bootscript="${CORAL_CKPT_BOOTSCRIPT}"
   printf '%s\n' "${CORAL_DISK_IMG}" > "${CORAL_CKPT_IMAGE_META}"
   printf '%s\n' "${CORAL_KERNEL_INIT}" > "${CORAL_CKPT_INIT_META}"
+  printf '%s\n' "${CORAL_CKPT_FORMAT_VERSION}" > "${CORAL_CKPT_FORMAT_META}"
   echo "Boot checkpoint saved at ${CORAL_BOOTED_CKPT}"
   echo "Run ./run_multicore.sh again to restore and execute the Coral NPU test script"
 fi

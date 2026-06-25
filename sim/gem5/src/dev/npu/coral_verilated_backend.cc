@@ -5,7 +5,10 @@
 #include "dev/npu/coral_verilated_backend.hh"
 
 #include <dlfcn.h>
+#include <elf.h>
 
+#include <cstring>
+#include <fstream>
 #include <limits>
 #include <vector>
 
@@ -52,10 +55,12 @@ CoralVerilatedBackend::loadSymbol(const char *name)
 
 CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
                                              const std::string &wrapper_path,
+                                             const std::string &firmware_path,
                                              Tick rtl_tick_period,
                                              uint32_t rtl_cycles_per_event)
   : coralRepo(coral_repo),
     wrapperPath(wrapper_path),
+    firmwarePath(firmware_path),
     rtlTickPeriod(rtl_tick_period),
     rtlCyclesPerEvent(rtl_cycles_per_event),
     libraryHandle(nullptr),
@@ -66,7 +71,8 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     stepModel(nullptr),
     running(false),
     pendingEventTick(0),
-    resetControl(kResetBit | kClockGateBit)
+    resetControl(kResetBit | kClockGateBit),
+    firmwareEntry(0)
 {
     fatal_if(wrapperPath.empty(),
              "NPU backend 'verilated-coral' requires "
@@ -98,10 +104,67 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
              "Coral RTL bridge failed to create CoreMiniAxi model");
     fatal_if(resetModel(modelHandle) != 0,
              "Coral RTL bridge failed to reset CoreMiniAxi model");
+    loadFirmware();
 
     DPRINTFR(NPUDevice,
-             "Loaded Coral RTL bridge '%s' repo='%s' tick=%llu cycles=%u\n",
-             wrapperPath, coralRepo, rtlTickPeriod, rtlCyclesPerEvent);
+             "Loaded Coral RTL bridge '%s' firmware='%s' entry=%#x "
+             "repo='%s' tick=%llu cycles=%u\n",
+             wrapperPath, firmwarePath, firmwareEntry, coralRepo,
+             rtlTickPeriod, rtlCyclesPerEvent);
+}
+
+void
+CoralVerilatedBackend::loadFirmware()
+{
+    fatal_if(firmwarePath.empty(),
+             "NPU backend 'verilated-coral' requires --npu-rtl-firmware");
+
+    std::ifstream stream(firmwarePath, std::ios::binary | std::ios::ate);
+    fatal_if(!stream, "Unable to open Coral RTL firmware '%s'", firmwarePath);
+    const std::streamsize fileSize = stream.tellg();
+    fatal_if(fileSize < static_cast<std::streamsize>(sizeof(Elf32_Ehdr)),
+             "Coral RTL firmware '%s' is not a valid ELF file", firmwarePath);
+
+    stream.seekg(0);
+    std::vector<uint8_t> image(fileSize);
+    fatal_if(!stream.read(reinterpret_cast<char *>(image.data()), fileSize),
+             "Unable to read Coral RTL firmware '%s'", firmwarePath);
+
+    const auto *header =
+        reinterpret_cast<const Elf32_Ehdr *>(image.data());
+    fatal_if(std::memcmp(header->e_ident, ELFMAG, SELFMAG) != 0 ||
+             header->e_ident[EI_CLASS] != ELFCLASS32 ||
+             header->e_ident[EI_DATA] != ELFDATA2LSB,
+             "Coral RTL firmware '%s' must be a 32-bit little-endian ELF",
+             firmwarePath);
+    fatal_if(header->e_phentsize != sizeof(Elf32_Phdr),
+             "Coral RTL firmware '%s' has unsupported program headers",
+             firmwarePath);
+
+    const uint64_t tableEnd = static_cast<uint64_t>(header->e_phoff) +
+        static_cast<uint64_t>(header->e_phnum) * sizeof(Elf32_Phdr);
+    fatal_if(tableEnd > image.size(),
+             "Coral RTL firmware '%s' has truncated program headers",
+             firmwarePath);
+
+    for (uint16_t i = 0; i < header->e_phnum; ++i) {
+        const auto *segment = reinterpret_cast<const Elf32_Phdr *>(
+            image.data() + header->e_phoff + i * sizeof(Elf32_Phdr));
+        if (segment->p_type != PT_LOAD || segment->p_filesz == 0) {
+            continue;
+        }
+        fatal_if(static_cast<uint64_t>(segment->p_offset) +
+                     segment->p_filesz > image.size(),
+                 "Coral RTL firmware '%s' has a truncated load segment",
+                 firmwarePath);
+        fatal_if(mmioWrite(modelHandle, segment->p_paddr,
+                           image.data() + segment->p_offset,
+                           segment->p_filesz) != 0,
+                 "Unable to load Coral RTL firmware segment at %#x",
+                 segment->p_paddr);
+    }
+
+    firmwareEntry = header->e_entry;
 }
 
 CoralVerilatedBackend::~CoralVerilatedBackend()

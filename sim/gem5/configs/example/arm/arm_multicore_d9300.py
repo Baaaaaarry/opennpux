@@ -513,6 +513,12 @@ def addOptions(parser):
         help="Path to generated Verilated Coral wrapper artifacts"
     )
     parser.add_argument(
+        "--npu-rtl-firmware",
+        type=str,
+        default="",
+        help="Path to Coral ELF firmware loaded into the RTL TCM"
+    )
+    parser.add_argument(
         "--npu-rtl-tick-period",
         type=str,
         default="1ns",
@@ -712,6 +718,7 @@ def build(options):
             backendType=options.npu_backend,
             coralRepo=options.npu_coral_repo,
             verilatedWrapper=options.npu_verilated_wrapper,
+            rtlFirmware=options.npu_rtl_firmware,
             rtlTickPeriod=options.npu_rtl_tick_period,
             rtlCyclesPerEvent=options.npu_rtl_cycles_per_event,
         )

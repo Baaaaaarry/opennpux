@@ -61,10 +61,11 @@ BAZEL_BINARY=/path/to/bazel-8.6.0-linux-x86_64 \
   ./tools/coralnpu/phase2_prepare_bazel.sh
 ```
 
-The staged shared library is:
+The staged Phase-2 artifacts are:
 
 ```text
 build/coralnpu/libcoralnpu_gem5_bridge.so
+build/coralnpu/gem5_smoke_halt.elf
 ```
 
 Apply the gem5 overlay and run the existing full-system flow with the RTL

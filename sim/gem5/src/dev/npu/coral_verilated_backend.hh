@@ -29,6 +29,7 @@ class CoralVerilatedBackend : public CoralBackend
 
     std::string coralRepo;
     std::string wrapperPath;
+    std::string firmwarePath;
     Tick rtlTickPeriod;
     uint32_t rtlCyclesPerEvent;
 
@@ -42,13 +43,16 @@ class CoralVerilatedBackend : public CoralBackend
     bool running;
     Tick pendingEventTick;
     uint32_t resetControl;
+    uint32_t firmwareEntry;
 
     template <class Function>
     Function loadSymbol(const char *name);
+    void loadFirmware();
 
   public:
     CoralVerilatedBackend(const std::string &coral_repo,
                           const std::string &wrapper_path,
+                          const std::string &firmware_path,
                           Tick rtl_tick_period,
                           uint32_t rtl_cycles_per_event);
     ~CoralVerilatedBackend() override;
@@ -61,6 +65,7 @@ class CoralVerilatedBackend : public CoralBackend
     bool hasPendingEvent() const override;
     Tick nextEventTick() const override;
     void processEvent() override;
+    uint32_t entryPoint() const { return firmwareEntry; }
 };
 
 } // namespace gem5

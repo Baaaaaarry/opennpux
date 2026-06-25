@@ -6,6 +6,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 CORAL_REPO="${CORAL_REPO:-${ROOT_DIR}/thirdparty/coralnpu}"
 TARGET="//hw_sim:libcoralnpu_gem5_bridge.so"
+FIRMWARE_TARGET="//hw_sim:gem5_smoke_halt.elf"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -34,7 +35,10 @@ fi
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
 
 mkdir -p "${BAZEL_OUTPUT_ROOT}" "${REPO_CACHE}" "${DISTDIR}"
-rm -f "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
+rm -f \
+    "${OUT_DIR}/libcoralnpu_gem5_bridge.so" \
+    "${OUT_DIR}/gem5_smoke_halt.elf" \
+    "${OUT_DIR}/wfi_slot_0.elf"
 
 cd "${CORAL_REPO}"
 "${BAZEL}" \
@@ -42,19 +46,25 @@ cd "${CORAL_REPO}"
     build \
     --repository_cache="${REPO_CACHE}" \
     --distdir="${DISTDIR}" \
-    "${TARGET}" "$@"
+    "${TARGET}" "${FIRMWARE_TARGET}" "$@"
 BAZEL_BIN="$("${BAZEL}" \
     --output_user_root="${BAZEL_OUTPUT_ROOT}" \
     info bazel-bin)"
 BRIDGE="${BAZEL_BIN}/hw_sim/libcoralnpu_gem5_bridge.so"
+FIRMWARE="${BAZEL_BIN}/hw_sim/gem5_smoke_halt.elf"
 
 if [ ! -f "${BRIDGE}" ]; then
     echo "error: Bazel completed but bridge was not found: ${BRIDGE}" >&2
     exit 1
 fi
+if [ ! -f "${FIRMWARE}" ]; then
+    echo "error: Bazel completed but firmware was not found: ${FIRMWARE}" >&2
+    exit 1
+fi
 
 mkdir -p "${OUT_DIR}"
 cp "${BRIDGE}" "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
+cp "${FIRMWARE}" "${OUT_DIR}/gem5_smoke_halt.elf"
 chmod 0755 "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
 
 if command -v ldd >/dev/null 2>&1 &&
@@ -66,3 +76,4 @@ if command -v ldd >/dev/null 2>&1 &&
 fi
 
 echo "built: ${OUT_DIR}/libcoralnpu_gem5_bridge.so"
+echo "built: ${OUT_DIR}/gem5_smoke_halt.elf"

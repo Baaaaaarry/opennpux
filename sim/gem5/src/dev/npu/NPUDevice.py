@@ -48,6 +48,10 @@ class NPUDevice(DmaVirtDevice):
         "",
         "Path to the future Verilated Coral wrapper artifact or build directory",
     )
+    rtlFirmware = Param.String(
+        "",
+        "Path to a Coral ELF loaded into the RTL TCM before execution",
+    )
     rtlTickPeriod = Param.Latency(
         "1ns",
         "gem5 time between Verilated Coral backend events",

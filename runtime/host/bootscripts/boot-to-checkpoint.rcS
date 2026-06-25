@@ -25,6 +25,7 @@ RESET_CSR=0x1D030000
 PC_START_CSR=0x1D030004
 STATUS_CSR=0x1D030008
 BACKEND_ID_CSR=0x1D030FFC
+FIRMWARE_ENTRY_CSR=0x1D030FF8
 
 MMIO32=
 for candidate in \
@@ -224,6 +225,9 @@ esac
 echo "[coralnpu] backend_id=${BACKEND_ID}"
 echo "[coralnpu] backend=${BACKEND_NAME}"
 
+FIRMWARE_ENTRY="$(read32 ${FIRMWARE_ENTRY_CSR})" || FIRMWARE_ENTRY="<read-failed>"
+echo "[coralnpu] firmware_entry=${FIRMWARE_ENTRY}"
+
 RESET_BEFORE="$(read32 ${RESET_CSR})" || RESET_BEFORE="<read-failed>"
 STATUS_BEFORE="$(read32 ${STATUS_CSR})" || STATUS_BEFORE="<read-failed>"
 
@@ -239,14 +243,22 @@ if [ "${RESET_BEFORE}" = "<read-failed>" ] || [ "${STATUS_BEFORE}" = "<read-fail
     /sbin/m5 --inst exit
 fi
 
-write32 "${PC_START_CSR}" 0x0
+if [ "${BACKEND_NAME}" = "verilated-coral" ]; then
+    if [ "${FIRMWARE_ENTRY}" = "<read-failed>" ]; then
+        echo "[coralnpu] FAIL: RTL firmware entry is unavailable"
+        exit 1
+    fi
+    write32 "${PC_START_CSR}" "${FIRMWARE_ENTRY}"
+else
+    write32 "${PC_START_CSR}" 0x0
+fi
 write32 "${RESET_CSR}" 0x1
 write32 "${RESET_CSR}" 0x0
 
 status_hex=
 halted=0
 i=0
-while [ "$i" -lt 100 ]; do
+while [ "$i" -lt 1000 ]; do
     status_hex="$(read32 ${STATUS_CSR})" || status_hex=""
     if [ -z "$status_hex" ]; then
         echo "[coralnpu] read error detail:"
@@ -257,6 +269,10 @@ while [ "$i" -lt 100 ]; do
         break
     fi
     status_val=$((status_hex))
+    if [ $((status_val & 0x2)) -ne 0 ]; then
+        echo "[coralnpu] FAIL: Coral NPU reported an execution fault"
+        break
+    fi
     if [ $((status_val & 0x1)) -ne 0 ]; then
         halted=1
         break

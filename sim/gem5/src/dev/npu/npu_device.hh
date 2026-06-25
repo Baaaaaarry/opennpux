@@ -28,6 +28,7 @@ class NPUDevice : public DmaVirtDevice
     Addr pioSize;
     Tick pioDelay;
     uint32_t backendId;
+    uint32_t firmwareEntry;
 
     void processBackendEvent();
     void syncBackendEvent();

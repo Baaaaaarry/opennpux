@@ -135,3 +135,10 @@ cc_binary(
         ":core_mini_axi_wrapper",
     ],
 )
+
+coralnpu_v2_binary(
+    name = "gem5_smoke_halt",
+    srcs = [
+        "gem5_bridge/gem5_smoke_halt.c",
+    ],
+)

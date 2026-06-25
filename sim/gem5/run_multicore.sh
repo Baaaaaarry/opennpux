@@ -26,6 +26,7 @@ export CORAL_CKPT_IMAGE_META="${CORAL_CKPT_ROOT}/disk_image_path.txt"
 export CORAL_CKPT_INIT_META="${CORAL_CKPT_ROOT}/kernel_init_path.txt"
 export CORAL_NPU_BACKEND="${CORAL_NPU_BACKEND:-stage-a}"
 export CORAL_RTL_BRIDGE="${CORAL_RTL_BRIDGE:-${SUPER_ROOT}/build/coralnpu/libcoralnpu_gem5_bridge.so}"
+export CORAL_RTL_FIRMWARE="${CORAL_RTL_FIRMWARE:-${SUPER_ROOT}/build/coralnpu/gem5_smoke_halt.elf}"
 export CORAL_RTL_TICK_PERIOD="${CORAL_RTL_TICK_PERIOD:-1ns}"
 export CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}"
 
@@ -37,6 +38,11 @@ if [ "${CORAL_NPU_BACKEND}" = "verilated-coral" ]; then
     echo "Build it with tools/coralnpu/phase2_build_bridge.sh" >&2
     exit 1
   fi
+  if [ ! -f "${CORAL_RTL_FIRMWARE}" ]; then
+    echo "Coral RTL firmware not found: ${CORAL_RTL_FIRMWARE}" >&2
+    echo "Build it with tools/coralnpu/phase2_build_bridge.sh" >&2
+    exit 1
+  fi
   if command -v ldd >/dev/null 2>&1 &&
      ldd "${CORAL_RTL_BRIDGE}" 2>/dev/null | grep -qi systemc; then
     echo "Coral RTL bridge links libsystemc and is incompatible with gem5:" >&2
@@ -45,6 +51,7 @@ if [ "${CORAL_NPU_BACKEND}" = "verilated-coral" ]; then
     exit 1
   fi
   NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-verilated-wrapper=${CORAL_RTL_BRIDGE}"
+  NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-rtl-firmware=${CORAL_RTL_FIRMWARE}"
   NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-rtl-tick-period=${CORAL_RTL_TICK_PERIOD}"
   NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-rtl-cycles-per-event=${CORAL_RTL_CYCLES_PER_EVENT}"
 fi
@@ -111,6 +118,7 @@ echo "Kernel init: ${CORAL_KERNEL_INIT}"
 echo "Checkpoint root: ${CORAL_CKPT_ROOT}"
 echo "NPU backend: ${CORAL_NPU_BACKEND}"
 [ "${CORAL_NPU_BACKEND}" != "verilated-coral" ] || echo "Coral RTL bridge: ${CORAL_RTL_BRIDGE}"
+[ "${CORAL_NPU_BACKEND}" != "verilated-coral" ] || echo "Coral RTL firmware: ${CORAL_RTL_FIRMWARE}"
 ls -lh "${CORAL_DISK_IMG}" || exit 1
 echo "Building build/ARM/gem5.opt with -j${BUILD_JOBS}"
 scons build/ARM/gem5.opt -j"${BUILD_JOBS}"

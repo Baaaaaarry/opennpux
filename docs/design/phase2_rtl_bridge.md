@@ -18,6 +18,7 @@ The bridge currently supports:
 
 - ITCM, DTCM, and CSR accesses through the Coral AXI slave interface
 - reset/start control through the real Coral CSR implementation
+- host-side ELF loading into Coral TCM before reset release
 - periodic RTL evaluation on the gem5 event queue
 - halted/WFI detection
 - the official simulator mailbox behavior for external AXI accesses
@@ -37,6 +38,11 @@ Run on x86 Linux:
 ./tools/coralnpu/phase2_build_bridge.sh
 ./sim/gem5/apply_patchset.sh
 ```
+
+The build stages both `build/coralnpu/libcoralnpu_gem5_bridge.so` and the
+minimal smoke firmware `build/coralnpu/gem5_smoke_halt.elf`. The firmware
+returns from `main`, allowing the Coral CRT to execute `mpause` and assert the
+real halted status bit without requiring an external interrupt.
 
 Then build gem5 normally:
 

@@ -19,6 +19,7 @@ namespace
 {
 
 constexpr Addr kBackendIdOffset = 0x30ffc;
+constexpr Addr kFirmwareEntryOffset = 0x30ff8;
 constexpr uint32_t kStageABackendId = 0x4e505501;
 constexpr uint32_t kVerilatedCoralBackendId = 0x4e505502;
 
@@ -30,6 +31,7 @@ NPUDevice::NPUDevice(const Params &p)
     pioSize(p.pioSize),
     pioDelay(p.pioDelay),
     backendId(0),
+    firmwareEntry(0),
     backendEvent(*this)
 {
     if (p.backendType == "stage-a") {
@@ -39,9 +41,11 @@ NPUDevice::NPUDevice(const Params &p)
             p.autoHalt);
     } else if (p.backendType == "verilated-coral") {
         backendId = kVerilatedCoralBackendId;
-        backend = std::make_unique<CoralVerilatedBackend>(
-            p.coralRepo, p.verilatedWrapper, p.rtlTickPeriod,
+        auto rtlBackend = std::make_unique<CoralVerilatedBackend>(
+            p.coralRepo, p.verilatedWrapper, p.rtlFirmware, p.rtlTickPeriod,
             p.rtlCyclesPerEvent);
+        firmwareEntry = rtlBackend->entryPoint();
+        backend = std::move(rtlBackend);
     } else {
         fatal("Unknown NPU backend type '%s'", p.backendType);
     }
@@ -81,7 +85,11 @@ NPUDevice::read(PacketPtr pkt)
              backend->name(), pkt->getAddr(), pkt->getSize());
 
     const Addr offset = pkt->getAddr() - pioAddr;
-    if (offset == kBackendIdOffset &&
+    if (offset == kFirmwareEntryOffset &&
+        pkt->getSize() == sizeof(firmwareEntry)) {
+        pkt->setLE<uint32_t>(firmwareEntry);
+        pkt->makeAtomicResponse();
+    } else if (offset == kBackendIdOffset &&
         pkt->getSize() == sizeof(backendId)) {
         pkt->setLE<uint32_t>(backendId);
         pkt->makeAtomicResponse();

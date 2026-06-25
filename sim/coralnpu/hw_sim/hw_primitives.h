@@ -454,7 +454,11 @@ class AxiMasterReadDriver : Clock::Observer {
 
  private:
   void OnFallingEdge() final {
-    *read_addr_ready_ = !deferred_request_pending_;
+    if (wait_for_addr_valid_low_ && !*read_addr_valid_) {
+      wait_for_addr_valid_low_ = false;
+    }
+    *read_addr_ready_ =
+        !deferred_request_pending_ && !wait_for_addr_valid_low_;
 
     // Send Data
     *read_data_valid_ = !data_queue_.empty();
@@ -467,6 +471,7 @@ class AxiMasterReadDriver : Clock::Observer {
       if (*read_data_ready_) {
         data_queue_.pop();
         deferred_request_pending_ = false;
+        wait_for_addr_valid_low_ = true;
       }
       clock().Eval();
     }
@@ -524,6 +529,7 @@ class AxiMasterReadDriver : Clock::Observer {
   std::function<AxiRData(const AxiAddr&)> read_cb_;
   std::function<void(const AxiAddr&)> deferred_read_cb_;
   bool deferred_request_pending_ = false;
+  bool wait_for_addr_valid_low_ = false;
 };
 
 // Struct representing the data transferred in an AXI4 read data channel.
@@ -596,6 +602,10 @@ class AxiMasterWriteDriver : Clock::Observer {
  private:
   void OnFallingEdge() final {
     bool response_completed = false;
+    if (wait_for_request_valid_low_ &&
+        !*write_addr_valid_ && !*write_data_valid_) {
+      wait_for_request_valid_low_ = false;
+    }
 
     // Send Response
     *write_resp_valid_ = !resp_queue_.empty();
@@ -606,13 +616,14 @@ class AxiMasterWriteDriver : Clock::Observer {
       if (*write_resp_ready_) {
         resp_queue_.pop();
         deferred_request_pending_ = false;
+        wait_for_request_valid_low_ = true;
         response_completed = true;
       }
       clock().Eval();
     }
 
     // Receive Addr
-    if (!response_completed &&
+    if (!response_completed && !wait_for_request_valid_low_ &&
         *write_addr_valid_ && !deferred_request_pending_) {
       axi_addr_.addr_bits_addr = *write_addr_bits_addr_;
       axi_addr_.addr_bits_prot = *write_addr_bits_prot_;
@@ -626,14 +637,15 @@ class AxiMasterWriteDriver : Clock::Observer {
       axi_addr_.addr_bits_region = *write_addr_bits_region_;
     }
     // Receive Data
-    if (!response_completed &&
+    if (!response_completed && !wait_for_request_valid_low_ &&
         *write_data_valid_ && !deferred_request_pending_) {
       axi_data_.write_data_bits_data = *write_data_bits_data_;
       axi_data_.write_data_bits_strb = *write_data_bits_strb_;
       axi_data_.write_data_bits_last = *write_data_bits_last_;
     }
 
-    if (!response_completed && !deferred_request_pending_ &&
+    if (!response_completed && !wait_for_request_valid_low_ &&
+        !deferred_request_pending_ &&
         *write_addr_valid_ && *write_data_valid_) {
       *write_addr_ready_ = 1;
       *write_data_ready_ = 1;
@@ -685,6 +697,7 @@ class AxiMasterWriteDriver : Clock::Observer {
   std::function<void(const AxiAddr&, const AxiWData&)>
       deferred_write_cb_;
   bool deferred_request_pending_ = false;
+  bool wait_for_request_valid_low_ = false;
 };
 
 #endif  // HW_SIM_HW_PRIMITIVES_H_

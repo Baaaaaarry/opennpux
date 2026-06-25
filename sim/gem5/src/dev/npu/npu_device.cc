@@ -124,10 +124,12 @@ NPUDevice::completeBackendDma(
 {
     fatal_if(!dmaActive, "Coral NPU DMA completion without active request");
     const CoralDmaRequest &request = backend->dmaRequest();
-    backend->completeDma(data.data(), request.size, false);
     dmaActive = false;
+    backend->completeDma(data.data(), request.size, false);
     ++dmaCompletions;
     DPRINTFR(NPUDevice, "Coral DMA complete count=%u\n", dmaCompletions);
+    fatal_if(backend->hasDmaRequest(),
+             "Coral backend retained DMA request after completion");
     syncBackendEvent();
 }
 

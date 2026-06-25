@@ -456,13 +456,12 @@ class AxiMasterReadDriver : Clock::Observer {
   void OnFallingEdge() final {
     const bool addr_handshake =
         *read_addr_valid_ && *read_addr_ready_;
-    const bool response_handshake =
-        response_presented_ && *read_data_ready_;
+    const bool response_handshake = response_handshake_pending_;
+    response_handshake_pending_ = false;
 
     if (response_handshake) {
       data_queue_.pop();
       deferred_request_pending_ = false;
-      response_presented_ = false;
     }
 
     if (!*read_addr_valid_) {
@@ -477,9 +476,10 @@ class AxiMasterReadDriver : Clock::Observer {
       *read_data_bits_id_ = data_queue_.front().read_data_bits_id;
       *read_data_bits_resp_ = data_queue_.front().read_data_bits_resp;
       *read_data_bits_last_ = data_queue_.front().read_data_bits_last;
-      response_presented_ = true;
     }
     clock().Eval();
+    response_handshake_pending_ =
+        *read_data_valid_ && *read_data_ready_;
 
     // Receive Address
     if (addr_handshake && !request_seen_) {
@@ -535,7 +535,7 @@ class AxiMasterReadDriver : Clock::Observer {
   std::function<void(const AxiAddr&)> deferred_read_cb_;
   bool deferred_request_pending_ = false;
   bool request_seen_ = false;
-  bool response_presented_ = false;
+  bool response_handshake_pending_ = false;
 };
 
 // Struct representing the data transferred in an AXI4 read data channel.
@@ -611,13 +611,12 @@ class AxiMasterWriteDriver : Clock::Observer {
         *write_addr_valid_ && *write_addr_ready_;
     const bool data_handshake =
         *write_data_valid_ && *write_data_ready_;
-    const bool response_handshake =
-        response_presented_ && *write_resp_ready_;
+    const bool response_handshake = response_handshake_pending_;
+    response_handshake_pending_ = false;
 
     if (response_handshake) {
       resp_queue_.pop();
       deferred_request_pending_ = false;
-      response_presented_ = false;
       addr_captured_ = false;
       data_captured_ = false;
       request_submitted_ = false;
@@ -628,9 +627,10 @@ class AxiMasterWriteDriver : Clock::Observer {
     if (!resp_queue_.empty()) {
       *write_resp_bits_id_ = resp_queue_.front().write_resp_bits_id;
       *write_resp_bits_resp_ = resp_queue_.front().write_resp_bits_resp;
-      response_presented_ = true;
     }
     clock().Eval();
+    response_handshake_pending_ =
+        *write_resp_valid_ && *write_resp_ready_;
 
     // Receive Addr
     if (addr_handshake && !addr_captured_) {
@@ -708,7 +708,7 @@ class AxiMasterWriteDriver : Clock::Observer {
   bool addr_captured_ = false;
   bool data_captured_ = false;
   bool request_submitted_ = false;
-  bool response_presented_ = false;
+  bool response_handshake_pending_ = false;
 };
 
 #endif  // HW_SIM_HW_PRIMITIVES_H_

@@ -10,14 +10,30 @@
 #ifndef __DEV_NPU_CORAL_BACKEND_HH__
 #define __DEV_NPU_CORAL_BACKEND_HH__
 
+#include <array>
 #include <string>
 
 #include "base/types.hh"
+#include "dev/npu/coralnpu_gem5_abi.h"
 #include "mem/packet.hh"
 #include "mem/translation_gen.hh"
 
 namespace gem5
 {
+
+enum class CoralDmaType
+{
+    Read,
+    Write,
+};
+
+struct CoralDmaRequest
+{
+    CoralDmaType type;
+    Addr addr;
+    uint32_t size;
+    std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> data;
+};
 
 class CoralBackend
 {
@@ -32,6 +48,10 @@ class CoralBackend
     virtual bool hasPendingEvent() const = 0;
     virtual Tick nextEventTick() const = 0;
     virtual void processEvent() = 0;
+
+    virtual bool hasDmaRequest() const { return false; }
+    virtual const CoralDmaRequest &dmaRequest() const;
+    virtual void completeDma(const uint8_t *data, size_t size, bool error);
 };
 
 } // namespace gem5

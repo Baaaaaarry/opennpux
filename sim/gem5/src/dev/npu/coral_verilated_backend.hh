@@ -26,6 +26,10 @@ class CoralVerilatedBackend : public CoralBackend
     using MmioWriteFn =
         int (*)(coral_gem5_handle *, uint32_t, const void *, size_t);
     using StepFn = int (*)(coral_gem5_handle *, uint32_t);
+    using DmaRequestGetFn =
+        int (*)(coral_gem5_handle *, coral_gem5_dma_request *);
+    using DmaCompleteFn =
+        int (*)(coral_gem5_handle *, const void *, size_t, int);
 
     std::string coralRepo;
     std::string wrapperPath;
@@ -39,11 +43,15 @@ class CoralVerilatedBackend : public CoralBackend
     MmioReadFn mmioRead;
     MmioWriteFn mmioWrite;
     StepFn stepModel;
+    DmaRequestGetFn dmaRequestGet;
+    DmaCompleteFn dmaComplete;
 
     bool running;
     Tick pendingEventTick;
     uint32_t resetControl;
     uint32_t firmwareEntry;
+    bool dmaRequestPending;
+    CoralDmaRequest pendingDmaRequest;
 
     template <class Function>
     Function loadSymbol(const char *name);
@@ -66,6 +74,9 @@ class CoralVerilatedBackend : public CoralBackend
     Tick nextEventTick() const override;
     void processEvent() override;
     uint32_t entryPoint() const { return firmwareEntry; }
+    bool hasDmaRequest() const override { return dmaRequestPending; }
+    const CoralDmaRequest &dmaRequest() const override;
+    void completeDma(const uint8_t *data, size_t size, bool error) override;
 };
 
 } // namespace gem5

@@ -41,3 +41,14 @@ resume-script changes do not require another checkpoint rebuild.
 The checkpoint script copies `coralctl` into tmpfs and waits for the virtio
 block queue to become idle before checkpointing. This avoids post-restore disk
 reads for the test binary and stale virtqueue descriptors.
+
+The Phase-2 bridge ABI is now version 2 and carries deferred external AXI
+requests into gem5 coherent DMA. Rebuild both the bridge and gem5 after pulling
+this change:
+
+```bash
+./tools/coralnpu/phase2_build_bridge.sh
+./sim/gem5/apply_patchset.sh
+cd thirdparty/gem5
+scons build/ARM/gem5.opt -j"$(nproc)"
+```

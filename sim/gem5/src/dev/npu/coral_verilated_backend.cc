@@ -7,6 +7,7 @@
 #include <dlfcn.h>
 #include <elf.h>
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -69,10 +70,14 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     mmioRead(nullptr),
     mmioWrite(nullptr),
     stepModel(nullptr),
+    dmaRequestGet(nullptr),
+    dmaComplete(nullptr),
     running(false),
     pendingEventTick(0),
     resetControl(kResetBit | kClockGateBit),
-    firmwareEntry(0)
+    firmwareEntry(0),
+    dmaRequestPending(false),
+    pendingDmaRequest()
 {
     fatal_if(wrapperPath.empty(),
              "NPU backend 'verilated-coral' requires "
@@ -94,6 +99,9 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     mmioRead = loadSymbol<MmioReadFn>("coral_gem5_mmio_read");
     mmioWrite = loadSymbol<MmioWriteFn>("coral_gem5_mmio_write");
     stepModel = loadSymbol<StepFn>("coral_gem5_step");
+    dmaRequestGet = loadSymbol<DmaRequestGetFn>(
+        "coral_gem5_dma_request_get");
+    dmaComplete = loadSymbol<DmaCompleteFn>("coral_gem5_dma_complete");
 
     fatal_if(abiVersion() != CORAL_GEM5_ABI_VERSION,
              "Coral RTL bridge ABI mismatch: gem5=%u library=%u",
@@ -252,13 +260,61 @@ CoralVerilatedBackend::processEvent()
     const int result = stepModel(modelHandle, rtlCyclesPerEvent);
     fatal_if(result < 0, "Coral RTL bridge failed while stepping model");
 
-    if (result > 0) {
+    if (result == 2) {
+        coral_gem5_dma_request request = {};
+        fatal_if(dmaRequestGet(modelHandle, &request) != 1,
+                 "Coral RTL reported DMA wait without a request");
+        fatal_if(request.size == 0 ||
+                     request.size > pendingDmaRequest.data.size(),
+                 "Unsupported Coral RTL DMA size %u", request.size);
+        fatal_if(request.type != CORAL_GEM5_DMA_READ &&
+                     request.type != CORAL_GEM5_DMA_WRITE,
+                 "Unsupported Coral RTL DMA type %u", request.type);
+
+        pendingDmaRequest.type = request.type == CORAL_GEM5_DMA_READ ?
+            CoralDmaType::Read : CoralDmaType::Write;
+        pendingDmaRequest.addr = request.addr;
+        pendingDmaRequest.size = request.size;
+        std::copy(std::begin(request.data), std::end(request.data),
+                  pendingDmaRequest.data.begin());
+        dmaRequestPending = true;
+        pendingEventTick = 0;
+        DPRINTFR(NPUDevice,
+                 "Coral RTL waiting for DMA type=%s addr=%#x size=%u\n",
+                 pendingDmaRequest.type == CoralDmaType::Read ?
+                     "read" : "write",
+                 pendingDmaRequest.addr, pendingDmaRequest.size);
+    } else if (result > 0) {
         running = false;
         pendingEventTick = 0;
         DPRINTFR(NPUDevice, "Coral RTL reached halted/WFI state\n");
     } else {
         pendingEventTick = curTick() + rtlTickPeriod;
     }
+}
+
+const CoralDmaRequest &
+CoralVerilatedBackend::dmaRequest() const
+{
+    fatal_if(!dmaRequestPending, "Coral RTL has no pending DMA request");
+    return pendingDmaRequest;
+}
+
+void
+CoralVerilatedBackend::completeDma(
+    const uint8_t *data, size_t size, bool error)
+{
+    fatal_if(!dmaRequestPending, "Coral RTL DMA completion without request");
+    const void *responseData =
+        pendingDmaRequest.type == CoralDmaType::Read ? data : nullptr;
+    const size_t responseSize =
+        pendingDmaRequest.type == CoralDmaType::Read ? size : 0;
+    fatal_if(dmaComplete(modelHandle, responseData, responseSize,
+                         error ? 1 : 0) != 0,
+             "Coral RTL bridge rejected DMA completion");
+    dmaRequestPending = false;
+    pendingDmaRequest = {};
+    pendingEventTick = running ? curTick() + rtlTickPeriod : 0;
 }
 
 } // namespace gem5

@@ -11,6 +11,7 @@
 #define __DEV_NPU_NPU_DEVICE_HH__
 
 #include <cstdint>
+#include <array>
 #include <memory>
 
 #include "dev/dma_virt_device.hh"
@@ -29,9 +30,13 @@ class NPUDevice : public DmaVirtDevice
     Tick pioDelay;
     uint32_t backendId;
     uint32_t firmwareEntry;
+    bool dmaActive;
 
     void processBackendEvent();
     void syncBackendEvent();
+    void startBackendDma();
+    void completeBackendDma(
+        const std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> &data);
 
     std::unique_ptr<CoralBackend> backend;
     MemberEventWrapper<&NPUDevice::processBackendEvent> backendEvent;

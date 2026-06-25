@@ -80,11 +80,11 @@ the Coral toolchain output, and RTL execution are connected end to end.
 
 ### Phase 2 completion
 
-- Replace the mailbox-only AXI master callback with asynchronous gem5 DMA.
-- Pause RTL while a DMA request is outstanding and inject the AXI response
-  after the coherent DMA callback completes.
-- Start with one outstanding 16-byte request, then add bursts and multiple IDs.
+- The single-outstanding asynchronous AXI-to-gem5 DMA transport is implemented.
+- Add a Linux-owned physically contiguous shared buffer and pass its address
+  to Coral firmware.
 - Add firmware that reads and writes CPU-owned shared memory.
+- Extend the verified single 16-byte beat to bursts and multiple IDs.
 - Define checkpoint behavior for an in-flight RTL/DMA transaction.
 
 ### Phase 3

@@ -32,6 +32,7 @@ NPUDevice::NPUDevice(const Params &p)
     pioDelay(p.pioDelay),
     backendId(0),
     firmwareEntry(0),
+    dmaActive(false),
     backendEvent(*this)
 {
     if (p.backendType == "stage-a") {
@@ -59,6 +60,41 @@ void
 NPUDevice::processBackendEvent()
 {
     backend->processEvent();
+    startBackendDma();
+    syncBackendEvent();
+}
+
+void
+NPUDevice::startBackendDma()
+{
+    if (dmaActive || !backend->hasDmaRequest()) {
+        return;
+    }
+
+    const CoralDmaRequest &request = backend->dmaRequest();
+    auto *callback =
+        new DmaVirtCallback<std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES>>(
+            [this](const auto &data) { completeBackendDma(data); },
+            request.data);
+    dmaActive = true;
+
+    if (request.type == CoralDmaType::Read) {
+        dmaReadVirt(request.addr, request.size, callback,
+                    callback->dmaBuffer.data());
+    } else {
+        dmaWriteVirt(request.addr, request.size, callback,
+                     callback->dmaBuffer.data());
+    }
+}
+
+void
+NPUDevice::completeBackendDma(
+    const std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> &data)
+{
+    fatal_if(!dmaActive, "Coral NPU DMA completion without active request");
+    const CoralDmaRequest &request = backend->dmaRequest();
+    backend->completeDma(data.data(), request.size, false);
+    dmaActive = false;
     syncBackendEvent();
 }
 

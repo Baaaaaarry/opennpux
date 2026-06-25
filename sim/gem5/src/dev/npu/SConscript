@@ -13,6 +13,7 @@ if env['PLATFORM'] != 'darwin':
 
 SimObject('NPUDevice.py', sim_objects=['NPUDevice'])
 
+Source('coral_backend.cc')
 Source('coral_stagea_backend.cc')
 Source('coral_verilated_backend.cc')
 Source('npu_device.cc')

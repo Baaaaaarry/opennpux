@@ -21,7 +21,7 @@ The bridge currently supports:
 - host-side ELF loading into Coral TCM before reset release
 - periodic RTL evaluation on the gem5 event queue
 - halted/WFI detection
-- the official simulator mailbox behavior for external AXI accesses
+- single-outstanding external AXI reads and writes through gem5 coherent DMA
 
 The bridge uses the non-SystemC Verilator C++ model and runtime. Linking
 Accellera SystemC into `gem5.opt` through the shared library is prohibited
@@ -66,14 +66,29 @@ CORAL_RTL_BRIDGE="$PWD/build/coralnpu/libcoralnpu_gem5_bridge.so" \
 Use `--debug-flags=NPUDevice` when invoking gem5 directly to see bridge load,
 MMIO, stepping, and halt messages.
 
+## AXI master DMA bridge
+
+The official wrapper's synchronous AXI callbacks have been extended with a
+deferred response mode. When Coral issues an external access:
+
+1. the wrapper captures one AXI request and deasserts its ready signal
+2. `coral_gem5_step` returns a DMA-wait result
+3. `NPUDevice` submits `dmaReadVirt` or `dmaWriteVirt`
+4. the RTL event stream remains paused while gem5 memory timing completes
+5. the completion callback injects the AXI response and resumes RTL
+
+The DMA port is connected on the SLC-side coherent path in the D9200/D9300
+configurations. The implementation does not use `PhysicalMemory::read` or
+other cache-bypassing backdoors.
+
+The current transport intentionally supports one outstanding AXI request and
+one beat of up to 16 bytes. Burst splitting, multiple IDs, error propagation,
+and checkpointing an in-flight transaction remain future increments.
+
 ## Remaining Phase-2 work
 
-The official wrapper invokes AXI master callbacks synchronously. gem5 coherent
-DMA completes asynchronously. The next Phase-2 increment must therefore add a
-request/completion queue that pauses RTL evaluation while a DMA is outstanding,
-then resumes the AXI response after the gem5 DMA callback fires.
-
-Do not implement this path with `PhysicalMemory::read` or `/dev/mem`-style
-backdoor accesses. Those paths bypass CPU caches and would invalidate the
-memory-consistency model. Until the queued DMA bridge is implemented, external
-AXI accesses retain the official mailbox-only simulator behavior.
+- provide a Linux-owned physically contiguous shared buffer
+- pass that buffer address to Coral firmware
+- add an end-to-end read/modify/write firmware smoke
+- add burst and multiple-outstanding support after the single-beat path is
+  verified

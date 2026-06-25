@@ -8,8 +8,9 @@
 extern "C" {
 #endif
 
-#define CORAL_GEM5_ABI_VERSION 2u
-#define CORAL_GEM5_DMA_DATA_BYTES 16u
+#define CORAL_GEM5_ABI_VERSION 3u
+#define CORAL_GEM5_AXI_DATA_BYTES 16u
+#define CORAL_GEM5_DMA_DATA_BYTES 4096u
 
 enum coral_gem5_dma_type {
     CORAL_GEM5_DMA_READ = 0,

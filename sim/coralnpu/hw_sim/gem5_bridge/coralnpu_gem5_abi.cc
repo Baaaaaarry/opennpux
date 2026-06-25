@@ -19,13 +19,15 @@ struct coral_gem5_handle {
   coral_gem5_dma_request pending_dma;
   bool dma_pending;
   uint32_t dma_lane;
+  uint32_t dma_beat_size;
+  uint32_t dma_beat_count;
 
   coral_gem5_handle()
       : context(), wrapper(&context), pending_dma(), dma_pending(false),
-        dma_lane(0) {
+        dma_lane(0), dma_beat_size(0), dma_beat_count(0) {
     wrapper.RegisterDeferredReadCallback([this](const AxiAddr& addr) {
       if (!BuildGem5DmaReadRequest(
-              addr, &pending_dma, &dma_lane)) {
+              addr, &pending_dma, &dma_beat_size, &dma_beat_count)) {
         AxiRData response = {};
         response.read_data_bits_id = addr.addr_bits_id;
         response.read_data_bits_resp = kAxiSlvErr;
@@ -158,16 +160,32 @@ coral_gem5_dma_complete(
         (data == nullptr || size != handle->pending_dma.size)) {
       return -1;
     }
-    AxiRData axi_response = {};
     if (!error) {
-      auto* dst =
-          reinterpret_cast<uint8_t*>(&axi_response.read_data_bits_data[0]);
-      std::memcpy(dst + handle->dma_lane, data, size);
+      const auto* source = reinterpret_cast<const uint8_t*>(data);
+      for (uint32_t beat = 0; beat < handle->dma_beat_count; ++beat) {
+        AxiRData axi_response = {};
+        const uint32_t beat_addr =
+            handle->pending_dma.addr + beat * handle->dma_beat_size;
+        const uint32_t lane =
+            beat_addr & (CORAL_GEM5_AXI_DATA_BYTES - 1);
+        auto* destination = reinterpret_cast<uint8_t*>(
+            &axi_response.read_data_bits_data[0]);
+        std::memcpy(destination + lane,
+                    source + beat * handle->dma_beat_size,
+                    handle->dma_beat_size);
+        axi_response.read_data_bits_id = handle->pending_dma.id;
+        axi_response.read_data_bits_resp = 0;
+        axi_response.read_data_bits_last =
+            beat + 1 == handle->dma_beat_count;
+        handle->wrapper.QueueReadResponse(axi_response);
+      }
+    } else {
+      AxiRData axi_response = {};
+      axi_response.read_data_bits_id = handle->pending_dma.id;
+      axi_response.read_data_bits_resp = response;
+      axi_response.read_data_bits_last = 1;
+      handle->wrapper.QueueReadResponse(axi_response);
     }
-    axi_response.read_data_bits_id = handle->pending_dma.id;
-    axi_response.read_data_bits_resp = response;
-    axi_response.read_data_bits_last = 1;
-    handle->wrapper.QueueReadResponse(axi_response);
   } else if (handle->pending_dma.type == CORAL_GEM5_DMA_WRITE) {
     AxiWResp axi_response = {};
     axi_response.write_resp_bits_id = handle->pending_dma.id;

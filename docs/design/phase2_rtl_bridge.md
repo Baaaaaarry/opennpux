@@ -84,16 +84,17 @@ The DMA port is connected on the SLC-side coherent path in the D9200/D9300
 configurations. The implementation does not use `PhysicalMemory::read` or
 other cache-bypassing backdoors.
 
-The current transport intentionally supports one outstanding AXI request and
-one beat of up to 16 bytes. Burst splitting, multiple IDs, error propagation,
-and checkpointing an in-flight transaction remain future increments.
+The current transport supports one outstanding AXI request. INCR read bursts
+up to 256 beats and 4096 bytes are issued as one coherent gem5 DMA and returned
+to Coral as ordered AXI `R` beats. Write bursts, multiple outstanding IDs, and
+checkpointing an in-flight transaction remain future increments.
 
 `phase2_test_axi_adapter.sh` runs a signal-level regression without Linux or
 the Coral core. It covers independent `AW`/`W` arrival, held-valid replay
 prevention, deferred responses, and response-ready changes after a rising-edge
-handshake. Unsupported bursts, transfers crossing the 16-byte AXI data word,
-non-final write beats, and partial strobes are rejected with AXI `SLVERR`
-instead of being forwarded as invalid zero-length gem5 DMA requests.
+handshake. Unsupported write bursts, transfers crossing the 16-byte AXI data
+word, non-final single-beat writes, and partial strobes are rejected with AXI
+`SLVERR` instead of being forwarded as invalid zero-length gem5 DMA requests.
 The same test executes 64 deterministic randomized read transactions and 64
 write transactions with channel delays and response backpressure.
 

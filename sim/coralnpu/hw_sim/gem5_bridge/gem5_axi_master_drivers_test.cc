@@ -34,6 +34,10 @@ struct ReadyDroppingModel {
   }
 };
 
+struct PassiveModel {
+  void eval() {}
+};
+
 struct RandomReadyModel {
   uint8_t* clock;
   uint8_t* response_valid;
@@ -235,23 +239,43 @@ TestDmaRequestValidation()
   addr.addr_bits_id = 7;
   addr.addr_bits_size = 2;
   addr.addr_bits_len = 0;
+  addr.addr_bits_burst = 1;
   coral_gem5_dma_request request = {};
+  uint32_t beat_size = 0;
+  uint32_t beat_count = 0;
   uint32_t lane = 0;
 
-  Check(BuildGem5DmaReadRequest(addr, &request, &lane),
+  Check(BuildGem5DmaReadRequest(
+            addr, &request, &beat_size, &beat_count),
         "valid read request was rejected");
-  Check(request.size == 4 && lane == 4,
+  Check(request.size == 4 && beat_size == 4 && beat_count == 1,
         "valid read request was encoded incorrectly");
 
+  addr.addr_bits_len = 3;
+  Check(BuildGem5DmaReadRequest(
+            addr, &request, &beat_size, &beat_count),
+        "valid read burst was rejected");
+  Check(request.size == 16 && beat_size == 4 && beat_count == 4,
+        "read burst was encoded incorrectly");
+
+  addr.addr_bits_burst = 0;
+  Check(!BuildGem5DmaReadRequest(
+            addr, &request, &beat_size, &beat_count),
+        "non-INCR read burst was accepted");
+  addr.addr_bits_burst = 1;
+  addr.addr_bits_addr = 0x20000ffcu;
   addr.addr_bits_len = 1;
-  Check(!BuildGem5DmaReadRequest(addr, &request, &lane),
-        "read burst was accepted before burst support");
-  addr.addr_bits_len = 0;
+  Check(!BuildGem5DmaReadRequest(
+            addr, &request, &beat_size, &beat_count),
+        "read burst crossing 4 KiB was accepted");
   addr.addr_bits_addr = 0x2000000f;
-  Check(!BuildGem5DmaReadRequest(addr, &request, &lane),
-        "read crossing the AXI data word was accepted");
+  addr.addr_bits_len = 0;
+  Check(!BuildGem5DmaReadRequest(
+            addr, &request, &beat_size, &beat_count),
+        "read beat crossing the AXI data word was accepted");
 
   addr.addr_bits_addr = 0x20000004;
+  addr.addr_bits_len = 0;
   AxiWData data = {};
   data.write_data_bits_data[1] = 0x11223344;
   data.write_data_bits_strb = 0x00f0;
@@ -269,6 +293,62 @@ TestDmaRequestValidation()
   data.write_data_bits_last = 0;
   Check(!BuildGem5DmaWriteRequest(addr, data, &request, &lane),
         "non-final write beat was accepted");
+}
+
+void
+TestReadBurstResponseRetirement()
+{
+  VerilatedContext context;
+  uint8_t clock_signal = 0;
+  uint8_t addr_valid = 0;
+  uint32_t addr = 0x20000000;
+  uint8_t prot = 0;
+  uint8_t id = 9;
+  uint8_t len = 3;
+  uint8_t size = 2;
+  uint8_t burst = 1;
+  uint8_t lock = 0;
+  uint8_t cache = 0;
+  uint8_t qos = 0;
+  uint8_t region = 0;
+  uint8_t addr_ready = 0;
+  uint8_t data_valid = 0;
+  VlWide<4> data = {};
+  uint8_t data_id = 0;
+  uint8_t data_resp = 0;
+  uint8_t data_last = 0;
+  uint8_t data_ready = 1;
+  PassiveModel model;
+  Clock clock(&context, &clock_signal, &model);
+  Gem5AxiMasterReadDriver driver(
+      &clock, &addr_valid, &addr, &prot, &id, &len, &size, &burst,
+      &lock, &cache, &qos, &region, &addr_ready, &data_valid, &data,
+      &data_id, &data_resp, &data_last, &data_ready);
+
+  int requests = 0;
+  driver.RegisterDeferredCallback(
+      [&](const AxiAddr&) { ++requests; });
+  addr_valid = 1;
+  clock.Step();
+  addr_valid = 0;
+  Check(requests == 1 && driver.HasDeferredRequest(),
+        "read burst request was not captured");
+
+  for (uint32_t beat = 0; beat < 4; ++beat) {
+    AxiRData response = {};
+    response.read_data_bits_data[beat] = 0x100 + beat;
+    response.read_data_bits_id = id;
+    response.read_data_bits_last = beat == 3;
+    driver.QueueResponse(response);
+  }
+
+  clock.Step();
+  Check(data_valid == 1, "first read burst beat was not presented");
+  for (uint32_t beat = 0; beat < 4; ++beat) {
+    clock.Step();
+    Check(driver.HasDeferredRequest() == (beat != 3),
+          "read burst retired before RLAST or remained after RLAST");
+  }
 }
 
 void
@@ -467,6 +547,7 @@ main()
   TestDeferredRead();
   TestIndependentWriteChannels();
   TestDmaRequestValidation();
+  TestReadBurstResponseRetirement();
   TestRandomizedReadTiming();
   TestRandomizedWriteTiming();
   std::puts("PASS: gem5 Coral AXI master adapter");

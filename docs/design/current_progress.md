@@ -102,7 +102,9 @@ dma_test=PASS
   channel skew and response backpressure.
 - Unsupported DMA request shapes return AXI `SLVERR` locally instead of
   reaching gem5 as zero-length DMA operations.
-- Extend the verified single 16-byte beat to bursts and multiple IDs.
+- INCR read bursts up to 256 beats and 4096 bytes use one coherent gem5 DMA
+  and return ordered AXI response beats through `RLAST`.
+- Add write bursts and then multiple outstanding IDs.
 - Define checkpoint behavior for an in-flight RTL/DMA transaction.
 
 ### Phase 3

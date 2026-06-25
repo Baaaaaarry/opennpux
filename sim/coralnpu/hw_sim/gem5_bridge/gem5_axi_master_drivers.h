@@ -56,8 +56,11 @@ class Gem5AxiMasterReadDriver : Clock::Observer {
     response_handshake_pending_ = false;
 
     if (response_handshake) {
+      const bool last = responses_.front().read_data_bits_last;
       responses_.pop();
-      request_pending_ = false;
+      if (last) {
+        request_pending_ = false;
+      }
     }
 
     if (!*addr_valid_) {

@@ -9,19 +9,28 @@
 inline bool
 BuildGem5DmaReadRequest(const AxiAddr& addr,
                         coral_gem5_dma_request* request,
-                        uint32_t* lane)
+                        uint32_t* beat_size, uint32_t* beat_count)
 {
-  if (request == nullptr || lane == nullptr || addr.addr_bits_len != 0 ||
-      addr.addr_bits_size > 4) {
+  if (request == nullptr || beat_size == nullptr || beat_count == nullptr ||
+      addr.addr_bits_size > 4 || addr.addr_bits_burst != 1) {
     return false;
   }
 
-  const uint32_t size = 1u << addr.addr_bits_size;
-  const uint32_t offset =
-      addr.addr_bits_addr & (CORAL_GEM5_DMA_DATA_BYTES - 1);
-  if (size > CORAL_GEM5_DMA_DATA_BYTES ||
-      offset + size > CORAL_GEM5_DMA_DATA_BYTES) {
+  const uint32_t bytes_per_beat = 1u << addr.addr_bits_size;
+  const uint32_t beats = static_cast<uint32_t>(addr.addr_bits_len) + 1;
+  const uint32_t size = bytes_per_beat * beats;
+  const uint32_t page_offset = addr.addr_bits_addr & 0xfff;
+  if (size > CORAL_GEM5_DMA_DATA_BYTES || page_offset + size > 4096) {
     return false;
+  }
+  for (uint32_t beat = 0; beat < beats; ++beat) {
+    const uint32_t beat_addr =
+        addr.addr_bits_addr + beat * bytes_per_beat;
+    const uint32_t lane =
+        beat_addr & (CORAL_GEM5_AXI_DATA_BYTES - 1);
+    if (lane + bytes_per_beat > CORAL_GEM5_AXI_DATA_BYTES) {
+      return false;
+    }
   }
 
   std::memset(request, 0, sizeof(*request));
@@ -29,7 +38,8 @@ BuildGem5DmaReadRequest(const AxiAddr& addr,
   request->addr = addr.addr_bits_addr;
   request->size = size;
   request->id = addr.addr_bits_id;
-  *lane = offset;
+  *beat_size = bytes_per_beat;
+  *beat_count = beats;
   return true;
 }
 
@@ -45,9 +55,9 @@ BuildGem5DmaWriteRequest(const AxiAddr& addr, const AxiWData& data,
 
   const uint32_t size = 1u << addr.addr_bits_size;
   const uint32_t offset =
-      addr.addr_bits_addr & (CORAL_GEM5_DMA_DATA_BYTES - 1);
-  if (size > CORAL_GEM5_DMA_DATA_BYTES ||
-      offset + size > CORAL_GEM5_DMA_DATA_BYTES) {
+      addr.addr_bits_addr & (CORAL_GEM5_AXI_DATA_BYTES - 1);
+  if (size > CORAL_GEM5_AXI_DATA_BYTES ||
+      offset + size > CORAL_GEM5_AXI_DATA_BYTES) {
     return false;
   }
 

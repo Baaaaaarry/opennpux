@@ -618,15 +618,9 @@ class AxiMasterWriteDriver : Clock::Observer {
       resp_queue_.pop();
       deferred_request_pending_ = false;
       response_presented_ = false;
-      response_completed_ = true;
-    }
-
-    if (response_completed_ &&
-        !*write_addr_valid_ && !*write_data_valid_) {
       addr_captured_ = false;
       data_captured_ = false;
       request_submitted_ = false;
-      response_completed_ = false;
     }
 
     // Send Response
@@ -714,7 +708,6 @@ class AxiMasterWriteDriver : Clock::Observer {
   bool addr_captured_ = false;
   bool data_captured_ = false;
   bool request_submitted_ = false;
-  bool response_completed_ = false;
   bool response_presented_ = false;
 };
 

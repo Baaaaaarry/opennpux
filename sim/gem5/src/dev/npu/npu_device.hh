@@ -34,6 +34,8 @@ class NPUDevice : public DmaVirtDevice
     uint32_t backendId;
     uint32_t firmwareEntry;
     bool dmaActive;
+    uint32_t dmaRequests;
+    uint32_t dmaCompletions;
 
     void processBackendEvent();
     void syncBackendEvent();

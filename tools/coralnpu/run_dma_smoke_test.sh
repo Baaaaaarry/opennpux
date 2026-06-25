@@ -18,4 +18,5 @@ fi
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_FIRMWARE="${FIRMWARE}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
+GEM5_OPTIONS="${GEM5_OPTIONS:---debug-flags=NPUDevice}" \
 exec "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"

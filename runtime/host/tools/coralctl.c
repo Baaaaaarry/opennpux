@@ -12,6 +12,9 @@
 #define RESET_CONTROL UINT64_C(0x30000)
 #define PC_START UINT64_C(0x30004)
 #define STATUS UINT64_C(0x30008)
+#define DMA_REQUESTS UINT64_C(0x30fe4)
+#define DMA_COMPLETIONS UINT64_C(0x30fe8)
+#define DMA_STATE UINT64_C(0x30fec)
 #define SHARED_BASE UINT64_C(0x30ff0)
 #define SHARED_SIZE UINT64_C(0x30ff4)
 #define FIRMWARE_ENTRY UINT64_C(0x30ff8)
@@ -158,6 +161,12 @@ print_info(struct coral_regs *regs, uint64_t base)
            read_reg(regs, base, SHARED_BASE));
     printf("shared_size=0x%08" PRIx32 "\n",
            read_reg(regs, base, SHARED_SIZE));
+    printf("dma_requests=%" PRIu32 "\n",
+           read_reg(regs, base, DMA_REQUESTS));
+    printf("dma_completions=%" PRIu32 "\n",
+           read_reg(regs, base, DMA_COMPLETIONS));
+    printf("dma_state=0x%08" PRIx32 "\n",
+           read_reg(regs, base, DMA_STATE));
     printf("reset_control=0x%08" PRIx32 "\n",
            read_reg(regs, base, RESET_CONTROL));
     printf("status=0x%08" PRIx32 "\n", read_reg(regs, base, STATUS));
@@ -234,7 +243,7 @@ main(int argc, char **argv)
     }
 
     uint64_t entry = read_reg(&regs, base, FIRMWARE_ENTRY);
-    uint64_t polls = 1000;
+    uint64_t polls = command_dma_test ? 100000 : 1000;
     if (command_run && argc >= 4 && parse_u64(argv[3], &entry) != 0) {
         fprintf(stderr, "invalid entry address: %s\n", argv[3]);
         close_regs(&regs);
@@ -287,6 +296,12 @@ main(int argc, char **argv)
     __sync_synchronize();
     printf("dma_result=%" PRIu32 "\n", shared[0]);
     printf("dma_magic=0x%08" PRIx32 "\n", shared[2]);
+    printf("dma_requests=%" PRIu32 "\n",
+           read_reg(&regs, base, DMA_REQUESTS));
+    printf("dma_completions=%" PRIu32 "\n",
+           read_reg(&regs, base, DMA_COMPLETIONS));
+    printf("dma_state=0x%08" PRIx32 "\n",
+           read_reg(&regs, base, DMA_STATE));
     const int valid = shared[0] == 42 &&
                       shared[2] == UINT32_C(0x4e505544);
     munmap(mapping, map_size);

@@ -24,6 +24,9 @@ constexpr Addr kBackendIdOffset = 0x30ffc;
 constexpr Addr kFirmwareEntryOffset = 0x30ff8;
 constexpr Addr kSharedSizeOffset = 0x30ff4;
 constexpr Addr kSharedBaseOffset = 0x30ff0;
+constexpr Addr kDmaStateOffset = 0x30fec;
+constexpr Addr kDmaCompletionsOffset = 0x30fe8;
+constexpr Addr kDmaRequestsOffset = 0x30fe4;
 constexpr uint32_t kStageABackendId = 0x4e505501;
 constexpr uint32_t kVerilatedCoralBackendId = 0x4e505502;
 
@@ -40,6 +43,8 @@ NPUDevice::NPUDevice(const Params &p)
     backendId(0),
     firmwareEntry(0),
     dmaActive(false),
+    dmaRequests(0),
+    dmaCompletions(0),
     backendEvent(*this)
 {
     fatal_if(dmaSharedSize == 0, "Coral NPU DMA shared size is zero");
@@ -97,6 +102,12 @@ NPUDevice::startBackendDma()
             [this](const auto &data) { completeBackendDma(data); },
             request.data);
     dmaActive = true;
+    ++dmaRequests;
+    DPRINTFR(NPUDevice,
+             "Coral DMA start count=%u type=%s coral=%#x host=%#x size=%u\n",
+             dmaRequests,
+             request.type == CoralDmaType::Read ? "read" : "write",
+             request.addr, hostAddr, request.size);
 
     if (request.type == CoralDmaType::Read) {
         dmaReadVirt(hostAddr, request.size, callback,
@@ -115,6 +126,8 @@ NPUDevice::completeBackendDma(
     const CoralDmaRequest &request = backend->dmaRequest();
     backend->completeDma(data.data(), request.size, false);
     dmaActive = false;
+    ++dmaCompletions;
+    DPRINTFR(NPUDevice, "Coral DMA complete count=%u\n", dmaCompletions);
     syncBackendEvent();
 }
 
@@ -141,7 +154,22 @@ NPUDevice::read(PacketPtr pkt)
              backend->name(), pkt->getAddr(), pkt->getSize());
 
     const Addr offset = pkt->getAddr() - pioAddr;
-    if (offset == kSharedBaseOffset &&
+    if (offset == kDmaRequestsOffset &&
+        pkt->getSize() == sizeof(uint32_t)) {
+        pkt->setLE<uint32_t>(dmaRequests);
+        pkt->makeAtomicResponse();
+    } else if (offset == kDmaCompletionsOffset &&
+        pkt->getSize() == sizeof(uint32_t)) {
+        pkt->setLE<uint32_t>(dmaCompletions);
+        pkt->makeAtomicResponse();
+    } else if (offset == kDmaStateOffset &&
+        pkt->getSize() == sizeof(uint32_t)) {
+        const uint32_t state =
+            (backend->hasDmaRequest() ? 0x1 : 0x0) |
+            (dmaActive ? 0x2 : 0x0);
+        pkt->setLE<uint32_t>(state);
+        pkt->makeAtomicResponse();
+    } else if (offset == kSharedBaseOffset &&
         pkt->getSize() == sizeof(uint32_t)) {
         pkt->setLE<uint32_t>(dmaSharedBase);
         pkt->makeAtomicResponse();

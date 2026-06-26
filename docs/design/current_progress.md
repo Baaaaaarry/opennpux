@@ -111,6 +111,9 @@ dma_test=PASS
   `SLVERR` and counted through `dma_errors` instead of terminating gem5.
 - Checkpointing is guarded by gem5 drain/serialize hooks: quiescent NPU states
   can be checkpointed, while in-flight RTL/DMA state is rejected.
+- `coralctl` now provides bounded shared-window management commands
+  (`mem-info`, `mem-clear`, `mem-read32`, and `mem-write32`) over the same
+  mapper used by `dma-test`.
 - Add multiple outstanding IDs.
 
 ### Phase 3

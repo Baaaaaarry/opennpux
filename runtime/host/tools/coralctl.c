@@ -31,6 +31,17 @@ struct coral_regs {
     uint64_t page_base;
 };
 
+struct coral_shared_window {
+    uint32_t base;
+    uint32_t size;
+    size_t map_size;
+    void *mapping;
+    volatile uint8_t *bytes;
+};
+
+static uint32_t
+read_reg(struct coral_regs *regs, uint64_t base, uint64_t offset);
+
 static void
 usage(const char *prog)
 {
@@ -38,8 +49,12 @@ usage(const char *prog)
             "usage:\n"
             "  %s info [base]\n"
             "  %s run [base [entry [poll-count]]]\n"
-            "  %s dma-test [base [poll-count]]\n",
-            prog, prog, prog);
+            "  %s dma-test [base [poll-count]]\n"
+            "  %s mem-info [base]\n"
+            "  %s mem-clear [base]\n"
+            "  %s mem-read32 <offset> [base]\n"
+            "  %s mem-write32 <offset> <value> [base]\n",
+            prog, prog, prog, prog, prog, prog, prog);
 }
 
 static int
@@ -111,6 +126,63 @@ close_regs(struct coral_regs *regs)
     }
 }
 
+static int
+open_shared_window(struct coral_regs *regs, uint64_t base, size_t min_size,
+                   struct coral_shared_window *window)
+{
+    memset(window, 0, sizeof(*window));
+    window->base = read_reg(regs, base, SHARED_BASE);
+    window->size = read_reg(regs, base, SHARED_SIZE);
+    if (window->size < min_size) {
+        fprintf(stderr,
+                "Coral shared DMA window is too small: size=0x%08" PRIx32
+                " required=0x%zx\n",
+                window->size, min_size);
+        return -1;
+    }
+
+    const uint64_t page_mask = (uint64_t)regs->page_size - 1;
+    const uint64_t map_base = window->base & ~page_mask;
+    const size_t map_offset = window->base & page_mask;
+    window->map_size = map_offset + window->size;
+    window->mapping = mmap(NULL, window->map_size, PROT_READ | PROT_WRITE,
+                           MAP_SHARED, regs->fd, (off_t)map_base);
+    if (window->mapping == MAP_FAILED) {
+        window->mapping = NULL;
+        perror("mmap(Coral shared DMA window)");
+        return -1;
+    }
+    window->bytes = (volatile uint8_t *)window->mapping + map_offset;
+    return 0;
+}
+
+static void
+close_shared_window(struct coral_shared_window *window)
+{
+    if (window->mapping != NULL) {
+        munmap(window->mapping, window->map_size);
+    }
+    memset(window, 0, sizeof(*window));
+}
+
+static int
+check_shared_u32_access(const struct coral_shared_window *window,
+                        uint64_t offset)
+{
+    if ((offset & 0x3) != 0) {
+        fprintf(stderr, "shared window offset must be 32-bit aligned\n");
+        return -1;
+    }
+    if (offset > UINT32_MAX || offset + sizeof(uint32_t) > window->size) {
+        fprintf(stderr,
+                "shared window offset 0x%" PRIx64
+                " is outside size 0x%08" PRIx32 "\n",
+                offset, window->size);
+        return -1;
+    }
+    return 0;
+}
+
 static volatile uint32_t *
 reg_ptr(struct coral_regs *regs, uint64_t base, uint64_t offset)
 {
@@ -176,6 +248,77 @@ print_info(struct coral_regs *regs, uint64_t base)
 }
 
 static int
+print_mem_info(struct coral_regs *regs, uint64_t base)
+{
+    struct coral_shared_window window;
+    if (open_shared_window(regs, base, 0, &window) != 0) {
+        return 1;
+    }
+    printf("shared_base=0x%08" PRIx32 "\n", window.base);
+    printf("shared_size=0x%08" PRIx32 "\n", window.size);
+    printf("shared_words=%" PRIu32 "\n", window.size / 4);
+    close_shared_window(&window);
+    return 0;
+}
+
+static int
+clear_shared_window(struct coral_regs *regs, uint64_t base)
+{
+    struct coral_shared_window window;
+    if (open_shared_window(regs, base, 0, &window) != 0) {
+        return 1;
+    }
+    memset((void *)window.bytes, 0, window.size);
+    __sync_synchronize();
+    printf("shared_clear=PASS\n");
+    close_shared_window(&window);
+    return 0;
+}
+
+static int
+read_shared_u32(struct coral_regs *regs, uint64_t base, uint64_t offset)
+{
+    struct coral_shared_window window;
+    if (open_shared_window(regs, base, sizeof(uint32_t), &window) != 0) {
+        return 1;
+    }
+    if (check_shared_u32_access(&window, offset) != 0) {
+        close_shared_window(&window);
+        return 1;
+    }
+
+    volatile uint32_t *word =
+        (volatile uint32_t *)(window.bytes + offset);
+    printf("shared[0x%08" PRIx64 "]=0x%08" PRIx32 "\n",
+           offset, *word);
+    close_shared_window(&window);
+    return 0;
+}
+
+static int
+write_shared_u32(struct coral_regs *regs, uint64_t base, uint64_t offset,
+                 uint32_t value)
+{
+    struct coral_shared_window window;
+    if (open_shared_window(regs, base, sizeof(uint32_t), &window) != 0) {
+        return 1;
+    }
+    if (check_shared_u32_access(&window, offset) != 0) {
+        close_shared_window(&window);
+        return 1;
+    }
+
+    volatile uint32_t *word =
+        (volatile uint32_t *)(window.bytes + offset);
+    *word = value;
+    __sync_synchronize();
+    printf("shared[0x%08" PRIx64 "]=0x%08" PRIx32 "\n",
+           offset, value);
+    close_shared_window(&window);
+    return 0;
+}
+
+static int
 run_npu(struct coral_regs *regs, uint64_t base, uint32_t entry,
         uint64_t polls)
 {
@@ -209,7 +352,7 @@ run_npu(struct coral_regs *regs, uint64_t base, uint32_t entry,
 int
 main(int argc, char **argv)
 {
-    if (argc < 2 || argc > 5) {
+    if (argc < 2 || argc > 6) {
         usage(argv[0]);
         return 2;
     }
@@ -217,21 +360,51 @@ main(int argc, char **argv)
     const int command_info = strcmp(argv[1], "info") == 0;
     const int command_run = strcmp(argv[1], "run") == 0;
     const int command_dma_test = strcmp(argv[1], "dma-test") == 0;
-    if (!command_info && !command_run && !command_dma_test) {
+    const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
+    const int command_mem_clear = strcmp(argv[1], "mem-clear") == 0;
+    const int command_mem_read32 = strcmp(argv[1], "mem-read32") == 0;
+    const int command_mem_write32 = strcmp(argv[1], "mem-write32") == 0;
+    if (!command_info && !command_run && !command_dma_test &&
+        !command_mem_info && !command_mem_clear && !command_mem_read32 &&
+        !command_mem_write32) {
         usage(argv[0]);
         return 2;
     }
     if ((command_info && argc > 3) ||
         (command_run && argc > 5) ||
-        (command_dma_test && argc > 4)) {
+        (command_dma_test && argc > 4) ||
+        (command_mem_info && argc > 3) ||
+        (command_mem_clear && argc > 3) ||
+        (command_mem_read32 && (argc < 3 || argc > 4)) ||
+        (command_mem_write32 && (argc < 4 || argc > 5))) {
         usage(argv[0]);
         return 2;
     }
 
     uint64_t base = DEFAULT_BASE;
-    if (argc >= 3 && parse_u64(argv[2], &base) != 0) {
-        fprintf(stderr, "invalid base address: %s\n", argv[2]);
-        return 2;
+    uint64_t shared_offset = 0;
+    uint64_t shared_value = 0;
+    if (command_mem_read32 || command_mem_write32) {
+        const int base_arg = command_mem_read32 ? 3 : 4;
+        if (parse_u64(argv[2], &shared_offset) != 0) {
+            fprintf(stderr, "invalid shared offset: %s\n", argv[2]);
+            return 2;
+        }
+        if (command_mem_write32 &&
+            (parse_u64(argv[3], &shared_value) != 0 ||
+             shared_value > UINT32_MAX)) {
+            fprintf(stderr, "invalid 32-bit value: %s\n", argv[3]);
+            return 2;
+        }
+        if (argc > base_arg && parse_u64(argv[base_arg], &base) != 0) {
+            fprintf(stderr, "invalid base address: %s\n", argv[base_arg]);
+            return 2;
+        }
+    } else {
+        if (argc >= 3 && parse_u64(argv[2], &base) != 0) {
+            fprintf(stderr, "invalid base address: %s\n", argv[2]);
+            return 2;
+        }
     }
 
     struct coral_regs regs;
@@ -243,6 +416,32 @@ main(int argc, char **argv)
         print_info(&regs, base);
         close_regs(&regs);
         return 0;
+    }
+
+    if (command_mem_info) {
+        const int result = print_mem_info(&regs, base);
+        close_regs(&regs);
+        return result;
+    }
+
+    if (command_mem_clear) {
+        const int result = clear_shared_window(&regs, base);
+        close_regs(&regs);
+        return result;
+    }
+
+    if (command_mem_read32) {
+        const int result = read_shared_u32(&regs, base, shared_offset);
+        close_regs(&regs);
+        return result;
+    }
+
+    if (command_mem_write32) {
+        const int result =
+            write_shared_u32(&regs, base, shared_offset,
+                             (uint32_t)shared_value);
+        close_regs(&regs);
+        return result;
     }
 
     uint64_t entry = read_reg(&regs, base, FIRMWARE_ENTRY);
@@ -266,29 +465,14 @@ main(int argc, char **argv)
         return result;
     }
 
-    const uint32_t shared_base = read_reg(&regs, base, SHARED_BASE);
-    const uint32_t shared_size = read_reg(&regs, base, SHARED_SIZE);
-    if (shared_size < 16) {
-        fprintf(stderr, "Coral shared DMA window is too small\n");
-        close_regs(&regs);
-        return 1;
-    }
-
-    const long page_size = sysconf(_SC_PAGESIZE);
-    const uint64_t page_mask = (uint64_t)page_size - 1;
-    const uint64_t map_base = shared_base & ~page_mask;
-    const size_t map_offset = shared_base & page_mask;
-    const size_t map_size = map_offset + shared_size;
-    void *mapping = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED,
-                         regs.fd, (off_t)map_base);
-    if (mapping == MAP_FAILED) {
-        perror("mmap(Coral shared DMA window)");
+    struct coral_shared_window window;
+    if (open_shared_window(&regs, base, 16, &window) != 0) {
         close_regs(&regs);
         return 1;
     }
 
     volatile uint32_t *shared =
-        (volatile uint32_t *)((uint8_t *)mapping + map_offset);
+        (volatile uint32_t *)window.bytes;
     shared[0] = 7;
     shared[1] = 35;
     shared[2] = 0;
@@ -309,7 +493,7 @@ main(int argc, char **argv)
            read_reg(&regs, base, DMA_STATE));
     const int valid = shared[0] == 42 &&
                       shared[2] == UINT32_C(0x4e505544);
-    munmap(mapping, map_size);
+    close_shared_window(&window);
     close_regs(&regs);
 
     if (run_result != 0 || !valid) {

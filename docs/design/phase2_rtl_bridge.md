@@ -128,8 +128,14 @@ Coral as AXI `SLVERR`; gem5 no longer terminates the whole simulation for this
 class of firmware/runtime bug. Valid DMA requests and completions remain
 tracked separately from rejected requests.
 
+Before a Linux kernel driver is available, `coralctl` owns the Phase-2
+shared-buffer management contract. It discovers the reserved window through
+the shell CSRs and provides bounded `mem-info`, `mem-clear`, `mem-read32`, and
+`mem-write32` commands. The DMA smoke path uses the same mapper, so manual
+buffer inspection and automated smoke tests exercise the same guest-side ABI.
+
 ## Remaining Phase-2 work
 
-- promote the fixed reserved-memory smoke page into driver-managed allocation
+- replace the `/dev/mem` shared-buffer mapper with a kernel driver allocator
 - add multiple-outstanding ID support after the single-outstanding burst path
   is verified

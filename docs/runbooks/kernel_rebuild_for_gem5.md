@@ -23,7 +23,7 @@ sudo apt-get install -y \
   bc bison flex git libssl-dev make gcc-aarch64-linux-gnu
 
 cd ~/code/opennpux
-LINUX_BRANCH=linux-6.6.y ./tools/kernel/build_arm64_kernel.sh
+LINUX_BRANCH=linux-4.19.y ./tools/kernel/build_arm64_kernel.sh
 ```
 
 Outputs:
@@ -61,7 +61,7 @@ Then rebuild the new kernel using that config as the base:
 ```sh
 cd ~/code/opennpux
 KERNEL_BASE_CONFIG="$PWD/build/kernel/gem5-4.18.config" \
-LINUX_BRANCH=linux-6.6.y \
+LINUX_BRANCH=linux-4.19.y \
 ./tools/kernel/build_arm64_kernel.sh
 ```
 
@@ -84,6 +84,20 @@ Check the resulting config:
 
 ```sh
 ./tools/kernel/check_gem5_kernel_config.sh build/linux-arm64/.config
+```
+
+Start with `linux-4.19.y` for bring-up. It is close to the known-good 4.18
+gem5 kernel but still provides a reproducible build tree for out-of-tree
+modules. Treat `linux-6.6.y` as a later compatibility target; if it reaches no
+serial output while the old `vmlinux.arm64` works, the failure is before Linux
+reaches the PL011 console.
+
+Compare a non-booting kernel against the known-good kernel:
+
+```sh
+./tools/kernel/diagnose_gem5_kernel.sh \
+  "$PWD/build/kernel/vmlinux-$(cat build/kernel/kernel.release)" \
+  /home/barry/wlk/gem5_arm_linux_images/vmlinux.arm64
 ```
 
 ## Build The Coral Driver Module

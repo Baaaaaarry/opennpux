@@ -8,9 +8,15 @@ set_config() {
     key="$1"
     value="$2"
     if grep -q "^${key}=" "${CONFIG}" || grep -q "^# ${key} is not set" "${CONFIG}"; then
-        sed -i.bak -e "s/^${key}=.*/${key}=${value}/" \
-            -e "s/^# ${key} is not set/${key}=${value}/" "${CONFIG}"
-        rm -f "${CONFIG}.bak"
+        tmp="${CONFIG}.tmp.$$"
+        awk -v key="${key}" -v value="${value}" '
+            $0 ~ "^" key "=" || $0 == "# " key " is not set" {
+                print key "=" value
+                next
+            }
+            { print }
+        ' "${CONFIG}" > "${tmp}"
+        mv "${tmp}" "${CONFIG}"
     else
         printf '%s=%s\n' "${key}" "${value}" >> "${CONFIG}"
     fi
@@ -19,8 +25,15 @@ set_config() {
 unset_config() {
     key="$1"
     if grep -q "^${key}=" "${CONFIG}" || grep -q "^# ${key} is not set" "${CONFIG}"; then
-        sed -i.bak -e "s/^${key}=.*/# ${key} is not set/" "${CONFIG}"
-        rm -f "${CONFIG}.bak"
+        tmp="${CONFIG}.tmp.$$"
+        awk -v key="${key}" '
+            $0 ~ "^" key "=" || $0 == "# " key " is not set" {
+                print "# " key " is not set"
+                next
+            }
+            { print }
+        ' "${CONFIG}" > "${tmp}"
+        mv "${tmp}" "${CONFIG}"
     else
         printf '# %s is not set\n' "${key}" >> "${CONFIG}"
     fi

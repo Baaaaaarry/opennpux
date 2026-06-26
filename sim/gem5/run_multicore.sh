@@ -13,6 +13,7 @@ export CORAL_CKPT_BOOTSCRIPT="${CORAL_CKPT_BOOTSCRIPT:-${GEM5_ROOT}/configs/cora
 export CORAL_RESUME_BOOTSCRIPT="${CORAL_RESUME_BOOTSCRIPT:-${GEM5_ROOT}/configs/coralnpu/fs-run.rcS}"
 export CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/init}"
 export CORAL_KERNEL_IMAGE="${CORAL_KERNEL_IMAGE:-${IMAGE_PATH}/vmlinux.arm64}"
+export CORAL_KERNEL_CMDLINE="${CORAL_KERNEL_CMDLINE:-}"
 export BUILD_JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)"
 export CORAL_DISK_IMG_BUILT_DEFAULT="${GEM5_ROOT}/image/out/ubuntu-22.04-arm64-runtime-min-nosystemd.img"
 export CORAL_DISK_IMG_BUILT_ALT1="${GEM5_ROOT}/image/out/ubuntu-22.04-arm64-runtime-min.img"
@@ -26,6 +27,7 @@ export CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}"
 export CORAL_CKPT_IMAGE_META="${CORAL_CKPT_ROOT}/disk_image_path.txt"
 export CORAL_CKPT_INIT_META="${CORAL_CKPT_ROOT}/kernel_init_path.txt"
 export CORAL_CKPT_KERNEL_META="${CORAL_CKPT_ROOT}/kernel_image_path.txt"
+export CORAL_CKPT_CMDLINE_META="${CORAL_CKPT_ROOT}/kernel_cmdline.txt"
 export CORAL_CKPT_FORMAT_META="${CORAL_CKPT_ROOT}/format_version.txt"
 export CORAL_CKPT_FORMAT_VERSION=4
 export CORAL_NPU_BACKEND="${CORAL_NPU_BACKEND:-stage-a}"
@@ -137,6 +139,19 @@ if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ "${CORAL_KERNEL_IMAGE}" -nt "${CORA
   rm -rf "${CORAL_CKPT_ROOT}"
 fi
 
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ ! -f "${CORAL_CKPT_CMDLINE_META}" ]; then
+  echo "Legacy checkpoint kernel cmdline metadata missing; recording current cmdline"
+  mkdir -p "${CORAL_CKPT_ROOT}"
+  printf '%s\n' "${CORAL_KERNEL_CMDLINE}" > "${CORAL_CKPT_CMDLINE_META}"
+fi
+
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ -f "${CORAL_CKPT_CMDLINE_META}" ]; then
+  if [ "$(cat "${CORAL_CKPT_CMDLINE_META}")" != "${CORAL_KERNEL_CMDLINE}" ]; then
+    echo "Kernel cmdline changed; rebuilding boot checkpoint"
+    rm -rf "${CORAL_CKPT_ROOT}"
+  fi
+fi
+
 mkdir -p "${CORAL_CKPT_ROOT}"
 
 # 默认启动命令d9300，可对应修改d9300 -> d9200
@@ -147,6 +162,7 @@ echo "Guest terminal socket: ./util/term/gem5term localhost 4567"
 echo "Disk image: ${CORAL_DISK_IMG}"
 echo "Kernel image: ${CORAL_KERNEL_IMAGE}"
 echo "Kernel init: ${CORAL_KERNEL_INIT}"
+[ -z "${CORAL_KERNEL_CMDLINE}" ] || echo "Kernel cmdline override: ${CORAL_KERNEL_CMDLINE}"
 echo "Checkpoint root: ${CORAL_CKPT_ROOT}"
 echo "NPU backend: ${CORAL_NPU_BACKEND}"
 [ "${CORAL_NPU_BACKEND}" != "verilated-coral" ] || echo "Coral RTL bridge: ${CORAL_RTL_BRIDGE}"
@@ -169,7 +185,8 @@ if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
     ${NPU_BACKEND_ARGS} \
     --ckpt-dir="${CORAL_CKPT_ROOT}" \
     --restore-from="${CORAL_BOOTED_CKPT}" \
-    --bootscript="${CORAL_RESUME_BOOTSCRIPT}"
+    --bootscript="${CORAL_RESUME_BOOTSCRIPT}" \
+    --kernel-cmd="${CORAL_KERNEL_CMDLINE}"
 else
   echo "Mode: bootstrap and create checkpoint"
   echo "Bootstrap NPU backend: stage-a"
@@ -184,10 +201,12 @@ else
     ${BOOTSTRAP_NPU_BACKEND_ARGS} \
     --ckpt-dir="${CORAL_CKPT_ROOT}" \
     --exit-after-checkpoint \
-    --bootscript="${CORAL_CKPT_BOOTSCRIPT}"
+    --bootscript="${CORAL_CKPT_BOOTSCRIPT}" \
+    --kernel-cmd="${CORAL_KERNEL_CMDLINE}"
   printf '%s\n' "${CORAL_DISK_IMG}" > "${CORAL_CKPT_IMAGE_META}"
   printf '%s\n' "${CORAL_KERNEL_INIT}" > "${CORAL_CKPT_INIT_META}"
   printf '%s\n' "${CORAL_KERNEL_IMAGE}" > "${CORAL_CKPT_KERNEL_META}"
+  printf '%s\n' "${CORAL_KERNEL_CMDLINE}" > "${CORAL_CKPT_CMDLINE_META}"
   printf '%s\n' "${CORAL_CKPT_FORMAT_VERSION}" > "${CORAL_CKPT_FORMAT_META}"
   echo "Boot checkpoint saved at ${CORAL_BOOTED_CKPT}"
   echo "Run ./run_multicore.sh again to restore and execute the Coral NPU test script"

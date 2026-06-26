@@ -127,6 +127,13 @@ dma_test=PASS
 - Add multiple outstanding AXI IDs if firmware/runtime profiling shows the
   single-outstanding bridge is a bottleneck.
 
+The first Phase-3 increment has split `coralctl` into a reusable host runtime
+API (`runtime/host/include/opennpux/coral_runtime.h` and
+`runtime/host/src/coral_runtime.c`) plus a CLI frontend. The runtime still uses
+the Phase-2 `/dev/mem` backend so existing checkpoint-based tests continue to
+work. The next increment is to replace that backend with a minimal Linux
+character device while keeping the userspace API stable.
+
 ### Phase 4
 
 - Load a real model and tensors from Linux.
@@ -142,7 +149,8 @@ dma_test=PASS
 
 ## Immediate Development Order
 
-1. Run the Phase-2 acceptance suite on x86 Linux.
-2. Promote the `/dev/mem` shared-window ABI into the minimal Linux driver.
-3. Add interrupt or event-driven completion delivery.
-4. Start Phase-4 model/runtime integration on top of the verified bridge.
+1. Run the Phase-3 runtime acceptance suite on x86 Linux.
+2. Add `/dev/opennpux-coral` with info/reset/start/status ioctls.
+3. Add driver-backed shared-window mmap and remove runtime dependence on
+   `/dev/mem`.
+4. Add interrupt or event-driven completion delivery.

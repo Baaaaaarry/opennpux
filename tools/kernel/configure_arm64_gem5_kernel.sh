@@ -74,7 +74,12 @@ set_config CONFIG_OF y
 set_config CONFIG_OF_ADDRESS y
 set_config CONFIG_UIO y
 set_config CONFIG_CMDLINE_BOOL y
-set_config CONFIG_CMDLINE '"earlycon=pl011,mmio32,0x1c090000 console=ttyAMA0 keep_bootcon ignore_loglevel loglevel=8 nokaslr root=/dev/vda1 rw init=/sbin/init"'
+if [ "${OPENNPUX_PRESERVE_CONFIG_CMDLINE:-0}" = "1" ] &&
+   grep -q '^CONFIG_CMDLINE=' "${CONFIG}"; then
+    echo "preserving base CONFIG_CMDLINE from ${CONFIG}"
+else
+    set_config CONFIG_CMDLINE '"earlycon=pl011,0x1c090000 console=ttyAMA0 keep_bootcon ignore_loglevel loglevel=8 nokaslr root=/dev/vda1 rw init=/sbin/init"'
+fi
 unset_config CONFIG_STRICT_DEVMEM
 
 # gem5's ARM model and boot path are easier to debug with fixed placement and

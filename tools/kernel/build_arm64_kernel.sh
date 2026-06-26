@@ -38,12 +38,15 @@ if [ -n "${KERNEL_BASE_CONFIG}" ]; then
     fi
     cp "${KERNEL_BASE_CONFIG}" "${LINUX_BUILD}/.config"
     echo "using base config: ${KERNEL_BASE_CONFIG}"
+    : "${OPENNPUX_PRESERVE_CONFIG_CMDLINE:=1}"
 else
     make -C "${LINUX_SRC}" O="${LINUX_BUILD}" ARCH="${ARCH}" \
         CROSS_COMPILE="${CROSS_COMPILE}" defconfig
+    : "${OPENNPUX_PRESERVE_CONFIG_CMDLINE:=0}"
 fi
 
-"${SCRIPT_DIR}/configure_arm64_gem5_kernel.sh" "${LINUX_BUILD}/.config"
+OPENNPUX_PRESERVE_CONFIG_CMDLINE="${OPENNPUX_PRESERVE_CONFIG_CMDLINE}" \
+    "${SCRIPT_DIR}/configure_arm64_gem5_kernel.sh" "${LINUX_BUILD}/.config"
 
 make -C "${LINUX_SRC}" O="${LINUX_BUILD}" ARCH="${ARCH}" \
     CROSS_COMPILE="${CROSS_COMPILE}" LOCALVERSION="${LOCALVERSION}" \

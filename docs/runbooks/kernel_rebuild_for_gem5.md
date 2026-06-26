@@ -65,9 +65,20 @@ LINUX_BRANCH=linux-6.6.y \
 ./tools/kernel/build_arm64_kernel.sh
 ```
 
+When `KERNEL_BASE_CONFIG` is set, the script preserves the base
+`CONFIG_CMDLINE` by default. For the known-good 4.18 gem5 image this keeps:
+
+```text
+CONFIG_CMDLINE="console=ttyAMA0"
+```
+
 The script still overlays the required OpenNPUX options after copying the base
-config, including modules, early console, VExpress, virtio, and NPU driver
-support.
+config, including modules, early console support, VExpress, virtio, ext4, and
+NPU driver support. To force the longer repository command line instead, set:
+
+```sh
+OPENNPUX_PRESERVE_CONFIG_CMDLINE=0
+```
 
 Check the resulting config:
 

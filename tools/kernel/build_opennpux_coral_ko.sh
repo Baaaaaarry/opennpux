@@ -16,6 +16,7 @@ if [ ! -f "${LINUX_BUILD}/include/config/kernel.release" ]; then
 fi
 
 make -C "${LINUX_BUILD}" M="${ROOT_DIR}/runtime/kernel" \
+    OPENNPUX_ROOT="${ROOT_DIR}" \
     ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" -j"${JOBS}" modules
 
 kernel_release="$(cat "${LINUX_BUILD}/include/config/kernel.release")"

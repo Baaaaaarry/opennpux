@@ -13,6 +13,7 @@
 #include "dev/npu/coral_stagea_backend.hh"
 #include "dev/npu/coral_verilated_backend.hh"
 #include "mem/packet_access.hh"
+#include "sim/serialize.hh"
 
 namespace gem5
 {
@@ -73,12 +74,63 @@ NPUDevice::NPUDevice(const Params &p)
     syncBackendEvent();
 }
 
+bool
+NPUDevice::dmaQuiesced() const
+{
+    return !dmaActive && !backend->hasDmaRequest() &&
+           !backend->hasPendingEvent();
+}
+
+void
+NPUDevice::checkDrainDone()
+{
+    if (drainState() == DrainState::Draining && dmaQuiesced()) {
+        DPRINTFR(NPUDevice, "Coral NPU drain completed\n");
+        signalDrainDone();
+    }
+}
+
+DrainState
+NPUDevice::drain()
+{
+    if (dmaQuiesced()) {
+        return DrainState::Drained;
+    }
+
+    DPRINTFR(NPUDevice,
+             "Coral NPU draining active=%u backend_dma=%u pending_event=%u\n",
+             dmaActive, backend->hasDmaRequest(),
+             backend->hasPendingEvent());
+    return DrainState::Draining;
+}
+
+void
+NPUDevice::serialize(CheckpointOut &cp) const
+{
+    fatal_if(!dmaQuiesced(),
+             "Cannot serialize Coral NPU while RTL/DMA is in flight");
+    DmaVirtDevice::serialize(cp);
+    SERIALIZE_SCALAR(dmaRequests);
+    SERIALIZE_SCALAR(dmaCompletions);
+    SERIALIZE_SCALAR(dmaErrors);
+}
+
+void
+NPUDevice::unserialize(CheckpointIn &cp)
+{
+    DmaVirtDevice::unserialize(cp);
+    UNSERIALIZE_OPT_SCALAR(dmaRequests);
+    UNSERIALIZE_OPT_SCALAR(dmaCompletions);
+    UNSERIALIZE_OPT_SCALAR(dmaErrors);
+}
+
 void
 NPUDevice::processBackendEvent()
 {
     backend->processEvent();
     startBackendDma();
     syncBackendEvent();
+    checkDrainDone();
 }
 
 void
@@ -137,6 +189,7 @@ NPUDevice::completeBackendDma(
     fatal_if(backend->hasDmaRequest(),
              "Coral backend retained DMA request after completion");
     syncBackendEvent();
+    checkDrainDone();
 }
 
 void
@@ -151,6 +204,7 @@ NPUDevice::completeBackendDmaError()
     fatal_if(backend->hasDmaRequest(),
              "Coral backend retained DMA request after error completion");
     syncBackendEvent();
+    checkDrainDone();
 }
 
 void

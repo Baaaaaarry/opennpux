@@ -109,8 +109,9 @@ dma_test=PASS
   boundaries, and submit one coherent gem5 DMA write.
 - DMA requests outside the shared EXTMEM window are now rejected with AXI
   `SLVERR` and counted through `dma_errors` instead of terminating gem5.
+- Checkpointing is guarded by gem5 drain/serialize hooks: quiescent NPU states
+  can be checkpointed, while in-flight RTL/DMA state is rejected.
 - Add multiple outstanding IDs.
-- Define checkpoint behavior for an in-flight RTL/DMA transaction.
 
 ### Phase 3
 

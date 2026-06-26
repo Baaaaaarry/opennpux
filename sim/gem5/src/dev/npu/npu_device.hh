@@ -38,6 +38,8 @@ class NPUDevice : public DmaVirtDevice
     uint32_t dmaCompletions;
     uint32_t dmaErrors;
 
+    bool dmaQuiesced() const;
+    void checkDrainDone();
     void processBackendEvent();
     void syncBackendEvent();
     void startBackendDma();
@@ -53,6 +55,9 @@ class NPUDevice : public DmaVirtDevice
 
     NPUDevice(const Params &p);
 
+    DrainState drain() override;
+    void serialize(CheckpointOut &cp) const override;
+    void unserialize(CheckpointIn &cp) override;
     Tick read(PacketPtr pkt) override;
     Tick write(PacketPtr pkt) override;
     AddrRangeList getAddrRanges() const override;

@@ -69,6 +69,13 @@ CORAL_RTL_BRIDGE="$PWD/build/coralnpu/libcoralnpu_gem5_bridge.so" \
 Use `--debug-flags=NPUDevice` when invoking gem5 directly to see bridge load,
 MMIO, stepping, and halt messages.
 
+Checkpoint support is intentionally quiescent-only in Phase 2. The NPU device
+drains only when the RTL bridge has no scheduled event, no pending AXI/DMA
+request, and no active gem5 DMA. Serializing with in-flight RTL/DMA state is
+rejected instead of writing an unrecoverable checkpoint. Existing boot
+checkpoints remain compatible; newly added DMA counters default to zero when
+they are absent from an older checkpoint.
+
 ## AXI master DMA bridge
 
 The gem5 bridge uses dedicated asynchronous AXI master drivers rather than

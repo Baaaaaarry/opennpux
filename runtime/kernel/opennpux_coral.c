@@ -17,6 +17,7 @@
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
+#include <linux/version.h>
 
 #include "opennpux/coral_uapi.h"
 
@@ -195,15 +196,27 @@ unregister_chrdev:
 	return ret;
 }
 
-static int coral_remove(struct platform_device *pdev)
+static void coral_remove_common(struct platform_device *pdev)
 {
 	struct opennpux_coral_dev *coral = platform_get_drvdata(pdev);
 
 	device_destroy(opennpux_coral_class, coral->devt);
 	cdev_del(&coral->cdev);
 	unregister_chrdev_region(coral->devt, 1);
+}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+static void coral_remove(struct platform_device *pdev)
+{
+	coral_remove_common(pdev);
+}
+#else
+static int coral_remove(struct platform_device *pdev)
+{
+	coral_remove_common(pdev);
 	return 0;
 }
+#endif
 
 static const struct of_device_id coral_of_match[] = {
 	{ .compatible = "google,coralnpu" },
@@ -225,7 +238,11 @@ static int __init coral_init(void)
 {
 	int ret;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+	opennpux_coral_class = class_create(DRIVER_NAME);
+#else
 	opennpux_coral_class = class_create(THIS_MODULE, DRIVER_NAME);
+#endif
 	if (IS_ERR(opennpux_coral_class))
 		return PTR_ERR(opennpux_coral_class);
 

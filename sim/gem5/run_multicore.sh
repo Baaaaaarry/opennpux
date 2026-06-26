@@ -12,6 +12,7 @@ export M5_PATH="${IMAGE_PATH}"
 export CORAL_CKPT_BOOTSCRIPT="${CORAL_CKPT_BOOTSCRIPT:-${GEM5_ROOT}/configs/coralnpu/boot-to-checkpoint.rcS}"
 export CORAL_RESUME_BOOTSCRIPT="${CORAL_RESUME_BOOTSCRIPT:-${GEM5_ROOT}/configs/coralnpu/fs-run.rcS}"
 export CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/init}"
+export CORAL_KERNEL_IMAGE="${CORAL_KERNEL_IMAGE:-${IMAGE_PATH}/vmlinux.arm64}"
 export BUILD_JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)"
 export CORAL_DISK_IMG_BUILT_DEFAULT="${GEM5_ROOT}/image/out/ubuntu-22.04-arm64-runtime-min-nosystemd.img"
 export CORAL_DISK_IMG_BUILT_ALT1="${GEM5_ROOT}/image/out/ubuntu-22.04-arm64-runtime-min.img"
@@ -24,6 +25,7 @@ export CORAL_BOOTED_CKPT="${CORAL_CKPT_ROOT}/booted"
 export CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}"
 export CORAL_CKPT_IMAGE_META="${CORAL_CKPT_ROOT}/disk_image_path.txt"
 export CORAL_CKPT_INIT_META="${CORAL_CKPT_ROOT}/kernel_init_path.txt"
+export CORAL_CKPT_KERNEL_META="${CORAL_CKPT_ROOT}/kernel_image_path.txt"
 export CORAL_CKPT_FORMAT_META="${CORAL_CKPT_ROOT}/format_version.txt"
 export CORAL_CKPT_FORMAT_VERSION=4
 export CORAL_NPU_BACKEND="${CORAL_NPU_BACKEND:-stage-a}"
@@ -117,6 +119,24 @@ if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ -f "${CORAL_CKPT_INIT_META}" ]; the
   fi
 fi
 
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ ! -f "${CORAL_CKPT_KERNEL_META}" ]; then
+  echo "Legacy checkpoint kernel image metadata missing; recording current kernel"
+  mkdir -p "${CORAL_CKPT_ROOT}"
+  printf '%s\n' "${CORAL_KERNEL_IMAGE}" > "${CORAL_CKPT_KERNEL_META}"
+fi
+
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ -f "${CORAL_CKPT_KERNEL_META}" ]; then
+  if [ "$(cat "${CORAL_CKPT_KERNEL_META}")" != "${CORAL_KERNEL_IMAGE}" ]; then
+    echo "Kernel image changed; rebuilding boot checkpoint"
+    rm -rf "${CORAL_CKPT_ROOT}"
+  fi
+fi
+
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ "${CORAL_KERNEL_IMAGE}" -nt "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
+  echo "Kernel image contents changed; rebuilding boot checkpoint"
+  rm -rf "${CORAL_CKPT_ROOT}"
+fi
+
 mkdir -p "${CORAL_CKPT_ROOT}"
 
 # 默认启动命令d9300，可对应修改d9300 -> d9200
@@ -125,12 +145,14 @@ mkdir -p "${CORAL_CKPT_ROOT}"
 echo "Launching ARM multicore FS with Coral NPU enabled"
 echo "Guest terminal socket: ./util/term/gem5term localhost 4567"
 echo "Disk image: ${CORAL_DISK_IMG}"
+echo "Kernel image: ${CORAL_KERNEL_IMAGE}"
 echo "Kernel init: ${CORAL_KERNEL_INIT}"
 echo "Checkpoint root: ${CORAL_CKPT_ROOT}"
 echo "NPU backend: ${CORAL_NPU_BACKEND}"
 [ "${CORAL_NPU_BACKEND}" != "verilated-coral" ] || echo "Coral RTL bridge: ${CORAL_RTL_BRIDGE}"
 [ "${CORAL_NPU_BACKEND}" != "verilated-coral" ] || echo "Coral RTL firmware: ${CORAL_RTL_FIRMWARE}"
 ls -lh "${CORAL_DISK_IMG}" || exit 1
+ls -lh "${CORAL_KERNEL_IMAGE}" || exit 1
 echo "Building build/ARM/gem5.opt with -j${BUILD_JOBS}"
 scons build/ARM/gem5.opt -j"${BUILD_JOBS}"
 
@@ -141,7 +163,7 @@ if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
   ./build/ARM/gem5.opt ${GEM5_OPTIONS} configs/example/arm/arm_multicore_d9300.py \
     --cpu-type="D9300" \
     --disk="${CORAL_DISK_IMG}" \
-    --kernel="${IMAGE_PATH}/vmlinux.arm64" \
+    --kernel="${CORAL_KERNEL_IMAGE}" \
     --kernel-init="${CORAL_KERNEL_INIT}" \
     --enable-npu \
     ${NPU_BACKEND_ARGS} \
@@ -156,7 +178,7 @@ else
   ./build/ARM/gem5.opt ${GEM5_OPTIONS} configs/example/arm/arm_multicore_d9300.py \
     --cpu-type="D9300" \
     --disk="${CORAL_DISK_IMG}" \
-    --kernel="${IMAGE_PATH}/vmlinux.arm64" \
+    --kernel="${CORAL_KERNEL_IMAGE}" \
     --kernel-init="${CORAL_KERNEL_INIT}" \
     --enable-npu \
     ${BOOTSTRAP_NPU_BACKEND_ARGS} \
@@ -165,6 +187,7 @@ else
     --bootscript="${CORAL_CKPT_BOOTSCRIPT}"
   printf '%s\n' "${CORAL_DISK_IMG}" > "${CORAL_CKPT_IMAGE_META}"
   printf '%s\n' "${CORAL_KERNEL_INIT}" > "${CORAL_CKPT_INIT_META}"
+  printf '%s\n' "${CORAL_KERNEL_IMAGE}" > "${CORAL_CKPT_KERNEL_META}"
   printf '%s\n' "${CORAL_CKPT_FORMAT_VERSION}" > "${CORAL_CKPT_FORMAT_META}"
   echo "Boot checkpoint saved at ${CORAL_BOOTED_CKPT}"
   echo "Run ./run_multicore.sh again to restore and execute the Coral NPU test script"

@@ -1,0 +1,56 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp /dev
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+NPU_BASE=0x1D000000
+CORALCTL=
+for candidate in \
+    /tmp/coralctl \
+    /usr/local/bin/coralctl \
+    /data/usr/local/bin/coralctl
+do
+    if [ -x "$candidate" ]; then
+        CORALCTL="$candidate"
+        break
+    fi
+done
+
+echo "[coral-driver-info-test] started"
+echo "[coral-driver-info-test] tool=${CORALCTL:-none}"
+
+if [ ! -c /dev/opennpux-coral ]; then
+    for module in \
+        "/lib/modules/$(uname -r)/extra/opennpux_coral.ko" \
+        /root/opennpux_coral.ko
+    do
+        if [ -f "$module" ]; then
+            echo "[coral-driver-info-test] loading $module"
+            insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
+            break
+        fi
+    done
+fi
+
+result=1
+if [ -z "$CORALCTL" ]; then
+    echo "[coral-driver-info-test] FAIL: coralctl is not installed"
+elif [ ! -c /dev/opennpux-coral ]; then
+    echo "[coral-driver-info-test] FAIL: /dev/opennpux-coral missing"
+    if [ -s /tmp/opennpux-coral-insmod.err ]; then
+        cat /tmp/opennpux-coral-insmod.err
+    fi
+elif OPENNPUX_CORAL_TRANSPORT=driver "$CORALCTL" info "${NPU_BASE}"; then
+    echo "[coral-driver-info-test] PASS"
+    result=0
+else
+    echo "[coral-driver-info-test] FAIL: driver-backed coralctl info failed"
+fi
+
+if command -v m5 >/dev/null 2>&1; then
+    m5 --inst exit
+fi
+exit "$result"

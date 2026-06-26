@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -23,6 +24,20 @@
 
 #define BACKEND_STAGE_A UINT32_C(0x4e505501)
 #define BACKEND_VERILATED UINT32_C(0x4e505502)
+
+const char *
+opennpux_coral_transport_name(enum opennpux_coral_transport transport)
+{
+    switch (transport) {
+      case OPENNPUX_CORAL_TRANSPORT_DEVMEM:
+        return "devmem";
+      case OPENNPUX_CORAL_TRANSPORT_DRIVER:
+        return "driver";
+      case OPENNPUX_CORAL_TRANSPORT_UNKNOWN:
+      default:
+        return "unknown";
+    }
+}
 
 const char *
 opennpux_coral_backend_name(enum opennpux_coral_backend backend)
@@ -92,6 +107,27 @@ opennpux_coral_open(struct opennpux_coral_device *dev, uint64_t base)
     }
 
     dev->page_size = (size_t)page_size;
+
+    const char *forced = getenv("OPENNPUX_CORAL_TRANSPORT");
+    const int force_devmem = forced != NULL && strcmp(forced, "devmem") == 0;
+    const int force_driver = forced != NULL && strcmp(forced, "driver") == 0;
+    const char *driver_path = getenv("OPENNPUX_CORAL_DEVICE");
+    if (driver_path == NULL || driver_path[0] == '\0') {
+        driver_path = OPENNPUX_CORAL_DEVICE_PATH;
+    }
+
+    if (!force_devmem) {
+        dev->fd = open(driver_path, O_RDWR);
+        if (dev->fd >= 0) {
+            dev->transport = OPENNPUX_CORAL_TRANSPORT_DRIVER;
+            return 0;
+        }
+        if (force_driver) {
+            perror("open(OPENNPUX_CORAL_DEVICE)");
+            return -1;
+        }
+    }
+
     const uint64_t csr_addr = base + RESET_CONTROL;
     const uint64_t page_mask = (uint64_t)page_size - 1;
     dev->page_base = csr_addr & ~page_mask;
@@ -110,6 +146,7 @@ opennpux_coral_open(struct opennpux_coral_device *dev, uint64_t base)
         dev->fd = -1;
         return -1;
     }
+    dev->transport = OPENNPUX_CORAL_TRANSPORT_DEVMEM;
     return 0;
 }
 
@@ -141,6 +178,37 @@ reg_ptr(struct opennpux_coral_device *dev, uint64_t offset)
 uint32_t
 opennpux_coral_read_reg(struct opennpux_coral_device *dev, uint64_t offset)
 {
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        struct opennpux_coral_info info;
+        opennpux_coral_get_info(dev, &info);
+        switch (offset) {
+          case RESET_CONTROL:
+            return info.reset_control;
+          case STATUS:
+            return info.status;
+          case DMA_ERRORS:
+            return info.dma_errors;
+          case DMA_REQUESTS:
+            return info.dma_requests;
+          case DMA_COMPLETIONS:
+            return info.dma_completions;
+          case DMA_STATE:
+            return info.dma_state;
+          case SHARED_BASE:
+            return info.shared_base;
+          case SHARED_SIZE:
+            return info.shared_size;
+          case FIRMWARE_ENTRY:
+            return info.firmware_entry;
+          case BACKEND_ID:
+            return info.backend_id;
+          default:
+            fprintf(stderr, "driver cannot read raw register offset 0x%"
+                    PRIx64 "\n", offset);
+            exit(1);
+        }
+    }
+
     volatile uint32_t *reg = reg_ptr(dev, offset);
     if (reg == NULL) {
         fprintf(stderr, "register offset 0x%" PRIx64 " is not mapped\n",
@@ -154,6 +222,13 @@ void
 opennpux_coral_write_reg(struct opennpux_coral_device *dev, uint64_t offset,
                          uint32_t value)
 {
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        fprintf(stderr, "driver backend does not allow raw register writes "
+                "offset=0x%" PRIx64 " value=0x%08" PRIx32 "\n",
+                offset, value);
+        exit(1);
+    }
+
     volatile uint32_t *reg = reg_ptr(dev, offset);
     if (reg == NULL) {
         fprintf(stderr, "register offset 0x%" PRIx64 " is not mapped\n",
@@ -169,6 +244,28 @@ opennpux_coral_get_info(struct opennpux_coral_device *dev,
                         struct opennpux_coral_info *info)
 {
     memset(info, 0, sizeof(*info));
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        struct opennpux_coral_ioc_info ioc_info;
+        memset(&ioc_info, 0, sizeof(ioc_info));
+        if (ioctl(dev->fd, OPENNPUX_CORAL_IOC_GET_INFO, &ioc_info) != 0) {
+            perror("ioctl(OPENNPUX_CORAL_IOC_GET_INFO)");
+            exit(1);
+        }
+        info->base = ioc_info.base;
+        info->backend_id = ioc_info.backend_id;
+        info->backend = opennpux_coral_decode_backend(info->backend_id);
+        info->firmware_entry = ioc_info.firmware_entry;
+        info->shared_base = ioc_info.shared_base;
+        info->shared_size = ioc_info.shared_size;
+        info->dma_requests = ioc_info.dma_requests;
+        info->dma_completions = ioc_info.dma_completions;
+        info->dma_errors = ioc_info.dma_errors;
+        info->dma_state = ioc_info.dma_state;
+        info->reset_control = ioc_info.reset_control;
+        info->status = ioc_info.status;
+        return;
+    }
+
     info->base = dev->base;
     info->backend_id = opennpux_coral_read_reg(dev, BACKEND_ID);
     info->backend = opennpux_coral_decode_backend(info->backend_id);
@@ -200,8 +297,10 @@ opennpux_coral_open_shared_window(
     }
 
     const uint64_t page_mask = (uint64_t)dev->page_size - 1;
-    const uint64_t map_base = window->base & ~page_mask;
-    const size_t map_offset = window->base & page_mask;
+    const uint64_t map_base = dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER ?
+        0 : (window->base & ~page_mask);
+    const size_t map_offset = dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER ?
+        0 : (window->base & page_mask);
     window->map_size = map_offset + window->size;
     window->mapping = mmap(NULL, window->map_size, PROT_READ | PROT_WRITE,
                            MAP_SHARED, dev->fd, (off_t)map_base);
@@ -280,6 +379,28 @@ int
 opennpux_coral_run(struct opennpux_coral_device *dev, uint32_t entry,
                    uint64_t polls, uint32_t *final_status)
 {
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        struct opennpux_coral_ioc_run run;
+        memset(&run, 0, sizeof(run));
+        run.entry = entry;
+        run.polls = polls;
+        if (ioctl(dev->fd, OPENNPUX_CORAL_IOC_RUN, &run) != 0) {
+            return -1;
+        }
+        if (final_status != NULL) {
+            *final_status = run.status;
+        }
+        if ((run.status & 0x2) != 0) {
+            errno = EIO;
+            return -1;
+        }
+        if ((run.status & 0x1) == 0) {
+            errno = ETIMEDOUT;
+            return -1;
+        }
+        return 0;
+    }
+
     opennpux_coral_write_reg(dev, PC_START, entry);
     opennpux_coral_write_reg(dev, RESET_CONTROL, 1);
     opennpux_coral_write_reg(dev, RESET_CONTROL, 0);

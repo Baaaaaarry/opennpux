@@ -39,6 +39,12 @@ main(void)
     check(opennpux_coral_backend_name(OPENNPUX_CORAL_BACKEND_VERILATED)[0] ==
               'v',
           "backend name failed");
+    check(opennpux_coral_transport_name(OPENNPUX_CORAL_TRANSPORT_DEVMEM)[0] ==
+              'd',
+          "devmem transport name failed");
+    check(opennpux_coral_transport_name(OPENNPUX_CORAL_TRANSPORT_DRIVER)[0] ==
+              'd',
+          "driver transport name failed");
 
     check(opennpux_coral_check_shared_u32_access(16, 0) == 0,
           "offset 0 rejected");

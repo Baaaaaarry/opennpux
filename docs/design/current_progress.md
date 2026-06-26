@@ -134,6 +134,12 @@ the Phase-2 `/dev/mem` backend so existing checkpoint-based tests continue to
 work. The next increment is to replace that backend with a minimal Linux
 character device while keeping the userspace API stable.
 
+The second Phase-3 increment has added the shared user/kernel UAPI
+(`runtime/host/include/opennpux/coral_uapi.h`), runtime transport selection,
+and a minimal platform-driver scaffold under `runtime/kernel`. The runtime now
+auto-selects `/dev/opennpux-coral` when available and falls back to `/dev/mem`
+for the existing checkpoint smoke tests.
+
 ### Phase 4
 
 - Load a real model and tensors from Linux.
@@ -150,7 +156,7 @@ character device while keeping the userspace API stable.
 ## Immediate Development Order
 
 1. Run the Phase-3 runtime acceptance suite on x86 Linux.
-2. Add `/dev/opennpux-coral` with info/reset/start/status ioctls.
+2. Build and load `/dev/opennpux-coral` in the guest image.
 3. Add driver-backed shared-window mmap and remove runtime dependence on
    `/dev/mem`.
 4. Add interrupt or event-driven completion delivery.

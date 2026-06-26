@@ -21,6 +21,16 @@ The intended next backend swap is:
 `coralctl` is now only a CLI frontend. System-level output remains compatible
 with the Phase-2 scripts.
 
+The repository now carries the first driver boundary scaffold:
+
+- `runtime/host/include/opennpux/coral_uapi.h`
+- `runtime/kernel/opennpux_coral.c`
+- `runtime/kernel/Makefile`
+
+The runtime auto-selects `/dev/opennpux-coral` when it exists and falls back to
+`/dev/mem` otherwise. Set `OPENNPUX_CORAL_TRANSPORT=driver` to require the
+driver path, or `OPENNPUX_CORAL_TRANSPORT=devmem` to force the bring-up path.
+
 ## Host Validation
 
 Run from the superproject root:
@@ -39,6 +49,16 @@ Expected:
 ```text
 PASS: coral runtime host unit tests
 ```
+
+The driver scaffold can be syntax-built on a Linux host with matching kernel
+headers:
+
+```sh
+make -C runtime/kernel
+```
+
+This first driver increment provides `OPENNPUX_CORAL_IOC_GET_INFO` and
+`OPENNPUX_CORAL_IOC_RUN`. Shared-window mmap is the next driver increment.
 
 ## Guest Tool Build
 
@@ -111,7 +131,7 @@ Phase-3 runtime increment passes when all of these are true:
 
 ## Next Increment
 
-Implement the minimal Linux device boundary behind this runtime API:
+Complete the minimal Linux device boundary behind this runtime API:
 
 - `/dev/opennpux-coral` character device
 - ioctl for info, reset/start, and status

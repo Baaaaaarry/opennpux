@@ -22,9 +22,11 @@ usage(const char *prog)
 }
 
 static void
-print_info(const struct opennpux_coral_info *info)
+print_info(const struct opennpux_coral_device *dev,
+           const struct opennpux_coral_info *info)
 {
     printf("base=0x%08" PRIx64 "\n", info->base);
+    printf("transport=%s\n", opennpux_coral_transport_name(dev->transport));
     printf("backend_id=0x%08" PRIx32 "\n", info->backend_id);
     printf("backend=%s\n", opennpux_coral_backend_name(info->backend));
     printf("firmware_entry=0x%08" PRIx32 "\n", info->firmware_entry);
@@ -93,6 +95,7 @@ print_run(struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls)
 {
     struct opennpux_coral_info info;
     opennpux_coral_get_info(dev, &info);
+    printf("transport=%s\n", opennpux_coral_transport_name(dev->transport));
     printf("backend=%s\n", opennpux_coral_backend_name(info.backend));
     printf("entry=0x%08" PRIx32 "\n", entry);
 
@@ -116,6 +119,7 @@ print_dma_test(struct opennpux_coral_device *dev, uint32_t entry,
 {
     struct opennpux_coral_info info;
     opennpux_coral_get_info(dev, &info);
+    printf("transport=%s\n", opennpux_coral_transport_name(dev->transport));
     printf("backend=%s\n", opennpux_coral_backend_name(info.backend));
     printf("entry=0x%08" PRIx32 "\n", entry);
 
@@ -206,7 +210,7 @@ main(int argc, char **argv)
     if (command_info) {
         struct opennpux_coral_info info;
         opennpux_coral_get_info(&dev, &info);
-        print_info(&info);
+        print_info(&dev, &info);
         opennpux_coral_close(&dev);
         return 0;
     }

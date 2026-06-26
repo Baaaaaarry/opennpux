@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "opennpux/coral_uapi.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -17,12 +19,19 @@ enum opennpux_coral_backend {
     OPENNPUX_CORAL_BACKEND_VERILATED = 2,
 };
 
+enum opennpux_coral_transport {
+    OPENNPUX_CORAL_TRANSPORT_UNKNOWN = 0,
+    OPENNPUX_CORAL_TRANSPORT_DEVMEM = 1,
+    OPENNPUX_CORAL_TRANSPORT_DRIVER = 2,
+};
+
 struct opennpux_coral_device {
     int fd;
     size_t page_size;
     void *mapping;
     uint64_t page_base;
     uint64_t base;
+    enum opennpux_coral_transport transport;
 };
 
 struct opennpux_coral_info {
@@ -59,6 +68,8 @@ struct opennpux_coral_dma_test_result {
 };
 
 const char *opennpux_coral_backend_name(enum opennpux_coral_backend backend);
+const char *opennpux_coral_transport_name(
+    enum opennpux_coral_transport transport);
 enum opennpux_coral_backend opennpux_coral_decode_backend(uint32_t id);
 int opennpux_coral_parse_u64(const char *text, uint64_t *value);
 int opennpux_coral_check_shared_u32_access(uint32_t size, uint64_t offset);

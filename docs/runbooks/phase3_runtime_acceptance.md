@@ -87,6 +87,7 @@ with gem5. First rebuild the checkpoint with the 4.19 kernel:
 ```sh
 cd thirdparty/gem5
 CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 CORAL_REBUILD_CKPT=1 \
 ./run_multicore.sh
 ```
@@ -95,6 +96,7 @@ Then validate the driver-backed info path:
 
 ```sh
 CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 CORAL_RESUME_BOOTSCRIPT="$PWD/configs/coralnpu/coral-driver-info-test.rcS" \
 ./run_multicore.sh
 ```

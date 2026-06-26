@@ -49,6 +49,9 @@ sudo "${SCRIPT_DIR}/install_kernel_to_image.sh" \
     "${kernel_image}" \
     "${ko}"
 
+echo "[phase3-kernel] installing OpenNPUX minimal init"
+"${SCRIPT_DIR}/install_opennpux_init_to_image.sh" "${IMAGE}"
+
 cat <<EOF
 [phase3-kernel] build complete
 kernel_release=${kernel_release}
@@ -60,11 +63,13 @@ image=${IMAGE}
 Validate in gem5:
   cd ${ROOT_DIR}/thirdparty/gem5
   CORAL_KERNEL_IMAGE=${gem5_kernel} \\
+  CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \\
   CORAL_REBUILD_CKPT=1 \\
   ./run_multicore.sh
 
 Then validate the driver path from the boot checkpoint:
   CORAL_KERNEL_IMAGE=${gem5_kernel} \\
+  CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \\
   CORAL_RESUME_BOOTSCRIPT="\$PWD/configs/coralnpu/coral-driver-info-test.rcS" \\
   ./run_multicore.sh
 

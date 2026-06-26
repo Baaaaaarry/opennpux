@@ -126,6 +126,7 @@ sudo ./tools/kernel/install_kernel_to_image.sh \
   "$PWD/build/linux-arm64" \
   "$PWD/build/kernel/Image-$(cat build/kernel/kernel.release)" \
   "$PWD/build/kernel/opennpux_coral-$(cat build/kernel/kernel.release).ko"
+sudo ./tools/kernel/install_opennpux_init_to_image.sh "$IMG"
 ```
 
 This installs:
@@ -148,6 +149,7 @@ completeness, but this ARM full-system config loads the host-side ELF through
 ```sh
 cd thirdparty/gem5
 CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 CORAL_REBUILD_CKPT=1 \
 ./run_multicore.sh
 ```

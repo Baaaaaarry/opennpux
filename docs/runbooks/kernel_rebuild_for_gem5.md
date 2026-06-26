@@ -98,6 +98,46 @@ Could not load kernel file .../Image-<release>
 you passed the raw arm64 `Image` instead of `vmlinux`. Re-run with
 `build/kernel/vmlinux-<release>`.
 
+## No Serial Output
+
+If `m5out/system.terminal` stays empty, Linux did not reach the PL011 console.
+First rebuild with the repository config script so `CONFIG_SERIAL_EARLYCON` and
+the gem5-safe command line are applied:
+
+```sh
+./tools/kernel/build_arm64_kernel.sh
+```
+
+Then boot with an explicit early console override:
+
+```sh
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_KERNEL_CMDLINE="earlycon=pl011,mmio32,0x1c090000 console=ttyAMA0 keep_bootcon ignore_loglevel loglevel=8 nokaslr root=/dev/vda1 rw init=/bin/sh" \
+CORAL_REBUILD_CKPT=1 \
+./run_multicore.sh
+```
+
+If the terminal is still empty, inspect whether the new config actually
+contains:
+
+```sh
+grep -E 'CONFIG_SERIAL_EARLYCON|CONFIG_PRINTK|CONFIG_SERIAL_AMBA_PL011|CONFIG_RANDOMIZE_BASE|CONFIG_ARM64_BTI|CONFIG_ARM64_MTE|CONFIG_ARM64_PTR_AUTH' \
+  /home/barry/code/opennpux/build/linux-arm64/.config
+```
+
+Expected:
+
+```text
+CONFIG_SERIAL_EARLYCON=y
+CONFIG_PRINTK=y
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+# CONFIG_RANDOMIZE_BASE is not set
+# CONFIG_ARM64_BTI is not set
+# CONFIG_ARM64_MTE is not set
+# CONFIG_ARM64_PTR_AUTH is not set
+```
+
 ## Validate Driver Path
 
 Use the dedicated driver-info resume script. Do not switch the existing DMA

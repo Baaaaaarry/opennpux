@@ -51,6 +51,10 @@ set_config CONFIG_PROC_FS y
 set_config CONFIG_SYSFS y
 set_config CONFIG_TMPFS y
 set_config CONFIG_EXT4_FS y
+set_config CONFIG_TTY y
+set_config CONFIG_PRINTK y
+set_config CONFIG_BUG y
+set_config CONFIG_DEBUG_KERNEL y
 set_config CONFIG_VIRTIO y
 set_config CONFIG_VIRTIO_MMIO y
 set_config CONFIG_VIRTIO_PCI y
@@ -58,6 +62,7 @@ set_config CONFIG_VIRTIO_BLK y
 set_config CONFIG_BLK_MQ_VIRTIO y
 set_config CONFIG_SERIAL_AMBA_PL011 y
 set_config CONFIG_SERIAL_AMBA_PL011_CONSOLE y
+set_config CONFIG_SERIAL_EARLYCON y
 set_config CONFIG_ARM_GIC y
 set_config CONFIG_ARM_GIC_V2M y
 set_config CONFIG_ARM_GIC_V3 y
@@ -69,7 +74,7 @@ set_config CONFIG_OF y
 set_config CONFIG_OF_ADDRESS y
 set_config CONFIG_UIO y
 set_config CONFIG_CMDLINE_BOOL y
-set_config CONFIG_CMDLINE '"earlycon=pl011,0x1c090000 console=ttyAMA0 loglevel=8 root=/dev/vda1 rw init=/sbin/init"'
+set_config CONFIG_CMDLINE '"earlycon=pl011,mmio32,0x1c090000 console=ttyAMA0 keep_bootcon ignore_loglevel loglevel=8 nokaslr root=/dev/vda1 rw init=/sbin/init"'
 unset_config CONFIG_STRICT_DEVMEM
 
 # gem5's ARM model and boot path are easier to debug with fixed placement and

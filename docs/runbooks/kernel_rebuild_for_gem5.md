@@ -23,7 +23,7 @@ sudo apt-get install -y \
   bc bison flex git libssl-dev make gcc-aarch64-linux-gnu
 
 cd ~/code/opennpux
-LINUX_BRANCH=linux-4.19.y ./tools/kernel/build_arm64_kernel.sh
+./tools/kernel/build_arm64_kernel.sh
 ```
 
 Outputs:
@@ -91,6 +91,9 @@ gem5 kernel but still provides a reproducible build tree for out-of-tree
 modules. Treat `linux-6.6.y` as a later compatibility target; if it reaches no
 serial output while the old `vmlinux.arm64` works, the failure is before Linux
 reaches the PL011 console.
+
+The repository default is therefore `linux-4.19.y`. Override `LINUX_BRANCH`
+only after the 4.19 driver path is accepted.
 
 Compare a non-booting kernel against the known-good kernel:
 

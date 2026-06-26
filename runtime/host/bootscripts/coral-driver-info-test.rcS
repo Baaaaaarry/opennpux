@@ -21,6 +21,7 @@ done
 
 echo "[coral-driver-info-test] started"
 echo "[coral-driver-info-test] tool=${CORALCTL:-none}"
+echo "[coral-driver-info-test] kernel=$(uname -r)"
 
 if [ ! -c /dev/opennpux-coral ]; then
     for module in \
@@ -44,6 +45,7 @@ elif [ ! -c /dev/opennpux-coral ]; then
         cat /tmp/opennpux-coral-insmod.err
     fi
 elif OPENNPUX_CORAL_TRANSPORT=driver "$CORALCTL" info "${NPU_BASE}"; then
+    dmesg | grep -i "opennpux-coral" | tail -5 2>/dev/null || true
     echo "[coral-driver-info-test] PASS"
     result=0
 else

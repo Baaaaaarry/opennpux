@@ -60,6 +60,54 @@ make -C runtime/kernel
 This first driver increment provides `OPENNPUX_CORAL_IOC_GET_INFO` and
 `OPENNPUX_CORAL_IOC_RUN`. Shared-window mmap is the next driver increment.
 
+## 4.19 Kernel And Driver Validation
+
+Use Linux 4.19 for the first kernel-driver acceptance. It has been confirmed to
+reach the gem5 PL011 console with the 4.18 base config, while 6.6 currently
+requires separate early-boot compatibility work.
+
+Prepare the base config once:
+
+```sh
+mkdir -p build/kernel
+cp /path/to/gem5-4.18.config build/kernel/gem5-4.18.config
+```
+
+Build the 4.19 kernel, build `opennpux_coral.ko`, and install both into the
+lightweight image:
+
+```sh
+IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+./tools/kernel/phase3_validate_4.19_kernel.sh
+```
+
+The script prints the `CORAL_KERNEL_IMAGE=.../vmlinux-<release>` value to use
+with gem5. First rebuild the checkpoint with the 4.19 kernel:
+
+```sh
+cd thirdparty/gem5
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_REBUILD_CKPT=1 \
+./run_multicore.sh
+```
+
+Then validate the driver-backed info path:
+
+```sh
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_RESUME_BOOTSCRIPT="$PWD/configs/coralnpu/coral-driver-info-test.rcS" \
+./run_multicore.sh
+```
+
+Expected:
+
+```text
+[coral-driver-info-test] kernel=4.19...
+transport=driver
+backend=stage-a
+[coral-driver-info-test] PASS
+```
+
 ## Guest Tool Build
 
 On the x86 Linux development host:

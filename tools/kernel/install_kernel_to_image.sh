@@ -37,19 +37,34 @@ if [ -z "${KO}" ]; then
     fi
 fi
 
-start_sector="$(fdisk -l "${IMAGE}" 2>/dev/null | awk '
-    $1 ~ /[0-9]$/ || $1 ~ /p[0-9]$/ {
-        if ($2 == "*") {
-            print $3
-        } else {
-            print $2
-        }
-        exit
-    }')"
+start_sector=""
+if command -v partx >/dev/null 2>&1; then
+    start_sector="$(partx -g -o START "${IMAGE}" 2>/dev/null | awk '
+        $1 ~ /^[0-9]+$/ { print $1; exit }
+    ')"
+fi
+if [ -z "${start_sector}" ]; then
+    start_sector="$(LC_ALL=C fdisk -l "${IMAGE}" 2>/dev/null | awk '
+        $1 ~ /[0-9]$/ || $1 ~ /p[0-9]$/ {
+            for (i = 2; i <= NF; ++i) {
+                if ($i ~ /^[0-9]+$/) {
+                    print $i
+                    exit
+                }
+            }
+        }')"
+fi
 if [ -z "${start_sector}" ]; then
     start_sector=2048
     echo "warning: could not detect first partition start; assuming sector ${start_sector}" >&2
 fi
+case "${start_sector}" in
+    *[!0-9]*)
+        echo "error: invalid partition start sector: ${start_sector}" >&2
+        echo "hint: pass an already partition-mounted image manually or fix fdisk/partx output" >&2
+        exit 1
+        ;;
+esac
 offset=$((start_sector * 512))
 mnt="$(mktemp -d)"
 cleanup() {

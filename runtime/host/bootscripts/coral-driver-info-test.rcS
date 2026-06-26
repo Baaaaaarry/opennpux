@@ -30,7 +30,17 @@ if [ ! -c /dev/opennpux-coral ]; then
     do
         if [ -f "$module" ]; then
             echo "[coral-driver-info-test] loading $module"
-            insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
+            if command -v insmod >/dev/null 2>&1; then
+                insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
+            elif [ -x /sbin/insmod ]; then
+                /sbin/insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
+            elif command -v modprobe >/dev/null 2>&1; then
+                modprobe opennpux_coral 2>/tmp/opennpux-coral-insmod.err || true
+            elif [ -x /sbin/modprobe ]; then
+                /sbin/modprobe opennpux_coral 2>/tmp/opennpux-coral-insmod.err || true
+            else
+                echo "no insmod/modprobe found in guest" > /tmp/opennpux-coral-insmod.err
+            fi
             break
         fi
     done

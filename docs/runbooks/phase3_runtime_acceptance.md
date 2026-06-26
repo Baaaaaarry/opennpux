@@ -81,6 +81,16 @@ IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
 ./tools/kernel/phase3_validate_4.19_kernel.sh
 ```
 
+The guest image must also contain a module loader. If the driver-info test
+prints `insmod: not found` or `no insmod/modprobe found in guest`, install an
+aarch64 BusyBox or kmod-provided `insmod` binary:
+
+```sh
+./tools/guest_tools/install_module_loader_to_image.sh \
+  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+  /path/to/aarch64/busybox
+```
+
 The script prints the `CORAL_KERNEL_IMAGE=.../vmlinux-<release>` value to use
 with gem5. First rebuild the checkpoint with the 4.19 kernel:
 

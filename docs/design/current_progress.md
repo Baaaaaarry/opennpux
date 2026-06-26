@@ -114,7 +114,9 @@ dma_test=PASS
 - `coralctl` now provides bounded shared-window management commands
   (`mem-info`, `mem-clear`, `mem-read32`, and `mem-write32`) over the same
   mapper used by `dma-test`.
-- Add multiple outstanding IDs.
+- AXI `AR`, `AW`, and `W` channels are backpressured while one request is
+  outstanding, making the single-outstanding Phase-2 contract explicit.
+- Phase-2 acceptance is documented in `docs/runbooks/phase2_acceptance.md`.
 
 ### Phase 3
 
@@ -122,6 +124,8 @@ dma_test=PASS
 - Allocate and pin shared input, output, command, and completion buffers.
 - Add interrupts or an event-driven completion path.
 - Define cache maintenance rules for non-coherent configurations.
+- Add multiple outstanding AXI IDs if firmware/runtime profiling shows the
+  single-outstanding bridge is a bottleneck.
 
 ### Phase 4
 
@@ -138,7 +142,7 @@ dma_test=PASS
 
 ## Immediate Development Order
 
-1. Land the `coralctl` userspace control utility.
-2. Implement the single-outstanding asynchronous AXI-to-DMA bridge.
-3. Add a shared-memory read/write Coral firmware test.
-4. Promote the control ABI into the minimal Linux runtime/driver.
+1. Run the Phase-2 acceptance suite on x86 Linux.
+2. Promote the `/dev/mem` shared-window ABI into the minimal Linux driver.
+3. Add interrupt or event-driven completion delivery.
+4. Start Phase-4 model/runtime integration on top of the verified bridge.

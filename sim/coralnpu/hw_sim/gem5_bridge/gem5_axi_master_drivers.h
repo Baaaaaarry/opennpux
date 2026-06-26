@@ -36,7 +36,7 @@ class Gem5AxiMasterReadDriver : Clock::Observer {
         data_resp_(data_resp),
         data_last_(data_last),
         data_ready_(data_ready) {
-    *addr_ready_ = 1;
+    *addr_ready_ = !request_pending_;
   }
 
   void RegisterDeferredCallback(
@@ -67,7 +67,7 @@ class Gem5AxiMasterReadDriver : Clock::Observer {
     if (!*addr_valid_) {
       request_seen_ = false;
     }
-    *addr_ready_ = 1;
+    *addr_ready_ = !request_pending_;
 
     *data_valid_ = !responses_.empty();
     if (!responses_.empty()) {
@@ -79,7 +79,7 @@ class Gem5AxiMasterReadDriver : Clock::Observer {
     clock().Eval();
     response_handshake_pending_ = *data_valid_ && *data_ready_;
 
-    if (addr_handshake && !request_seen_) {
+    if (addr_handshake && !request_seen_ && !request_pending_) {
       request_seen_ = true;
       request_.addr_bits_addr = *addr_;
       request_.addr_bits_prot = *prot_;
@@ -93,6 +93,8 @@ class Gem5AxiMasterReadDriver : Clock::Observer {
       request_.addr_bits_region = *region_;
       request_pending_ = true;
       callback_(request_);
+      *addr_ready_ = 0;
+      clock().Eval();
     }
   }
 
@@ -225,8 +227,9 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
       callback_(request_addr_, request_data_);
     }
 
-    *addr_ready_ = !addr_captured_;
-    *data_ready_ = !data_complete_ && request_data_.size() < 256;
+    *addr_ready_ = !request_pending_ && !addr_captured_;
+    *data_ready_ = !request_pending_ && !data_complete_ &&
+                   request_data_.size() < 256;
     clock().Eval();
   }
 

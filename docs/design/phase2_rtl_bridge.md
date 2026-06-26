@@ -97,8 +97,9 @@ write bursts up to 256 beats and 4096 bytes are issued as one coherent gem5
 DMA. Reads are returned to Coral as ordered AXI `R` beats with `RLAST` only on
 the final beat. Writes accept independent `AW` and `W` arrival, cache all write
 beats until `WLAST`, validate the burst shape and strobes, and then submit one
-coherent DMA write. Multiple outstanding IDs and checkpointing an in-flight
-transaction remain future increments.
+coherent DMA write. `AR`, `AW`, and `W` are backpressured while a request is
+outstanding, making the single-outstanding Phase-2 contract explicit.
+Multiple outstanding IDs remain a future performance extension.
 
 `phase2_test_axi_adapter.sh` runs a signal-level regression without Linux or
 the Coral core. It covers independent `AW`/`W` arrival, held-valid replay
@@ -134,8 +135,8 @@ the shell CSRs and provides bounded `mem-info`, `mem-clear`, `mem-read32`, and
 `mem-write32` commands. The DMA smoke path uses the same mapper, so manual
 buffer inspection and automated smoke tests exercise the same guest-side ABI.
 
-## Remaining Phase-2 work
+## Phase-2 acceptance
 
-- replace the `/dev/mem` shared-buffer mapper with a kernel driver allocator
-- add multiple-outstanding ID support after the single-outstanding burst path
-  is verified
+Run `docs/runbooks/phase2_acceptance.md` on x86 Linux. Phase 2 is complete when
+bridge build, adapter regression, restored-checkpoint MMIO, shared-window
+commands, Verilated halt, and coherent DMA smoke all pass.

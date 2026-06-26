@@ -107,6 +107,8 @@ dma_test=PASS
 - INCR write bursts up to 256 beats and 4096 bytes accept independent `AW` and
   `W` arrival, cache write beats through `WLAST`, validate strobes and burst
   boundaries, and submit one coherent gem5 DMA write.
+- DMA requests outside the shared EXTMEM window are now rejected with AXI
+  `SLVERR` and counted through `dma_errors` instead of terminating gem5.
 - Add multiple outstanding IDs.
 - Define checkpoint behavior for an in-flight RTL/DMA transaction.
 

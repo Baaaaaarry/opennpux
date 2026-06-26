@@ -27,6 +27,7 @@ constexpr Addr kSharedBaseOffset = 0x30ff0;
 constexpr Addr kDmaStateOffset = 0x30fec;
 constexpr Addr kDmaCompletionsOffset = 0x30fe8;
 constexpr Addr kDmaRequestsOffset = 0x30fe4;
+constexpr Addr kDmaErrorsOffset = 0x30fe0;
 constexpr uint32_t kStageABackendId = 0x4e505501;
 constexpr uint32_t kVerilatedCoralBackendId = 0x4e505502;
 
@@ -45,6 +46,7 @@ NPUDevice::NPUDevice(const Params &p)
     dmaActive(false),
     dmaRequests(0),
     dmaCompletions(0),
+    dmaErrors(0),
     backendEvent(*this)
 {
     fatal_if(dmaSharedSize == 0, "Coral NPU DMA shared size is zero");
@@ -87,14 +89,18 @@ NPUDevice::startBackendDma()
     }
 
     const CoralDmaRequest &request = backend->dmaRequest();
-    fatal_if(request.addr < dmaExtmemBase ||
-                 request.addr - dmaExtmemBase >= dmaSharedSize ||
-                 request.size >
-                     dmaSharedSize - (request.addr - dmaExtmemBase),
-             "Coral DMA address %#x size=%u is outside EXTMEM window "
-             "[%#x:%#x]",
-             request.addr, request.size, dmaExtmemBase,
-             dmaExtmemBase + dmaSharedSize - 1);
+    if (request.addr < dmaExtmemBase ||
+        request.addr - dmaExtmemBase >= dmaSharedSize ||
+        request.size > dmaSharedSize - (request.addr - dmaExtmemBase)) {
+        DPRINTFR(NPUDevice,
+                 "Coral DMA rejected type=%s coral=%#x size=%u outside "
+                 "EXTMEM window [%#x:%#x]\n",
+                 request.type == CoralDmaType::Read ? "read" : "write",
+                 request.addr, request.size, dmaExtmemBase,
+                 dmaExtmemBase + dmaSharedSize - 1);
+        completeBackendDmaError();
+        return;
+    }
     const Addr hostAddr =
         dmaSharedBase + (request.addr - dmaExtmemBase);
     auto *callback =
@@ -130,6 +136,20 @@ NPUDevice::completeBackendDma(
     DPRINTFR(NPUDevice, "Coral DMA complete count=%u\n", dmaCompletions);
     fatal_if(backend->hasDmaRequest(),
              "Coral backend retained DMA request after completion");
+    syncBackendEvent();
+}
+
+void
+NPUDevice::completeBackendDmaError()
+{
+    fatal_if(dmaActive, "Coral NPU DMA error while DMA is active");
+    fatal_if(!backend->hasDmaRequest(),
+             "Coral NPU DMA error without pending backend request");
+    backend->completeDma(nullptr, 0, true);
+    ++dmaErrors;
+    DPRINTFR(NPUDevice, "Coral DMA error count=%u\n", dmaErrors);
+    fatal_if(backend->hasDmaRequest(),
+             "Coral backend retained DMA request after error completion");
     syncBackendEvent();
 }
 
@@ -170,6 +190,10 @@ NPUDevice::read(PacketPtr pkt)
             (backend->hasDmaRequest() ? 0x1 : 0x0) |
             (dmaActive ? 0x2 : 0x0);
         pkt->setLE<uint32_t>(state);
+        pkt->makeAtomicResponse();
+    } else if (offset == kDmaErrorsOffset &&
+        pkt->getSize() == sizeof(uint32_t)) {
+        pkt->setLE<uint32_t>(dmaErrors);
         pkt->makeAtomicResponse();
     } else if (offset == kSharedBaseOffset &&
         pkt->getSize() == sizeof(uint32_t)) {

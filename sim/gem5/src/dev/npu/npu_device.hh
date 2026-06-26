@@ -36,12 +36,14 @@ class NPUDevice : public DmaVirtDevice
     bool dmaActive;
     uint32_t dmaRequests;
     uint32_t dmaCompletions;
+    uint32_t dmaErrors;
 
     void processBackendEvent();
     void syncBackendEvent();
     void startBackendDma();
     void completeBackendDma(
         const std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> &data);
+    void completeBackendDmaError();
 
     std::unique_ptr<CoralBackend> backend;
     MemberEventWrapper<&NPUDevice::processBackendEvent> backendEvent;

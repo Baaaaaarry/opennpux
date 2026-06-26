@@ -471,6 +471,120 @@ TestReadBurstResponseRetirement()
 }
 
 void
+TestErrorResponseRetirement()
+{
+  VerilatedContext context;
+  uint8_t read_clock_signal = 0;
+  uint8_t read_addr_valid = 0;
+  uint32_t read_addr = 0x20000000;
+  uint8_t read_prot = 0;
+  uint8_t read_id = 4;
+  uint8_t read_len = 0;
+  uint8_t read_size = 2;
+  uint8_t read_burst = 1;
+  uint8_t read_lock = 0;
+  uint8_t read_cache = 0;
+  uint8_t read_qos = 0;
+  uint8_t read_region = 0;
+  uint8_t read_addr_ready = 0;
+  uint8_t read_data_valid = 0;
+  VlWide<4> read_data = {};
+  uint8_t read_data_id = 0;
+  uint8_t read_data_resp = 0;
+  uint8_t read_data_last = 0;
+  uint8_t read_data_ready = 1;
+  PassiveModel read_model;
+  Clock read_clock(&context, &read_clock_signal, &read_model);
+  Gem5AxiMasterReadDriver read_driver(
+      &read_clock, &read_addr_valid, &read_addr, &read_prot, &read_id,
+      &read_len, &read_size, &read_burst, &read_lock, &read_cache,
+      &read_qos, &read_region, &read_addr_ready, &read_data_valid,
+      &read_data, &read_data_id, &read_data_resp, &read_data_last,
+      &read_data_ready);
+
+  int read_requests = 0;
+  read_driver.RegisterDeferredCallback(
+      [&](const AxiAddr&) { ++read_requests; });
+  read_addr_valid = 1;
+  read_clock.Step();
+  read_addr_valid = 0;
+  Check(read_requests == 1 && read_driver.HasDeferredRequest(),
+        "read error request was not captured");
+
+  AxiRData read_error = {};
+  read_error.read_data_bits_id = read_id;
+  read_error.read_data_bits_resp = 2;
+  read_error.read_data_bits_last = 1;
+  read_driver.QueueResponse(read_error);
+  read_clock.Step();
+  Check(read_data_valid == 1 && read_data_resp == 2 &&
+            read_data_last == 1,
+        "read error response was not presented");
+  read_clock.Step();
+  Check(!read_driver.HasDeferredRequest(),
+        "read error response did not release pending request");
+
+  uint8_t write_clock_signal = 0;
+  uint8_t write_addr_valid = 0;
+  uint32_t write_addr = 0x20000000;
+  uint8_t write_prot = 0;
+  uint8_t write_id = 6;
+  uint8_t write_len = 0;
+  uint8_t write_size = 2;
+  uint8_t write_burst = 1;
+  uint8_t write_lock = 0;
+  uint8_t write_cache = 0;
+  uint8_t write_qos = 0;
+  uint8_t write_region = 0;
+  uint8_t write_addr_ready = 0;
+  uint8_t write_data_valid = 0;
+  VlWide<4> write_data = {};
+  uint16_t write_strb = 0x000f;
+  uint8_t write_last = 1;
+  uint8_t write_data_ready = 0;
+  uint8_t write_resp_valid = 0;
+  uint8_t write_resp_id = 0;
+  uint8_t write_resp = 0;
+  uint8_t write_resp_ready = 1;
+  PassiveModel write_model;
+  Clock write_clock(&context, &write_clock_signal, &write_model);
+  Gem5AxiMasterWriteDriver write_driver(
+      &write_clock, &write_addr_valid, &write_addr, &write_prot,
+      &write_id, &write_len, &write_size, &write_burst, &write_lock,
+      &write_cache, &write_qos, &write_region, &write_addr_ready,
+      &write_data_valid, &write_data, &write_strb, &write_last,
+      &write_data_ready, &write_resp_valid, &write_resp_id,
+      &write_resp, &write_resp_ready);
+
+  int write_requests = 0;
+  write_driver.RegisterDeferredCallback(
+      [&](const AxiAddr&, const std::vector<AxiWData>&) {
+        ++write_requests;
+      });
+  write_clock.Step();
+  write_addr_valid = 1;
+  write_data_valid = 1;
+  write_data[0] = 0x12345678;
+  write_clock.Step();
+  write_addr_valid = 0;
+  write_data_valid = 0;
+  Check(write_requests == 1 && write_driver.HasDeferredRequest(),
+        "write error request was not captured");
+
+  AxiWResp write_error = {};
+  write_error.write_resp_bits_id = write_id;
+  write_error.write_resp_bits_resp = 2;
+  write_driver.QueueResponse(write_error);
+  write_clock.Step();
+  Check(write_resp_valid == 1 && write_resp == 2 &&
+            write_resp_id == write_id,
+        "write error response was not presented");
+  write_clock.Step();
+  Check(!write_driver.HasDeferredRequest(),
+        "write error response did not release pending request");
+}
+
+void
 TestRandomizedReadTiming()
 {
   VerilatedContext context;
@@ -671,6 +785,7 @@ main()
   TestDmaRequestValidation();
   TestWriteBurstCollection();
   TestReadBurstResponseRetirement();
+  TestErrorResponseRetirement();
   TestRandomizedReadTiming();
   TestRandomizedWriteTiming();
   std::puts("PASS: gem5 Coral AXI master adapter");

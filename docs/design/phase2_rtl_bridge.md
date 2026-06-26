@@ -115,6 +115,12 @@ tree. Coral EXTMEM address `0x20000000` maps onto that SoC physical window.
 `gem5_dma_smoke.elf`, and verifies that Coral writes back `42` and
 `0x4e505544`.
 
+The NPU shell also exposes a `dma_errors` CSR. Requests outside the configured
+EXTMEM-to-shared-memory window are rejected by the shell and completed back to
+Coral as AXI `SLVERR`; gem5 no longer terminates the whole simulation for this
+class of firmware/runtime bug. Valid DMA requests and completions remain
+tracked separately from rejected requests.
+
 ## Remaining Phase-2 work
 
 - promote the fixed reserved-memory smoke page into driver-managed allocation

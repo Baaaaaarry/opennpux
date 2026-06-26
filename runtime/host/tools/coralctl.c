@@ -12,6 +12,7 @@
 #define RESET_CONTROL UINT64_C(0x30000)
 #define PC_START UINT64_C(0x30004)
 #define STATUS UINT64_C(0x30008)
+#define DMA_ERRORS UINT64_C(0x30fe0)
 #define DMA_REQUESTS UINT64_C(0x30fe4)
 #define DMA_COMPLETIONS UINT64_C(0x30fe8)
 #define DMA_STATE UINT64_C(0x30fec)
@@ -165,6 +166,8 @@ print_info(struct coral_regs *regs, uint64_t base)
            read_reg(regs, base, DMA_REQUESTS));
     printf("dma_completions=%" PRIu32 "\n",
            read_reg(regs, base, DMA_COMPLETIONS));
+    printf("dma_errors=%" PRIu32 "\n",
+           read_reg(regs, base, DMA_ERRORS));
     printf("dma_state=0x%08" PRIx32 "\n",
            read_reg(regs, base, DMA_STATE));
     printf("reset_control=0x%08" PRIx32 "\n",
@@ -300,6 +303,8 @@ main(int argc, char **argv)
            read_reg(&regs, base, DMA_REQUESTS));
     printf("dma_completions=%" PRIu32 "\n",
            read_reg(&regs, base, DMA_COMPLETIONS));
+    printf("dma_errors=%" PRIu32 "\n",
+           read_reg(&regs, base, DMA_ERRORS));
     printf("dma_state=0x%08" PRIx32 "\n",
            read_reg(&regs, base, DMA_STATE));
     const int valid = shared[0] == 42 &&

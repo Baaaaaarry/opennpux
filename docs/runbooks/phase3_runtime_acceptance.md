@@ -82,14 +82,30 @@ IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
 ```
 
 The guest image must also contain a module loader. If the driver-info test
-prints `insmod: not found` or `no insmod/modprobe found in guest`, install an
-aarch64 BusyBox or kmod-provided `insmod` binary:
+prints `insmod: not found` or `no insmod/modprobe found in guest`, build the
+minimal static aarch64 BusyBox. The build enables only `insmod` and the small
+`modprobe` implementation:
+
+```sh
+sudo apt-get install gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+  make bzip2 curl
+./tools/guest_tools/build_busybox_aarch64.sh
+```
+
+The source archive is downloaded from `busybox.net`, cached under
+`.cache/busybox`, and checked against the pinned SHA-256. For an offline build,
+set `BUSYBOX_TARBALL=/path/to/busybox-1.36.1.tar.bz2`.
+
+Install the resulting multicall binary:
 
 ```sh
 ./tools/guest_tools/install_module_loader_to_image.sh \
   /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
-  /path/to/aarch64/busybox
+  ./build/guest-tools/busybox-aarch64
 ```
+
+Because this changes the guest disk, rebuild the boot checkpoint once before
+running the driver-info resume test.
 
 The script prints the `CORAL_KERNEL_IMAGE=.../vmlinux-<release>` value to use
 with gem5. First rebuild the checkpoint with the 4.19 kernel:

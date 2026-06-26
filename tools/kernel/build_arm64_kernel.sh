@@ -51,6 +51,6 @@ cp "${LINUX_BUILD}/vmlinux" "${ROOT_DIR}/build/kernel/vmlinux-${kernel_release}"
 printf '%s\n' "${kernel_release}" > "${ROOT_DIR}/build/kernel/kernel.release"
 
 echo "kernel_release=${kernel_release}"
-echo "kernel_image=${ROOT_DIR}/build/kernel/Image-${kernel_release}"
-echo "kernel_vmlinux=${ROOT_DIR}/build/kernel/vmlinux-${kernel_release}"
+echo "guest_boot_image=${ROOT_DIR}/build/kernel/Image-${kernel_release}"
+echo "gem5_kernel=${ROOT_DIR}/build/kernel/vmlinux-${kernel_release}"
 echo "kernel_build=${LINUX_BUILD}"

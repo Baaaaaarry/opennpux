@@ -74,17 +74,29 @@ The source and build tree remain on the host.
 
 ## Boot gem5 With The New Kernel
 
-The gem5 run script accepts a kernel override:
+The gem5 run script accepts a kernel override. Use the ELF `vmlinux-*` file for
+gem5. The raw `Image-*` file is installed into the guest filesystem for
+completeness, but this ARM full-system config loads the host-side ELF through
+`--kernel`.
 
 ```sh
 cd thirdparty/gem5
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/Image-$(cat ../../build/kernel/kernel.release) \
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
 CORAL_REBUILD_CKPT=1 \
 ./run_multicore.sh
 ```
 
 The checkpoint metadata includes the kernel image path. Changing
 `CORAL_KERNEL_IMAGE` rebuilds the boot checkpoint once.
+
+If gem5 reports:
+
+```text
+Could not load kernel file .../Image-<release>
+```
+
+you passed the raw arm64 `Image` instead of `vmlinux`. Re-run with
+`build/kernel/vmlinux-<release>`.
 
 ## Validate Driver Path
 

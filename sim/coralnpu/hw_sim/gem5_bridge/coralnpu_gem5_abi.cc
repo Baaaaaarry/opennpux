@@ -18,13 +18,12 @@ struct coral_gem5_handle {
   Gem5CoreMiniAxiWrapper wrapper;
   coral_gem5_dma_request pending_dma;
   bool dma_pending;
-  uint32_t dma_lane;
   uint32_t dma_beat_size;
   uint32_t dma_beat_count;
 
   coral_gem5_handle()
       : context(), wrapper(&context), pending_dma(), dma_pending(false),
-        dma_lane(0), dma_beat_size(0), dma_beat_count(0) {
+        dma_beat_size(0), dma_beat_count(0) {
     wrapper.RegisterDeferredReadCallback([this](const AxiAddr& addr) {
       if (!BuildGem5DmaReadRequest(
               addr, &pending_dma, &dma_beat_size, &dma_beat_count)) {
@@ -38,9 +37,8 @@ struct coral_gem5_handle {
       dma_pending = true;
     });
     wrapper.RegisterDeferredWriteCallback(
-        [this](const AxiAddr& addr, const AxiWData& data) {
-          if (!BuildGem5DmaWriteRequest(
-                  addr, data, &pending_dma, &dma_lane)) {
+        [this](const AxiAddr& addr, const std::vector<AxiWData>& data) {
+          if (!BuildGem5DmaWriteRequest(addr, data, &pending_dma)) {
             AxiWResp response = {};
             response.write_resp_bits_id = addr.addr_bits_id;
             response.write_resp_bits_resp = kAxiSlvErr;

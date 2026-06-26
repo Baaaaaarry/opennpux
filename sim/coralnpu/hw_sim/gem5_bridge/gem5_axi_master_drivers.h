@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <queue>
+#include <vector>
 
 #include "hw_sim/hw_primitives.h"
 
@@ -160,7 +161,8 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
   }
 
   void RegisterDeferredCallback(
-      std::function<void(const AxiAddr&, const AxiWData&)> callback) {
+      std::function<void(const AxiAddr&, const std::vector<AxiWData>&)>
+          callback) {
     callback_ = callback;
   }
 
@@ -181,8 +183,9 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
       responses_.pop();
       request_pending_ = false;
       addr_captured_ = false;
-      data_captured_ = false;
+      data_complete_ = false;
       request_submitted_ = false;
+      request_data_.clear();
     }
 
     *resp_valid_ = !responses_.empty();
@@ -207,21 +210,23 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
       request_addr_.addr_bits_region = *region_;
     }
 
-    if (data_handshake && !data_captured_) {
-      data_captured_ = true;
-      request_data_.write_data_bits_data = *data_;
-      request_data_.write_data_bits_strb = *strb_;
-      request_data_.write_data_bits_last = *last_;
+    if (data_handshake && !data_complete_) {
+      AxiWData beat = {};
+      beat.write_data_bits_data = *data_;
+      beat.write_data_bits_strb = *strb_;
+      beat.write_data_bits_last = *last_;
+      request_data_.push_back(beat);
+      data_complete_ = *last_;
     }
 
-    if (addr_captured_ && data_captured_ && !request_submitted_) {
+    if (addr_captured_ && data_complete_ && !request_submitted_) {
       request_submitted_ = true;
       request_pending_ = true;
       callback_(request_addr_, request_data_);
     }
 
     *addr_ready_ = !addr_captured_;
-    *data_ready_ = !data_captured_;
+    *data_ready_ = !data_complete_ && request_data_.size() < 256;
     clock().Eval();
   }
 
@@ -249,11 +254,11 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
 
   std::queue<AxiWResp> responses_;
   AxiAddr request_addr_;
-  AxiWData request_data_;
-  std::function<void(const AxiAddr&, const AxiWData&)> callback_;
+  std::vector<AxiWData> request_data_;
+  std::function<void(const AxiAddr&, const std::vector<AxiWData>&)> callback_;
   bool request_pending_ = false;
   bool addr_captured_ = false;
-  bool data_captured_ = false;
+  bool data_complete_ = false;
   bool request_submitted_ = false;
   bool response_handshake_pending_ = false;
 };

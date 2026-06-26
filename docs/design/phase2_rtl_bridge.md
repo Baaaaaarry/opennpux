@@ -21,7 +21,8 @@ The bridge currently supports:
 - host-side ELF loading into Coral TCM before reset release
 - periodic RTL evaluation on the gem5 event queue
 - halted/WFI detection
-- single-outstanding external AXI reads and writes through gem5 coherent DMA
+- single-outstanding external AXI reads and writes through gem5 coherent DMA,
+  including INCR bursts
 
 The bridge uses the non-SystemC Verilator C++ model and runtime. Linking
 Accellera SystemC into `gem5.opt` through the shared library is prohibited
@@ -84,19 +85,24 @@ The DMA port is connected on the SLC-side coherent path in the D9200/D9300
 configurations. The implementation does not use `PhysicalMemory::read` or
 other cache-bypassing backdoors.
 
-The current transport supports one outstanding AXI request. INCR read bursts
-up to 256 beats and 4096 bytes are issued as one coherent gem5 DMA and returned
-to Coral as ordered AXI `R` beats. Write bursts, multiple outstanding IDs, and
-checkpointing an in-flight transaction remain future increments.
+The current transport supports one outstanding AXI request. INCR read and
+write bursts up to 256 beats and 4096 bytes are issued as one coherent gem5
+DMA. Reads are returned to Coral as ordered AXI `R` beats with `RLAST` only on
+the final beat. Writes accept independent `AW` and `W` arrival, cache all write
+beats until `WLAST`, validate the burst shape and strobes, and then submit one
+coherent DMA write. Multiple outstanding IDs and checkpointing an in-flight
+transaction remain future increments.
 
 `phase2_test_axi_adapter.sh` runs a signal-level regression without Linux or
 the Coral core. It covers independent `AW`/`W` arrival, held-valid replay
-prevention, deferred responses, and response-ready changes after a rising-edge
-handshake. Unsupported write bursts, transfers crossing the 16-byte AXI data
-word, non-final single-beat writes, and partial strobes are rejected with AXI
-`SLVERR` instead of being forwarded as invalid zero-length gem5 DMA requests.
-The same test executes 64 deterministic randomized read transactions and 64
-write transactions with channel delays and response backpressure.
+prevention, deferred responses, response-ready changes after a rising-edge
+handshake, read burst response retirement, and write burst collection when the
+`W` channel arrives before `AW`. Unsupported burst types, transfers crossing
+the 16-byte AXI data word, incorrect `WLAST`, short write bursts, 4 KiB
+crossing bursts, and partial strobes are rejected with AXI `SLVERR` instead of
+being forwarded as invalid gem5 DMA requests. The same test executes 64
+deterministic randomized read transactions and 64 write transactions with
+channel delays and response backpressure.
 
 The detailed failure analysis and AXI timing resolution are documented in
 `docs/design/phase2_dma_root_cause_report.md`.
@@ -112,5 +118,5 @@ tree. Coral EXTMEM address `0x20000000` maps onto that SoC physical window.
 ## Remaining Phase-2 work
 
 - promote the fixed reserved-memory smoke page into driver-managed allocation
-- add burst and multiple-outstanding support after the single-beat path is
-  verified
+- add multiple-outstanding ID support after the single-outstanding burst path
+  is verified

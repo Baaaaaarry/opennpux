@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 double
 sc_time_stamp()
@@ -176,10 +177,13 @@ TestIndependentWriteChannels()
   uint32_t captured_addr = 0;
   uint32_t captured_data = 0;
   driver.RegisterDeferredCallback(
-      [&](const AxiAddr& request_addr, const AxiWData& request_data) {
+      [&](const AxiAddr& request_addr,
+          const std::vector<AxiWData>& request_data) {
         ++requests;
+        Check(request_data.size() == 1,
+              "single-beat write captured wrong beat count");
         captured_addr = request_addr.addr_bits_addr;
-        captured_data = request_data.write_data_bits_data[0];
+        captured_data = request_data[0].write_data_bits_data[0];
       });
 
   clock.Step();
@@ -243,7 +247,6 @@ TestDmaRequestValidation()
   coral_gem5_dma_request request = {};
   uint32_t beat_size = 0;
   uint32_t beat_count = 0;
-  uint32_t lane = 0;
 
   Check(BuildGem5DmaReadRequest(
             addr, &request, &beat_size, &beat_count),
@@ -280,19 +283,135 @@ TestDmaRequestValidation()
   data.write_data_bits_data[1] = 0x11223344;
   data.write_data_bits_strb = 0x00f0;
   data.write_data_bits_last = 1;
-  Check(BuildGem5DmaWriteRequest(addr, data, &request, &lane),
+  Check(BuildGem5DmaWriteRequest(addr, std::vector<AxiWData>{data}, &request),
         "valid write request was rejected");
   Check(request.size == 4 && request.data[0] == 0x44 &&
             request.data[3] == 0x11,
         "valid write request was encoded incorrectly");
 
   data.write_data_bits_strb = 0x0070;
-  Check(!BuildGem5DmaWriteRequest(addr, data, &request, &lane),
+  Check(!BuildGem5DmaWriteRequest(addr, std::vector<AxiWData>{data},
+                                  &request),
         "partial write strobe was accepted without byte enables");
   data.write_data_bits_strb = 0x00f0;
   data.write_data_bits_last = 0;
-  Check(!BuildGem5DmaWriteRequest(addr, data, &request, &lane),
+  Check(!BuildGem5DmaWriteRequest(addr, std::vector<AxiWData>{data},
+                                  &request),
         "non-final write beat was accepted");
+
+  addr.addr_bits_addr = 0x20000000;
+  addr.addr_bits_len = 3;
+  std::vector<AxiWData> burst(4);
+  for (uint32_t beat = 0; beat < burst.size(); ++beat) {
+    burst[beat].write_data_bits_data[beat] = 0x44332211u + beat;
+    burst[beat].write_data_bits_strb = 0x000fu << (beat * 4);
+    burst[beat].write_data_bits_last = beat + 1 == burst.size();
+  }
+  Check(BuildGem5DmaWriteRequest(addr, burst, &request),
+        "valid write burst was rejected");
+  Check(request.size == 16 && request.data[0] == 0x11 &&
+            request.data[4] == 0x12 && request.data[8] == 0x13 &&
+            request.data[12] == 0x14,
+        "write burst payload was encoded incorrectly");
+
+  burst[2].write_data_bits_last = 1;
+  Check(!BuildGem5DmaWriteRequest(addr, burst, &request),
+        "early WLAST write burst was accepted");
+  burst[2].write_data_bits_last = 0;
+  burst.pop_back();
+  Check(!BuildGem5DmaWriteRequest(addr, burst, &request),
+        "short write burst was accepted");
+
+  addr.addr_bits_addr = 0x20000ffcu;
+  addr.addr_bits_len = 1;
+  burst.resize(2);
+  burst[0].write_data_bits_data[3] = 0xaa55aa55u;
+  burst[0].write_data_bits_strb = 0xf000u;
+  burst[0].write_data_bits_last = 0;
+  burst[1].write_data_bits_data[0] = 0x55aa55aau;
+  burst[1].write_data_bits_strb = 0x000fu;
+  burst[1].write_data_bits_last = 1;
+  Check(!BuildGem5DmaWriteRequest(addr, burst, &request),
+        "write burst crossing 4 KiB was accepted");
+}
+
+void
+TestWriteBurstCollection()
+{
+  VerilatedContext context;
+  uint8_t clock_signal = 0;
+  uint8_t addr_valid = 0;
+  uint32_t addr = 0x20000000;
+  uint8_t prot = 0;
+  uint8_t id = 11;
+  uint8_t len = 3;
+  uint8_t size = 2;
+  uint8_t burst = 1;
+  uint8_t lock = 0;
+  uint8_t cache = 0;
+  uint8_t qos = 0;
+  uint8_t region = 0;
+  uint8_t addr_ready = 0;
+  uint8_t data_valid = 0;
+  VlWide<4> data = {};
+  uint16_t strb = 0x000f;
+  uint8_t last = 0;
+  uint8_t data_ready = 0;
+  uint8_t resp_valid = 0;
+  uint8_t resp_id = 0;
+  uint8_t resp = 0;
+  uint8_t resp_ready = 1;
+  PassiveModel model;
+  Clock clock(&context, &clock_signal, &model);
+  Gem5AxiMasterWriteDriver driver(
+      &clock, &addr_valid, &addr, &prot, &id, &len, &size, &burst,
+      &lock, &cache, &qos, &region, &addr_ready, &data_valid, &data,
+      &strb, &last, &data_ready, &resp_valid, &resp_id, &resp,
+      &resp_ready);
+
+  int requests = 0;
+  std::vector<uint32_t> captured_data;
+  driver.RegisterDeferredCallback(
+      [&](const AxiAddr& request_addr,
+          const std::vector<AxiWData>& request_data) {
+        ++requests;
+        Check(request_addr.addr_bits_len == 3,
+              "write burst address length changed");
+        Check(request_data.size() == 4,
+              "write burst captured wrong beat count");
+        captured_data.clear();
+        for (const AxiWData& beat : request_data) {
+          captured_data.push_back(beat.write_data_bits_data[0]);
+        }
+      });
+
+  clock.Step();
+  data_valid = 1;
+  for (uint32_t beat = 0; beat < 4; ++beat) {
+    data[0] = 0xcafe0000u | beat;
+    last = beat == 3;
+    clock.Step();
+    Check(requests == 0, "write burst submitted before AW arrived");
+  }
+  data_valid = 0;
+  Check(data_ready == 0, "write burst accepted data after WLAST");
+
+  addr_valid = 1;
+  clock.Step();
+  addr_valid = 0;
+  Check(requests == 1, "write burst was not submitted after AW");
+  Check(captured_data.size() == 4 && captured_data[0] == 0xcafe0000u &&
+            captured_data[3] == 0xcafe0003u,
+        "write burst data changed");
+
+  AxiWResp response = {};
+  response.write_resp_bits_id = id;
+  driver.QueueResponse(response);
+  int timeout = 16;
+  while (driver.HasDeferredRequest() && --timeout > 0) {
+    clock.Step();
+  }
+  Check(timeout > 0, "write burst response timed out");
 }
 
 void
@@ -472,10 +591,13 @@ TestRandomizedWriteTiming()
   uint32_t captured_data = 0;
   uint8_t captured_id = 0;
   driver.RegisterDeferredCallback(
-      [&](const AxiAddr& request_addr, const AxiWData& request_data) {
+      [&](const AxiAddr& request_addr,
+          const std::vector<AxiWData>& request_data) {
         ++requests;
+        Check(request_data.size() == 1,
+              "random write captured wrong beat count");
         captured_addr = request_addr.addr_bits_addr;
-        captured_data = request_data.write_data_bits_data[0];
+        captured_data = request_data[0].write_data_bits_data[0];
         captured_id = request_addr.addr_bits_id;
       });
 
@@ -547,6 +669,7 @@ main()
   TestDeferredRead();
   TestIndependentWriteChannels();
   TestDmaRequestValidation();
+  TestWriteBurstCollection();
   TestReadBurstResponseRetirement();
   TestRandomizedReadTiming();
   TestRandomizedWriteTiming();

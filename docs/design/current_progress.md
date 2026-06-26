@@ -104,7 +104,10 @@ dma_test=PASS
   reaching gem5 as zero-length DMA operations.
 - INCR read bursts up to 256 beats and 4096 bytes use one coherent gem5 DMA
   and return ordered AXI response beats through `RLAST`.
-- Add write bursts and then multiple outstanding IDs.
+- INCR write bursts up to 256 beats and 4096 bytes accept independent `AW` and
+  `W` arrival, cache write beats through `WLAST`, validate strobes and burst
+  boundaries, and submit one coherent gem5 DMA write.
+- Add multiple outstanding IDs.
 - Define checkpoint behavior for an in-flight RTL/DMA transaction.
 
 ### Phase 3

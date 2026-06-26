@@ -149,8 +149,10 @@ The gem5-specific adapter applies these AXI rules:
 - RTL stepping stops while a gem5 DMA request is outstanding.
 - RTL resumes only after gem5 queues the matching AXI response.
 
-This is intentionally a single-outstanding, single-beat implementation. Burst
-handling and multiple IDs require additional queues and ordering rules.
+This remains a single-outstanding implementation. INCR read and write bursts
+are supported by collapsing one AXI burst into one coherent gem5 DMA
+transaction and expanding the response back into AXI beats when required.
+Multiple IDs require additional queues and ordering rules.
 
 ## 7. Why upstream did not expose the problem
 
@@ -203,9 +205,8 @@ Verified:
 
 Not yet covered:
 
-- AXI bursts;
 - multiple outstanding transactions and multiple IDs;
-- partial write strobes beyond the current single transfer;
+- sparse partial write strobes beyond the current full-byte-lane requirement;
 - DMA error injection;
 - interrupt-driven completion;
 - checkpoint serialization during an in-flight DMA request;
@@ -218,5 +219,6 @@ independent `AW` and `W` arrival in both orders, held-valid replay prevention,
 deferred read and write responses, and a target that drops `RREADY` or
 `BREADY` immediately after the rising-edge handshake.
 
-Randomized backpressure, bursts, and multiple outstanding requests remain the
-next protocol extensions.
+Deterministic regressions now cover randomized backpressure and single
+outstanding INCR read/write bursts. Multiple outstanding requests remain the
+next protocol extension.

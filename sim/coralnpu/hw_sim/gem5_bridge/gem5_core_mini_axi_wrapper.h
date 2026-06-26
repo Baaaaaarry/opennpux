@@ -146,7 +146,8 @@ class Gem5CoreMiniAxiWrapper {
   }
 
   void RegisterDeferredWriteCallback(
-      std::function<void(const AxiAddr&, const AxiWData&)> callback) {
+      std::function<void(const AxiAddr&, const std::vector<AxiWData>&)>
+          callback) {
     master_write_.RegisterDeferredCallback(callback);
   }
 

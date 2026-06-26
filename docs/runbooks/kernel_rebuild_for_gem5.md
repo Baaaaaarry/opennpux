@@ -37,6 +37,44 @@ build/linux-arm64/
 
 `build/linux-arm64` is the matching build tree for out-of-tree modules.
 
+## Reuse The Booting 4.18 Config
+
+If a kernel built from `defconfig` produces no serial output, use the old
+booting guest config as the base. Boot the known-good 4.18 system and run:
+
+```sh
+zcat /proc/config.gz > /tmp/gem5-4.18.config
+```
+
+Copy it to the x86 host:
+
+```sh
+mkdir -p ~/code/opennpux/build/kernel
+# Use whatever transfer path is available in the guest: 9p, mounted data disk,
+# scp, or paste through the terminal.
+cp /path/from/guest/gem5-4.18.config \
+  ~/code/opennpux/build/kernel/gem5-4.18.config
+```
+
+Then rebuild the new kernel using that config as the base:
+
+```sh
+cd ~/code/opennpux
+KERNEL_BASE_CONFIG="$PWD/build/kernel/gem5-4.18.config" \
+LINUX_BRANCH=linux-6.6.y \
+./tools/kernel/build_arm64_kernel.sh
+```
+
+The script still overlays the required OpenNPUX options after copying the base
+config, including modules, early console, VExpress, virtio, and NPU driver
+support.
+
+Check the resulting config:
+
+```sh
+./tools/kernel/check_gem5_kernel_config.sh build/linux-arm64/.config
+```
+
 ## Build The Coral Driver Module
 
 ```sh

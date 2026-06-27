@@ -111,6 +111,9 @@ The checkpoint bootstrap copies `coralctl`, `opennpux_coral.ko`, and BusyBox
 into tmpfs. Resume tests use those copies so they do not issue virtio-blk reads
 after restore; the current gem5 virtio queue can otherwise report
 `req.0:id ... is not a head` and deliver `SIGBUS` while loading the module.
+Resume scripts must not mount a second tmpfs over `/tmp`, because that would
+hide the preloaded checkpoint files. All Coral resume scripts therefore check
+`/proc/mounts` before mounting pseudo filesystems.
 
 The script prints the `CORAL_KERNEL_IMAGE=.../vmlinux-<release>` value to use
 with gem5. First rebuild the checkpoint with the 4.19 kernel:

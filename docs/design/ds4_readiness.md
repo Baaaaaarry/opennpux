@@ -12,14 +12,14 @@ Working:
 - Official Verilated Coral backend loaded by gem5.
 - Coherent NPU DMA into the reserved shared-memory window.
 - `coralctl` runtime API and CLI smoke tests.
-- Initial `/dev/opennpux-coral` UAPI and kernel driver skeleton.
+- `/dev/opennpux-coral` UAPI and loadable platform driver.
+- Driver-bounded shared-window mmap.
+- Asynchronous START and poll-based completion delivery.
 
 Not yet complete:
 
-- loadable guest kernel module installed into the disk image
-- driver-backed shared-window mmap
-- event or interrupt completion instead of polling
 - runtime-owned command, tensor, and completion buffers
+- hardware interrupt delivery instead of the current kernel polling worker
 - DS4 model artifact format and graph partitioning
 - Coral/custom RTL firmware contract for DS4 operators
 
@@ -31,12 +31,11 @@ into an inference submission runtime.
 
 Estimated engineering chunks:
 
-1. Finish minimal driver: ioctl info/run plus mmap for the shared DMA window.
-2. Move `coralctl` and the host runtime from `/dev/mem` fallback to the driver.
-3. Add a command descriptor ABI in shared memory.
-4. Add firmware/runtime tests for multi-buffer command execution.
-5. Define DS4 tensor layout, operator subset, and firmware entry contract.
-6. Integrate the DS4 host inference path.
+1. Pass the driver-only coherent DMA acceptance test.
+2. Add a command descriptor ABI in shared memory.
+3. Add firmware/runtime tests for multi-buffer command execution.
+4. Define DS4 tensor layout, operator subset, and firmware entry contract.
+5. Integrate the DS4 host inference path.
 
 ## Next Acceptance Target
 

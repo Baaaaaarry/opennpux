@@ -1,22 +1,16 @@
 # Phase 3 Runtime Acceptance Runbook
 
-This runbook validates the first Phase-3 increment: the stable host runtime API
-that sits between Linux userspace tools and the future Coral kernel driver.
+This runbook validates the Phase-3 Linux driver and stable host runtime API.
 
 ## Scope
 
-This increment keeps the Phase-2 `/dev/mem` backend so the existing gem5
-checkpoint flow remains usable, but moves Coral control and shared-buffer logic
-out of the `coralctl` command-line tool into a reusable C API:
+The Phase-2 `/dev/mem` backend remains available for bring-up compatibility,
+but normal Phase-3 operation uses `/dev/opennpux-coral` for control and shared
+memory:
 
 - `runtime/host/include/opennpux/coral_runtime.h`
 - `runtime/host/src/coral_runtime.c`
 - `runtime/host/tools/coralctl.c`
-
-The intended next backend swap is:
-
-- current: runtime API -> `/dev/mem` MMIO and shared-window mmap
-- next: runtime API -> `/dev/opennpux-coral` ioctl and mmap
 
 `coralctl` is now only a CLI frontend. System-level output remains compatible
 with the Phase-2 scripts.
@@ -57,8 +51,16 @@ headers:
 make -C runtime/kernel
 ```
 
-This first driver increment provides `OPENNPUX_CORAL_IOC_GET_INFO` and
-`OPENNPUX_CORAL_IOC_RUN`. Shared-window mmap is the next driver increment.
+The driver provides:
+
+- `GET_INFO` and backward-compatible synchronous `RUN` ioctls
+- capability negotiation and asynchronous `START`
+- bounded mmap of the DT-reserved shared DMA window
+- poll-based completion notification with timeout recovery through `RESET`
+
+The shared mapping is non-cached. This is conservative for both coherent gem5
+DMA and future non-coherent platforms; userspace cannot mmap CSR or arbitrary
+physical-memory ranges through this device.
 
 ## 4.19 Kernel And Driver Validation
 
@@ -202,6 +204,27 @@ dma_test=PASS
 [coral-dma-test] PASS
 ```
 
+## Driver DMA Acceptance
+
+After rebuilding and installing the Phase-3 module and `coralctl`, rebuild the
+boot checkpoint once so both files are preloaded into tmpfs. Then run:
+
+```sh
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
+./tools/coralnpu/run_driver_dma_test.sh
+```
+
+In addition to the normal DMA result, expected output includes:
+
+```text
+transport=driver
+driver_abi=1
+driver_features=0x0000000f
+shared_clear=PASS
+[coral-driver-dma-test] PASS
+```
+
 ## Acceptance Criteria
 
 Phase-3 runtime increment passes when all of these are true:
@@ -211,16 +234,11 @@ Phase-3 runtime increment passes when all of these are true:
 - aarch64 `coralctl` guest binary builds and installs into the image
 - `coralctl-test` still passes from the existing checkpoint
 - `coral-dma-test` still passes from the existing checkpoint
+- `coral-driver-dma-test` passes without opening `/dev/mem`
 - no `coralctl` command output used by Phase-2 scripts regresses
 
 ## Next Increment
 
-Complete the minimal Linux device boundary behind this runtime API:
-
-- `/dev/opennpux-coral` character device
-- ioctl for info, reset/start, and status
-- mmap for the shared DMA window
-- poll or interrupt-driven completion path
-
-The runtime API should remain the userspace contract while the backend changes
-from `/dev/mem` to the kernel driver.
+Define the inference submission contract on top of the completed device
+boundary: versioned command descriptors, runtime-owned tensor buffers, and a
+real interrupt source when the platform model exposes one.

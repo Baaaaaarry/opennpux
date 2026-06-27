@@ -140,6 +140,13 @@ and a minimal platform-driver scaffold under `runtime/kernel`. The runtime now
 auto-selects `/dev/opennpux-coral` when available and falls back to `/dev/mem`
 for the existing checkpoint smoke tests.
 
+The third Phase-3 increment completes the device boundary: the driver exposes
+only the DT-reserved shared DMA window through non-cached mmap, negotiates a
+versioned capability ABI, accepts asynchronous START, wakes userspace through
+poll using a kernel completion worker, and supports RESET after timeout. The
+driver-only DMA acceptance covers control ioctl, shared mmap, completion, and
+coherent RTL DMA without opening `/dev/mem`.
+
 ### Phase 4
 
 - Load a real model and tensors from Linux.
@@ -157,6 +164,5 @@ for the existing checkpoint smoke tests.
 
 1. Run the Phase-3 runtime acceptance suite on x86 Linux.
 2. Build and load `/dev/opennpux-coral` in the guest image.
-3. Add driver-backed shared-window mmap and remove runtime dependence on
-   `/dev/mem`.
-4. Add interrupt or event-driven completion delivery.
+3. Pass the driver-only shared-window and DMA system test.
+4. Define the versioned inference command and tensor-buffer ABI.

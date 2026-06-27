@@ -38,6 +38,8 @@ print_info(const struct opennpux_coral_device *dev,
     printf("dma_state=0x%08" PRIx32 "\n", info->dma_state);
     printf("reset_control=0x%08" PRIx32 "\n", info->reset_control);
     printf("status=0x%08" PRIx32 "\n", info->status);
+    printf("driver_abi=%" PRIu32 "\n", info->abi_version);
+    printf("driver_features=0x%08" PRIx32 "\n", info->features);
 }
 
 static int

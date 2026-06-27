@@ -37,6 +37,9 @@ echo "[phase3-kernel] checking gem5 kernel config"
 echo "[phase3-kernel] building opennpux_coral.ko"
 "${SCRIPT_DIR}/build_opennpux_coral_ko.sh"
 
+echo "[phase3-kernel] building driver-aware coralctl"
+"${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
+
 kernel_release="$(cat "${ROOT_DIR}/build/kernel/kernel.release")"
 kernel_image="${ROOT_DIR}/build/kernel/Image-${kernel_release}"
 gem5_kernel="${ROOT_DIR}/build/kernel/vmlinux-${kernel_release}"
@@ -51,6 +54,9 @@ sudo "${SCRIPT_DIR}/install_kernel_to_image.sh" \
 
 echo "[phase3-kernel] installing OpenNPUX minimal init"
 "${SCRIPT_DIR}/install_opennpux_init_to_image.sh" "${IMAGE}"
+
+echo "[phase3-kernel] installing coralctl"
+"${ROOT_DIR}/tools/guest_tools/install_coralctl_to_image.sh" "${IMAGE}"
 
 cat <<EOF
 [phase3-kernel] build complete
@@ -78,4 +84,9 @@ Expected guest output:
   transport=driver
   backend=stage-a
   [coral-driver-info-test] PASS
+
+After building the Phase-2 RTL bridge, validate driver mmap and DMA with:
+  CORAL_KERNEL_IMAGE=${gem5_kernel} \
+  CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
+  ${ROOT_DIR}/tools/coralnpu/run_driver_dma_test.sh
 EOF

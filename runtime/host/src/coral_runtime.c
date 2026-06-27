@@ -3,6 +3,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -119,6 +121,27 @@ opennpux_coral_open(struct opennpux_coral_device *dev, uint64_t base)
     if (!force_devmem) {
         dev->fd = open(driver_path, O_RDWR);
         if (dev->fd >= 0) {
+            struct opennpux_coral_ioc_caps caps;
+            memset(&caps, 0, sizeof(caps));
+            if (ioctl(dev->fd, OPENNPUX_CORAL_IOC_GET_CAPS, &caps) == 0) {
+                if (caps.abi_version != OPENNPUX_CORAL_ABI_VERSION) {
+                    fprintf(stderr,
+                            "unsupported Coral driver ABI version: %" PRIu32
+                            "\n",
+                            caps.abi_version);
+                    close(dev->fd);
+                    dev->fd = -1;
+                    errno = EPROTO;
+                    return -1;
+                }
+                dev->abi_version = caps.abi_version;
+                dev->features = caps.features;
+            } else if (errno != ENOTTY) {
+                perror("ioctl(OPENNPUX_CORAL_IOC_GET_CAPS)");
+                close(dev->fd);
+                dev->fd = -1;
+                return -1;
+            }
             dev->transport = OPENNPUX_CORAL_TRANSPORT_DRIVER;
             return 0;
         }
@@ -263,6 +286,8 @@ opennpux_coral_get_info(struct opennpux_coral_device *dev,
         info->dma_state = ioc_info.dma_state;
         info->reset_control = ioc_info.reset_control;
         info->status = ioc_info.status;
+        info->abi_version = dev->abi_version;
+        info->features = dev->features;
         return;
     }
 
@@ -278,6 +303,8 @@ opennpux_coral_get_info(struct opennpux_coral_device *dev,
     info->dma_state = opennpux_coral_read_reg(dev, DMA_STATE);
     info->reset_control = opennpux_coral_read_reg(dev, RESET_CONTROL);
     info->status = opennpux_coral_read_reg(dev, STATUS);
+    info->abi_version = 0;
+    info->features = 0;
 }
 
 int
@@ -293,6 +320,13 @@ opennpux_coral_open_shared_window(
                 "Coral shared DMA window is too small: size=0x%08" PRIx32
                 " required=0x%zx\n",
                 window->size, min_size);
+        return -1;
+    }
+
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER &&
+        (dev->features & OPENNPUX_CORAL_FEATURE_SHARED_MMAP) == 0) {
+        fprintf(stderr, "Coral driver does not support shared-window mmap\n");
+        errno = ENOTSUP;
         return -1;
     }
 
@@ -380,6 +414,55 @@ opennpux_coral_run(struct opennpux_coral_device *dev, uint32_t entry,
                    uint64_t polls, uint32_t *final_status)
 {
     if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        const uint32_t async_features =
+            OPENNPUX_CORAL_FEATURE_ASYNC_START |
+            OPENNPUX_CORAL_FEATURE_POLL_COMPLETION;
+        if ((dev->features & async_features) == async_features) {
+            struct opennpux_coral_ioc_start start;
+            memset(&start, 0, sizeof(start));
+            start.entry = entry;
+            if (ioctl(dev->fd, OPENNPUX_CORAL_IOC_START, &start) != 0) {
+                return -1;
+            }
+
+            struct pollfd pfd = {
+                .fd = dev->fd,
+                .events = POLLIN,
+            };
+            const int timeout = polls > INT_MAX ? INT_MAX : (int)polls;
+            int poll_result;
+            do {
+                poll_result = poll(&pfd, 1, timeout);
+            } while (poll_result < 0 && errno == EINTR);
+
+            struct opennpux_coral_info info;
+            opennpux_coral_get_info(dev, &info);
+            if (final_status != NULL) {
+                *final_status = info.status;
+            }
+            if (poll_result < 0) {
+                ioctl(dev->fd, OPENNPUX_CORAL_IOC_RESET);
+                return -1;
+            }
+            if (poll_result == 0) {
+                ioctl(dev->fd, OPENNPUX_CORAL_IOC_RESET);
+                errno = ETIMEDOUT;
+                return -1;
+            }
+            if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0 ||
+                (info.status & 0x2) != 0) {
+                ioctl(dev->fd, OPENNPUX_CORAL_IOC_RESET);
+                errno = EIO;
+                return -1;
+            }
+            if ((info.status & 0x1) == 0) {
+                ioctl(dev->fd, OPENNPUX_CORAL_IOC_RESET);
+                errno = EIO;
+                return -1;
+            }
+            return 0;
+        }
+
         struct opennpux_coral_ioc_run run;
         memset(&run, 0, sizeof(run));
         run.entry = entry;

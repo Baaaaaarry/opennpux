@@ -32,6 +32,8 @@ struct opennpux_coral_device {
     uint64_t page_base;
     uint64_t base;
     enum opennpux_coral_transport transport;
+    uint32_t abi_version;
+    uint32_t features;
 };
 
 struct opennpux_coral_info {
@@ -47,6 +49,8 @@ struct opennpux_coral_info {
     uint32_t dma_state;
     uint32_t reset_control;
     uint32_t status;
+    uint32_t abi_version;
+    uint32_t features;
 };
 
 struct opennpux_coral_shared_window {

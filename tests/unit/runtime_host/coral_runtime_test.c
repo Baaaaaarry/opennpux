@@ -46,6 +46,17 @@ main(void)
               'd',
           "driver transport name failed");
 
+    check(OPENNPUX_CORAL_ABI_VERSION == 1, "unexpected driver ABI version");
+    check(sizeof(struct opennpux_coral_ioc_caps) == 32,
+          "driver capabilities ABI size changed");
+    check(sizeof(struct opennpux_coral_ioc_start) == 8,
+          "driver start ABI size changed");
+    check((OPENNPUX_CORAL_FEATURE_SHARED_MMAP |
+           OPENNPUX_CORAL_FEATURE_ASYNC_START |
+           OPENNPUX_CORAL_FEATURE_POLL_COMPLETION |
+           OPENNPUX_CORAL_FEATURE_RESET) == 0xf,
+          "driver feature bits changed");
+
     check(opennpux_coral_check_shared_u32_access(16, 0) == 0,
           "offset 0 rejected");
     check(opennpux_coral_check_shared_u32_access(16, 12) == 0,

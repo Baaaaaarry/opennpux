@@ -106,11 +106,12 @@ enable_config() {
 
 # The driver test loads an exact .ko path, so full modprobe is unnecessary.
 enable_config STATIC
+enable_config BUSYBOX
 enable_config INSMOD
 
 yes '' | make -C "${SRC_DIR}" O="${BUILD_DIR}" \
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" oldconfig >/dev/null
-for option in STATIC INSMOD; do
+for option in STATIC BUSYBOX INSMOD; do
     grep -q "^CONFIG_${option}=y$" "${BUILD_DIR}/.config" || \
         fail "BusyBox configuration rejected CONFIG_${option}=y"
 done

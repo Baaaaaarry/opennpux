@@ -8,6 +8,10 @@ mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 
 echo "[coralnpu] boot checkpoint script started"
 
+preloaded_coralctl=0
+preloaded_module=0
+preloaded_busybox=0
+
 for candidate in \
     /usr/local/bin/coralctl \
     /data/usr/local/bin/coralctl \
@@ -18,6 +22,7 @@ do
         cp "$candidate" /tmp/coralctl
         chmod 0700 /tmp/coralctl
         echo "[coralnpu] preloaded coralctl into checkpoint tmpfs"
+        preloaded_coralctl=1
         break
     fi
 done
@@ -30,6 +35,7 @@ do
         cp "$candidate" /tmp/opennpux_coral.ko
         chmod 0600 /tmp/opennpux_coral.ko
         echo "[coralnpu] preloaded opennpux_coral.ko into checkpoint tmpfs"
+        preloaded_module=1
         break
     fi
 done
@@ -38,6 +44,16 @@ if [ -x /bin/busybox ]; then
     cp /bin/busybox /tmp/busybox
     chmod 0700 /tmp/busybox
     echo "[coralnpu] preloaded busybox into checkpoint tmpfs"
+    preloaded_busybox=1
+fi
+
+if [ "$preloaded_coralctl" -eq 1 ] && \
+   [ "$preloaded_module" -eq 1 ] && \
+   [ "$preloaded_busybox" -eq 1 ]; then
+    : > /tmp/coralnpu-phase3-preload.ready
+    echo "[coralnpu] phase3 checkpoint preload ready"
+else
+    echo "[coralnpu] WARNING: phase3 checkpoint preload incomplete"
 fi
 
 sync

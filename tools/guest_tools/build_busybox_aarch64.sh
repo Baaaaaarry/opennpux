@@ -105,13 +105,14 @@ enable_config() {
 
 # Select both applet names, but use their shared small implementation.
 enable_config STATIC
+enable_config PLATFORM_LINUX
 enable_config INSMOD
 enable_config MODPROBE
 enable_config MODPROBE_SMALL
 
 yes '' | make -C "${SRC_DIR}" O="${BUILD_DIR}" \
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" oldconfig >/dev/null
-for option in STATIC INSMOD MODPROBE MODPROBE_SMALL; do
+for option in STATIC PLATFORM_LINUX INSMOD MODPROBE MODPROBE_SMALL; do
     grep -q "^CONFIG_${option}=y$" "${BUILD_DIR}/.config" || \
         fail "BusyBox configuration rejected CONFIG_${option}=y"
 done
@@ -120,6 +121,16 @@ make -C "${SRC_DIR}" O="${BUILD_DIR}" \
 
 "${CROSS_COMPILE}strip" -s "${BUILD_DIR}/busybox" 2>/dev/null || true
 install -m 0755 "${BUILD_DIR}/busybox" "${OUT}"
+
+if command -v "${CROSS_COMPILE}strings" >/dev/null 2>&1; then
+    applet_strings="$("${CROSS_COMPILE}strings" "${OUT}")"
+elif command -v strings >/dev/null 2>&1; then
+    applet_strings="$(strings "${OUT}")"
+else
+    fail "strings not found; install binutils to validate BusyBox applets"
+fi
+printf '%s\n' "${applet_strings}" | grep -qx insmod || fail "insmod applet is missing"
+printf '%s\n' "${applet_strings}" | grep -qx modprobe || fail "modprobe applet is missing"
 
 file "${OUT}" 2>/dev/null || true
 size_bytes="$(wc -c < "${OUT}" | tr -d ' ')"

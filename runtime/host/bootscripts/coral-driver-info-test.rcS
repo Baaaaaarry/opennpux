@@ -25,12 +25,15 @@ echo "[coral-driver-info-test] kernel=$(uname -r)"
 
 if [ ! -c /dev/opennpux-coral ]; then
     for module in \
+        /tmp/opennpux_coral.ko \
         "/lib/modules/$(uname -r)/extra/opennpux_coral.ko" \
         /root/opennpux_coral.ko
     do
         if [ -f "$module" ]; then
             echo "[coral-driver-info-test] loading $module"
-            if [ -x /bin/busybox ]; then
+            if [ -x /tmp/busybox ]; then
+                /tmp/busybox insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
+            elif [ -x /bin/busybox ]; then
                 /bin/busybox insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
             elif command -v insmod >/dev/null 2>&1; then
                 insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true

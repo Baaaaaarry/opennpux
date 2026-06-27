@@ -22,6 +22,24 @@ do
     fi
 done
 
+for candidate in \
+    "/lib/modules/$(uname -r)/extra/opennpux_coral.ko" \
+    /root/opennpux_coral.ko
+do
+    if [ -r "$candidate" ]; then
+        cp "$candidate" /tmp/opennpux_coral.ko
+        chmod 0600 /tmp/opennpux_coral.ko
+        echo "[coralnpu] preloaded opennpux_coral.ko into checkpoint tmpfs"
+        break
+    fi
+done
+
+if [ -x /bin/busybox ]; then
+    cp /bin/busybox /tmp/busybox
+    chmod 0700 /tmp/busybox
+    echo "[coralnpu] preloaded busybox into checkpoint tmpfs"
+fi
+
 sync
 if [ -r /sys/block/vda/inflight ]; then
     i=0

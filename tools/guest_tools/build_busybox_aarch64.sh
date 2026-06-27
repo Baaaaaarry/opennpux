@@ -103,13 +103,15 @@ enable_config() {
     mv "${BUILD_DIR}/.config.tmp" "${BUILD_DIR}/.config"
 }
 
-# MODPROBE_SMALL provides insmod and modprobe aliases without the full modutils.
+# Select both applet names, but use their shared small implementation.
 enable_config STATIC
+enable_config INSMOD
+enable_config MODPROBE
 enable_config MODPROBE_SMALL
 
 yes '' | make -C "${SRC_DIR}" O="${BUILD_DIR}" \
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" oldconfig >/dev/null
-for option in STATIC MODPROBE_SMALL; do
+for option in STATIC INSMOD MODPROBE MODPROBE_SMALL; do
     grep -q "^CONFIG_${option}=y$" "${BUILD_DIR}/.config" || \
         fail "BusyBox configuration rejected CONFIG_${option}=y"
 done

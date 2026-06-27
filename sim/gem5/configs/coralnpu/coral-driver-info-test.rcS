@@ -30,7 +30,9 @@ if [ ! -c /dev/opennpux-coral ]; then
     do
         if [ -f "$module" ]; then
             echo "[coral-driver-info-test] loading $module"
-            if command -v insmod >/dev/null 2>&1; then
+            if [ -x /bin/busybox ]; then
+                /bin/busybox insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
+            elif command -v insmod >/dev/null 2>&1; then
                 insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
             elif [ -x /sbin/insmod ]; then
                 /sbin/insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
@@ -54,6 +56,7 @@ elif [ ! -c /dev/opennpux-coral ]; then
     if [ -s /tmp/opennpux-coral-insmod.err ]; then
         cat /tmp/opennpux-coral-insmod.err
     fi
+    dmesg | tail -20 2>/dev/null || true
 elif OPENNPUX_CORAL_TRANSPORT=driver "$CORALCTL" info "${NPU_BASE}"; then
     dmesg | grep -i "opennpux-coral" | tail -5 2>/dev/null || true
     echo "[coral-driver-info-test] PASS"

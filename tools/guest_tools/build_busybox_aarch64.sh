@@ -45,6 +45,7 @@ command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 || {
 }
 
 mkdir -p "${CACHE_DIR}" "$(dirname -- "${TARBALL}")" "$(dirname -- "${OUT}")"
+rm -f "${OUT}"
 
 if [ ! -f "${TARBALL}" ]; then
     echo "Downloading ${BUSYBOX_URL}"
@@ -103,16 +104,14 @@ enable_config() {
     mv "${BUILD_DIR}/.config.tmp" "${BUILD_DIR}/.config"
 }
 
-# Select both applet names, but use their shared small implementation.
+# The driver test loads an exact .ko path, so full modprobe is unnecessary.
 enable_config STATIC
 enable_config PLATFORM_LINUX
 enable_config INSMOD
-enable_config MODPROBE
-enable_config MODPROBE_SMALL
 
 yes '' | make -C "${SRC_DIR}" O="${BUILD_DIR}" \
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" oldconfig >/dev/null
-for option in STATIC PLATFORM_LINUX INSMOD MODPROBE MODPROBE_SMALL; do
+for option in STATIC PLATFORM_LINUX INSMOD; do
     grep -q "^CONFIG_${option}=y$" "${BUILD_DIR}/.config" || \
         fail "BusyBox configuration rejected CONFIG_${option}=y"
 done
@@ -122,25 +121,18 @@ make -C "${SRC_DIR}" O="${BUILD_DIR}" \
 "${CROSS_COMPILE}strip" -s "${BUILD_DIR}/busybox" 2>/dev/null || true
 install -m 0755 "${BUILD_DIR}/busybox" "${OUT}"
 
-if command -v "${CROSS_COMPILE}strings" >/dev/null 2>&1; then
-    applet_strings="$("${CROSS_COMPILE}strings" "${OUT}")"
-elif command -v strings >/dev/null 2>&1; then
-    applet_strings="$(strings "${OUT}")"
-else
-    fail "strings not found; install binutils to validate BusyBox applets"
-fi
-printf '%s\n' "${applet_strings}" | grep -qx insmod || fail "insmod applet is missing"
-printf '%s\n' "${applet_strings}" | grep -qx modprobe || fail "modprobe applet is missing"
+command -v qemu-aarch64 >/dev/null 2>&1 || {
+    rm -f "${OUT}"
+    fail "qemu-aarch64 not found; install qemu-user to validate the target binary"
+}
+applets="$(qemu-aarch64 "${OUT}" --list)"
+printf '%s\n' "${applets}" | grep -qx insmod || {
+    rm -f "${OUT}"
+    fail "insmod applet is missing"
+}
 
 file "${OUT}" 2>/dev/null || true
 size_bytes="$(wc -c < "${OUT}" | tr -d ' ')"
 echo "built: ${OUT} (${size_bytes} bytes)"
 
-if command -v qemu-aarch64 >/dev/null 2>&1; then
-    applets="$(qemu-aarch64 "${OUT}" --list)"
-    printf '%s\n' "${applets}" | grep -qx insmod || fail "insmod applet is missing"
-    printf '%s\n' "${applets}" | grep -qx modprobe || fail "modprobe applet is missing"
-    echo "verified with qemu-aarch64: insmod, modprobe"
-else
-    echo "note: install qemu-user to execute the optional host-side applet check"
-fi
+echo "verified with qemu-aarch64: insmod"

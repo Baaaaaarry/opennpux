@@ -84,11 +84,11 @@ IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
 The guest image must also contain a module loader. If the driver-info test
 prints `insmod: not found` or `no insmod/modprobe found in guest`, build the
 minimal static aarch64 BusyBox. The build enables only `insmod` and the small
-`modprobe` implementation:
+module-loading implementation:
 
 ```sh
 sudo apt-get install gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
-  make bzip2 curl
+  make bzip2 curl qemu-user
 ./tools/guest_tools/build_busybox_aarch64.sh
 ```
 

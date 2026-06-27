@@ -72,9 +72,17 @@ sudo install -D -m 0755 "${LOADER}" "${mnt}/sbin/insmod"
 name="$(basename "${LOADER}")"
 case "${name}" in
     busybox*)
+        if ! command -v qemu-aarch64 >/dev/null 2>&1; then
+            echo "error: qemu-aarch64 is required to validate BusyBox" >&2
+            echo "hint: sudo apt-get install qemu-user" >&2
+            exit 1
+        fi
+        if ! qemu-aarch64 "${LOADER}" --list | grep -qx insmod; then
+            echo "error: BusyBox does not contain the insmod applet: ${LOADER}" >&2
+            exit 1
+        fi
         sudo install -D -m 0755 "${LOADER}" "${mnt}/bin/busybox"
         sudo ln -sf /bin/busybox "${mnt}/sbin/insmod"
-        sudo ln -sf /bin/busybox "${mnt}/sbin/modprobe"
         ;;
 esac
 sync

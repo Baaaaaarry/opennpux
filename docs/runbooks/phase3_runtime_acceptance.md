@@ -246,3 +246,6 @@ Phase-3 runtime increment passes when all of these are true:
 Define the inference submission contract on top of the completed device
 boundary: versioned command descriptors, runtime-owned tensor buffers, and a
 real interrupt source when the platform model exposes one.
+
+The descriptor and first multi-buffer command are implemented by the Phase-4
+flow documented in `docs/design/phase4_command_runtime.md`.

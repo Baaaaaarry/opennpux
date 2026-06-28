@@ -15,10 +15,11 @@ Working:
 - `/dev/opennpux-coral` UAPI and loadable platform driver.
 - Driver-bounded shared-window mmap.
 - Asynchronous START and poll-based completion delivery.
+- Versioned shared-memory command descriptor and tensor-region layout.
+- End-to-end multi-buffer vector-add submission through Coral firmware.
 
 Not yet complete:
 
-- runtime-owned command, tensor, and completion buffers
 - hardware interrupt delivery instead of the current kernel polling worker
 - DS4 model artifact format and graph partitioning
 - Coral/custom RTL firmware contract for DS4 operators
@@ -32,9 +33,9 @@ into an inference submission runtime.
 Estimated engineering chunks:
 
 1. Pass the driver-only coherent DMA acceptance test.
-2. Add a command descriptor ABI in shared memory.
-3. Add firmware/runtime tests for multi-buffer command execution.
-4. Define DS4 tensor layout, operator subset, and firmware entry contract.
+2. Define DS4 tensor metadata and required operator subset.
+3. Add DS4 operator firmware/runtime tests.
+4. Define the model artifact and graph partitioning contract.
 5. Integrate the DS4 host inference path.
 
 ## Next Acceptance Target

@@ -57,6 +57,22 @@ main(void)
            OPENNPUX_CORAL_FEATURE_RESET) == 0xf,
           "driver feature bits changed");
 
+    check(sizeof(struct opennpux_coral_command) ==
+              OPENNPUX_CORAL_COMMAND_SIZE,
+          "command descriptor ABI size changed");
+    check(OPENNPUX_CORAL_INPUT0_OFFSET +
+              OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS * sizeof(uint32_t) <=
+              OPENNPUX_CORAL_INPUT1_OFFSET,
+          "input tensor regions overlap");
+    check(OPENNPUX_CORAL_INPUT1_OFFSET +
+              OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS * sizeof(uint32_t) <=
+              OPENNPUX_CORAL_OUTPUT_OFFSET,
+          "input and output tensor regions overlap");
+    check(OPENNPUX_CORAL_OUTPUT_OFFSET +
+              OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS * sizeof(uint32_t) <=
+              0x1000,
+          "tensor layout exceeds shared window");
+
     check(opennpux_coral_check_shared_u32_access(16, 0) == 0,
           "offset 0 rejected");
     check(opennpux_coral_check_shared_u32_access(16, 12) == 0,

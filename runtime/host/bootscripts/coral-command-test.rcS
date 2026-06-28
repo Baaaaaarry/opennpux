@@ -1,0 +1,58 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp /dev
+[ -r /proc/mounts ] || mount -t proc proc /proc 2>/dev/null || true
+is_mounted() {
+    while read -r _source target _rest; do
+        [ "$target" = "$1" ] && return 0
+    done < /proc/mounts
+    return 1
+}
+is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
+is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+NPU_BASE=0x1D000000
+CORALCTL=/tmp/coralctl
+MODULE=/tmp/opennpux_coral.ko
+kernel_release=unknown
+[ ! -r /proc/sys/kernel/osrelease ] ||
+    IFS= read -r kernel_release < /proc/sys/kernel/osrelease
+
+echo "[coral-command-test] started"
+echo "[coral-command-test] tool=${CORALCTL}"
+echo "[coral-command-test] kernel=${kernel_release}"
+
+fail() {
+    echo "[coral-command-test] FAIL: $*"
+    if command -v m5 >/dev/null 2>&1; then
+        m5 --inst exit
+    fi
+    exit 1
+}
+
+[ -f /tmp/coralnpu-phase3-preload.ready ] ||
+    fail "stale or incomplete checkpoint"
+[ -x "${CORALCTL}" ] || fail "preloaded coralctl is missing"
+[ -f "${MODULE}" ] || fail "preloaded kernel module is missing"
+[ -x /tmp/busybox ] || fail "preloaded BusyBox is missing"
+
+if [ ! -c /dev/opennpux-coral ]; then
+    echo "[coral-command-test] loading ${MODULE}"
+    /tmp/busybox insmod "${MODULE}" 2>/tmp/opennpux-coral-insmod.err || true
+fi
+[ -c /dev/opennpux-coral ] || fail "/dev/opennpux-coral missing"
+
+if ! OPENNPUX_CORAL_TRANSPORT=driver "${CORALCTL}" info "${NPU_BASE}"; then
+    fail "driver info failed"
+fi
+if ! OPENNPUX_CORAL_TRANSPORT=driver "${CORALCTL}" vector-add 16 "${NPU_BASE}"; then
+    fail "vector-add command failed"
+fi
+
+echo "[coral-command-test] PASS"
+if command -v m5 >/dev/null 2>&1; then
+    m5 --inst exit
+fi
+exit 0
+

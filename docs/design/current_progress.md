@@ -153,6 +153,13 @@ coherent RTL DMA without opening `/dev/mem`.
 - Integrate a narrow inference runtime API.
 - Measure CPU scheduling, memory traffic, NPU execution, and end-to-end latency.
 
+The first Phase-4 increment defines a 64-byte versioned command descriptor and
+bounded input/output tensor regions in the shared window. `coralctl vector-add`
+now submits a multi-buffer command through the Phase-3 driver, while
+`gem5_command_smoke.elf` parses the descriptor on the Coral core and reports
+completion. This is the reusable end-to-end contract for subsequent DS4
+operators.
+
 ### Phase 5
 
 - Add the custom RTL accelerator inside the Coral source hierarchy.

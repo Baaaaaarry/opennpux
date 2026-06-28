@@ -553,3 +553,88 @@ opennpux_coral_dma_test(struct opennpux_coral_device *dev, uint32_t entry,
     }
     return 0;
 }
+
+int
+opennpux_coral_vector_add_test(
+    struct opennpux_coral_device *dev, uint32_t entry, uint32_t element_count,
+    uint64_t polls, struct opennpux_coral_vector_add_result *result)
+{
+    memset(result, 0, sizeof(*result));
+    result->element_count = element_count;
+    if (element_count == 0 ||
+        element_count > OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const size_t required = OPENNPUX_CORAL_OUTPUT_OFFSET +
+                            element_count * sizeof(uint32_t);
+    struct opennpux_coral_shared_window window;
+    if (opennpux_coral_open_shared_window(dev, required, &window) != 0) {
+        return -1;
+    }
+
+    volatile struct opennpux_coral_command *command =
+        (volatile struct opennpux_coral_command *)(
+            window.bytes + OPENNPUX_CORAL_COMMAND_OFFSET);
+    volatile uint32_t *input0 = (volatile uint32_t *)(
+        window.bytes + OPENNPUX_CORAL_INPUT0_OFFSET);
+    volatile uint32_t *input1 = (volatile uint32_t *)(
+        window.bytes + OPENNPUX_CORAL_INPUT1_OFFSET);
+    volatile uint32_t *output = (volatile uint32_t *)(
+        window.bytes + OPENNPUX_CORAL_OUTPUT_OFFSET);
+
+    memset((void *)command, 0, sizeof(*command));
+    for (uint32_t i = 0; i < element_count; ++i) {
+        input0[i] = i + 1;
+        input1[i] = (i + 1) * 2;
+        output[i] = 0;
+    }
+
+    command->magic = OPENNPUX_CORAL_COMMAND_MAGIC;
+    command->abi_version = OPENNPUX_CORAL_COMMAND_ABI_VERSION;
+    command->struct_size = sizeof(*command);
+    command->opcode = OPENNPUX_CORAL_OPCODE_VECTOR_ADD_U32;
+    command->sequence = 1;
+    command->element_count = element_count;
+    command->input0_offset = OPENNPUX_CORAL_INPUT0_OFFSET;
+    command->input1_offset = OPENNPUX_CORAL_INPUT1_OFFSET;
+    command->output_offset = OPENNPUX_CORAL_OUTPUT_OFFSET;
+    command->output_size = element_count * sizeof(uint32_t);
+    command->status = OPENNPUX_CORAL_COMMAND_PENDING;
+    __sync_synchronize();
+
+    uint32_t device_status = 0;
+    const int run_result =
+        opennpux_coral_run(dev, entry, polls, &device_status);
+    const int run_errno = errno;
+    __sync_synchronize();
+
+    result->status = command->status;
+    result->error_code = command->error_code;
+    result->completed_elements = command->completed_elements;
+
+    int valid = result->status == OPENNPUX_CORAL_COMMAND_COMPLETE &&
+                result->error_code == OPENNPUX_CORAL_COMMAND_ERROR_NONE &&
+                result->completed_elements == element_count;
+    uint32_t checksum = 0;
+    for (uint32_t i = 0; i < element_count; ++i) {
+        const uint32_t expected = (i + 1) * 3;
+        checksum += output[i];
+        if (output[i] != expected) {
+            valid = 0;
+        }
+    }
+    result->checksum = checksum;
+    opennpux_coral_close_shared_window(&window);
+
+    if (run_result != 0) {
+        errno = run_errno;
+        return -1;
+    }
+    if (!valid || (device_status & 0x1) == 0) {
+        errno = EIO;
+        return -1;
+    }
+    return 0;
+}

@@ -80,6 +80,7 @@ The staged Phase-2 artifacts are:
 build/coralnpu/libcoralnpu_gem5_bridge.so
 build/coralnpu/gem5_smoke_halt.elf
 build/coralnpu/gem5_dma_smoke.elf
+build/coralnpu/gem5_command_smoke.elf
 ```
 
 Apply the gem5 overlay and run the existing full-system flow with the RTL
@@ -97,6 +98,32 @@ The boot checkpoint is stored at `m5out/coralnpu_ckpt` relative to the
 superproject root. Pulling code or changing the injected resume script does
 not rebuild it. Use `CORAL_REBUILD_CKPT=1` only when the booted guest state
 must be recreated.
+
+## Phase 4: Command submission
+
+Build the bridge and command firmware, rebuild/install `coralctl`, and run the
+driver-backed multi-buffer command test:
+
+```bash
+./tools/coralnpu/phase2_build_bridge.sh
+./tools/guest_tools/build_coralctl.sh
+sudo ./tools/guest_tools/install_coralctl_to_image.sh \
+  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+
+cd thirdparty/gem5
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
+CORAL_REBUILD_CKPT=1 \
+./run_multicore.sh
+cd ../..
+
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
+./tools/coralnpu/run_command_test.sh
+```
+
+The acceptance result is `vector_add=PASS`, `completed_elements=16`, and
+`output_checksum=0x00000198`.
 
 ## Scope
 

@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "opennpux/coral_command.h"
 #include "opennpux/coral_uapi.h"
 
 #ifdef __cplusplus
@@ -71,6 +72,14 @@ struct opennpux_coral_dma_test_result {
     uint32_t state;
 };
 
+struct opennpux_coral_vector_add_result {
+    uint32_t status;
+    uint32_t error_code;
+    uint32_t completed_elements;
+    uint32_t element_count;
+    uint32_t checksum;
+};
+
 const char *opennpux_coral_backend_name(enum opennpux_coral_backend backend);
 const char *opennpux_coral_transport_name(
     enum opennpux_coral_transport transport);
@@ -104,6 +113,9 @@ int opennpux_coral_run(struct opennpux_coral_device *dev, uint32_t entry,
 int opennpux_coral_dma_test(struct opennpux_coral_device *dev, uint32_t entry,
                             uint64_t polls,
                             struct opennpux_coral_dma_test_result *result);
+int opennpux_coral_vector_add_test(
+    struct opennpux_coral_device *dev, uint32_t entry, uint32_t element_count,
+    uint64_t polls, struct opennpux_coral_vector_add_result *result);
 
 #ifdef __cplusplus
 }

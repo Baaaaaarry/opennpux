@@ -8,6 +8,7 @@ CORAL_REPO="${CORAL_REPO:-${ROOT_DIR}/thirdparty/coralnpu}"
 TARGET="//hw_sim:libcoralnpu_gem5_bridge.so"
 FIRMWARE_TARGET="//hw_sim:gem5_smoke_halt.elf"
 DMA_FIRMWARE_TARGET="//hw_sim:gem5_dma_smoke.elf"
+COMMAND_FIRMWARE_TARGET="//hw_sim:gem5_command_smoke.elf"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -34,6 +35,7 @@ EOF
 fi
 
 "${ROOT_DIR}/tools/coralnpu/phase2_check_abi.sh"
+"${ROOT_DIR}/tools/coralnpu/check_command_abi.sh"
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
 "${ROOT_DIR}/tools/coralnpu/phase2_check_overlay_boundary.sh"
 "${ROOT_DIR}/tools/coralnpu/phase2_test_axi_adapter.sh"
@@ -43,6 +45,7 @@ rm -f \
     "${OUT_DIR}/libcoralnpu_gem5_bridge.so" \
     "${OUT_DIR}/gem5_smoke_halt.elf" \
     "${OUT_DIR}/gem5_dma_smoke.elf" \
+    "${OUT_DIR}/gem5_command_smoke.elf" \
     "${OUT_DIR}/wfi_slot_0.elf"
 
 cd "${CORAL_REPO}"
@@ -51,7 +54,8 @@ cd "${CORAL_REPO}"
     build \
     --repository_cache="${REPO_CACHE}" \
     --distdir="${DISTDIR}" \
-    "${TARGET}" "${FIRMWARE_TARGET}" "${DMA_FIRMWARE_TARGET}" "$@"
+    "${TARGET}" "${FIRMWARE_TARGET}" "${DMA_FIRMWARE_TARGET}" \
+    "${COMMAND_FIRMWARE_TARGET}" "$@"
 EXEC_ROOT="$("${BAZEL}" \
     --output_user_root="${BAZEL_OUTPUT_ROOT}" \
     info execution_root)"
@@ -75,6 +79,7 @@ resolve_output()
 BRIDGE="$(resolve_output "${TARGET}")"
 FIRMWARE="$(resolve_output "${FIRMWARE_TARGET}")"
 DMA_FIRMWARE="$(resolve_output "${DMA_FIRMWARE_TARGET}")"
+COMMAND_FIRMWARE="$(resolve_output "${COMMAND_FIRMWARE_TARGET}")"
 
 if [ ! -f "${BRIDGE}" ]; then
     echo "error: Bazel completed but bridge was not found: ${BRIDGE}" >&2
@@ -88,11 +93,16 @@ if [ ! -f "${DMA_FIRMWARE}" ]; then
     echo "error: Bazel completed but DMA firmware was not found: ${DMA_FIRMWARE}" >&2
     exit 1
 fi
+if [ ! -f "${COMMAND_FIRMWARE}" ]; then
+    echo "error: Bazel completed but command firmware was not found: ${COMMAND_FIRMWARE}" >&2
+    exit 1
+fi
 
 mkdir -p "${OUT_DIR}"
 cp "${BRIDGE}" "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
 cp "${FIRMWARE}" "${OUT_DIR}/gem5_smoke_halt.elf"
 cp "${DMA_FIRMWARE}" "${OUT_DIR}/gem5_dma_smoke.elf"
+cp "${COMMAND_FIRMWARE}" "${OUT_DIR}/gem5_command_smoke.elf"
 chmod 0755 "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
 
 if command -v nm >/dev/null 2>&1 &&
@@ -114,3 +124,4 @@ fi
 echo "built: ${OUT_DIR}/libcoralnpu_gem5_bridge.so"
 echo "built: ${OUT_DIR}/gem5_smoke_halt.elf"
 echo "built: ${OUT_DIR}/gem5_dma_smoke.elf"
+echo "built: ${OUT_DIR}/gem5_command_smoke.elf"

@@ -181,12 +181,12 @@ register_toolchains(
     "//toolchain:cc_coralnpu_v2_semihosting_toolchain",
 )
 
-# Phase-1 host-sim mode: TFLite Micro is not required for the standalone
-# simulator or the hello-world Coral examples we are validating here.
-# Restore the original section before building LiteRT/TFLM-dependent targets.
-# tflite_repos()
-# load("@tflite_micro//tensorflow:workspace.bzl", tf_micro_workspace = "workspace")
-# tf_micro_workspace()
+# The RVV highmem MobileNet firmware uses the official LiteRT Micro kernels.
+# Keep Python-only TFLM dependencies disabled below; the C++ firmware needs
+# only the repository and its native workspace dependencies.
+tflite_repos()
+load("@tflite_micro//tensorflow:workspace.bzl", tf_micro_workspace = "workspace")
+tf_micro_workspace()
 
 # pip_parse(
 #     name = "tflm_pip_deps",

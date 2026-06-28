@@ -9,6 +9,10 @@ git pull
 ./tools/coralnpu/build_rvv_mobilenet.sh
 ```
 
+The build script applies the Coral overlay that enables the pinned
+`@tflite_micro` repository and its native workspace dependencies. No separate
+TFLite installation is required.
+
 Expected artifacts:
 
 ```text

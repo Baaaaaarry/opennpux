@@ -147,6 +147,24 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 See `docs/runbooks/phase45_platform_acceptance.md` for the model and explicit
 official/custom RTL acceptance criteria.
 
+## RVV Highmem MobileNet
+
+The optional highmem path retains the standard bridge and adds the official
+`RvvCoreMiniHighmemAxi` configuration with LiteRT Micro MobileNet firmware:
+
+```bash
+./tools/coralnpu/build_rvv_mobilenet.sh
+IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+./tools/coralnpu/phase45_prepare_guest_assets.sh
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
+./tools/coralnpu/run_rvv_mobilenet_test.sh
+```
+
+The first run creates a dedicated 8 MiB-window checkpoint; the second restores
+it and executes MobileNet. See
+`docs/runbooks/rvv_mobilenet_acceptance.md` for the complete procedure.
+
 ## Scope
 
 This superproject intentionally excludes macOS-specific build caches, ARM guest

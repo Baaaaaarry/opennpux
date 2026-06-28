@@ -1,5 +1,5 @@
 /*
- * Runtime-loaded bridge to the official Coral CoreMiniAxi RTL model.
+ * Runtime-loaded bridge to an official Coral AXI RTL model.
  */
 
 #ifndef __DEV_NPU_CORAL_VERILATED_BACKEND_HH__

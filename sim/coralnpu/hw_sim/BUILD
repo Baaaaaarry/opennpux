@@ -143,6 +143,27 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "libcoralnpu_gem5_rvv_highmem_bridge.so",
+    srcs = [
+        "gem5_bridge/coralnpu_gem5_abi.cc",
+        "gem5_bridge/coralnpu_gem5_abi.h",
+        "gem5_bridge/gem5_axi_master_drivers.h",
+        "gem5_bridge/gem5_core_mini_axi_wrapper.h",
+        "gem5_bridge/gem5_custom_mac.h",
+        "gem5_bridge/gem5_dma_request_builder.h",
+    ],
+    copts = ["-DCORAL_GEM5_RVV_HIGHMEM"],
+    linkshared = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":hw_primitives",
+        "//hdl/chisel/src/coralnpu:rvv_core_mini_highmem_axi_cc_library_cc",
+        "//hdl/verilog/opennpux:custom_mac_cc",
+        "//hdl/verilog:sram_backdoor",
+    ],
+)
+
 cc_test(
     name = "gem5_custom_mac_test",
     srcs = [
@@ -184,5 +205,27 @@ coralnpu_v2_binary(
     srcs = [
         "gem5_bridge/coral_command.h",
         "gem5_bridge/gem5_command_smoke.c",
+    ],
+)
+
+coralnpu_v2_binary(
+    name = "gem5_mobilenet",
+    srcs = [
+        "gem5_bridge/coral_mobilenet.h",
+        "gem5_bridge/gem5_mobilenet.cc",
+    ],
+    dtcm_size_kbytes = 1024,
+    itcm_size_kbytes = 1024,
+    visibility = ["//visibility:public"],
+    deps = [
+        "//sw/opt:rvv_opt",
+        "//sw/opt/litert-micro:conv",
+        "//sw/opt/litert-micro:depthwise_conv",
+        "//sw/utils:utils",
+        "//tests/cocotb/tutorial/tfmicro:mobilenet_v1_025_224_int8_dummy_lib",
+        "@tflite_micro//tensorflow/lite/micro:micro_framework",
+        "@tflite_micro//tensorflow/lite/micro:micro_log",
+        "@tflite_micro//tensorflow/lite/micro:op_resolvers",
+        "@tflite_micro//tensorflow/lite/micro:system_setup",
     ],
 )

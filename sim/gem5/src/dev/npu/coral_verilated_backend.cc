@@ -110,9 +110,9 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
 
     modelHandle = createModel();
     fatal_if(modelHandle == nullptr,
-             "Coral RTL bridge failed to create CoreMiniAxi model");
+             "Coral RTL bridge failed to create AXI model");
     fatal_if(resetModel(modelHandle) != 0,
-             "Coral RTL bridge failed to reset CoreMiniAxi model");
+             "Coral RTL bridge failed to reset AXI model");
     loadFirmware();
 
     DPRINTFR(NPUDevice,

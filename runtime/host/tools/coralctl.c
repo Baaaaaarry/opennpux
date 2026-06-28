@@ -17,11 +17,13 @@ usage(const char *prog)
             "  %s vector-add <elements> [base [poll-count]]\n"
             "  %s vector-add-custom <elements> [base [poll-count]]\n"
             "  %s model-run <model.npxm> [base [poll-count]]\n"
+            "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
             "  %s mem-read32 <offset> [base]\n"
             "  %s mem-write32 <offset> <value> [base]\n",
-            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
+            prog);
 }
 
 static void
@@ -200,6 +202,35 @@ print_model_run(struct opennpux_coral_device *dev, uint32_t entry,
     return 0;
 }
 
+static int
+print_mobilenet_test(struct opennpux_coral_device *dev, uint32_t entry,
+                     uint64_t polls)
+{
+    struct opennpux_coral_mobilenet_result result;
+    const int run_result =
+        opennpux_coral_mobilenet_test(dev, entry, polls, &result);
+    printf("status=0x%08" PRIx32 "\n", result.device_status);
+    printf("mobilenet_state=0x%08" PRIx32 "\n", result.state);
+    printf("mobilenet_error=%" PRIu32 "\n", result.error_code);
+    printf("mobilenet_npu_cycles=%" PRIu64 "\n", result.npu_cycles);
+    printf("mobilenet_dma_requests=%" PRIu32 "\n", result.dma_requests);
+    printf("mobilenet_dma_completions=%" PRIu32 "\n",
+           result.dma_completions);
+    printf("mobilenet_dma_errors=%" PRIu32 "\n", result.dma_errors);
+    printf("mobilenet_output=");
+    for (uint32_t i = 0; i < result.output_count &&
+                         i < OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT; ++i) {
+        printf("%s%" PRId32, i == 0 ? "" : ",", result.output[i]);
+    }
+    printf("\n");
+    if (run_result != 0) {
+        perror("mobilenet-test");
+        return 1;
+    }
+    printf("mobilenet_test=PASS\n");
+    return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -215,13 +246,15 @@ main(int argc, char **argv)
     const int command_vector_add_custom =
         strcmp(argv[1], "vector-add-custom") == 0;
     const int command_model_run = strcmp(argv[1], "model-run") == 0;
+    const int command_mobilenet_test =
+        strcmp(argv[1], "mobilenet-test") == 0;
     const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
     const int command_mem_clear = strcmp(argv[1], "mem-clear") == 0;
     const int command_mem_read32 = strcmp(argv[1], "mem-read32") == 0;
     const int command_mem_write32 = strcmp(argv[1], "mem-write32") == 0;
     if (!command_info && !command_run && !command_dma_test &&
         !command_vector_add && !command_vector_add_custom &&
-        !command_model_run &&
+        !command_model_run && !command_mobilenet_test &&
         !command_mem_info && !command_mem_clear && !command_mem_read32 &&
         !command_mem_write32) {
         usage(argv[0]);
@@ -233,6 +266,7 @@ main(int argc, char **argv)
         ((command_vector_add || command_vector_add_custom) &&
          (argc < 3 || argc > 5)) ||
         (command_model_run && (argc < 3 || argc > 5)) ||
+        (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
         (command_mem_read32 && (argc < 3 || argc > 4)) ||
@@ -267,6 +301,11 @@ main(int argc, char **argv)
         model_path = argv[2];
         if (argc >= 4 && opennpux_coral_parse_u64(argv[3], &base) != 0) {
             fprintf(stderr, "invalid base address: %s\n", argv[3]);
+            return 2;
+        }
+    } else if (command_mobilenet_test) {
+        if (argc >= 3 && opennpux_coral_parse_u64(argv[2], &base) != 0) {
+            fprintf(stderr, "invalid base address: %s\n", argv[2]);
             return 2;
         }
     } else if (command_vector_add || command_vector_add_custom) {
@@ -333,7 +372,7 @@ main(int argc, char **argv)
     uint64_t entry = info.firmware_entry;
     uint64_t polls =
         (command_dma_test || command_vector_add || command_vector_add_custom ||
-         command_model_run) ?
+         command_model_run || command_mobilenet_test) ?
             100000 : 1000;
     if (command_run && argc >= 4 &&
         opennpux_coral_parse_u64(argv[3], &entry) != 0) {
@@ -342,6 +381,7 @@ main(int argc, char **argv)
         return 2;
     }
     const int poll_arg =
+        command_mobilenet_test ? 3 :
         (command_model_run || command_vector_add ||
          command_vector_add_custom) ? 4 : (command_dma_test ? 3 : 4);
     if (argc > poll_arg &&
@@ -357,6 +397,8 @@ main(int argc, char **argv)
         result = print_run(&dev, (uint32_t)entry, polls);
     } else if (command_model_run) {
         result = print_model_run(&dev, (uint32_t)entry, model_path, polls);
+    } else if (command_mobilenet_test) {
+        result = print_mobilenet_test(&dev, (uint32_t)entry, polls);
     } else if (command_vector_add || command_vector_add_custom) {
         const uint32_t opcode = command_vector_add_custom ?
             OPENNPUX_CORAL_OPCODE_VECTOR_ADD_CUSTOM_U32 :

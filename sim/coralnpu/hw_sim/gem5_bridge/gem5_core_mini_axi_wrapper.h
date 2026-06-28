@@ -5,7 +5,13 @@
 #include <memory>
 #include <vector>
 
+#ifdef CORAL_GEM5_RVV_HIGHMEM
+#include "VRvvCoreMiniHighmemAxi.h"
+using Gem5CoralAxiModel = VRvvCoreMiniHighmemAxi;
+#else
 #include "VCoreMiniAxi.h"
+using Gem5CoralAxiModel = VCoreMiniAxi;
+#endif
 #include "hw_sim/gem5_bridge/gem5_axi_master_drivers.h"
 #include "hw_sim/hw_primitives.h"
 
@@ -169,7 +175,7 @@ class Gem5CoreMiniAxiWrapper {
 
  private:
   VerilatedContext* const context_;
-  VCoreMiniAxi core_;
+  Gem5CoralAxiModel core_;
   Clock clock_;
   AxiSlaveWriteDriver slave_write_;
   AxiSlaveReadDriver slave_read_;

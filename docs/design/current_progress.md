@@ -178,6 +178,15 @@ custom command opcode, firmware support, cycle accounting, and Linux A/B tests.
 The official `CoreMiniAxi`, gem5 device, kernel driver, and userspace transport
 remain unchanged across software and custom execution.
 
+### RVV Highmem MobileNet
+
+The next platform configuration is implemented as a separate bridge around the
+official `RvvCoreMiniHighmemAxi`: RVV is enabled, ITCM/DTCM are 1 MiB each, and
+an 8 MiB coherent EXTMEM window carries the LiteRT Micro tensor arena and a
+versioned completion mailbox. The initial firmware runs the upstream full
+MobileNet V1 0.25 dummy graph without HTIF semihosting. x86 full-system
+acceptance remains required after building the new bridge and firmware.
+
 ## Immediate Development Order
 
 1. Run the Phase-3 runtime acceptance suite on x86 Linux.

@@ -10,8 +10,9 @@ git pull
 ```
 
 The build script applies the Coral overlay that enables the pinned
-`@tflite_micro` repository and its native workspace dependencies. No separate
-TFLite installation is required.
+`@tflite_micro` repository, native workspace dependencies, and the pinned
+`@tflm_pip_deps` code-generation environment. No separate TFLite or Python
+package installation is required.
 
 Expected artifacts:
 

@@ -188,15 +188,20 @@ tflite_repos()
 load("@tflite_micro//tensorflow:workspace.bzl", tf_micro_workspace = "workspace")
 tf_micro_workspace()
 
-# pip_parse(
-#     name = "tflm_pip_deps",
-#     python_interpreter_target = "@python311_x86_64-unknown-linux-gnu//:python",
-#     requirements_lock = "@tflite_micro//third_party:python_requirements.txt",
-# )
-#
-# load("@tflm_pip_deps//:requirements.bzl", "install_deps")
-#
-# install_deps()
+load("@rules_python//python:pip.bzl", "pip_parse")
+
+pip_parse(
+    name = "tflm_pip_deps",
+    python_interpreter_target = "@python311_x86_64-unknown-linux-gnu//:python",
+    requirements_lock = "@tflite_micro//third_party:python_requirements.txt",
+)
+
+load(
+    "@tflm_pip_deps//:requirements.bzl",
+    tflm_install_deps = "install_deps",
+)
+
+tflm_install_deps()
 
 load("@rules_cc//cc:extensions.bzl", cc_compatibility_proxy_repo = "compatibility_proxy_repo")
 

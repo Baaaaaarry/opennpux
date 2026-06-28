@@ -39,6 +39,7 @@ fi
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
 "${ROOT_DIR}/tools/coralnpu/phase2_check_overlay_boundary.sh"
 "${ROOT_DIR}/tools/coralnpu/phase2_test_axi_adapter.sh"
+"${ROOT_DIR}/tools/coralnpu/phase5_test_custom_rtl.sh"
 
 mkdir -p "${BAZEL_OUTPUT_ROOT}" "${REPO_CACHE}" "${DISTDIR}"
 rm -f \

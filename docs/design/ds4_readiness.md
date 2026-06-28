@@ -17,6 +17,8 @@ Working:
 - Asynchronous START and poll-based completion delivery.
 - Versioned shared-memory command descriptor and tensor-region layout.
 - End-to-end multi-buffer vector-add submission through Coral firmware.
+- Generic model container with real tensors and mixed software/RTL nodes.
+- Synthesizable custom MAC with system-level A/B validation.
 
 Not yet complete:
 
@@ -26,22 +28,20 @@ Not yet complete:
 
 ## Distance To DS4
 
-The system-integration path is past bring-up and at the driver/runtime boundary.
-The remaining work is not boot or DMA plumbing; it is turning the smoke runtime
-into an inference submission runtime.
+The heterogeneous SoC platform path is complete through model loading and
+custom RTL execution. Remaining DS4 work is workload-specific graph/operator
+support rather than platform plumbing.
 
 Estimated engineering chunks:
 
-1. Pass the driver-only coherent DMA acceptance test.
-2. Define DS4 tensor metadata and required operator subset.
-3. Add DS4 operator firmware/runtime tests.
-4. Define the model artifact and graph partitioning contract.
-5. Integrate the DS4 host inference path.
+1. Define DS4 tensor metadata and required operator subset.
+2. Add DS4 operator firmware/runtime tests.
+3. Add DS4 graph partitioning to the generic model artifact.
+4. Integrate the DS4 host inference adapter.
 
-## Next Acceptance Target
+## Completed Platform Baseline
 
-Before DS4, the required milestone is a driver-backed version of the current DMA
-smoke:
+The driver-backed coherent DMA baseline is complete:
 
 ```text
 transport=driver
@@ -56,5 +56,5 @@ dma_state=0x00000000
 dma_test=PASS
 ```
 
-After that passes, DS4 integration can use the same runtime API without relying
-on privileged `/dev/mem`.
+DS4 integration can use the same runtime API without relying on privileged
+`/dev/mem` or changing the gem5 SoC topology.

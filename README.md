@@ -125,6 +125,28 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 The acceptance result is `vector_add=PASS`, `completed_elements=16`, and
 `output_checksum=0x00000198`.
 
+## Phase 4/5: Heterogeneous platform
+
+The generic model runtime and custom RTL accelerator use the same driver and
+command ABI as the official Coral path. Build and install the sample assets:
+
+```bash
+./tools/coralnpu/phase2_build_bridge.sh
+IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+  ./tools/coralnpu/phase45_prepare_guest_assets.sh
+```
+
+After rebuilding the boot checkpoint once, run:
+
+```bash
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
+./tools/coralnpu/run_model_test.sh
+```
+
+See `docs/runbooks/phase45_platform_acceptance.md` for the model and explicit
+official/custom RTL acceptance criteria.
+
 ## Scope
 
 This superproject intentionally excludes macOS-specific build caches, ARM guest

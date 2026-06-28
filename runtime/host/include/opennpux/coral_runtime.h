@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "opennpux/coral_command.h"
+#include "opennpux/coral_model.h"
 #include "opennpux/coral_uapi.h"
 
 #ifdef __cplusplus
@@ -78,6 +79,19 @@ struct opennpux_coral_vector_add_result {
     uint32_t completed_elements;
     uint32_t element_count;
     uint32_t checksum;
+    uint32_t accelerator_cycles;
+    uint32_t opcode;
+};
+
+struct opennpux_coral_model_result {
+    uint32_t command_count;
+    uint32_t completed_commands;
+    uint32_t output_checksum;
+    uint32_t accelerator_cycles;
+    uint32_t dma_requests;
+    uint32_t dma_completions;
+    uint32_t dma_errors;
+    uint64_t host_elapsed_ns;
 };
 
 const char *opennpux_coral_backend_name(enum opennpux_coral_backend backend);
@@ -114,8 +128,12 @@ int opennpux_coral_dma_test(struct opennpux_coral_device *dev, uint32_t entry,
                             uint64_t polls,
                             struct opennpux_coral_dma_test_result *result);
 int opennpux_coral_vector_add_test(
-    struct opennpux_coral_device *dev, uint32_t entry, uint32_t element_count,
-    uint64_t polls, struct opennpux_coral_vector_add_result *result);
+    struct opennpux_coral_device *dev, uint32_t entry, uint32_t opcode,
+    uint32_t element_count, uint64_t polls,
+    struct opennpux_coral_vector_add_result *result);
+int opennpux_coral_run_model_file(
+    struct opennpux_coral_device *dev, uint32_t entry, const char *path,
+    uint64_t polls, struct opennpux_coral_model_result *result);
 
 #ifdef __cplusplus
 }

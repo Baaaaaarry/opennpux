@@ -72,6 +72,10 @@ main(void)
               OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS * sizeof(uint32_t) <=
               0x1000,
           "tensor layout exceeds shared window");
+    check(sizeof(struct opennpux_coral_model_header) == 32,
+          "model header ABI size changed");
+    check(sizeof(struct opennpux_coral_model_command) == 32,
+          "model command ABI size changed");
 
     check(opennpux_coral_check_shared_u32_access(16, 0) == 0,
           "offset 0 rejected");

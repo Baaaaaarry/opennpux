@@ -1,0 +1,18 @@
+#!/bin/sh
+
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
+FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_command_smoke.elf"
+TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-model-test.rcS"
+
+[ -f "${FIRMWARE}" ] || {
+    echo "error: command firmware not found: ${FIRMWARE}" >&2
+    exit 1
+}
+"${ROOT_DIR}/sim/gem5/apply_patchset.sh"
+CORAL_NPU_BACKEND=verilated-coral \
+CORAL_RTL_FIRMWARE="${FIRMWARE}" \
+CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
+exec "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"

@@ -8,8 +8,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define RESET_CONTROL UINT64_C(0x30000)
@@ -554,15 +556,20 @@ opennpux_coral_dma_test(struct opennpux_coral_device *dev, uint32_t entry,
     return 0;
 }
 
-int
-opennpux_coral_vector_add_test(
-    struct opennpux_coral_device *dev, uint32_t entry, uint32_t element_count,
-    uint64_t polls, struct opennpux_coral_vector_add_result *result)
+static int
+submit_vector_add(
+    struct opennpux_coral_device *dev, uint32_t entry, uint32_t opcode,
+    const uint32_t *host_input0, const uint32_t *host_input1,
+    uint32_t element_count, uint32_t expected_checksum, uint64_t polls,
+    struct opennpux_coral_vector_add_result *result)
 {
     memset(result, 0, sizeof(*result));
     result->element_count = element_count;
+    result->opcode = opcode;
     if (element_count == 0 ||
-        element_count > OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS) {
+        element_count > OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS ||
+        (opcode != OPENNPUX_CORAL_OPCODE_VECTOR_ADD_U32 &&
+         opcode != OPENNPUX_CORAL_OPCODE_VECTOR_ADD_CUSTOM_U32)) {
         errno = EINVAL;
         return -1;
     }
@@ -586,15 +593,15 @@ opennpux_coral_vector_add_test(
 
     memset((void *)command, 0, sizeof(*command));
     for (uint32_t i = 0; i < element_count; ++i) {
-        input0[i] = i + 1;
-        input1[i] = (i + 1) * 2;
+        input0[i] = host_input0[i];
+        input1[i] = host_input1[i];
         output[i] = 0;
     }
 
     command->magic = OPENNPUX_CORAL_COMMAND_MAGIC;
     command->abi_version = OPENNPUX_CORAL_COMMAND_ABI_VERSION;
     command->struct_size = sizeof(*command);
-    command->opcode = OPENNPUX_CORAL_OPCODE_VECTOR_ADD_U32;
+    command->opcode = opcode;
     command->sequence = 1;
     command->element_count = element_count;
     command->input0_offset = OPENNPUX_CORAL_INPUT0_OFFSET;
@@ -613,19 +620,23 @@ opennpux_coral_vector_add_test(
     result->status = command->status;
     result->error_code = command->error_code;
     result->completed_elements = command->completed_elements;
+    result->accelerator_cycles = command->accelerator_cycles;
 
     int valid = result->status == OPENNPUX_CORAL_COMMAND_COMPLETE &&
                 result->error_code == OPENNPUX_CORAL_COMMAND_ERROR_NONE &&
                 result->completed_elements == element_count;
     uint32_t checksum = 0;
     for (uint32_t i = 0; i < element_count; ++i) {
-        const uint32_t expected = (i + 1) * 3;
+        const uint32_t expected = host_input0[i] + host_input1[i];
         checksum += output[i];
         if (output[i] != expected) {
             valid = 0;
         }
     }
     result->checksum = checksum;
+    if (checksum != expected_checksum) {
+        valid = 0;
+    }
     opennpux_coral_close_shared_window(&window);
 
     if (run_result != 0) {
@@ -636,5 +647,176 @@ opennpux_coral_vector_add_test(
         errno = EIO;
         return -1;
     }
+    return 0;
+}
+
+int
+opennpux_coral_vector_add_test(
+    struct opennpux_coral_device *dev, uint32_t entry, uint32_t opcode,
+    uint32_t element_count, uint64_t polls,
+    struct opennpux_coral_vector_add_result *result)
+{
+    uint32_t input0[OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS];
+    uint32_t input1[OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS];
+    uint32_t checksum = 0;
+
+    if (element_count == 0 ||
+        element_count > OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS) {
+        errno = EINVAL;
+        return -1;
+    }
+    for (uint32_t i = 0; i < element_count; ++i) {
+        input0[i] = i + 1;
+        input1[i] = (i + 1) * 2;
+        checksum += input0[i] + input1[i];
+    }
+    return submit_vector_add(dev, entry, opcode, input0, input1,
+                             element_count, checksum, polls, result);
+}
+
+static int
+model_range_valid(uint32_t file_size, uint32_t offset, uint32_t bytes)
+{
+    return offset <= file_size && bytes <= file_size - offset;
+}
+
+int
+opennpux_coral_run_model_file(
+    struct opennpux_coral_device *dev, uint32_t entry, const char *path,
+    uint64_t polls, struct opennpux_coral_model_result *result)
+{
+    memset(result, 0, sizeof(*result));
+    struct timespec start_time;
+    struct timespec end_time;
+    memset(&start_time, 0, sizeof(start_time));
+    memset(&end_time, 0, sizeof(end_time));
+    int model_fd = open(path, O_RDONLY);
+    if (model_fd < 0) {
+        return -1;
+    }
+
+    struct stat st;
+    if (fstat(model_fd, &st) != 0 || st.st_size < 0 ||
+        (uint64_t)st.st_size > UINT32_MAX) {
+        close(model_fd);
+        errno = EINVAL;
+        return -1;
+    }
+    const uint32_t file_size = (uint32_t)st.st_size;
+    uint8_t *file = malloc(file_size == 0 ? 1 : file_size);
+    if (file == NULL) {
+        close(model_fd);
+        return -1;
+    }
+
+    size_t received = 0;
+    while (received < file_size) {
+        const ssize_t count = read(model_fd, file + received,
+                                   file_size - received);
+        if (count <= 0) {
+            const int saved_errno = count == 0 ? EIO : errno;
+            free(file);
+            close(model_fd);
+            errno = saved_errno;
+            return -1;
+        }
+        received += (size_t)count;
+    }
+    close(model_fd);
+
+    if (file_size < sizeof(struct opennpux_coral_model_header)) {
+        free(file);
+        errno = EINVAL;
+        return -1;
+    }
+    const struct opennpux_coral_model_header *header =
+        (const struct opennpux_coral_model_header *)file;
+    const uint32_t command_bytes =
+        header->command_count * sizeof(struct opennpux_coral_model_command);
+    if (header->magic != OPENNPUX_CORAL_MODEL_MAGIC ||
+        header->version != OPENNPUX_CORAL_MODEL_VERSION ||
+        header->header_size != sizeof(*header) ||
+        header->file_size != file_size || header->command_count == 0 ||
+        header->command_count > OPENNPUX_CORAL_MODEL_MAX_COMMANDS ||
+        (header->command_offset & 3) != 0 ||
+        !model_range_valid(file_size, header->command_offset,
+                           command_bytes)) {
+        free(file);
+        errno = EINVAL;
+        return -1;
+    }
+
+    result->command_count = header->command_count;
+    struct opennpux_coral_info before;
+    struct opennpux_coral_info after;
+    opennpux_coral_get_info(dev, &before);
+    const int timing_available =
+        clock_gettime(CLOCK_MONOTONIC, &start_time) == 0;
+    const struct opennpux_coral_model_command *commands =
+        (const struct opennpux_coral_model_command *)(
+            file + header->command_offset);
+    for (uint32_t index = 0; index < header->command_count; ++index) {
+        const struct opennpux_coral_model_command *model_command =
+            &commands[index];
+        const uint32_t tensor_bytes =
+            model_command->element_count * sizeof(uint32_t);
+        if (model_command->element_count == 0 ||
+            model_command->element_count >
+                OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS ||
+            (model_command->input0_offset & 3) != 0 ||
+            (model_command->input1_offset & 3) != 0 ||
+            !model_range_valid(file_size, model_command->input0_offset,
+                               tensor_bytes) ||
+            !model_range_valid(file_size, model_command->input1_offset,
+                               tensor_bytes)) {
+            free(file);
+            errno = EINVAL;
+            return -1;
+        }
+
+        uint32_t input0[OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS];
+        uint32_t input1[OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS];
+        memcpy(input0, file + model_command->input0_offset, tensor_bytes);
+        memcpy(input1, file + model_command->input1_offset, tensor_bytes);
+
+        struct opennpux_coral_vector_add_result command_result;
+        if (submit_vector_add(dev, entry, model_command->opcode,
+                              input0, input1, model_command->element_count,
+                              model_command->expected_checksum, polls,
+                              &command_result) != 0) {
+            free(file);
+            return -1;
+        }
+        ++result->completed_commands;
+        result->output_checksum += command_result.checksum;
+        result->accelerator_cycles += command_result.accelerator_cycles;
+    }
+
+    opennpux_coral_get_info(dev, &after);
+    result->dma_requests = after.dma_requests - before.dma_requests;
+    result->dma_completions =
+        after.dma_completions - before.dma_completions;
+    result->dma_errors = after.dma_errors - before.dma_errors;
+    if (result->dma_requests == 0 ||
+        result->dma_requests != result->dma_completions ||
+        result->dma_errors != 0) {
+        free(file);
+        errno = EIO;
+        return -1;
+    }
+
+    if (timing_available && clock_gettime(CLOCK_MONOTONIC, &end_time) == 0) {
+        const uint64_t start_ns =
+            (uint64_t)start_time.tv_sec * UINT64_C(1000000000) +
+            (uint64_t)start_time.tv_nsec;
+        const uint64_t end_ns =
+            (uint64_t)end_time.tv_sec * UINT64_C(1000000000) +
+            (uint64_t)end_time.tv_nsec;
+        if (end_ns >= start_ns) {
+            result->host_elapsed_ns = end_ns - start_ns;
+        }
+    }
+
+    free(file);
     return 0;
 }

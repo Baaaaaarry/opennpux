@@ -1,0 +1,45 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp /dev
+[ -r /proc/mounts ] || mount -t proc proc /proc 2>/dev/null || true
+is_mounted() {
+    while read -r _source target _rest; do
+        [ "$target" = "$1" ] && return 0
+    done < /proc/mounts
+    return 1
+}
+is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
+is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+CORALCTL=/tmp/coralctl
+MODULE=/tmp/opennpux_coral.ko
+MODEL=/tmp/opennpux-model.npxm
+
+fail() {
+    echo "[coral-model-test] FAIL: $*"
+    if command -v m5 >/dev/null 2>&1; then
+        m5 --inst exit
+    fi
+    exit 1
+}
+
+echo "[coral-model-test] started"
+[ -f /tmp/coralnpu-phase3-preload.ready ] || fail "stale checkpoint"
+[ -f /tmp/opennpux-model.ready ] || fail "model was not preloaded"
+[ -x "${CORALCTL}" ] || fail "coralctl missing"
+[ -f "${MODULE}" ] || fail "kernel module missing"
+
+if [ ! -c /dev/opennpux-coral ]; then
+    /tmp/busybox insmod "${MODULE}" 2>/tmp/opennpux-coral-insmod.err || true
+fi
+[ -c /dev/opennpux-coral ] || fail "/dev/opennpux-coral missing"
+
+OPENNPUX_CORAL_TRANSPORT=driver "${CORALCTL}" model-run "${MODEL}" ||
+    fail "model execution failed"
+
+echo "[coral-model-test] PASS"
+if command -v m5 >/dev/null 2>&1; then
+    m5 --inst exit
+fi
+exit 0

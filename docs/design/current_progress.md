@@ -160,6 +160,11 @@ now submits a multi-buffer command through the Phase-3 driver, while
 completion. This is the reusable end-to-end contract for subsequent DS4
 operators.
 
+The completed platform increment adds a validated `.npxm` model container with
+real input tensors, sequential multi-command dispatch, output verification, and
+model-level simulated-time reporting. The sample graph mixes official Coral
+software execution and custom RTL execution without DS4-specific assumptions.
+
 ### Phase 5
 
 - Add the custom RTL accelerator inside the Coral source hierarchy.
@@ -167,9 +172,15 @@ operators.
   verification.
 - Compare official and custom execution using the same Linux workload.
 
+Phase 5 now includes a synthesizable three-cycle custom MAC, standalone
+Verilator regression, a bounded AXI register aperture in the Coral bridge, a
+custom command opcode, firmware support, cycle accounting, and Linux A/B tests.
+The official `CoreMiniAxi`, gem5 device, kernel driver, and userspace transport
+remain unchanged across software and custom execution.
+
 ## Immediate Development Order
 
 1. Run the Phase-3 runtime acceptance suite on x86 Linux.
 2. Build and load `/dev/opennpux-coral` in the guest image.
 3. Pass the driver-only shared-window and DMA system test.
-4. Define the versioned inference command and tensor-buffer ABI.
+4. Extend the generic model/operator registry as new workloads require.

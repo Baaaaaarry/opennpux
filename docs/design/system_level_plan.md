@@ -10,10 +10,11 @@ This tree now carries two distinct Coral integration layers:
 
 The current repository status is:
 
-- Stage-A SoC bring-up is working.
-- ARM Linux can boot, restore from checkpoint, and reach the Coral CSR window.
-- The stage-A backend can transition from reset to halted under guest control.
-- Official Coral RTL is not yet bridged into gem5.
+- ARM Linux boots on D9200/D9300 and restores reusable checkpoints.
+- Official `CoreMiniAxi` executes firmware through the gem5 bridge.
+- The Linux driver provides bounded shared mmap and asynchronous completion.
+- Generic model files dispatch real tensors through versioned commands.
+- Official software and custom RTL execution pass the same system workload.
 
 ## Phase 1: Official Coral Standalone Environment
 

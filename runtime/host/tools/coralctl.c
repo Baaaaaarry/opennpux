@@ -15,11 +15,13 @@ usage(const char *prog)
             "  %s run [base [entry [poll-count]]]\n"
             "  %s dma-test [base [poll-count]]\n"
             "  %s vector-add <elements> [base [poll-count]]\n"
+            "  %s vector-add-custom <elements> [base [poll-count]]\n"
+            "  %s model-run <model.npxm> [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
             "  %s mem-read32 <offset> [base]\n"
             "  %s mem-write32 <offset> <value> [base]\n",
-            prog, prog, prog, prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
 static void
@@ -149,7 +151,7 @@ print_dma_test(struct opennpux_coral_device *dev, uint32_t entry,
 
 static int
 print_vector_add(struct opennpux_coral_device *dev, uint32_t entry,
-                 uint32_t element_count, uint64_t polls)
+                 uint32_t opcode, uint32_t element_count, uint64_t polls)
 {
     struct opennpux_coral_info info;
     opennpux_coral_get_info(dev, &info);
@@ -159,17 +161,42 @@ print_vector_add(struct opennpux_coral_device *dev, uint32_t entry,
 
     struct opennpux_coral_vector_add_result result;
     const int run_result = opennpux_coral_vector_add_test(
-        dev, entry, element_count, polls, &result);
+        dev, entry, opcode, element_count, polls, &result);
+    printf("opcode=%" PRIu32 "\n", result.opcode);
     printf("command_status=%" PRIu32 "\n", result.status);
     printf("command_error=%" PRIu32 "\n", result.error_code);
     printf("completed_elements=%" PRIu32 "\n", result.completed_elements);
     printf("element_count=%" PRIu32 "\n", result.element_count);
     printf("output_checksum=0x%08" PRIx32 "\n", result.checksum);
+    printf("accelerator_cycles=%" PRIu32 "\n", result.accelerator_cycles);
     if (run_result != 0) {
         fprintf(stderr, "Coral vector-add command failed\n");
         return 1;
     }
     printf("vector_add=PASS\n");
+    return 0;
+}
+
+static int
+print_model_run(struct opennpux_coral_device *dev, uint32_t entry,
+                const char *path, uint64_t polls)
+{
+    struct opennpux_coral_model_result result;
+    const int run_result =
+        opennpux_coral_run_model_file(dev, entry, path, polls, &result);
+    printf("model_commands=%" PRIu32 "\n", result.command_count);
+    printf("completed_commands=%" PRIu32 "\n", result.completed_commands);
+    printf("model_checksum=0x%08" PRIx32 "\n", result.output_checksum);
+    printf("accelerator_cycles=%" PRIu32 "\n", result.accelerator_cycles);
+    printf("model_dma_requests=%" PRIu32 "\n", result.dma_requests);
+    printf("model_dma_completions=%" PRIu32 "\n", result.dma_completions);
+    printf("model_dma_errors=%" PRIu32 "\n", result.dma_errors);
+    printf("host_elapsed_ns=%" PRIu64 "\n", result.host_elapsed_ns);
+    if (run_result != 0) {
+        perror("model-run");
+        return 1;
+    }
+    printf("model_run=PASS\n");
     return 0;
 }
 
@@ -185,12 +212,16 @@ main(int argc, char **argv)
     const int command_run = strcmp(argv[1], "run") == 0;
     const int command_dma_test = strcmp(argv[1], "dma-test") == 0;
     const int command_vector_add = strcmp(argv[1], "vector-add") == 0;
+    const int command_vector_add_custom =
+        strcmp(argv[1], "vector-add-custom") == 0;
+    const int command_model_run = strcmp(argv[1], "model-run") == 0;
     const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
     const int command_mem_clear = strcmp(argv[1], "mem-clear") == 0;
     const int command_mem_read32 = strcmp(argv[1], "mem-read32") == 0;
     const int command_mem_write32 = strcmp(argv[1], "mem-write32") == 0;
     if (!command_info && !command_run && !command_dma_test &&
-        !command_vector_add &&
+        !command_vector_add && !command_vector_add_custom &&
+        !command_model_run &&
         !command_mem_info && !command_mem_clear && !command_mem_read32 &&
         !command_mem_write32) {
         usage(argv[0]);
@@ -199,7 +230,9 @@ main(int argc, char **argv)
     if ((command_info && argc > 3) ||
         (command_run && argc > 5) ||
         (command_dma_test && argc > 4) ||
-        (command_vector_add && (argc < 3 || argc > 5)) ||
+        ((command_vector_add || command_vector_add_custom) &&
+         (argc < 3 || argc > 5)) ||
+        (command_model_run && (argc < 3 || argc > 5)) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
         (command_mem_read32 && (argc < 3 || argc > 4)) ||
@@ -212,6 +245,7 @@ main(int argc, char **argv)
     uint64_t shared_offset = 0;
     uint64_t shared_value = 0;
     uint64_t vector_elements = 0;
+    const char *model_path = NULL;
     if (command_mem_read32 || command_mem_write32) {
         const int base_arg = command_mem_read32 ? 3 : 4;
         if (opennpux_coral_parse_u64(argv[2], &shared_offset) != 0) {
@@ -229,7 +263,13 @@ main(int argc, char **argv)
             fprintf(stderr, "invalid base address: %s\n", argv[base_arg]);
             return 2;
         }
-    } else if (command_vector_add) {
+    } else if (command_model_run) {
+        model_path = argv[2];
+        if (argc >= 4 && opennpux_coral_parse_u64(argv[3], &base) != 0) {
+            fprintf(stderr, "invalid base address: %s\n", argv[3]);
+            return 2;
+        }
+    } else if (command_vector_add || command_vector_add_custom) {
         if (opennpux_coral_parse_u64(argv[2], &vector_elements) != 0 ||
             vector_elements == 0 ||
             vector_elements > OPENNPUX_CORAL_TENSOR_MAX_ELEMENTS) {
@@ -291,14 +331,19 @@ main(int argc, char **argv)
     struct opennpux_coral_info info;
     opennpux_coral_get_info(&dev, &info);
     uint64_t entry = info.firmware_entry;
-    uint64_t polls = (command_dma_test || command_vector_add) ? 100000 : 1000;
+    uint64_t polls =
+        (command_dma_test || command_vector_add || command_vector_add_custom ||
+         command_model_run) ?
+            100000 : 1000;
     if (command_run && argc >= 4 &&
         opennpux_coral_parse_u64(argv[3], &entry) != 0) {
         fprintf(stderr, "invalid entry address: %s\n", argv[3]);
         opennpux_coral_close(&dev);
         return 2;
     }
-    const int poll_arg = command_vector_add ? 4 : (command_dma_test ? 3 : 4);
+    const int poll_arg =
+        (command_model_run || command_vector_add ||
+         command_vector_add_custom) ? 4 : (command_dma_test ? 3 : 4);
     if (argc > poll_arg &&
         (opennpux_coral_parse_u64(argv[poll_arg], &polls) != 0 ||
          polls == 0)) {
@@ -310,9 +355,14 @@ main(int argc, char **argv)
     int result;
     if (command_run) {
         result = print_run(&dev, (uint32_t)entry, polls);
-    } else if (command_vector_add) {
+    } else if (command_model_run) {
+        result = print_model_run(&dev, (uint32_t)entry, model_path, polls);
+    } else if (command_vector_add || command_vector_add_custom) {
+        const uint32_t opcode = command_vector_add_custom ?
+            OPENNPUX_CORAL_OPCODE_VECTOR_ADD_CUSTOM_U32 :
+            OPENNPUX_CORAL_OPCODE_VECTOR_ADD_U32;
         result = print_vector_add(&dev, (uint32_t)entry,
-                                  (uint32_t)vector_elements, polls);
+                                  opcode, (uint32_t)vector_elements, polls);
     } else {
         result = print_dma_test(&dev, (uint32_t)entry, polls);
     }

@@ -11,6 +11,7 @@ echo "[coralnpu] boot checkpoint script started"
 preloaded_coralctl=0
 preloaded_module=0
 preloaded_busybox=0
+preloaded_model=0
 
 for candidate in \
     /usr/local/bin/coralctl \
@@ -46,6 +47,20 @@ if [ -x /bin/busybox ]; then
     echo "[coralnpu] preloaded busybox into checkpoint tmpfs"
     preloaded_busybox=1
 fi
+
+for candidate in \
+    /usr/local/share/opennpux/heterogeneous-smoke.npxm \
+    /root/heterogeneous-smoke.npxm
+do
+    if [ -r "$candidate" ]; then
+        cp "$candidate" /tmp/opennpux-model.npxm
+        chmod 0600 /tmp/opennpux-model.npxm
+        preloaded_model=1
+        echo "[coralnpu] preloaded model into checkpoint tmpfs"
+        break
+    fi
+done
+[ "$preloaded_model" -ne 1 ] || : > /tmp/opennpux-model.ready
 
 if [ "$preloaded_coralctl" -eq 1 ] && \
    [ "$preloaded_module" -eq 1 ] && \

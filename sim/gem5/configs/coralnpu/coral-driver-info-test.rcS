@@ -13,21 +13,15 @@ is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 
 NPU_BASE=0x1D000000
-CORALCTL=
-for candidate in \
-    /tmp/coralctl \
-    /usr/local/bin/coralctl \
-    /data/usr/local/bin/coralctl
-do
-    if [ -x "$candidate" ]; then
-        CORALCTL="$candidate"
-        break
-    fi
-done
+CORALCTL=/tmp/coralctl
+MODULE=/tmp/opennpux_coral.ko
+kernel_release=unknown
+[ ! -r /proc/sys/kernel/osrelease ] || \
+    IFS= read -r kernel_release < /proc/sys/kernel/osrelease
 
 echo "[coral-driver-info-test] started"
-echo "[coral-driver-info-test] tool=${CORALCTL:-none}"
-echo "[coral-driver-info-test] kernel=$(uname -r)"
+echo "[coral-driver-info-test] tool=${CORALCTL}"
+echo "[coral-driver-info-test] kernel=${kernel_release}"
 
 if [ ! -f /tmp/coralnpu-phase3-preload.ready ]; then
     echo "[coral-driver-info-test] FAIL: stale or incomplete Phase-3 checkpoint"
@@ -39,44 +33,22 @@ if [ ! -f /tmp/coralnpu-phase3-preload.ready ]; then
 fi
 
 if [ ! -c /dev/opennpux-coral ]; then
-    for module in \
-        /tmp/opennpux_coral.ko \
-        "/lib/modules/$(uname -r)/extra/opennpux_coral.ko" \
-        /root/opennpux_coral.ko
-    do
-        if [ -f "$module" ]; then
-            echo "[coral-driver-info-test] loading $module"
-            if [ -x /tmp/busybox ]; then
-                /tmp/busybox insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
-            elif [ -x /bin/busybox ]; then
-                /bin/busybox insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
-            elif command -v insmod >/dev/null 2>&1; then
-                insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
-            elif [ -x /sbin/insmod ]; then
-                /sbin/insmod "$module" 2>/tmp/opennpux-coral-insmod.err || true
-            elif command -v modprobe >/dev/null 2>&1; then
-                modprobe opennpux_coral 2>/tmp/opennpux-coral-insmod.err || true
-            elif [ -x /sbin/modprobe ]; then
-                /sbin/modprobe opennpux_coral 2>/tmp/opennpux-coral-insmod.err || true
-            else
-                echo "no insmod/modprobe found in guest" > /tmp/opennpux-coral-insmod.err
-            fi
-            break
-        fi
-    done
+    echo "[coral-driver-info-test] loading ${MODULE}"
+    /tmp/busybox insmod "${MODULE}" \
+        2>/tmp/opennpux-coral-insmod.err || true
 fi
 
 result=1
-if [ -z "$CORALCTL" ]; then
-    echo "[coral-driver-info-test] FAIL: coralctl is not installed"
+if [ ! -x "$CORALCTL" ]; then
+    echo "[coral-driver-info-test] FAIL: preloaded coralctl is missing"
 elif [ ! -c /dev/opennpux-coral ]; then
     echo "[coral-driver-info-test] FAIL: /dev/opennpux-coral missing"
     if [ -s /tmp/opennpux-coral-insmod.err ]; then
-        cat /tmp/opennpux-coral-insmod.err
+        while IFS= read -r line; do
+            printf '%s\n' "$line"
+        done < /tmp/opennpux-coral-insmod.err
     fi
-    dmesg | tail -20 2>/dev/null || true
 elif OPENNPUX_CORAL_TRANSPORT=driver "$CORALCTL" info "${NPU_BASE}"; then
-    dmesg | grep -i "opennpux-coral" | tail -5 2>/dev/null || true
     echo "[coral-driver-info-test] PASS"
     result=0
 else

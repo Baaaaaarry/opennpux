@@ -15,14 +15,16 @@ is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 NPU_BASE=0x1D000000
 CORALCTL=/tmp/coralctl
 MODULE=/tmp/opennpux_coral.ko
+kernel_release=unknown
+[ ! -r /proc/sys/kernel/osrelease ] || \
+    IFS= read -r kernel_release < /proc/sys/kernel/osrelease
 
 echo "[coral-driver-dma-test] started"
 echo "[coral-driver-dma-test] tool=${CORALCTL}"
-echo "[coral-driver-dma-test] kernel=$(uname -r)"
+echo "[coral-driver-dma-test] kernel=${kernel_release}"
 
 fail() {
     echo "[coral-driver-dma-test] FAIL: $*"
-    dmesg | tail -20 2>/dev/null || true
     if command -v m5 >/dev/null 2>&1; then
         m5 --inst exit
     fi
@@ -41,7 +43,9 @@ if [ ! -c /dev/opennpux-coral ]; then
 fi
 if [ ! -c /dev/opennpux-coral ]; then
     [ ! -s /tmp/opennpux-coral-insmod.err ] ||
-        cat /tmp/opennpux-coral-insmod.err
+        while IFS= read -r line; do
+            printf '%s\n' "$line"
+        done < /tmp/opennpux-coral-insmod.err
     fail "/dev/opennpux-coral missing"
 fi
 
@@ -60,4 +64,3 @@ if command -v m5 >/dev/null 2>&1; then
     m5 --inst exit
 fi
 exit 0
-

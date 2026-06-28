@@ -116,6 +116,10 @@ after restore; the current gem5 virtio queue can otherwise report
 Resume scripts must not mount a second tmpfs over `/tmp`, because that would
 hide the preloaded checkpoint files. All Coral resume scripts therefore check
 `/proc/mounts` before mounting pseudo filesystems.
+Driver acceptance scripts also avoid dynamically linked diagnostics such as
+`dmesg`, `grep`, and `tail`: executing them after restore can issue virtio-blk
+reads and trigger the same queue-restoration defect. Kernel diagnostics remain
+available in the host-side `m5out/system.terminal` and gem5 log.
 
 The script prints the `CORAL_KERNEL_IMAGE=.../vmlinux-<release>` value to use
 with gem5. First rebuild the checkpoint with the 4.19 kernel:

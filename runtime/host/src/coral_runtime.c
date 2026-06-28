@@ -464,6 +464,9 @@ opennpux_coral_run(struct opennpux_coral_device *dev, uint32_t entry,
                 errno = EIO;
                 return -1;
             }
+            if (ioctl(dev->fd, OPENNPUX_CORAL_IOC_RESET) != 0) {
+                return -1;
+            }
             return 0;
         }
 

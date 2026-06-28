@@ -62,3 +62,14 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 
 Both paths must report checksum `0x00000198`; the software path reports zero
 accelerator cycles and the custom path reports 48.
+
+## Back-To-Back Submission Upgrade
+
+If an older checkpoint completes the first model command and fails the second
+with `Device or resource busy`, rebuild and install `coralctl`, then rebuild the
+checkpoint once. The runtime now acknowledges each completion before submitting
+the next command, so this update works with the previous Phase-3 kernel module.
+
+Rebuilding `opennpux_coral.ko` is still recommended: the current driver also
+consumes terminal status in `poll()` and cancels stale completion work before a
+new `START`. Neither fix requires rebuilding gem5 or the Coral bridge.

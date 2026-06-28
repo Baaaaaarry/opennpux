@@ -16,6 +16,7 @@
 #include <linux/jiffies.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/poll.h>
@@ -52,6 +53,7 @@ struct opennpux_coral_dev {
 	struct device *class_dev;
 	wait_queue_head_t completion_wq;
 	struct delayed_work completion_work;
+	struct mutex state_lock;
 	atomic_t running;
 	atomic_t open_count;
 };
@@ -110,22 +112,35 @@ static void coral_completion_work(struct work_struct *work)
 
 static int coral_start(struct opennpux_coral_dev *coral, u32 entry)
 {
-	if (atomic_cmpxchg(&coral->running, 0, 1) != 0)
-		return -EBUSY;
+	int ret = 0;
+
+	mutex_lock(&coral->state_lock);
+	if (atomic_read(&coral->running)) {
+		ret = -EBUSY;
+		goto out;
+	}
+
+	/* A poll consumer may finish before the delayed worker runs. */
+	cancel_delayed_work_sync(&coral->completion_work);
+	atomic_set(&coral->running, 1);
 
 	coral_writel(coral, PC_START, entry);
 	coral_writel(coral, RESET_CONTROL, 1);
 	coral_writel(coral, RESET_CONTROL, 0);
 	schedule_delayed_work(&coral->completion_work, 0);
-	return 0;
+out:
+	mutex_unlock(&coral->state_lock);
+	return ret;
 }
 
 static void coral_reset(struct opennpux_coral_dev *coral)
 {
+	mutex_lock(&coral->state_lock);
 	atomic_set(&coral->running, 0);
 	cancel_delayed_work_sync(&coral->completion_work);
 	coral_writel(coral, RESET_CONTROL, 1);
 	wake_up_interruptible_poll(&coral->completion_wq, POLLERR);
+	mutex_unlock(&coral->state_lock);
 }
 
 static int coral_run(struct opennpux_coral_dev *coral,
@@ -219,6 +234,8 @@ static __poll_t coral_poll(struct file *file, poll_table *wait)
 
 	poll_wait(file, &coral->completion_wq, wait);
 	status = coral_readl(coral, STATUS);
+	if (status & 0x3)
+		atomic_set(&coral->running, 0);
 	if (status & 0x2)
 		return POLLERR;
 	if (status & 0x1)
@@ -329,6 +346,7 @@ static int coral_probe(struct platform_device *pdev)
 
 	init_waitqueue_head(&coral->completion_wq);
 	INIT_DELAYED_WORK(&coral->completion_work, coral_completion_work);
+	mutex_init(&coral->state_lock);
 	atomic_set(&coral->running, 0);
 	atomic_set(&coral->open_count, 0);
 

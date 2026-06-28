@@ -44,6 +44,10 @@ The ABI is mirrored in:
 5. Firmware writes output, completed element count, and completion status.
 6. Driver wakes userspace; runtime validates every output and reports checksum.
 
+After consuming a terminal status, the runtime acknowledges completion through
+the reset ioctl. This permits back-to-back commands on one open device without
+racing the driver's delayed completion worker.
+
 This path uses the same driver, coherent gem5 DMA, Coral AXI master, and
 Verilated official core that later DS4 operators will use.
 

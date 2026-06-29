@@ -29,8 +29,11 @@ The gem5 NPU device translates the EXTMEM range onto an 8 MiB reserved ARM
 physical-memory window beginning at `0x8ff00000`. All EXTMEM traffic continues
 through the existing coherent DMA port and SLC/DDR path.
 
-The tensor arena is linked as `NOLOAD .extbss`; Linux clears the shared window
-before releasing Coral reset. This avoids trying to initialize external memory
+The tensor arena is linked as `NOLOAD .extbss`. The dedicated boot checkpoint
+provides its initial memory state, and LiteRT Micro manages the arena during
+inference. Linux clears only the 64-byte mailbox before releasing Coral reset;
+clearing the complete noncached 4 MiB arena on a detailed gem5 CPU would add a
+large startup delay. This also avoids trying to initialize external memory
 through Coral's AXI slave port, which only exposes TCM and CSR regions.
 
 ## Completion Contract

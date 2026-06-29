@@ -839,7 +839,10 @@ opennpux_coral_mobilenet_test(
         return -1;
     }
 
-    memset((void *)window.bytes, 0, required);
+    volatile uint8_t *mailbox_bytes =
+        window.bytes + OPENNPUX_CORAL_MOBILENET_MAILBOX_OFFSET;
+    memset((void *)mailbox_bytes, 0,
+           sizeof(struct opennpux_coral_mobilenet_mailbox));
     __sync_synchronize();
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;
@@ -851,8 +854,7 @@ opennpux_coral_mobilenet_test(
     __sync_synchronize();
 
     volatile const struct opennpux_coral_mobilenet_mailbox *mailbox =
-        (volatile const struct opennpux_coral_mobilenet_mailbox *)(
-            window.bytes + OPENNPUX_CORAL_MOBILENET_MAILBOX_OFFSET);
+        (volatile const struct opennpux_coral_mobilenet_mailbox *)mailbox_bytes;
     result->state = mailbox->state;
     result->error_code = mailbox->error_code;
     result->output_count = mailbox->output_count;

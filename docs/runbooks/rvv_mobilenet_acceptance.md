@@ -51,6 +51,8 @@ command again to restore it and execute MobileNet.
 
 ```text
 [coral-mobilenet-test] started
+mobilenet_prepare=mailbox-only
+mobilenet_run=started
 status=0x00000001
 mobilenet_state=0x00000003
 mobilenet_error=0
@@ -62,6 +64,10 @@ mobilenet_output=<five signed int8 values>
 mobilenet_test=PASS
 [coral-mobilenet-test] PASS
 ```
+
+`mobilenet_run=started` is flushed immediately before reset is released. If
+RTL inference is slow, this distinguishes it from guest-side shared-memory
+initialization.
 
 This acceptance proves that ARM Linux dispatches an official LiteRT Micro graph
 to the official RVV highmem Coral RTL. It does not claim classification

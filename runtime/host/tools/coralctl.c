@@ -207,6 +207,9 @@ print_mobilenet_test(struct opennpux_coral_device *dev, uint32_t entry,
                      uint64_t polls)
 {
     struct opennpux_coral_mobilenet_result result;
+    printf("mobilenet_prepare=mailbox-only\n");
+    printf("mobilenet_run=started\n");
+    fflush(stdout);
     const int run_result =
         opennpux_coral_mobilenet_test(dev, entry, polls, &result);
     printf("status=0x%08" PRIx32 "\n", result.device_status);

@@ -36,6 +36,7 @@ export CORAL_RTL_FIRMWARE="${CORAL_RTL_FIRMWARE:-${SUPER_ROOT}/build/coralnpu/ge
 export CORAL_RTL_TICK_PERIOD="${CORAL_RTL_TICK_PERIOD:-1ns}"
 export CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}"
 export GEM5_OPTIONS="${GEM5_OPTIONS:-}"
+export CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-}"
 
 NPU_BACKEND_ARGS="--npu-backend=${CORAL_NPU_BACKEND}"
 BOOTSTRAP_NPU_BACKEND_ARGS="--npu-backend=stage-a"
@@ -167,6 +168,7 @@ echo "Checkpoint root: ${CORAL_CKPT_ROOT}"
 echo "NPU backend: ${CORAL_NPU_BACKEND}"
 [ "${CORAL_NPU_BACKEND}" != "verilated-coral" ] || echo "Coral RTL bridge: ${CORAL_RTL_BRIDGE}"
 [ "${CORAL_NPU_BACKEND}" != "verilated-coral" ] || echo "Coral RTL firmware: ${CORAL_RTL_FIRMWARE}"
+[ -z "${CORAL_CONFIG_OPTIONS}" ] || echo "Coral config options: ${CORAL_CONFIG_OPTIONS}"
 ls -lh "${CORAL_DISK_IMG}" || exit 1
 ls -lh "${CORAL_KERNEL_IMAGE}" || exit 1
 echo "Building build/ARM/gem5.opt with -j${BUILD_JOBS}"
@@ -177,6 +179,7 @@ if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
   echo "Checkpoint: ${CORAL_BOOTED_CKPT}"
   echo "Resume script: ${CORAL_RESUME_BOOTSCRIPT}"
   ./build/ARM/gem5.opt ${GEM5_OPTIONS} configs/example/arm/arm_multicore_d9300.py \
+    ${CORAL_CONFIG_OPTIONS} \
     --cpu-type="D9300" \
     --disk="${CORAL_DISK_IMG}" \
     --kernel="${CORAL_KERNEL_IMAGE}" \
@@ -193,6 +196,7 @@ else
   echo "Bootstrap script: ${CORAL_CKPT_BOOTSCRIPT}"
   echo "Set CORAL_REBUILD_CKPT=1 to force rebuilding the boot checkpoint"
   ./build/ARM/gem5.opt ${GEM5_OPTIONS} configs/example/arm/arm_multicore_d9300.py \
+    ${CORAL_CONFIG_OPTIONS} \
     --cpu-type="D9300" \
     --disk="${CORAL_DISK_IMG}" \
     --kernel="${CORAL_KERNEL_IMAGE}" \

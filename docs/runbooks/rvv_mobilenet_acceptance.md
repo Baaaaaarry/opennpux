@@ -43,6 +43,10 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 The first invocation creates `m5out/coralnpu_mobilenet_ckpt`. Run the same
 command again to restore it and execute MobileNet.
 
+`run_rvv_mobilenet_test.sh` passes the window size through
+`CORAL_CONFIG_OPTIONS`, after the gem5 Python configuration path. Keep
+`GEM5_OPTIONS` for gem5-global flags such as `--debug-flags`.
+
 ## Expected Result
 
 ```text

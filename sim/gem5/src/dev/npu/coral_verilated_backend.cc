@@ -78,6 +78,7 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     firmwareEntry(0),
     dmaRequestPending(false),
     wfiObserved(false),
+    rtlEventCount(0),
     pendingDmaRequest()
 {
     fatal_if(wrapperPath.empty(),
@@ -222,9 +223,13 @@ CoralVerilatedBackend::write(PacketPtr pkt, Addr pio_addr)
 
     if (offset == kResetControlOffset &&
         pkt->getSize() == sizeof(uint32_t)) {
+        const bool wasRunning = running;
         resetControl = pkt->getLE<uint32_t>() &
             (kResetBit | kClockGateBit);
         running = !(resetControl & (kResetBit | kClockGateBit));
+        if (running && !wasRunning) {
+            rtlEventCount = 0;
+        }
         pendingEventTick = running ? curTick() + rtlTickPeriod : 0;
     }
 
@@ -258,8 +263,24 @@ CoralVerilatedBackend::processEvent()
         return;
     }
 
+    ++rtlEventCount;
+    if (rtlEventCount == 1) {
+        DPRINTFR(NPUDevice,
+                 "Coral RTL step batch start event=%llu cycles=%u\n",
+                 static_cast<unsigned long long>(rtlEventCount),
+                 rtlCyclesPerEvent);
+    }
     const int result = stepModel(modelHandle, rtlCyclesPerEvent);
     fatal_if(result < 0, "Coral RTL bridge failed while stepping model");
+    if (rtlEventCount == 1 || rtlEventCount % 1000 == 0) {
+        DPRINTFR(NPUDevice,
+                 "Coral RTL heartbeat event=%llu requested_cycles=%llu "
+                 "step_result=%d\n",
+                 static_cast<unsigned long long>(rtlEventCount),
+                 static_cast<unsigned long long>(
+                     rtlEventCount * rtlCyclesPerEvent),
+                 result);
+    }
 
     if (result == 3) {
         if (!wfiObserved) {

@@ -163,6 +163,9 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
     return 2;
   }
   for (uint32_t i = 0; i < cycles; ++i) {
+    if (handle->wrapper.HasFault()) {
+      return 4;
+    }
     if (handle->wrapper.IsHalted()) {
       return 1;
     }
@@ -170,6 +173,9 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
     handle->custom_mac.Step();
     if (handle->dma_pending) {
       return 2;
+    }
+    if (handle->wrapper.HasFault()) {
+      return 4;
     }
     if (handle->wrapper.IsHalted()) {
       return 1;

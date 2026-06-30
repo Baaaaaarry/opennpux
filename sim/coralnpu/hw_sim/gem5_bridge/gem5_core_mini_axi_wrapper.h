@@ -98,7 +98,8 @@ class Gem5CoreMiniAxiWrapper {
                       &core_.io_axi_master_write_resp_valid,
                       &core_.io_axi_master_write_resp_bits_id,
                       &core_.io_axi_master_write_resp_bits_resp,
-                      &core_.io_axi_master_write_resp_ready) {}
+                      &core_.io_axi_master_write_resp_ready),
+        fault_seen_(false) {}
 
   void Reset() {
     core_.io_aresetn = 1;
@@ -107,9 +108,13 @@ class Gem5CoreMiniAxiWrapper {
     context_->timeInc(1);
     core_.io_aresetn = 1;
     context_->timeInc(1);
+    fault_seen_ = false;
   }
 
-  void Step() { clock_.Step(); }
+  void Step() {
+    clock_.Step();
+    fault_seen_ = fault_seen_ || core_.io_fault;
+  }
 
   void Write(uint32_t addr, uint32_t len, const char* data) {
     auto remaining =
@@ -172,6 +177,7 @@ class Gem5CoreMiniAxiWrapper {
 
   bool IsHalted() const { return core_.io_halted; }
   bool IsWfi() const { return core_.io_wfi; }
+  bool HasFault() const { return fault_seen_; }
 
  private:
   VerilatedContext* const context_;
@@ -181,6 +187,7 @@ class Gem5CoreMiniAxiWrapper {
   AxiSlaveReadDriver slave_read_;
   Gem5AxiMasterReadDriver master_read_;
   Gem5AxiMasterWriteDriver master_write_;
+  bool fault_seen_;
 };
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_CORE_MINI_AXI_WRAPPER_H_

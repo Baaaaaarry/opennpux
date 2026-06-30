@@ -65,6 +65,10 @@ external-memory request. A step batch start without its matching heartbeat
 localizes a stall inside the bridge; DMA wait/start/complete messages localize
 progress through the memory path.
 
+The bridge latches the Coral `io_fault` signal across step batches. A transient
+illegal-instruction or memory fault therefore terminates with `Coral RTL raised
+a core fault` instead of being hidden between Linux status polls.
+
 `run_rvv_mobilenet_test.sh` passes the window size through
 `CORAL_CONFIG_OPTIONS`, after the gem5 Python configuration path. Keep
 `GEM5_OPTIONS` for gem5-global flags such as `--debug-flags`.

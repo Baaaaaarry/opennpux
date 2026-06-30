@@ -274,6 +274,8 @@ CoralVerilatedBackend::processEvent()
     }
     const int result = stepModel(modelHandle, rtlCyclesPerEvent);
     fatal_if(result < 0, "Coral RTL bridge failed while stepping model");
+    fatal_if(result == 4,
+             "Coral RTL raised a core fault before halt or DMA completion");
     if (traceProgress) {
         DPRINTFR(NPUDevice,
                  "Coral RTL heartbeat event=%llu requested_cycles=%llu "

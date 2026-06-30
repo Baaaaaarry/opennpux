@@ -7,6 +7,19 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 BRIDGE="${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_rvv_highmem_bridge.so"
 FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_mobilenet.elf"
 TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-mobilenet-test.rcS"
+GEM5_OPTIONS_VALUE="${GEM5_OPTIONS:-}"
+RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}"
+
+if [ "${CORAL_MOBILENET_DEBUG:-0}" = "1" ]; then
+    DEBUG_LOG="${CORAL_MOBILENET_DEBUG_LOG:-${ROOT_DIR}/simout/coral-mobilenet.debug}"
+    mkdir -p "$(dirname "${DEBUG_LOG}")"
+    GEM5_OPTIONS_VALUE="${GEM5_OPTIONS_VALUE} --debug-flags=NPUDevice --debug-file=${DEBUG_LOG}"
+    echo "[coral-mobilenet] debug log: ${DEBUG_LOG}"
+fi
+
+echo "[coral-mobilenet] RTL cycles per event: ${RTL_CYCLES_PER_EVENT}"
+[ -z "${GEM5_OPTIONS_VALUE}" ] || \
+    echo "[coral-mobilenet] gem5 options: ${GEM5_OPTIONS_VALUE}"
 
 [ -f "${BRIDGE}" ] || {
     echo "error: RVV highmem bridge not found: ${BRIDGE}" >&2
@@ -22,7 +35,9 @@ TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-mobilenet-test.r
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_BRIDGE="${BRIDGE}" \
 CORAL_RTL_FIRMWARE="${FIRMWARE}" \
+CORAL_RTL_CYCLES_PER_EVENT="${RTL_CYCLES_PER_EVENT}" \
 CORAL_CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/m5out/coralnpu_mobilenet_ckpt}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
 CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB" \
+GEM5_OPTIONS="${GEM5_OPTIONS_VALUE}" \
 exec "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"

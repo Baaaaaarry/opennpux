@@ -43,6 +43,21 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 The first invocation creates `m5out/coralnpu_mobilenet_ckpt`. Run the same
 command again to restore it and execute MobileNet.
 
+For a functional run with NPU progress tracing, use:
+
+```sh
+CORAL_MOBILENET_DEBUG=1 \
+CORAL_RTL_CYCLES_PER_EVENT=1000 \
+CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
+./tools/coralnpu/run_rvv_mobilenet_test.sh
+
+tail -F simout/coral-mobilenet.debug
+```
+
+The wrapper prints the effective gem5 options and RTL cycle batch before it
+starts gem5. Neither option requires rebuilding the boot checkpoint.
+
 `run_rvv_mobilenet_test.sh` passes the window size through
 `CORAL_CONFIG_OPTIONS`, after the gem5 Python configuration path. Keep
 `GEM5_OPTIONS` for gem5-global flags such as `--debug-flags`.

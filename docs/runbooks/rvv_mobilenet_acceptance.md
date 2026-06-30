@@ -21,6 +21,13 @@ build/coralnpu/libcoralnpu_gem5_rvv_highmem_bridge.so
 build/coralnpu/gem5_mobilenet.elf
 ```
 
+Do not run the build with `sudo`. If artifacts from an older privileged build
+made the output directory read-only, repair it once before rebuilding:
+
+```sh
+sudo chown -R "$USER:$(id -gn)" build/coralnpu
+```
+
 Update the guest `coralctl` before creating the dedicated checkpoint:
 
 ```sh

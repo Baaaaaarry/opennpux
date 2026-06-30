@@ -100,11 +100,33 @@ if [ ! -f "${COMMAND_FIRMWARE}" ]; then
 fi
 
 mkdir -p "${OUT_DIR}"
-cp "${BRIDGE}" "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
-cp "${FIRMWARE}" "${OUT_DIR}/gem5_smoke_halt.elf"
-cp "${DMA_FIRMWARE}" "${OUT_DIR}/gem5_dma_smoke.elf"
-cp "${COMMAND_FIRMWARE}" "${OUT_DIR}/gem5_command_smoke.elf"
-chmod 0755 "${OUT_DIR}/libcoralnpu_gem5_bridge.so"
+if [ ! -w "${OUT_DIR}" ]; then
+    echo "error: output directory is not writable: ${OUT_DIR}" >&2
+    echo "repair ownership once with:" >&2
+    echo "  sudo chown -R \"${USER:-$(id -un)}:$(id -gn)\" \"${OUT_DIR}\"" >&2
+    exit 1
+fi
+
+install_output()
+{
+    source_path="$1"
+    destination_path="$2"
+    mode="$3"
+    temporary_path="$(mktemp "${OUT_DIR}/.$(basename "${destination_path}").XXXXXX")"
+    if ! cp "${source_path}" "${temporary_path}" ||
+       ! chmod "${mode}" "${temporary_path}" ||
+       ! mv -f "${temporary_path}" "${destination_path}"; then
+        rm -f "${temporary_path}"
+        echo "error: unable to install artifact: ${destination_path}" >&2
+        return 1
+    fi
+}
+
+install_output "${BRIDGE}" "${OUT_DIR}/libcoralnpu_gem5_bridge.so" 0755
+install_output "${FIRMWARE}" "${OUT_DIR}/gem5_smoke_halt.elf" 0644
+install_output "${DMA_FIRMWARE}" "${OUT_DIR}/gem5_dma_smoke.elf" 0644
+install_output "${COMMAND_FIRMWARE}" \
+    "${OUT_DIR}/gem5_command_smoke.elf" 0644
 
 if command -v nm >/dev/null 2>&1 &&
    nm -D --undefined-only \

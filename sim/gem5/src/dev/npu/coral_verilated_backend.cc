@@ -264,7 +264,9 @@ CoralVerilatedBackend::processEvent()
     }
 
     ++rtlEventCount;
-    if (rtlEventCount == 1) {
+    const bool traceProgress = rtlEventCount <= 10 ||
+        rtlEventCount == 100 || rtlEventCount % 1000 == 0;
+    if (traceProgress) {
         DPRINTFR(NPUDevice,
                  "Coral RTL step batch start event=%llu cycles=%u\n",
                  static_cast<unsigned long long>(rtlEventCount),
@@ -272,7 +274,7 @@ CoralVerilatedBackend::processEvent()
     }
     const int result = stepModel(modelHandle, rtlCyclesPerEvent);
     fatal_if(result < 0, "Coral RTL bridge failed while stepping model");
-    if (rtlEventCount == 1 || rtlEventCount % 1000 == 0) {
+    if (traceProgress) {
         DPRINTFR(NPUDevice,
                  "Coral RTL heartbeat event=%llu requested_cycles=%llu "
                  "step_result=%d\n",

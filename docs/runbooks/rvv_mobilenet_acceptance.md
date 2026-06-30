@@ -58,11 +58,12 @@ tail -F simout/coral-mobilenet.debug
 The wrapper prints the effective gem5 options and RTL cycle batch before it
 starts gem5. Neither option requires rebuilding the boot checkpoint.
 
-The `NPUDevice` trace reports the first RTL step batch and then one heartbeat
-per 1000 gem5 NPU events. Increasing heartbeat counters prove that execution
-continues before the firmware issues its first external-memory request. A step
-batch start without its matching heartbeat localizes a stall inside the bridge;
-DMA wait/start/complete messages localize progress through the memory path.
+The `NPUDevice` trace reports entry and return for the first 10 RTL step
+batches, event 100, and then every 1000 gem5 NPU events. Increasing heartbeat
+counters prove that execution continues before the firmware issues its first
+external-memory request. A step batch start without its matching heartbeat
+localizes a stall inside the bridge; DMA wait/start/complete messages localize
+progress through the memory path.
 
 `run_rvv_mobilenet_test.sh` passes the window size through
 `CORAL_CONFIG_OPTIONS`, after the gem5 Python configuration path. Keep

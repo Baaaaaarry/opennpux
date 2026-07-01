@@ -31,17 +31,44 @@ if [ "${has_delta}" -ne 1 ]; then
     exit 1
 fi
 
+copy_if_changed()
+{
+    source_path="$1"
+    destination_path="$2"
+    if [ ! -f "${destination_path}" ] ||
+       ! cmp -s "${source_path}" "${destination_path}"; then
+        mkdir -p "$(dirname "${destination_path}")"
+        cp "${source_path}" "${destination_path}"
+        # SCons must see overlay updates as newer than existing objects.
+        touch "${destination_path}"
+    fi
+}
+
+sync_tree()
+{
+    source_root="$1"
+    destination_root="$2"
+    (cd "${source_root}" && find . -type d -print) |
+        while IFS= read -r relative_path; do
+            mkdir -p "${destination_root}/${relative_path}"
+        done
+    (cd "${source_root}" && find . -type f -print) |
+        while IFS= read -r relative_path; do
+            copy_if_changed "${source_root}/${relative_path}" \
+                "${destination_root}/${relative_path}"
+        done
+}
+
 echo "[gem5-patchset] syncing mirrored directories into ${GEM5_REPO}"
 for path in configs src ext include system util tests scripts; do
     if [ -e "${SCRIPT_DIR}/${path}" ]; then
-        mkdir -p "${GEM5_REPO}/${path}"
-        cp -R "${SCRIPT_DIR}/${path}/." "${GEM5_REPO}/${path}/"
+        sync_tree "${SCRIPT_DIR}/${path}" "${GEM5_REPO}/${path}"
     fi
 done
 
 for file in SConstruct requirements.txt run_multicore.sh; do
     if [ -e "${SCRIPT_DIR}/${file}" ]; then
-        cp "${SCRIPT_DIR}/${file}" "${GEM5_REPO}/${file}"
+        copy_if_changed "${SCRIPT_DIR}/${file}" "${GEM5_REPO}/${file}"
     fi
 done
 

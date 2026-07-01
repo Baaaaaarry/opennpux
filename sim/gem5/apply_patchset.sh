@@ -36,6 +36,7 @@ copy_if_changed()
     source_path="$1"
     destination_path="$2"
     if [ ! -f "${destination_path}" ] ||
+       [ "${source_path}" -nt "${destination_path}" ] ||
        ! cmp -s "${source_path}" "${destination_path}"; then
         mkdir -p "$(dirname "${destination_path}")"
         cp "${source_path}" "${destination_path}"

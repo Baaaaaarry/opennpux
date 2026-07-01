@@ -1,16 +1,20 @@
 #include "hw_sim/gem5_bridge/coralnpu_gem5_abi.h"
 
+#include <cstdio>
 #include <cstring>
 #include <new>
 #include <vector>
 
 #include "hw_sim/gem5_bridge/gem5_core_mini_axi_wrapper.h"
+#include "hw_sim/gem5_bridge/coral_mobilenet.h"
 #include "hw_sim/gem5_bridge/gem5_custom_mac.h"
 #include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
 
 namespace {
 
 constexpr uint8_t kAxiSlvErr = 2;
+constexpr uint32_t kFirmwareProgressAddr =
+    OPENNPUX_CORAL_MOBILENET_PROGRESS_ADDR;
 
 bool IsCustomWordAccess(const AxiAddr& addr) {
   return addr.addr_bits_len == 0 && addr.addr_bits_size == 2 &&
@@ -23,6 +27,7 @@ struct coral_gem5_handle {
   VerilatedContext context;
   Gem5CoreMiniAxiWrapper wrapper;
   Gem5CustomMac custom_mac;
+  uint32_t firmware_progress;
   coral_gem5_dma_request pending_dma;
   bool dma_pending;
   uint32_t dma_beat_size;
@@ -32,6 +37,7 @@ struct coral_gem5_handle {
       : context(),
         wrapper(&context),
         custom_mac(&context),
+        firmware_progress(0),
         pending_dma(),
         dma_pending(false),
         dma_beat_size(0),
@@ -44,7 +50,10 @@ struct coral_gem5_handle {
         if (!IsCustomWordAccess(addr)) {
           response.read_data_bits_resp = kAxiSlvErr;
         } else {
-          const uint32_t value = custom_mac.Read32(addr.addr_bits_addr);
+          const uint32_t value =
+              addr.addr_bits_addr == kFirmwareProgressAddr
+                  ? firmware_progress
+                  : custom_mac.Read32(addr.addr_bits_addr);
           auto* destination = reinterpret_cast<uint8_t*>(
               &response.read_data_bits_data[0]);
           std::memcpy(destination + (addr.addr_bits_addr & 0xf), &value,
@@ -79,7 +88,14 @@ struct coral_gem5_handle {
               const auto* source = reinterpret_cast<const uint8_t*>(
                   &data[0].write_data_bits_data[0]);
               std::memcpy(&value, source + lane, sizeof(value));
-              custom_mac.Write32(addr.addr_bits_addr, value);
+              if (addr.addr_bits_addr == kFirmwareProgressAddr) {
+                firmware_progress = value;
+                std::fprintf(stderr, "Coral firmware progress=0x%08x\n",
+                             firmware_progress);
+                std::fflush(stderr);
+              } else {
+                custom_mac.Write32(addr.addr_bits_addr, value);
+              }
             }
             wrapper.QueueWriteResponse(response);
             return;
@@ -123,6 +139,7 @@ coral_gem5_reset(coral_gem5_handle* handle)
   }
   handle->wrapper.Reset();
   handle->custom_mac.Reset();
+  handle->firmware_progress = 0;
   return 0;
 }
 

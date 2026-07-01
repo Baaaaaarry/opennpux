@@ -41,6 +41,16 @@ volatile opennpux_coral_mobilenet_mailbox* Mailbox() {
       kExtmemBase + OPENNPUX_CORAL_MOBILENET_MAILBOX_OFFSET);
 }
 
+void MarkProgress(uint32_t value) {
+  *reinterpret_cast<volatile uint32_t*>(
+      OPENNPUX_CORAL_MOBILENET_PROGRESS_ADDR) = value;
+  asm volatile("fence rw, rw" ::: "memory");
+}
+
+__attribute__((constructor(101))) void MarkCrtReady() {
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_CRT);
+}
+
 int Fail(uint32_t error) {
   Mailbox()->error_code = error;
   Mailbox()->state = OPENNPUX_CORAL_MOBILENET_ERROR;
@@ -60,12 +70,14 @@ uint8_t inference_input[224 * 224 * 3]
 }  // extern "C"
 
 int main() {
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_MAIN);
   volatile opennpux_coral_mobilenet_mailbox* mailbox = Mailbox();
   mailbox->magic = OPENNPUX_CORAL_MOBILENET_MAGIC;
   mailbox->version = OPENNPUX_CORAL_MOBILENET_VERSION;
   mailbox->state = OPENNPUX_CORAL_MOBILENET_STARTED;
   mailbox->error_code = OPENNPUX_CORAL_MOBILENET_ERROR_NONE;
   mailbox->output_count = 0;
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_MAILBOX);
 
   const tflite::Model* model =
       tflite::GetModel(g_25_224_int8_dummy_model_data);
@@ -76,21 +88,26 @@ int main() {
 
   tflite::MicroInterpreter interpreter(
       model, resolver, tensor_arena, sizeof(tensor_arena));
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_ALLOCATE_BEGIN);
   if (interpreter.AllocateTensors() != kTfLiteOk) {
     return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_ALLOCATE);
   }
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_ALLOCATE_END);
   TfLiteTensor* input = interpreter.input(0);
   if (input == nullptr || input->bytes != sizeof(inference_input)) {
     return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_INPUT);
   }
   coralnpu_v2::opt::Memcpy(
       input->data.data, inference_input, sizeof(inference_input));
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INPUT_READY);
   mailbox->state = OPENNPUX_CORAL_MOBILENET_TENSORS_READY;
 
   const uint64_t start_cycles = mcycle_read();
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_BEGIN);
   if (interpreter.Invoke() != kTfLiteOk) {
     return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_INVOKE);
   }
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_END);
   const uint64_t elapsed_cycles = mcycle_read() - start_cycles;
 
   TfLiteTensor* output = interpreter.output(0);

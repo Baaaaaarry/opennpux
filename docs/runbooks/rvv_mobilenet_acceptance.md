@@ -76,6 +76,18 @@ The bridge latches the Coral `io_fault` signal across step batches. A transient
 illegal-instruction or memory fault therefore terminates with `Coral RTL raised
 a core fault` instead of being hidden between Linux status polls.
 
+MobileNet firmware also writes bridge-local progress markers that do not use
+shared DDR:
+
+| Marker | Stage |
+| --- | --- |
+| `0x4d4e0100` | CRT cleared BSS and entered constructors |
+| `0x4d4e0200` | `main()` entered |
+| `0x4d4e0201` | initial mailbox writes completed |
+| `0x4d4e0300` / `0x4d4e0301` | tensor allocation begin/end |
+| `0x4d4e0400` | input tensor initialized |
+| `0x4d4e0500` / `0x4d4e0501` | inference begin/end |
+
 `run_rvv_mobilenet_test.sh` passes the window size through
 `CORAL_CONFIG_OPTIONS`, after the gem5 Python configuration path. Keep
 `GEM5_OPTIONS` for gem5-global flags such as `--debug-flags`.

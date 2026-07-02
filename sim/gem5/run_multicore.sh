@@ -24,6 +24,7 @@ export CORAL_DISK_IMG="${CORAL_DISK_IMG:-${IMAGE_PATH}/ubuntu-18.04-arm64-docker
 export CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${SUPER_ROOT}/m5out/coralnpu_ckpt}"
 export CORAL_BOOTED_CKPT="${CORAL_CKPT_ROOT}/booted"
 export CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}"
+export CORAL_AUTO_RESUME_AFTER_CKPT="${CORAL_AUTO_RESUME_AFTER_CKPT:-0}"
 export CORAL_CKPT_IMAGE_META="${CORAL_CKPT_ROOT}/disk_image_path.txt"
 export CORAL_CKPT_INIT_META="${CORAL_CKPT_ROOT}/kernel_init_path.txt"
 export CORAL_CKPT_KERNEL_META="${CORAL_CKPT_ROOT}/kernel_image_path.txt"
@@ -213,6 +214,11 @@ else
   printf '%s\n' "${CORAL_KERNEL_CMDLINE}" > "${CORAL_CKPT_CMDLINE_META}"
   printf '%s\n' "${CORAL_CKPT_FORMAT_VERSION}" > "${CORAL_CKPT_FORMAT_META}"
   echo "Boot checkpoint saved at ${CORAL_BOOTED_CKPT}"
+  if [ "${CORAL_AUTO_RESUME_AFTER_CKPT}" = "1" ]; then
+    echo "Automatically restoring the new checkpoint with backend ${CORAL_NPU_BACKEND}"
+    export CORAL_REBUILD_CKPT=0
+    exec "$0"
+  fi
   echo "Run ./run_multicore.sh again to restore and execute the Coral NPU test script"
 fi
 

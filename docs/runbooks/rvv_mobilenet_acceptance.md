@@ -94,6 +94,11 @@ ITCM/DTCM load therefore fails before the first RTL heartbeat. The MobileNet
 build also prints the ELF entry, LOAD segments, and BSS boundary symbols so a
 long pre-`main()` BSS clear can be distinguished from a corrupt firmware load.
 
+The first MobileNet run may print `backend=stage-a` while Linux creates the
+dedicated boot checkpoint. The wrapper automatically starts a second gem5
+process after the checkpoint is saved; that process must print
+`backend=verilated-coral`. Existing checkpoints skip the bootstrap process.
+
 `run_rvv_mobilenet_test.sh` passes the window size through
 `CORAL_CONFIG_OPTIONS`, after the gem5 Python configuration path. Keep
 `GEM5_OPTIONS` for gem5-global flags such as `--debug-flags`.

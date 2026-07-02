@@ -10,6 +10,7 @@ TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-mobilenet-test.r
 GEM5_OPTIONS_VALUE="${GEM5_OPTIONS:-}"
 RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}"
 KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
+VALIDATED_DISK_DEFAULT="/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img"
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
     [ -f "${KERNEL_RELEASE_FILE}" ] || {
@@ -25,6 +26,16 @@ fi
     exit 1
 }
 CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/opennpux-init.sh}"
+CORAL_DISK_IMG="${CORAL_DISK_IMG:-${VALIDATED_DISK_DEFAULT}}"
+[ -f "${CORAL_DISK_IMG}" ] || {
+    echo "error: validated gem5 disk image not found: ${CORAL_DISK_IMG}" >&2
+    echo "set CORAL_DISK_IMG to the Phase-3 validated image" >&2
+    exit 1
+}
+
+echo "[coral-mobilenet] kernel: ${CORAL_KERNEL_IMAGE}"
+echo "[coral-mobilenet] init: ${CORAL_KERNEL_INIT}"
+echo "[coral-mobilenet] disk: ${CORAL_DISK_IMG}"
 
 if [ "${CORAL_MOBILENET_DEBUG:-0}" = "1" ]; then
     DEBUG_LOG="${CORAL_MOBILENET_DEBUG_LOG:-${ROOT_DIR}/simout/coral-mobilenet.debug}"
@@ -54,6 +65,7 @@ CORAL_RTL_FIRMWARE="${FIRMWARE}" \
 CORAL_RTL_CYCLES_PER_EVENT="${RTL_CYCLES_PER_EVENT}" \
 CORAL_KERNEL_IMAGE="${CORAL_KERNEL_IMAGE}" \
 CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT}" \
+CORAL_DISK_IMG="${CORAL_DISK_IMG}" \
 CORAL_AUTO_RESUME_AFTER_CKPT=1 \
 CORAL_CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/m5out/coralnpu_mobilenet_ckpt}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \

@@ -85,6 +85,16 @@ install_output "${BRIDGE}" \
     "${OUT_DIR}/libcoralnpu_gem5_rvv_highmem_bridge.so" 0755
 install_output "${FIRMWARE}" "${OUT_DIR}/gem5_mobilenet.elf" 0644
 
+if command -v readelf >/dev/null 2>&1; then
+    echo "MobileNet firmware ELF layout:"
+    readelf -hW "${OUT_DIR}/gem5_mobilenet.elf" |
+        grep -E 'Entry point address|Number of program headers'
+    readelf -lW "${OUT_DIR}/gem5_mobilenet.elf" |
+        grep -E '^[[:space:]]*LOAD'
+    readelf -sW "${OUT_DIR}/gem5_mobilenet.elf" |
+        grep -E '[[:space:]](_start|main|__bss_start__|__bss_end__)$'
+fi
+
 if command -v nm >/dev/null 2>&1 &&
    nm -D --undefined-only \
        "${OUT_DIR}/libcoralnpu_gem5_rvv_highmem_bridge.so" 2>/dev/null |

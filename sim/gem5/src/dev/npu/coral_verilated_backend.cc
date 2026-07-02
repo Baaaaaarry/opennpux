@@ -172,6 +172,40 @@ CoralVerilatedBackend::loadFirmware()
                            segment->p_filesz) != 0,
                  "Unable to load Coral RTL firmware segment at %#x",
                  segment->p_paddr);
+
+        // TCM is directly reachable through the model's AXI slave port.
+        // EXTMEM/DDR use the deferred AXI master path and cannot be read back
+        // synchronously while constructing the backend.
+        if (segment->p_paddr >= 0x20000000) {
+            DPRINTFR(NPUDevice,
+                     "Loaded external Coral firmware LOAD segment addr=%#x "
+                     "filesz=%#x memsz=%#x flags=%#x\n",
+                     segment->p_paddr, segment->p_filesz, segment->p_memsz,
+                     segment->p_flags);
+            continue;
+        }
+
+        std::vector<uint8_t> loaded(segment->p_filesz);
+        fatal_if(mmioRead(modelHandle, segment->p_paddr, loaded.data(),
+                          loaded.size()) != 0,
+                 "Unable to read back Coral RTL firmware segment at %#x",
+                 segment->p_paddr);
+        const auto *expected = image.data() + segment->p_offset;
+        const auto mismatch = std::mismatch(
+            loaded.begin(), loaded.end(), expected);
+        if (mismatch.first != loaded.end()) {
+            const auto offset = std::distance(loaded.begin(), mismatch.first);
+            fatal("Coral RTL firmware verification failed at %#x: "
+                  "expected=%#x actual=%#x",
+                  segment->p_paddr + offset,
+                  static_cast<unsigned int>(expected[offset]),
+                  static_cast<unsigned int>(loaded[offset]));
+        }
+        DPRINTFR(NPUDevice,
+                 "Verified Coral firmware LOAD segment addr=%#x "
+                 "filesz=%#x memsz=%#x flags=%#x\n",
+                 segment->p_paddr, segment->p_filesz, segment->p_memsz,
+                 segment->p_flags);
     }
 
     firmwareEntry = header->e_entry;

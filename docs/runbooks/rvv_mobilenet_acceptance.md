@@ -88,6 +88,12 @@ shared DDR:
 | `0x4d4e0400` | input tensor initialized |
 | `0x4d4e0500` / `0x4d4e0501` | inference begin/end |
 
+The gem5 backend reads every ELF `PT_LOAD` segment back through the Coral AXI
+slave port before boot and compares it byte-for-byte with the ELF image. A bad
+ITCM/DTCM load therefore fails before the first RTL heartbeat. The MobileNet
+build also prints the ELF entry, LOAD segments, and BSS boundary symbols so a
+long pre-`main()` BSS clear can be distinguished from a corrupt firmware load.
+
 `run_rvv_mobilenet_test.sh` passes the window size through
 `CORAL_CONFIG_OPTIONS`, after the gem5 Python configuration path. Keep
 `GEM5_OPTIONS` for gem5-global flags such as `--debug-flags`.

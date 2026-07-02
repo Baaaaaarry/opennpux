@@ -97,6 +97,11 @@ ITCM/DTCM load therefore fails before the first RTL heartbeat. The MobileNet
 build also prints the ELF entry, LOAD segments, and BSS boundary symbols so a
 long pre-`main()` BSS clear can be distinguished from a corrupt firmware load.
 
+The SoC-facing Coral CSR ABI remains at aperture offset `0x30000`. The RVV
+highmem RTL moves its internal CSR region to `0x00200000`; the highmem bridge
+translates `0x30000..0x30fff` to `0x00200000..0x00200fff`. Without this mapping
+gem5 schedules RTL events while the core remains reset and clock-gated.
+
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5
 process after the checkpoint is saved; that process must print

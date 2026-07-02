@@ -15,6 +15,20 @@ namespace {
 constexpr uint8_t kAxiSlvErr = 2;
 constexpr uint32_t kFirmwareProgressAddr =
     OPENNPUX_CORAL_MOBILENET_PROGRESS_ADDR;
+#ifdef CORAL_GEM5_RVV_HIGHMEM
+constexpr uint32_t kShellCsrBase = 0x00030000;
+constexpr uint32_t kCsrSize = 0x00001000;
+constexpr uint32_t kRtlCsrBase = 0x00200000;
+#endif
+
+uint32_t TranslateSlaveAddress(uint32_t addr) {
+#ifdef CORAL_GEM5_RVV_HIGHMEM
+  if (addr >= kShellCsrBase && addr < kShellCsrBase + kCsrSize) {
+    return kRtlCsrBase + (addr - kShellCsrBase);
+  }
+#endif
+  return addr;
+}
 
 bool IsCustomWordAccess(const AxiAddr& addr) {
   return addr.addr_bits_len == 0 && addr.addr_bits_size == 2 &&
@@ -150,7 +164,8 @@ coral_gem5_mmio_read(
   if (handle == nullptr || data == nullptr || size == 0) {
     return -1;
   }
-  const std::vector<uint8_t> value = handle->wrapper.Read(addr, size);
+  const std::vector<uint8_t> value =
+      handle->wrapper.Read(TranslateSlaveAddress(addr), size);
   if (value.size() != size) {
     return -1;
   }
@@ -166,7 +181,7 @@ coral_gem5_mmio_write(
     return -1;
   }
   handle->wrapper.Write(
-      addr, size, reinterpret_cast<const char*>(data));
+      TranslateSlaveAddress(addr), size, reinterpret_cast<const char*>(data));
   return 0;
 }
 

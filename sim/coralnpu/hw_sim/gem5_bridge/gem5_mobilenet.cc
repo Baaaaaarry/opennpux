@@ -62,6 +62,7 @@ int Fail(uint32_t error) {
 
 extern "C" {
 
+__attribute__((used)) uint32_t opennpux_mobilenet_early_progress_enabled = 1;
 uint8_t tensor_arena[OPENNPUX_CORAL_MOBILENET_ARENA_SIZE]
     __attribute__((section(".extbss"), aligned(16)));
 uint8_t inference_input[224 * 224 * 3]

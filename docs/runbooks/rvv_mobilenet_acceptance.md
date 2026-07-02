@@ -81,6 +81,9 @@ shared DDR:
 
 | Marker | Stage |
 | --- | --- |
+| `0x4d4e0001` | `_start` entry reached |
+| `0x4d4e0002` | scalar setup complete; BSS clear begins |
+| `0x4d4e0003` | BSS clear completed |
 | `0x4d4e0100` | CRT cleared BSS and entered constructors |
 | `0x4d4e0200` | `main()` entered |
 | `0x4d4e0201` | initial mailbox writes completed |

@@ -218,6 +218,7 @@ coralnpu_v2_binary(
     ],
     dtcm_size_kbytes = 1024,
     itcm_size_kbytes = 1024,
+    stack_size_bytes = 65536,
     visibility = ["//visibility:public"],
     deps = [
         "//sw/opt:rvv_opt",

@@ -102,6 +102,12 @@ highmem RTL moves its internal CSR region to `0x00200000`; the highmem bridge
 translates `0x30000..0x30fff` to `0x00200000..0x00200fff`. Without this mapping
 gem5 schedules RTL events while the core remains reset and clock-gated.
 
+The MobileNet firmware reserves a 64 KiB DTCM stack instead of Coral's
+128-byte default. Its ten-entry TFLM resolver and `MicroInterpreter` are local
+objects in `main()`; the default stack corrupts them before or during
+`AllocateTensors()` and can leave the core executing without issuing EXTMEM
+requests.
+
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5
 process after the checkpoint is saved; that process must print

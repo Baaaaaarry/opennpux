@@ -98,6 +98,10 @@ The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5
 process after the checkpoint is saved; that process must print
 `backend=verilated-coral`. Existing checkpoints skip the bootstrap process.
+The wrapper resolves the validated kernel from `build/kernel/kernel.release`
+and uses `/sbin/opennpux-init.sh`; it fails before starting gem5 when that
+kernel artifact is missing. Explicit `CORAL_KERNEL_IMAGE` and
+`CORAL_KERNEL_INIT` values still override these defaults.
 
 `run_rvv_mobilenet_test.sh` passes the window size through
 `CORAL_CONFIG_OPTIONS`, after the gem5 Python configuration path. Keep

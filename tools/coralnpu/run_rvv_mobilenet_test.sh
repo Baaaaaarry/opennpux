@@ -9,6 +9,22 @@ FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_mobilenet.elf"
 TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-mobilenet-test.rcS"
 GEM5_OPTIONS_VALUE="${GEM5_OPTIONS:-}"
 RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}"
+KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
+
+if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
+    [ -f "${KERNEL_RELEASE_FILE}" ] || {
+        echo "error: kernel release metadata not found: ${KERNEL_RELEASE_FILE}" >&2
+        echo "build the validated 4.19 kernel before running MobileNet" >&2
+        exit 1
+    }
+    KERNEL_RELEASE="$(cat "${KERNEL_RELEASE_FILE}")"
+    CORAL_KERNEL_IMAGE="${ROOT_DIR}/build/kernel/vmlinux-${KERNEL_RELEASE}"
+fi
+[ -f "${CORAL_KERNEL_IMAGE}" ] || {
+    echo "error: validated gem5 kernel not found: ${CORAL_KERNEL_IMAGE}" >&2
+    exit 1
+}
+CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/opennpux-init.sh}"
 
 if [ "${CORAL_MOBILENET_DEBUG:-0}" = "1" ]; then
     DEBUG_LOG="${CORAL_MOBILENET_DEBUG_LOG:-${ROOT_DIR}/simout/coral-mobilenet.debug}"
@@ -36,6 +52,8 @@ CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_BRIDGE="${BRIDGE}" \
 CORAL_RTL_FIRMWARE="${FIRMWARE}" \
 CORAL_RTL_CYCLES_PER_EVENT="${RTL_CYCLES_PER_EVENT}" \
+CORAL_KERNEL_IMAGE="${CORAL_KERNEL_IMAGE}" \
+CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT}" \
 CORAL_AUTO_RESUME_AFTER_CKPT=1 \
 CORAL_CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/m5out/coralnpu_mobilenet_ckpt}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \

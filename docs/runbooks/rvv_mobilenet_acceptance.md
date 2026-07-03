@@ -124,6 +124,8 @@ functional packet through the same coherent SLC-side port, preserving data and
 cache visibility while bypassing timing-DMA queue and callback latency. It is
 intended for end-to-end functional inference. Omit the option for cycle/timing
 studies and DMA protocol acceptance.
+Set `CORAL_FAST_DMA=0` when invoking the MobileNet wrapper to select timing
+DMA explicitly.
 
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5

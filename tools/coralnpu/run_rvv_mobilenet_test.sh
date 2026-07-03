@@ -9,6 +9,8 @@ FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_mobilenet.elf"
 TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-mobilenet-test.rcS"
 GEM5_OPTIONS_VALUE="${GEM5_OPTIONS:-}"
 RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}"
+FAST_DMA_OPTION=""
+[ "${CORAL_FAST_DMA:-1}" != "1" ] || FAST_DMA_OPTION=" --npu-fast-dma"
 KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
 VALIDATED_DISK_DEFAULT="/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img"
 
@@ -69,6 +71,6 @@ CORAL_DISK_IMG="${CORAL_DISK_IMG}" \
 CORAL_AUTO_RESUME_AFTER_CKPT=1 \
 CORAL_CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/m5out/coralnpu_mobilenet_ckpt}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
-CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB --npu-fast-dma" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB${FAST_DMA_OPTION}" \
 GEM5_OPTIONS="${GEM5_OPTIONS_VALUE}" \
 exec "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"

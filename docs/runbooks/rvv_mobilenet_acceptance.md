@@ -113,6 +113,12 @@ On `io_fault`, gem5 reads the Coral CSR window before terminating and reports
 illegal instruction, `1` an instruction access fault, `5` a load access fault,
 and `7` a store access fault.
 
+MobileNet overrides the weak default exception handler and emits the original
+trap CSRs before its final `ebreak`. In the host log, markers `0x4d4eff01`,
+`0x4d4eff02`, and `0x4d4eff03` are followed respectively by the original
+`mepc`, `mtval`, and `mcause` values. This preserves the first exception that
+the default handler would otherwise overwrite with Coral usage fault 25.
+
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5
 process after the checkpoint is saved; that process must print

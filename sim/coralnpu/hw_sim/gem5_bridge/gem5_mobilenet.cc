@@ -63,6 +63,25 @@ int Fail(uint32_t error) {
 extern "C" {
 
 __attribute__((used)) uint32_t opennpux_mobilenet_early_progress_enabled = 1;
+
+[[noreturn]] void coralnpu_exception_handler() {
+  uint32_t mepc;
+  uint32_t mtval;
+  uint32_t mcause;
+  asm volatile("csrr %0, mepc" : "=r"(mepc));
+  asm volatile("csrr %0, mtval" : "=r"(mtval));
+  asm volatile("csrr %0, mcause" : "=r"(mcause));
+  MarkProgress(UINT32_C(0x4d4eff01));
+  MarkProgress(mepc);
+  MarkProgress(UINT32_C(0x4d4eff02));
+  MarkProgress(mtval);
+  MarkProgress(UINT32_C(0x4d4eff03));
+  MarkProgress(mcause);
+  asm volatile("ebreak");
+  while (true) {
+  }
+}
+
 uint8_t tensor_arena[OPENNPUX_CORAL_MOBILENET_ARENA_SIZE]
     __attribute__((section(".extbss"), aligned(16)));
 uint8_t inference_input[224 * 224 * 3]

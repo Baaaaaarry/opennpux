@@ -25,6 +25,9 @@ namespace
 {
 
 constexpr Addr kResetControlOffset = 0x30000;
+constexpr Addr kMepcOffset = 0x30104;
+constexpr Addr kMtvalOffset = 0x30108;
+constexpr Addr kMcauseOffset = 0x3010c;
 constexpr uint32_t kResetBit = 1u << 0;
 constexpr uint32_t kClockGateBit = 1u << 1;
 
@@ -308,8 +311,19 @@ CoralVerilatedBackend::processEvent()
     }
     const int result = stepModel(modelHandle, rtlCyclesPerEvent);
     fatal_if(result < 0, "Coral RTL bridge failed while stepping model");
-    fatal_if(result == 4,
-             "Coral RTL raised a core fault before halt or DMA completion");
+    if (result == 4) {
+        uint32_t mepc = 0;
+        uint32_t mtval = 0;
+        uint32_t mcause = 0;
+        const bool faultCsrsRead =
+            mmioRead(modelHandle, kMepcOffset, &mepc, sizeof(mepc)) == 0 &&
+            mmioRead(modelHandle, kMtvalOffset, &mtval, sizeof(mtval)) == 0 &&
+            mmioRead(modelHandle, kMcauseOffset, &mcause, sizeof(mcause)) == 0;
+        fatal_if(!faultCsrsRead,
+                 "Coral RTL raised a core fault and fault CSR readback failed");
+        fatal("Coral RTL core fault: mepc=%#x mtval=%#x mcause=%#x",
+              mepc, mtval, mcause);
+    }
     if (traceProgress) {
         DPRINTFR(NPUDevice,
                  "Coral RTL heartbeat event=%llu requested_cycles=%llu "

@@ -108,6 +108,11 @@ objects in `main()`; the default stack corrupts them before or during
 `AllocateTensors()` and can leave the core executing without issuing EXTMEM
 requests.
 
+On `io_fault`, gem5 reads the Coral CSR window before terminating and reports
+`mepc`, `mtval`, and `mcause`. For standard RISC-V exceptions, `mcause=2` is an
+illegal instruction, `1` an instruction access fault, `5` a load access fault,
+and `7` a store access fault.
+
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5
 process after the checkpoint is saved; that process must print

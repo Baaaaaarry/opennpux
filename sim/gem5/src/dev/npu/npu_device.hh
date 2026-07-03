@@ -31,6 +31,7 @@ class NPUDevice : public DmaVirtDevice
     Addr dmaExtmemBase;
     Addr dmaSharedBase;
     Addr dmaSharedSize;
+    bool fastDma;
     uint32_t backendId;
     uint32_t firmwareEntry;
     bool dmaActive;

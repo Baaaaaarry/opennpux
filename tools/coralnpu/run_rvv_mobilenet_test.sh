@@ -69,6 +69,6 @@ CORAL_DISK_IMG="${CORAL_DISK_IMG}" \
 CORAL_AUTO_RESUME_AFTER_CKPT=1 \
 CORAL_CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/m5out/coralnpu_mobilenet_ckpt}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
-CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB --npu-fast-dma" \
 GEM5_OPTIONS="${GEM5_OPTIONS_VALUE}" \
 exec "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"

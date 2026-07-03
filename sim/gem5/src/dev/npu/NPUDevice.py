@@ -72,6 +72,10 @@ class NPUDevice(DmaVirtDevice):
         "4KiB",
         "Size of the reserved Coral coherent DMA buffer",
     )
+    fastDma = Param.Bool(
+        False,
+        "Use coherent functional memory accesses for RTL DMA",
+    )
 
     def generateDeviceTree(self, state):
         shared_key = f"coralnpu-shared-{int(self.dmaSharedBase):x}"

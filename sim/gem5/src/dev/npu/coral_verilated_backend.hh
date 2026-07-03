@@ -53,6 +53,7 @@ class CoralVerilatedBackend : public CoralBackend
     bool dmaRequestPending;
     bool wfiObserved;
     uint64_t rtlEventCount;
+    uint64_t rtlDmaRequestCount;
     CoralDmaRequest pendingDmaRequest;
 
     template <class Function>

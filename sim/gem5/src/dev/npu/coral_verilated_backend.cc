@@ -82,6 +82,7 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     dmaRequestPending(false),
     wfiObserved(false),
     rtlEventCount(0),
+    rtlDmaRequestCount(0),
     pendingDmaRequest()
 {
     fatal_if(wrapperPath.empty(),
@@ -266,6 +267,7 @@ CoralVerilatedBackend::write(PacketPtr pkt, Addr pio_addr)
         running = !(resetControl & (kResetBit | kClockGateBit));
         if (running && !wasRunning) {
             rtlEventCount = 0;
+            rtlDmaRequestCount = 0;
         }
         pendingEventTick = running ? curTick() + rtlTickPeriod : 0;
     }
@@ -361,11 +363,16 @@ CoralVerilatedBackend::processEvent()
                   pendingDmaRequest.data.begin());
         dmaRequestPending = true;
         pendingEventTick = 0;
-        DPRINTFR(NPUDevice,
-                 "Coral RTL waiting for DMA type=%s addr=%#x size=%u\n",
-                 pendingDmaRequest.type == CoralDmaType::Read ?
-                     "read" : "write",
-                 pendingDmaRequest.addr, pendingDmaRequest.size);
+        ++rtlDmaRequestCount;
+        if (rtlDmaRequestCount <= 10 || rtlDmaRequestCount % 1000 == 0) {
+            DPRINTFR(NPUDevice,
+                     "Coral RTL waiting for DMA count=%llu type=%s "
+                     "addr=%#x size=%u\n",
+                     static_cast<unsigned long long>(rtlDmaRequestCount),
+                     pendingDmaRequest.type == CoralDmaType::Read ?
+                         "read" : "write",
+                     pendingDmaRequest.addr, pendingDmaRequest.size);
+        }
     } else if (result > 0) {
         wfiObserved = false;
         running = false;

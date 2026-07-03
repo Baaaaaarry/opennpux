@@ -42,6 +42,7 @@ NPUDevice::NPUDevice(const Params &p)
     dmaExtmemBase(p.dmaExtmemBase),
     dmaSharedBase(p.dmaSharedBase),
     dmaSharedSize(p.dmaSharedSize),
+    fastDma(p.fastDma),
     backendId(0),
     firmwareEntry(0),
     dmaActive(false),
@@ -161,11 +162,34 @@ NPUDevice::startBackendDma()
             request.data);
     dmaActive = true;
     ++dmaRequests;
-    DPRINTFR(NPUDevice,
-             "Coral DMA start count=%u type=%s coral=%#x host=%#x size=%u\n",
-             dmaRequests,
-             request.type == CoralDmaType::Read ? "read" : "write",
-             request.addr, hostAddr, request.size);
+    if (!fastDma || dmaRequests <= 10 || dmaRequests % 1000 == 0) {
+        DPRINTFR(NPUDevice,
+                 "Coral DMA start count=%u type=%s coral=%#x host=%#x "
+                 "size=%u mode=%s\n",
+                 dmaRequests,
+                 request.type == CoralDmaType::Read ? "read" : "write",
+                 request.addr, hostAddr, request.size,
+                 fastDma ? "functional" : "timing");
+    }
+
+    if (fastDma) {
+        std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> data = request.data;
+        RequestPtr memoryRequest = std::make_shared<Request>(
+            hostAddr, request.size, 0, dmaPort.requestorId);
+        memoryRequest->taskId(context_switch_task_id::DMA);
+        Packet packet(memoryRequest,
+                      request.type == CoralDmaType::Read ?
+                          MemCmd::ReadReq : MemCmd::WriteReq);
+        packet.dataStatic(data.data());
+        dmaPort.sendFunctional(&packet);
+        if (packet.isError()) {
+            dmaActive = false;
+            completeBackendDmaError();
+            return;
+        }
+        completeBackendDma(data);
+        return;
+    }
 
     if (request.type == CoralDmaType::Read) {
         dmaReadVirt(hostAddr, request.size, callback,
@@ -185,7 +209,10 @@ NPUDevice::completeBackendDma(
     dmaActive = false;
     backend->completeDma(data.data(), request.size, false);
     ++dmaCompletions;
-    DPRINTFR(NPUDevice, "Coral DMA complete count=%u\n", dmaCompletions);
+    if (!fastDma || dmaCompletions <= 10 || dmaCompletions % 1000 == 0) {
+        DPRINTFR(NPUDevice, "Coral DMA complete count=%u mode=%s\n",
+                 dmaCompletions, fastDma ? "functional" : "timing");
+    }
     fatal_if(backend->hasDmaRequest(),
              "Coral backend retained DMA request after completion");
     syncBackendEvent();

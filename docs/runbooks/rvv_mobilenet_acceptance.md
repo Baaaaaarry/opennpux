@@ -119,6 +119,12 @@ trap CSRs before its final `ebreak`. In the host log, markers `0x4d4eff01`,
 `mepc`, `mtval`, and `mcause` values. This preserves the first exception that
 the default handler would otherwise overwrite with Coral usage fault 25.
 
+MobileNet enables `--npu-fast-dma`. This mode sends each RTL AXI request as a
+functional packet through the same coherent SLC-side port, preserving data and
+cache visibility while bypassing timing-DMA queue and callback latency. It is
+intended for end-to-end functional inference. Omit the option for cycle/timing
+studies and DMA protocol acceptance.
+
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5
 process after the checkpoint is saved; that process must print

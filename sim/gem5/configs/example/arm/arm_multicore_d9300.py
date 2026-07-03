@@ -548,6 +548,12 @@ def addOptions(parser):
         default="4KiB",
         help="Reserved SoC shared-buffer size for Coral coherent DMA"
     )
+    parser.add_argument(
+        "--npu-fast-dma",
+        action="store_true",
+        default=False,
+        help="Use coherent functional accesses for NPU DMA"
+    )
 
     # Gemmini/NDP integration
     parser.add_argument(
@@ -742,6 +748,7 @@ def build(options):
             dmaExtmemBase=options.npu_dma_extmem_base,
             dmaSharedBase=options.npu_dma_shared_base,
             dmaSharedSize=options.npu_dma_shared_size,
+            fastDma=options.npu_fast_dma,
         )
         # Attach MMIO port to the IO bus, similar to other devices.
         system.npu.pio = system.iobus.mem_side_ports

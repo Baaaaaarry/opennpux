@@ -128,8 +128,21 @@ NPUDevice::unserialize(CheckpointIn &cp)
 void
 NPUDevice::processBackendEvent()
 {
-    backend->processEvent();
-    startBackendDma();
+    // Functional inference does not assign timing meaning to each DMA or RTL
+    // batch. Keep crossing the Verilator/gem5 boundary locally until the
+    // batch budget is exhausted or execution stops. Timing mode processes one
+    // batch and preserves the original event/DMA scheduling behavior.
+    const unsigned batchBudget = fastDma ? 1024 : 1;
+    for (unsigned batch = 0; batch < batchBudget; ++batch) {
+        backend->processEvent();
+        startBackendDma();
+        if (!fastDma || dmaActive || !backend->hasPendingEvent()) {
+            break;
+        }
+        if (backendEvent.scheduled()) {
+            deschedule(backendEvent);
+        }
+    }
     syncBackendEvent();
     checkDrainDone();
 }

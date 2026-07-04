@@ -126,6 +126,10 @@ intended for end-to-end functional inference. Omit the option for cycle/timing
 studies and DMA protocol acceptance.
 Set `CORAL_FAST_DMA=0` when invoking the MobileNet wrapper to select timing
 DMA explicitly.
+Fast mode also executes up to 1024 RTL batches within one gem5 event, including
+synchronous functional DMA completions. This removes hundreds of thousands of
+gem5 event-queue round trips while retaining the same Verilated RTL execution
+and AXI response sequence.
 
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5

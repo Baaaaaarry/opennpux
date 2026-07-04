@@ -8,7 +8,7 @@ BRIDGE="${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_rvv_highmem_bridge.so"
 FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_mobilenet.elf"
 TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-mobilenet-test.rcS"
 GEM5_OPTIONS_VALUE="${GEM5_OPTIONS:-}"
-RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}"
+RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}"
 FAST_DMA_OPTION=""
 [ "${CORAL_FAST_DMA:-1}" != "1" ] || FAST_DMA_OPTION=" --npu-fast-dma"
 KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
@@ -47,6 +47,11 @@ if [ "${CORAL_MOBILENET_DEBUG:-0}" = "1" ]; then
 fi
 
 echo "[coral-mobilenet] RTL cycles per event: ${RTL_CYCLES_PER_EVENT}"
+if [ -n "${FAST_DMA_OPTION}" ]; then
+    echo "[coral-mobilenet] DMA mode: functional-fast"
+else
+    echo "[coral-mobilenet] DMA mode: timing"
+fi
 [ -z "${GEM5_OPTIONS_VALUE}" ] || \
     echo "[coral-mobilenet] gem5 options: ${GEM5_OPTIONS_VALUE}"
 

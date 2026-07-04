@@ -130,6 +130,9 @@ Fast mode also executes up to 1024 RTL batches within one gem5 event, including
 synchronous functional DMA completions. This removes hundreds of thousands of
 gem5 event-queue round trips while retaining the same Verilated RTL execution
 and AXI response sequence.
+The MobileNet wrapper defaults each batch to 1000 RTL cycles, so one fast-mode
+gem5 event can advance up to 1,024,000 cycles. Override this with
+`CORAL_RTL_CYCLES_PER_EVENT` only for debugging.
 
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5

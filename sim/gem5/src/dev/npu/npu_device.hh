@@ -57,6 +57,8 @@ class NPUDevice : public DmaVirtDevice
     void invalidateFastDmaCache();
     void functionalMemoryAccess(MemCmd command, Addr addr, size_t size,
                                 uint8_t *data);
+    void functionalMemoryRange(MemCmd command, Addr addr, size_t size,
+                               uint8_t *data);
 
     std::unique_ptr<CoralBackend> backend;
     MemberEventWrapper<&NPUDevice::processBackendEvent> backendEvent;

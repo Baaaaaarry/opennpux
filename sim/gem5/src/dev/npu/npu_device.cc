@@ -229,6 +229,22 @@ NPUDevice::functionalMemoryAccess(MemCmd command, Addr addr, size_t size,
 }
 
 void
+NPUDevice::functionalMemoryRange(MemCmd command, Addr addr, size_t size,
+                                 uint8_t *data)
+{
+    const size_t blockSize = cacheBlockSize();
+    fatal_if(blockSize == 0, "Coral fast DMA cache block size is zero");
+    size_t completed = 0;
+    while (completed < size) {
+        const Addr current = addr + completed;
+        const size_t boundary = blockSize - current % blockSize;
+        const size_t chunk = std::min(boundary, size - completed);
+        functionalMemoryAccess(command, current, chunk, data + completed);
+        completed += chunk;
+    }
+}
+
+void
 NPUDevice::fastDmaAccess(
     const CoralDmaRequest &request, Addr hostAddr,
     std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> &data)
@@ -245,9 +261,9 @@ NPUDevice::fastDmaAccess(
     const size_t pageSize = std::min<size_t>(
         kFastDmaPageSize, fastDmaCache.size() - pageOffset);
     if (!fastDmaPageValid[page]) {
-        functionalMemoryAccess(MemCmd::ReadReq,
-                               dmaSharedBase + pageOffset, pageSize,
-                               fastDmaCache.data() + pageOffset);
+        functionalMemoryRange(MemCmd::ReadReq,
+                              dmaSharedBase + pageOffset, pageSize,
+                              fastDmaCache.data() + pageOffset);
         fastDmaPageValid[page] = true;
     }
 
@@ -270,8 +286,8 @@ NPUDevice::flushFastDmaCache()
         const size_t offset = page * kFastDmaPageSize;
         const size_t size = std::min<size_t>(
             kFastDmaPageSize, fastDmaCache.size() - offset);
-        functionalMemoryAccess(MemCmd::WriteReq, dmaSharedBase + offset,
-                               size, fastDmaCache.data() + offset);
+        functionalMemoryRange(MemCmd::WriteReq, dmaSharedBase + offset,
+                              size, fastDmaCache.data() + offset);
         fastDmaPageDirty[page] = false;
     }
 }

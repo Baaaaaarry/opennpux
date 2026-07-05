@@ -137,6 +137,9 @@ Fast DMA uses a lazy 4 KiB page cache over the shared EXTMEM window. The first
 NPU access fills a page through the coherent functional port, byte/word AXI
 requests then hit the local page, and dirty pages are written back before the
 RTL halt becomes visible to guest software. Reset invalidates the cache.
+Page fills and writebacks are split at gem5 cache-line boundaries so each
+functional packet stays within one interleaved memory-channel stripe; issuing
+a single 4 KiB packet would be routed to `badaddr_responder`.
 The 8 MiB MobileNet window is based at `0x8f000000`, entirely below this
 platform's `0x90000000` RAM limit. The earlier `0x8ff00000` base left only
 1 MiB of valid RAM and mapped most of the tensor arena into the bad-address

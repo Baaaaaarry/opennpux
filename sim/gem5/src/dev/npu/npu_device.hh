@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <array>
 #include <memory>
+#include <vector>
 
 #include "dev/dma_virt_device.hh"
 #include "dev/npu/coral_backend.hh"
@@ -38,6 +39,9 @@ class NPUDevice : public DmaVirtDevice
     uint32_t dmaRequests;
     uint32_t dmaCompletions;
     uint32_t dmaErrors;
+    std::vector<uint8_t> fastDmaCache;
+    std::vector<bool> fastDmaPageValid;
+    std::vector<bool> fastDmaPageDirty;
 
     bool dmaQuiesced() const;
     void checkDrainDone();
@@ -47,6 +51,12 @@ class NPUDevice : public DmaVirtDevice
     void completeBackendDma(
         const std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> &data);
     void completeBackendDmaError();
+    void fastDmaAccess(const CoralDmaRequest &request, Addr hostAddr,
+                       std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> &data);
+    void flushFastDmaCache();
+    void invalidateFastDmaCache();
+    void functionalMemoryAccess(MemCmd command, Addr addr, size_t size,
+                                uint8_t *data);
 
     std::unique_ptr<CoralBackend> backend;
     MemberEventWrapper<&NPUDevice::processBackendEvent> backendEvent;

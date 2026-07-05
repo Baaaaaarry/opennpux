@@ -133,6 +133,10 @@ and AXI response sequence.
 The MobileNet wrapper defaults each batch to 1000 RTL cycles, so one fast-mode
 gem5 event can advance up to 1,024,000 cycles. Override this with
 `CORAL_RTL_CYCLES_PER_EVENT` only for debugging.
+Fast DMA uses a lazy 4 KiB page cache over the shared EXTMEM window. The first
+NPU access fills a page through the coherent functional port, byte/word AXI
+requests then hit the local page, and dirty pages are written back before the
+RTL halt becomes visible to guest software. Reset invalidates the cache.
 
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5

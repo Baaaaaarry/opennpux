@@ -4,6 +4,7 @@
 
 #include "dev/npu/npu_device.hh"
 
+#include <algorithm>
 #include <limits>
 
 #include "base/addr_range.hh"
@@ -29,8 +30,10 @@ constexpr Addr kDmaStateOffset = 0x30fec;
 constexpr Addr kDmaCompletionsOffset = 0x30fe8;
 constexpr Addr kDmaRequestsOffset = 0x30fe4;
 constexpr Addr kDmaErrorsOffset = 0x30fe0;
+constexpr Addr kResetControlOffset = 0x30000;
 constexpr uint32_t kStageABackendId = 0x4e505501;
 constexpr uint32_t kVerilatedCoralBackendId = 0x4e505502;
+constexpr Addr kFastDmaPageSize = 4096;
 
 } // namespace
 
@@ -49,6 +52,11 @@ NPUDevice::NPUDevice(const Params &p)
     dmaRequests(0),
     dmaCompletions(0),
     dmaErrors(0),
+    fastDmaCache(fastDma ? dmaSharedSize : 0, 0),
+    fastDmaPageValid(fastDma ?
+        (dmaSharedSize + kFastDmaPageSize - 1) / kFastDmaPageSize : 0,
+        false),
+    fastDmaPageDirty(fastDmaPageValid.size(), false),
     backendEvent(*this)
 {
     fatal_if(dmaSharedSize == 0, "Coral NPU DMA shared size is zero");
@@ -143,6 +151,10 @@ NPUDevice::processBackendEvent()
             deschedule(backendEvent);
         }
     }
+    if (fastDma && !backend->hasPendingEvent() &&
+        !backend->hasDmaRequest()) {
+        flushFastDmaCache();
+    }
     syncBackendEvent();
     checkDrainDone();
 }
@@ -187,19 +199,7 @@ NPUDevice::startBackendDma()
 
     if (fastDma) {
         std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> data = request.data;
-        RequestPtr memoryRequest = std::make_shared<Request>(
-            hostAddr, request.size, 0, dmaPort.requestorId);
-        memoryRequest->taskId(context_switch_task_id::DMA);
-        Packet packet(memoryRequest,
-                      request.type == CoralDmaType::Read ?
-                          MemCmd::ReadReq : MemCmd::WriteReq);
-        packet.dataStatic(data.data());
-        dmaPort.sendFunctional(&packet);
-        if (packet.isError()) {
-            dmaActive = false;
-            completeBackendDmaError();
-            return;
-        }
+        fastDmaAccess(request, hostAddr, data);
         completeBackendDma(data);
         return;
     }
@@ -211,6 +211,76 @@ NPUDevice::startBackendDma()
         dmaWriteVirt(hostAddr, request.size, callback,
                      callback->dmaBuffer.data());
     }
+}
+
+void
+NPUDevice::functionalMemoryAccess(MemCmd command, Addr addr, size_t size,
+                                  uint8_t *data)
+{
+    RequestPtr request = std::make_shared<Request>(
+        addr, size, 0, dmaPort.requestorId);
+    request->taskId(context_switch_task_id::DMA);
+    Packet packet(request, command);
+    packet.dataStatic(data);
+    dmaPort.sendFunctional(&packet);
+    fatal_if(packet.isError(),
+             "Coral fast DMA functional access failed at %#x size=%zu",
+             addr, size);
+}
+
+void
+NPUDevice::fastDmaAccess(
+    const CoralDmaRequest &request, Addr hostAddr,
+    std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> &data)
+{
+    const Addr offset = hostAddr - dmaSharedBase;
+    const size_t page = offset / kFastDmaPageSize;
+    const size_t inPage = offset % kFastDmaPageSize;
+    fatal_if(page >= fastDmaPageValid.size() ||
+                 request.size > kFastDmaPageSize - inPage,
+             "Coral fast DMA request crosses cache page addr=%#x size=%u",
+             request.addr, request.size);
+
+    const size_t pageOffset = page * kFastDmaPageSize;
+    const size_t pageSize = std::min<size_t>(
+        kFastDmaPageSize, fastDmaCache.size() - pageOffset);
+    if (!fastDmaPageValid[page]) {
+        functionalMemoryAccess(MemCmd::ReadReq,
+                               dmaSharedBase + pageOffset, pageSize,
+                               fastDmaCache.data() + pageOffset);
+        fastDmaPageValid[page] = true;
+    }
+
+    auto *cacheData = fastDmaCache.data() + offset;
+    if (request.type == CoralDmaType::Read) {
+        std::copy_n(cacheData, request.size, data.data());
+    } else {
+        std::copy_n(data.data(), request.size, cacheData);
+        fastDmaPageDirty[page] = true;
+    }
+}
+
+void
+NPUDevice::flushFastDmaCache()
+{
+    for (size_t page = 0; page < fastDmaPageDirty.size(); ++page) {
+        if (!fastDmaPageDirty[page]) {
+            continue;
+        }
+        const size_t offset = page * kFastDmaPageSize;
+        const size_t size = std::min<size_t>(
+            kFastDmaPageSize, fastDmaCache.size() - offset);
+        functionalMemoryAccess(MemCmd::WriteReq, dmaSharedBase + offset,
+                               size, fastDmaCache.data() + offset);
+        fastDmaPageDirty[page] = false;
+    }
+}
+
+void
+NPUDevice::invalidateFastDmaCache()
+{
+    std::fill(fastDmaPageValid.begin(), fastDmaPageValid.end(), false);
+    std::fill(fastDmaPageDirty.begin(), fastDmaPageDirty.end(), false);
 }
 
 void
@@ -327,6 +397,13 @@ NPUDevice::write(PacketPtr pkt)
                  backend->name(), pkt->getAddr(), pkt->getSize());
         pkt->makeAtomicResponse();
         pkt->setBadAddress();
+    }
+
+    const Addr offset = pkt->getAddr() - pioAddr;
+    if (fastDma && offset == kResetControlOffset &&
+        pkt->getSize() == sizeof(uint32_t) &&
+        (pkt->getLE<uint32_t>() & 0x1) != 0) {
+        invalidateFastDmaCache();
     }
 
     syncBackendEvent();

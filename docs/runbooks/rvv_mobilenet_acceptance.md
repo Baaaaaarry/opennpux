@@ -137,6 +137,11 @@ Fast DMA uses a lazy 4 KiB page cache over the shared EXTMEM window. The first
 NPU access fills a page through the coherent functional port, byte/word AXI
 requests then hit the local page, and dirty pages are written back before the
 RTL halt becomes visible to guest software. Reset invalidates the cache.
+The 8 MiB MobileNet window is based at `0x8f000000`, entirely below this
+platform's `0x90000000` RAM limit. The earlier `0x8ff00000` base left only
+1 MiB of valid RAM and mapped most of the tensor arena into the bad-address
+responder. Changing the base automatically rebuilds the dedicated checkpoint
+because the reserved-memory address is part of its DTB.
 
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5

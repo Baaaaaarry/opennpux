@@ -13,6 +13,9 @@ FAST_DMA_OPTION=""
 [ "${CORAL_FAST_DMA:-1}" != "1" ] || FAST_DMA_OPTION=" --npu-fast-dma"
 KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
 VALIDATED_DISK_DEFAULT="/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img"
+CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/m5out/coralnpu_mobilenet_ckpt}"
+DMA_SHARED_BASE="${CORAL_MOBILENET_SHARED_BASE:-0x8f000000}"
+DMA_SHARED_BASE_META="${CKPT_ROOT}.shared_base"
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
     [ -f "${KERNEL_RELEASE_FILE}" ] || {
@@ -64,6 +67,15 @@ fi
     exit 1
 }
 
+if [ -f "${CKPT_ROOT}/booted/m5.cpt" ] &&
+   { [ ! -f "${DMA_SHARED_BASE_META}" ] ||
+     [ "$(cat "${DMA_SHARED_BASE_META}")" != "${DMA_SHARED_BASE}" ]; }; then
+    echo "[coral-mobilenet] shared DMA base changed; rebuilding checkpoint"
+    rm -rf "${CKPT_ROOT}"
+fi
+mkdir -p "$(dirname "${DMA_SHARED_BASE_META}")"
+printf '%s\n' "${DMA_SHARED_BASE}" > "${DMA_SHARED_BASE_META}"
+
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 
 CORAL_NPU_BACKEND=verilated-coral \
@@ -74,8 +86,8 @@ CORAL_KERNEL_IMAGE="${CORAL_KERNEL_IMAGE}" \
 CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT}" \
 CORAL_DISK_IMG="${CORAL_DISK_IMG}" \
 CORAL_AUTO_RESUME_AFTER_CKPT=1 \
-CORAL_CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/m5out/coralnpu_mobilenet_ckpt}" \
+CORAL_CKPT_ROOT="${CKPT_ROOT}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
-CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB${FAST_DMA_OPTION}" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${DMA_SHARED_BASE} --npu-dma-shared-size=8MiB${FAST_DMA_OPTION}" \
 GEM5_OPTIONS="${GEM5_OPTIONS_VALUE}" \
 exec "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"

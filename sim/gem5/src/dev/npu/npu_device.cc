@@ -224,8 +224,8 @@ NPUDevice::functionalMemoryAccess(MemCmd command, Addr addr, size_t size,
     packet.dataStatic(data);
     dmaPort.sendFunctional(&packet);
     fatal_if(packet.isError(),
-             "Coral fast DMA functional access failed at %#x size=%zu",
-             addr, size);
+             "Coral fast DMA functional access failed at %#x size=%llu",
+             addr, static_cast<unsigned long long>(size));
 }
 
 void

@@ -749,6 +749,8 @@ def build(options):
             dmaSharedBase=options.npu_dma_shared_base,
             dmaSharedSize=options.npu_dma_shared_size,
             fastDma=options.npu_fast_dma,
+            fastDmaSyncOffset=0x00400000,
+            fastDmaSyncSize="4KiB",
         )
         # Attach MMIO port to the IO bus, similar to other devices.
         system.npu.pio = system.iobus.mem_side_ports

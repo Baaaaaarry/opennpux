@@ -62,9 +62,12 @@ NPUDevice::NPUDevice(const Params &p)
     backendEvent(*this)
 {
     fatal_if(dmaSharedSize == 0, "Coral NPU DMA shared size is zero");
-    fatal_if(fastDmaSyncOffset > dmaSharedSize ||
-                 fastDmaSyncSize > dmaSharedSize - fastDmaSyncOffset,
-             "Coral fast DMA synchronization range is outside shared memory");
+    fatal_if(p.backendType == "verilated-coral" && fastDma &&
+                 (fastDmaSyncOffset > dmaSharedSize ||
+                  fastDmaSyncSize > dmaSharedSize - fastDmaSyncOffset),
+             "Coral fast DMA synchronization range is outside shared memory: "
+             "offset=%#x size=%#x shared_size=%#x",
+             fastDmaSyncOffset, fastDmaSyncSize, dmaSharedSize);
     fatal_if(dmaSharedBase > std::numeric_limits<uint32_t>::max(),
              "Coral NPU DMA shared base must fit the 32-bit shell CSR");
     if (p.backendType == "stage-a") {

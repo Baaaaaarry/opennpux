@@ -52,6 +52,9 @@ class CoralBackend
     virtual bool hasDmaRequest() const { return false; }
     virtual const CoralDmaRequest &dmaRequest() const;
     virtual void completeDma(const uint8_t *data, size_t size, bool error);
+    virtual bool hasLocalExtmem() const { return false; }
+    virtual void readLocalExtmem(Addr addr, void *data, size_t size);
+    virtual void writeLocalExtmem(Addr addr, const void *data, size_t size);
 };
 
 } // namespace gem5

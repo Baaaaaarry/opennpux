@@ -146,6 +146,14 @@ platform's `0x90000000` RAM limit. The earlier `0x8ff00000` base left only
 responder. Changing the base automatically rebuilds the dedicated checkpoint
 because the reserved-memory address is part of its DTB.
 
+ABI v4 adds a bridge-local EXTMEM fast path for RVV highmem inference. With
+fast DMA enabled, the bridge services the 8 MiB Coral EXTMEM aperture directly
+inside each Verilator step, so scalar AXI accesses no longer return to gem5 as
+individual DMA requests. Before start, gem5 copies the 4 KiB MobileNet mailbox
+page into local EXTMEM; after halt it copies that page back through the coherent
+functional port. Timing mode leaves local EXTMEM disabled and retains the
+original DMA request/completion protocol.
+
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5
 process after the checkpoint is saved; that process must print

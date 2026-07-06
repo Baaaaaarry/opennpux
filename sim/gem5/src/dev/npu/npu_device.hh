@@ -33,6 +33,8 @@ class NPUDevice : public DmaVirtDevice
     Addr dmaSharedBase;
     Addr dmaSharedSize;
     bool fastDma;
+    Addr fastDmaSyncOffset;
+    Addr fastDmaSyncSize;
     uint32_t backendId;
     uint32_t firmwareEntry;
     bool dmaActive;
@@ -59,6 +61,8 @@ class NPUDevice : public DmaVirtDevice
                                 uint8_t *data);
     void functionalMemoryRange(MemCmd command, Addr addr, size_t size,
                                uint8_t *data);
+    void syncHostToLocalExtmem();
+    void syncLocalExtmemToHost();
 
     std::unique_ptr<CoralBackend> backend;
     MemberEventWrapper<&NPUDevice::processBackendEvent> backendEvent;

@@ -30,6 +30,11 @@ class CoralVerilatedBackend : public CoralBackend
         int (*)(coral_gem5_handle *, coral_gem5_dma_request *);
     using DmaCompleteFn =
         int (*)(coral_gem5_handle *, const void *, size_t, int);
+    using ExtmemEnableFn = int (*)(coral_gem5_handle *, int);
+    using ExtmemReadFn =
+        int (*)(coral_gem5_handle *, uint32_t, void *, size_t);
+    using ExtmemWriteFn =
+        int (*)(coral_gem5_handle *, uint32_t, const void *, size_t);
 
     std::string coralRepo;
     std::string wrapperPath;
@@ -45,6 +50,9 @@ class CoralVerilatedBackend : public CoralBackend
     StepFn stepModel;
     DmaRequestGetFn dmaRequestGet;
     DmaCompleteFn dmaComplete;
+    ExtmemReadFn extmemRead;
+    ExtmemWriteFn extmemWrite;
+    bool localExtmemEnabled;
 
     bool running;
     Tick pendingEventTick;
@@ -65,7 +73,8 @@ class CoralVerilatedBackend : public CoralBackend
                           const std::string &wrapper_path,
                           const std::string &firmware_path,
                           Tick rtl_tick_period,
-                          uint32_t rtl_cycles_per_event);
+                          uint32_t rtl_cycles_per_event,
+                          bool enable_local_extmem);
     ~CoralVerilatedBackend() override;
 
     const char *name() const override { return "verilated-coral"; }
@@ -80,6 +89,9 @@ class CoralVerilatedBackend : public CoralBackend
     bool hasDmaRequest() const override { return dmaRequestPending; }
     const CoralDmaRequest &dmaRequest() const override;
     void completeDma(const uint8_t *data, size_t size, bool error) override;
+    bool hasLocalExtmem() const override { return localExtmemEnabled; }
+    void readLocalExtmem(Addr addr, void *data, size_t size) override;
+    void writeLocalExtmem(Addr addr, const void *data, size_t size) override;
 };
 
 } // namespace gem5

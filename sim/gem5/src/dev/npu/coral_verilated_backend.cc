@@ -61,7 +61,8 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
                                              const std::string &wrapper_path,
                                              const std::string &firmware_path,
                                              Tick rtl_tick_period,
-                                             uint32_t rtl_cycles_per_event)
+                                             uint32_t rtl_cycles_per_event,
+                                             bool enable_local_extmem)
   : coralRepo(coral_repo),
     wrapperPath(wrapper_path),
     firmwarePath(firmware_path),
@@ -75,6 +76,9 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     stepModel(nullptr),
     dmaRequestGet(nullptr),
     dmaComplete(nullptr),
+    extmemRead(nullptr),
+    extmemWrite(nullptr),
+    localExtmemEnabled(enable_local_extmem),
     running(false),
     pendingEventTick(0),
     resetControl(kResetBit | kClockGateBit),
@@ -108,6 +112,10 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     dmaRequestGet = loadSymbol<DmaRequestGetFn>(
         "coral_gem5_dma_request_get");
     dmaComplete = loadSymbol<DmaCompleteFn>("coral_gem5_dma_complete");
+    const auto extmemEnable = loadSymbol<ExtmemEnableFn>(
+        "coral_gem5_extmem_enable");
+    extmemRead = loadSymbol<ExtmemReadFn>("coral_gem5_extmem_read");
+    extmemWrite = loadSymbol<ExtmemWriteFn>("coral_gem5_extmem_write");
 
     fatal_if(abiVersion() != CORAL_GEM5_ABI_VERSION,
              "Coral RTL bridge ABI mismatch: gem5=%u library=%u",
@@ -118,6 +126,8 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
              "Coral RTL bridge failed to create AXI model");
     fatal_if(resetModel(modelHandle) != 0,
              "Coral RTL bridge failed to reset AXI model");
+    fatal_if(extmemEnable(modelHandle, localExtmemEnabled ? 1 : 0) != 0,
+             "Coral RTL bridge failed to configure local EXTMEM");
     loadFirmware();
 
     DPRINTFR(NPUDevice,
@@ -406,6 +416,26 @@ CoralVerilatedBackend::completeDma(
     dmaRequestPending = false;
     pendingDmaRequest = {};
     pendingEventTick = running ? curTick() + rtlTickPeriod : 0;
+}
+
+void
+CoralVerilatedBackend::readLocalExtmem(
+    Addr addr, void *data, size_t size)
+{
+    fatal_if(!localExtmemEnabled || addr > std::numeric_limits<uint32_t>::max()
+                 || extmemRead(modelHandle, addr, data, size) != 0,
+             "Unable to read Coral bridge-local EXTMEM at %#x size=%llu",
+             addr, static_cast<unsigned long long>(size));
+}
+
+void
+CoralVerilatedBackend::writeLocalExtmem(
+    Addr addr, const void *data, size_t size)
+{
+    fatal_if(!localExtmemEnabled || addr > std::numeric_limits<uint32_t>::max()
+                 || extmemWrite(modelHandle, addr, data, size) != 0,
+             "Unable to write Coral bridge-local EXTMEM at %#x size=%llu",
+             addr, static_cast<unsigned long long>(size));
 }
 
 } // namespace gem5

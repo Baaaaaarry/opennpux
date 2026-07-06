@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define CORAL_GEM5_ABI_VERSION 3u
+#define CORAL_GEM5_ABI_VERSION 4u
 #define CORAL_GEM5_AXI_DATA_BYTES 16u
 #define CORAL_GEM5_DMA_DATA_BYTES 4096u
 
@@ -40,6 +40,11 @@ int coral_gem5_dma_request_get(
     coral_gem5_handle *handle, coral_gem5_dma_request *request);
 int coral_gem5_dma_complete(
     coral_gem5_handle *handle, const void *data, size_t size, int error);
+int coral_gem5_extmem_enable(coral_gem5_handle *handle, int enable);
+int coral_gem5_extmem_read(
+    coral_gem5_handle *handle, uint32_t addr, void *data, size_t size);
+int coral_gem5_extmem_write(
+    coral_gem5_handle *handle, uint32_t addr, const void *data, size_t size);
 
 #ifdef __cplusplus
 }

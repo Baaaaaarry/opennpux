@@ -1,5 +1,6 @@
 #include "hw_sim/gem5_bridge/coralnpu_gem5_abi.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <new>
@@ -15,6 +16,8 @@ namespace {
 constexpr uint8_t kAxiSlvErr = 2;
 constexpr uint32_t kFirmwareProgressAddr =
     OPENNPUX_CORAL_MOBILENET_PROGRESS_ADDR;
+constexpr uint32_t kExtmemBase = 0x20000000;
+constexpr uint32_t kExtmemSize = 8 * 1024 * 1024;
 #ifdef CORAL_GEM5_RVV_HIGHMEM
 constexpr uint32_t kShellCsrBase = 0x00030000;
 constexpr uint32_t kCsrSize = 0x00001000;
@@ -42,6 +45,8 @@ struct coral_gem5_handle {
   Gem5CoreMiniAxiWrapper wrapper;
   Gem5CustomMac custom_mac;
   uint32_t firmware_progress;
+  bool local_extmem_enabled;
+  std::vector<uint8_t> local_extmem;
   coral_gem5_dma_request pending_dma;
   bool dma_pending;
   uint32_t dma_beat_size;
@@ -52,6 +57,8 @@ struct coral_gem5_handle {
         wrapper(&context),
         custom_mac(&context),
         firmware_progress(0),
+        local_extmem_enabled(false),
+        local_extmem(kExtmemSize, 0),
         pending_dma(),
         dma_pending(false),
         dma_beat_size(0),
@@ -83,6 +90,28 @@ struct coral_gem5_handle {
         response.read_data_bits_resp = kAxiSlvErr;
         response.read_data_bits_last = 1;
         wrapper.QueueReadResponse(response);
+        return;
+      }
+      if (local_extmem_enabled && pending_dma.addr >= kExtmemBase &&
+          pending_dma.addr - kExtmemBase <=
+              local_extmem.size() - pending_dma.size) {
+        const auto* source = local_extmem.data() +
+                             (pending_dma.addr - kExtmemBase);
+        for (uint32_t beat = 0; beat < dma_beat_count; ++beat) {
+          AxiRData response = {};
+          const uint32_t beat_addr =
+              pending_dma.addr + beat * dma_beat_size;
+          const uint32_t lane =
+              beat_addr & (CORAL_GEM5_AXI_DATA_BYTES - 1);
+          auto* destination = reinterpret_cast<uint8_t*>(
+              &response.read_data_bits_data[0]);
+          std::memcpy(destination + lane,
+                      source + beat * dma_beat_size, dma_beat_size);
+          response.read_data_bits_id = pending_dma.id;
+          response.read_data_bits_last = beat + 1 == dma_beat_count;
+          wrapper.QueueReadResponse(response);
+        }
+        std::memset(&pending_dma, 0, sizeof(pending_dma));
         return;
       }
       dma_pending = true;
@@ -119,6 +148,18 @@ struct coral_gem5_handle {
             response.write_resp_bits_id = addr.addr_bits_id;
             response.write_resp_bits_resp = kAxiSlvErr;
             wrapper.QueueWriteResponse(response);
+            return;
+          }
+          if (local_extmem_enabled && pending_dma.addr >= kExtmemBase &&
+              pending_dma.addr - kExtmemBase <=
+                  local_extmem.size() - pending_dma.size) {
+            std::memcpy(local_extmem.data() +
+                            (pending_dma.addr - kExtmemBase),
+                        pending_dma.data, pending_dma.size);
+            AxiWResp response = {};
+            response.write_resp_bits_id = pending_dma.id;
+            wrapper.QueueWriteResponse(response);
+            std::memset(&pending_dma, 0, sizeof(pending_dma));
             return;
           }
           dma_pending = true;
@@ -281,5 +322,44 @@ coral_gem5_dma_complete(
 
   handle->dma_pending = false;
   std::memset(&handle->pending_dma, 0, sizeof(handle->pending_dma));
+  return 0;
+}
+
+extern "C" int
+coral_gem5_extmem_enable(coral_gem5_handle* handle, int enable)
+{
+  if (handle == nullptr || handle->dma_pending) {
+    return -1;
+  }
+  handle->local_extmem_enabled = enable != 0;
+  if (handle->local_extmem_enabled) {
+    std::fill(handle->local_extmem.begin(), handle->local_extmem.end(), 0);
+  }
+  return 0;
+}
+
+extern "C" int
+coral_gem5_extmem_read(
+    coral_gem5_handle* handle, uint32_t addr, void* data, size_t size)
+{
+  if (handle == nullptr || data == nullptr || !handle->local_extmem_enabled ||
+      size > kExtmemSize || addr < kExtmemBase ||
+      addr - kExtmemBase > kExtmemSize - size) {
+    return -1;
+  }
+  std::memcpy(data, handle->local_extmem.data() + (addr - kExtmemBase), size);
+  return 0;
+}
+
+extern "C" int
+coral_gem5_extmem_write(
+    coral_gem5_handle* handle, uint32_t addr, const void* data, size_t size)
+{
+  if (handle == nullptr || data == nullptr || !handle->local_extmem_enabled ||
+      size > kExtmemSize || addr < kExtmemBase ||
+      addr - kExtmemBase > kExtmemSize - size) {
+    return -1;
+  }
+  std::memcpy(handle->local_extmem.data() + (addr - kExtmemBase), data, size);
   return 0;
 }

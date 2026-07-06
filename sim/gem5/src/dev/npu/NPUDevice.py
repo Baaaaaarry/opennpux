@@ -76,6 +76,14 @@ class NPUDevice(DmaVirtDevice):
         False,
         "Use coherent functional memory accesses for RTL DMA",
     )
+    fastDmaSyncOffset = Param.Addr(
+        0x00400000,
+        "Bridge-local EXTMEM range synchronized with the host",
+    )
+    fastDmaSyncSize = Param.MemorySize(
+        "4KiB",
+        "Size of bridge-local EXTMEM host synchronization range",
+    )
 
     def generateDeviceTree(self, state):
         shared_key = f"coralnpu-shared-{int(self.dmaSharedBase):x}"

@@ -47,6 +47,9 @@ struct coral_gem5_handle {
   uint32_t firmware_progress;
   bool local_extmem_enabled;
   std::vector<uint8_t> local_extmem;
+  uint64_t local_extmem_reads;
+  uint64_t local_extmem_writes;
+  uint64_t local_extmem_bytes;
   coral_gem5_dma_request pending_dma;
   bool dma_pending;
   uint32_t dma_beat_size;
@@ -59,6 +62,9 @@ struct coral_gem5_handle {
         firmware_progress(0),
         local_extmem_enabled(false),
         local_extmem(kExtmemSize, 0),
+        local_extmem_reads(0),
+        local_extmem_writes(0),
+        local_extmem_bytes(0),
         pending_dma(),
         dma_pending(false),
         dma_beat_size(0),
@@ -111,6 +117,20 @@ struct coral_gem5_handle {
           response.read_data_bits_last = beat + 1 == dma_beat_count;
           wrapper.QueueReadResponse(response);
         }
+        ++local_extmem_reads;
+        local_extmem_bytes += pending_dma.size;
+        const uint64_t accesses = local_extmem_reads + local_extmem_writes;
+        if (accesses <= 10 || accesses % 100000 == 0) {
+          std::fprintf(stderr,
+                       "Coral local EXTMEM accesses=%llu reads=%llu "
+                       "writes=%llu bytes=%llu last=read@0x%08x/%u\n",
+                       static_cast<unsigned long long>(accesses),
+                       static_cast<unsigned long long>(local_extmem_reads),
+                       static_cast<unsigned long long>(local_extmem_writes),
+                       static_cast<unsigned long long>(local_extmem_bytes),
+                       pending_dma.addr, pending_dma.size);
+          std::fflush(stderr);
+        }
         std::memset(&pending_dma, 0, sizeof(pending_dma));
         return;
       }
@@ -156,6 +176,20 @@ struct coral_gem5_handle {
             std::memcpy(local_extmem.data() +
                             (pending_dma.addr - kExtmemBase),
                         pending_dma.data, pending_dma.size);
+            ++local_extmem_writes;
+            local_extmem_bytes += pending_dma.size;
+            const uint64_t accesses = local_extmem_reads + local_extmem_writes;
+            if (accesses <= 10 || accesses % 100000 == 0) {
+              std::fprintf(stderr,
+                           "Coral local EXTMEM accesses=%llu reads=%llu "
+                           "writes=%llu bytes=%llu last=write@0x%08x/%u\n",
+                           static_cast<unsigned long long>(accesses),
+                           static_cast<unsigned long long>(local_extmem_reads),
+                           static_cast<unsigned long long>(local_extmem_writes),
+                           static_cast<unsigned long long>(local_extmem_bytes),
+                           pending_dma.addr, pending_dma.size);
+              std::fflush(stderr);
+            }
             AxiWResp response = {};
             response.write_resp_bits_id = pending_dma.id;
             wrapper.QueueWriteResponse(response);
@@ -334,6 +368,9 @@ coral_gem5_extmem_enable(coral_gem5_handle* handle, int enable)
   handle->local_extmem_enabled = enable != 0;
   if (handle->local_extmem_enabled) {
     std::fill(handle->local_extmem.begin(), handle->local_extmem.end(), 0);
+    handle->local_extmem_reads = 0;
+    handle->local_extmem_writes = 0;
+    handle->local_extmem_bytes = 0;
   }
   return 0;
 }

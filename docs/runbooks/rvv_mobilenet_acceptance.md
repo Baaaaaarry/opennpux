@@ -153,6 +153,10 @@ individual DMA requests. Before start, gem5 copies the 4 KiB MobileNet mailbox
 page into local EXTMEM; after halt it copies that page back through the coherent
 functional port. Timing mode leaves local EXTMEM disabled and retains the
 original DMA request/completion protocol.
+The bridge prints the first ten local EXTMEM accesses and then one cumulative
+sample every 100,000 transactions, including read/write counts, bytes, and the
+last address. These counters demonstrate allocator activity but are not a
+completion percentage because TFLM does not publish its total access count.
 
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5

@@ -3,7 +3,6 @@
 #include <cstring>
 
 #include "hw_sim/gem5_bridge/coral_mobilenet.h"
-#include "sw/opt/litert-micro/conv.h"
 #include "sw/opt/litert-micro/depthwise_conv.h"
 #include "sw/opt/rvv_opt.h"
 #include "sw/utils/utils.h"
@@ -11,28 +10,19 @@
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/system_setup.h"
-#include "tests/cocotb/tutorial/tfmicro/mobilenet_v1_025_224_int8_dummy.h"
+#include "tests/cocotb/tutorial/tfmicro/mobilenet_v1_025_partial_layers.h"
 
 namespace {
 
-using MobilenetOpResolver = tflite::MicroMutableOpResolver<10>;
-using coralnpu_v2::opt::litert_micro::Register_CONV_2D;
+using MobilenetOpResolver = tflite::MicroMutableOpResolver<2>;
 using coralnpu_v2::opt::litert_micro::Register_DEPTHWISE_CONV_2D;
 
 constexpr uintptr_t kExtmemBase = 0x20000000;
 
 TfLiteStatus RegisterOps(MobilenetOpResolver& resolver) {
-  TF_LITE_ENSURE_STATUS(resolver.AddConv2D(Register_CONV_2D()));
+  TF_LITE_ENSURE_STATUS(resolver.AddConv2D());
   TF_LITE_ENSURE_STATUS(
       resolver.AddDepthwiseConv2D(Register_DEPTHWISE_CONV_2D()));
-  TF_LITE_ENSURE_STATUS(resolver.AddReshape());
-  TF_LITE_ENSURE_STATUS(resolver.AddAveragePool2D());
-  TF_LITE_ENSURE_STATUS(resolver.AddSoftmax());
-  TF_LITE_ENSURE_STATUS(resolver.AddStridedSlice());
-  TF_LITE_ENSURE_STATUS(resolver.AddPad());
-  TF_LITE_ENSURE_STATUS(resolver.AddMean());
-  TF_LITE_ENSURE_STATUS(resolver.AddShape());
-  TF_LITE_ENSURE_STATUS(resolver.AddPack());
   return kTfLiteOk;
 }
 
@@ -100,7 +90,7 @@ int main() {
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_MAILBOX);
 
   const tflite::Model* model =
-      tflite::GetModel(g_25_224_int8_dummy_model_data);
+      tflite::GetModel(g_mobilenet_v1_025_partial_layers_model_data);
   MobilenetOpResolver resolver;
   if (RegisterOps(resolver) != kTfLiteOk) {
     return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_ALLOCATE);

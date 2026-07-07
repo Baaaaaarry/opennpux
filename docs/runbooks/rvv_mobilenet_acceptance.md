@@ -103,10 +103,8 @@ translates `0x30000..0x30fff` to `0x00200000..0x00200fff`. Without this mapping
 gem5 schedules RTL events while the core remains reset and clock-gated.
 
 The MobileNet firmware reserves a 64 KiB DTCM stack instead of Coral's
-128-byte default. Its ten-entry TFLM resolver and `MicroInterpreter` are local
-objects in `main()`; the default stack corrupts them before or during
-`AllocateTensors()` and can leave the core executing without issuing EXTMEM
-requests.
+128-byte default. Its TFLM resolver and `MicroInterpreter` are local objects in
+`main()`; the default stack corrupts them before or during `AllocateTensors()`.
 
 On `io_fault`, gem5 reads the Coral CSR window before terminating and reports
 `mepc`, `mtval`, and `mcause`. For standard RISC-V exceptions, `mcause=2` is an
@@ -197,7 +195,14 @@ mobilenet_test=PASS
 RTL inference is slow, this distinguishes it from guest-side shared-memory
 initialization.
 
-This acceptance proves that ARM Linux dispatches an official LiteRT Micro graph
-to the official RVV highmem Coral RTL. It does not claim classification
-accuracy because the upstream test artifact uses dummy MobileNet weights and a
-zero-filled input tensor.
+This acceptance runs Coral's upstream
+`mobilenet_v1_025_partial_layers.tflite` graph. It contains the initial Conv2D
+and optimized DepthwiseConv2D path used by Coral's own RTL test, and proves that
+ARM Linux dispatches a LiteRT Micro graph through the driver and coherent
+memory path to the official RVV highmem RTL.
+
+The full `mobilenet_v1_0.25_224_int8_dummy.tflite` graph is not the Phase-4/5
+platform acceptance target. On cycle-accurate RTL it can spend more than 100
+million cycles in `AllocateTensors()` before inference begins. Full-graph
+execution remains a separate operator-coverage and memory-planning milestone;
+heartbeat counts alone are RTL cycles, not DMA counts or completion progress.

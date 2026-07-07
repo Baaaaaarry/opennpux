@@ -35,6 +35,7 @@ class CoralVerilatedBackend : public CoralBackend
         int (*)(coral_gem5_handle *, uint32_t, void *, size_t);
     using ExtmemWriteFn =
         int (*)(coral_gem5_handle *, uint32_t, const void *, size_t);
+    using OperatorModeFn = int (*)(coral_gem5_handle *, uint32_t);
 
     std::string coralRepo;
     std::string wrapperPath;
@@ -74,7 +75,8 @@ class CoralVerilatedBackend : public CoralBackend
                           const std::string &firmware_path,
                           Tick rtl_tick_period,
                           uint32_t rtl_cycles_per_event,
-                          bool enable_local_extmem);
+                          bool enable_local_extmem,
+                          const std::string &operator_mode);
     ~CoralVerilatedBackend() override;
 
     const char *name() const override { return "verilated-coral"; }

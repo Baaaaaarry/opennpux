@@ -12,6 +12,9 @@
 #include "hw_sim/gem5_bridge/coral_mobilenet.h"
 #include "hw_sim/gem5_bridge/gem5_custom_mac.h"
 #include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
+#ifdef CORAL_GEM5_RVV_HIGHMEM
+#include "hw_sim/gem5_bridge/gem5_hybrid_mobilenet.h"
+#endif
 
 namespace {
 
@@ -20,6 +23,11 @@ constexpr uint32_t kFirmwareProgressAddr =
     OPENNPUX_CORAL_MOBILENET_PROGRESS_ADDR;
 constexpr uint32_t kExtmemBase = 0x20000000;
 constexpr uint32_t kExtmemSize = 8 * 1024 * 1024;
+constexpr uint32_t kHybridBase = 0x30000100;
+constexpr uint32_t kHybridMode = kHybridBase;
+constexpr uint32_t kHybridCommand = kHybridBase + 4;
+constexpr uint32_t kHybridStatus = kHybridBase + 8;
+constexpr uint32_t kHybridPartialMobilenet = 1;
 #ifdef CORAL_GEM5_RVV_HIGHMEM
 constexpr uint32_t kShellCsrBase = 0x00030000;
 constexpr uint32_t kCsrSize = 0x00001000;
@@ -38,6 +46,13 @@ uint32_t TranslateSlaveAddress(uint32_t addr) {
 bool IsCustomWordAccess(const AxiAddr& addr) {
   return addr.addr_bits_len == 0 && addr.addr_bits_size == 2 &&
          addr.addr_bits_burst == 1 && (addr.addr_bits_addr & 3) == 0;
+}
+
+bool IsHybridWordAccess(const AxiAddr& addr) {
+  return addr.addr_bits_len == 0 && addr.addr_bits_size == 2 &&
+         addr.addr_bits_burst == 1 && (addr.addr_bits_addr & 3) == 0 &&
+         addr.addr_bits_addr >= kHybridBase &&
+         addr.addr_bits_addr < kHybridBase + 0x100;
 }
 
 size_t AccessWidthBucket(uint32_t size) {
@@ -64,6 +79,8 @@ struct coral_gem5_handle {
   Gem5CoreMiniAxiWrapper wrapper;
   Gem5CustomMac custom_mac;
   uint32_t firmware_progress;
+  uint32_t operator_mode;
+  uint32_t hybrid_status;
   bool local_extmem_enabled;
   std::vector<uint8_t> local_extmem;
   uint64_t local_extmem_reads;
@@ -85,6 +102,8 @@ struct coral_gem5_handle {
         wrapper(&context),
         custom_mac(&context),
         firmware_progress(0),
+        operator_mode(0),
+        hybrid_status(0),
         local_extmem_enabled(false),
         local_extmem(kExtmemSize, 0),
         local_extmem_reads(0),
@@ -101,6 +120,23 @@ struct coral_gem5_handle {
         dma_beat_size(0),
         dma_beat_count(0) {
     wrapper.RegisterDeferredReadCallback([this](const AxiAddr& addr) {
+      if (IsHybridWordAccess(addr)) {
+        AxiRData response = {};
+        response.read_data_bits_id = addr.addr_bits_id;
+        response.read_data_bits_last = 1;
+        uint32_t value = 0;
+        if (addr.addr_bits_addr == kHybridMode) {
+          value = operator_mode;
+        } else if (addr.addr_bits_addr == kHybridStatus) {
+          value = hybrid_status;
+        }
+        auto* destination = reinterpret_cast<uint8_t*>(
+            &response.read_data_bits_data[0]);
+        std::memcpy(destination + (addr.addr_bits_addr & 0xf), &value,
+                    sizeof(value));
+        wrapper.QueueReadResponse(response);
+        return;
+      }
       if (custom_mac.Contains(addr.addr_bits_addr, 4)) {
         AxiRData response = {};
         response.read_data_bits_id = addr.addr_bits_id;
@@ -170,6 +206,61 @@ struct coral_gem5_handle {
     });
     wrapper.RegisterDeferredWriteCallback(
         [this](const AxiAddr& addr, const std::vector<AxiWData>& data) {
+          if (IsHybridWordAccess(addr)) {
+            AxiWResp response = {};
+            response.write_resp_bits_id = addr.addr_bits_id;
+            const uint32_t lane = addr.addr_bits_addr & 0xf;
+            if (data.size() != 1 || data[0].write_data_bits_last == 0 ||
+                ((data[0].write_data_bits_strb >> lane) & 0xf) != 0xf) {
+              response.write_resp_bits_resp = kAxiSlvErr;
+            } else {
+              uint32_t command = 0;
+              const auto* source = reinterpret_cast<const uint8_t*>(
+                  &data[0].write_data_bits_data[0]);
+              std::memcpy(&command, source + lane, sizeof(command));
+              if (addr.addr_bits_addr != kHybridCommand ||
+                  operator_mode == 0 || command != kHybridPartialMobilenet) {
+                response.write_resp_bits_resp = kAxiSlvErr;
+              } else {
+#ifdef CORAL_GEM5_RVV_HIGHMEM
+                int32_t output[OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT] = {};
+                uint64_t elapsed_ns = 0;
+                hybrid_status = 1;
+                const bool ok = RunGem5HybridMobilenet(output, &elapsed_ns);
+                hybrid_status = ok ? 2 : 3;
+                if (ok && local_extmem_enabled) {
+                  const size_t offset =
+                      OPENNPUX_CORAL_MOBILENET_MAILBOX_OFFSET;
+                  auto* mailbox = reinterpret_cast<
+                      opennpux_coral_mobilenet_mailbox*>(
+                          local_extmem.data() + offset);
+                  mailbox->cycle_low = static_cast<uint32_t>(elapsed_ns);
+                  mailbox->cycle_high =
+                      static_cast<uint32_t>(elapsed_ns >> 32);
+                  mailbox->output_count =
+                      OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT;
+                  for (size_t i = 0;
+                       i < OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT; ++i) {
+                    mailbox->output[i] = output[i];
+                  }
+                  mailbox->error_code =
+                      OPENNPUX_CORAL_MOBILENET_ERROR_NONE;
+                  mailbox->state = OPENNPUX_CORAL_MOBILENET_COMPLETE;
+                  std::fprintf(stderr,
+                               "Coral hybrid MobileNet complete host_ns=%llu\n",
+                               static_cast<unsigned long long>(elapsed_ns));
+                  std::fflush(stderr);
+                } else {
+                  response.write_resp_bits_resp = kAxiSlvErr;
+                }
+#else
+                response.write_resp_bits_resp = kAxiSlvErr;
+#endif
+              }
+            }
+            wrapper.QueueWriteResponse(response);
+            return;
+          }
           if (custom_mac.Contains(addr.addr_bits_addr, 4)) {
             AxiWResp response = {};
             response.write_resp_bits_id = addr.addr_bits_id;
@@ -295,6 +386,7 @@ coral_gem5_reset(coral_gem5_handle* handle)
   handle->wrapper.Reset();
   handle->custom_mac.Reset();
   handle->firmware_progress = 0;
+  handle->hybrid_status = 0;
   handle->rtl_cycles = 0;
   handle->progress_cycles = 0;
   handle->progress_accesses = 0;
@@ -471,5 +563,15 @@ coral_gem5_extmem_write(
     return -1;
   }
   std::memcpy(handle->local_extmem.data() + (addr - kExtmemBase), data, size);
+  return 0;
+}
+
+extern "C" int
+coral_gem5_operator_mode(coral_gem5_handle* handle, uint32_t mode)
+{
+  if (handle == nullptr || mode > 1) {
+    return -1;
+  }
+  handle->operator_mode = mode;
   return 0;
 }

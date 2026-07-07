@@ -535,6 +535,12 @@ def addOptions(parser):
         help="Coral RTL cycles evaluated per gem5 backend event"
     )
     parser.add_argument(
+        "--npu-operator-mode",
+        choices=("rtl", "hybrid"),
+        default="rtl",
+        help="Coral operator execution mode"
+    )
+    parser.add_argument(
         "--npu-dma-extmem-base",
         type=lambda v: int(v, 0),
         default=0x20000000,
@@ -742,6 +748,7 @@ def build(options):
             rtlFirmware=options.npu_rtl_firmware,
             rtlTickPeriod=options.npu_rtl_tick_period,
             rtlCyclesPerEvent=options.npu_rtl_cycles_per_event,
+            operatorMode=options.npu_operator_mode,
             dmaExtmemBase=options.npu_dma_extmem_base,
             dmaSharedBase=options.npu_dma_shared_base,
             dmaSharedSize=options.npu_dma_shared_size,

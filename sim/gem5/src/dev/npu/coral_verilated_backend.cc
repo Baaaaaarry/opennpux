@@ -62,7 +62,8 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
                                              const std::string &firmware_path,
                                              Tick rtl_tick_period,
                                              uint32_t rtl_cycles_per_event,
-                                             bool enable_local_extmem)
+                                             bool enable_local_extmem,
+                                             const std::string &operator_mode)
   : coralRepo(coral_repo),
     wrapperPath(wrapper_path),
     firmwarePath(firmware_path),
@@ -95,6 +96,8 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     fatal_if(rtlTickPeriod == 0, "Coral RTL tick period must be non-zero");
     fatal_if(rtlCyclesPerEvent == 0,
              "Coral RTL cycles per event must be non-zero");
+    fatal_if(operator_mode != "rtl" && operator_mode != "hybrid",
+             "Unsupported Coral operator mode '%s'", operator_mode);
 
     libraryHandle = dlopen(wrapperPath.c_str(), RTLD_NOW | RTLD_LOCAL);
     fatal_if(libraryHandle == nullptr,
@@ -116,6 +119,8 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
         "coral_gem5_extmem_enable");
     extmemRead = loadSymbol<ExtmemReadFn>("coral_gem5_extmem_read");
     extmemWrite = loadSymbol<ExtmemWriteFn>("coral_gem5_extmem_write");
+    const auto setOperatorMode = loadSymbol<OperatorModeFn>(
+        "coral_gem5_operator_mode");
 
     fatal_if(abiVersion() != CORAL_GEM5_ABI_VERSION,
              "Coral RTL bridge ABI mismatch: gem5=%u library=%u",
@@ -128,13 +133,15 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
              "Coral RTL bridge failed to reset AXI model");
     fatal_if(extmemEnable(modelHandle, localExtmemEnabled ? 1 : 0) != 0,
              "Coral RTL bridge failed to configure local EXTMEM");
+    fatal_if(setOperatorMode(modelHandle, operator_mode == "hybrid" ? 1 : 0) != 0,
+             "Coral RTL bridge failed to configure operator mode");
     loadFirmware();
 
     DPRINTFR(NPUDevice,
              "Loaded Coral RTL bridge '%s' firmware='%s' entry=%#x "
-             "repo='%s' tick=%llu cycles=%u\n",
+             "repo='%s' tick=%llu cycles=%u operator_mode=%s\n",
              wrapperPath, firmwarePath, firmwareEntry, coralRepo,
-             rtlTickPeriod, rtlCyclesPerEvent);
+             rtlTickPeriod, rtlCyclesPerEvent, operator_mode);
 }
 
 void

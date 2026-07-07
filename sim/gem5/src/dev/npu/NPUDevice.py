@@ -60,6 +60,10 @@ class NPUDevice(DmaVirtDevice):
         1,
         "Number of Coral RTL cycles evaluated per backend event",
     )
+    operatorMode = Param.String(
+        "rtl",
+        "Operator execution mode: 'rtl' or 'hybrid'",
+    )
     dmaExtmemBase = Param.Addr(
         0x20000000,
         "Coral external-memory address mapped onto the SoC shared buffer",

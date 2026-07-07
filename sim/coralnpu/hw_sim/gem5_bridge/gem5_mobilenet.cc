@@ -20,6 +20,11 @@ using coralnpu_v2::opt::litert_micro::Register_DEPTHWISE_CONV_2D;
 
 constexpr uintptr_t kExtmemBase = 0x20000000;
 constexpr size_t kPartialTensorArenaSize = 768 * 1024;
+constexpr uintptr_t kHybridModeAddr = 0x30000100;
+constexpr uintptr_t kHybridCommandAddr = 0x30000104;
+constexpr uintptr_t kHybridStatusAddr = 0x30000108;
+constexpr uint32_t kHybridPartialMobilenet = 1;
+constexpr uint32_t kHybridComplete = 2;
 
 volatile opennpux_coral_mobilenet_mailbox* Mailbox() {
   return reinterpret_cast<volatile opennpux_coral_mobilenet_mailbox*>(
@@ -136,6 +141,17 @@ int main() {
 
   const uint64_t start_cycles = mcycle_read();
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_BEGIN);
+  if (*reinterpret_cast<volatile uint32_t*>(kHybridModeAddr) != 0) {
+    *reinterpret_cast<volatile uint32_t*>(kHybridCommandAddr) =
+        kHybridPartialMobilenet;
+    asm volatile("fence rw, rw" ::: "memory");
+    if (*reinterpret_cast<volatile uint32_t*>(kHybridStatusAddr) !=
+        kHybridComplete) {
+      return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_INVOKE);
+    }
+    MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_END);
+    return 0;
+  }
   if (interpreter.Invoke() != kTfLiteOk) {
     return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_INVOKE);
   }

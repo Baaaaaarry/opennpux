@@ -50,6 +50,25 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 The first invocation creates `m5out/coralnpu_mobilenet_ckpt`. Run the same
 command again to restore it and execute MobileNet.
 
+Select the operator execution path explicitly:
+
+```sh
+# Fast end-to-end functional mode. Coral RTL performs firmware control,
+# allocation, doorbell, completion, and mailbox handling; host TFLM reference
+# kernels execute the supported Conv2D + DepthwiseConv2D subgraph.
+CORAL_OPERATOR_MODE=hybrid ./tools/coralnpu/run_rvv_mobilenet_test.sh
+
+# Full cycle-evaluated RVV RTL mode for hardware performance studies.
+CORAL_OPERATOR_MODE=rtl ./tools/coralnpu/run_rvv_mobilenet_test.sh
+```
+
+`rtl` is the default for backward compatibility. Both modes use the same gem5
+binary, bridge, firmware, Linux driver, mailbox ABI, and boot checkpoint.
+Changing modes does not rebuild the checkpoint. Hybrid `mobilenet_npu_cycles`
+currently reports host-kernel nanoseconds as a functional diagnostic and must
+not be compared with RTL cycle counts; modeled accelerator latency is a later
+calibration step.
+
 For a functional run with NPU progress tracing, use:
 
 ```sh
@@ -206,6 +225,13 @@ mobilenet_dma_errors=0
 mobilenet_output=<five signed int8 values>
 mobilenet_test=PASS
 [coral-mobilenet-test] PASS
+```
+
+Hybrid mode additionally prints:
+
+```text
+[coral-mobilenet] operator mode: hybrid
+Coral hybrid MobileNet complete host_ns=<non-zero>
 ```
 
 `mobilenet_run=started` is flushed immediately before reset is released. If

@@ -154,6 +154,8 @@ cc_binary(
         "gem5_bridge/gem5_core_mini_axi_wrapper.h",
         "gem5_bridge/gem5_custom_mac.h",
         "gem5_bridge/gem5_dma_request_builder.h",
+        "gem5_bridge/gem5_hybrid_mobilenet.cc",
+        "gem5_bridge/gem5_hybrid_mobilenet.h",
     ],
     copts = ["-DCORAL_GEM5_RVV_HIGHMEM"],
     linkshared = True,
@@ -163,6 +165,10 @@ cc_binary(
         "//hdl/chisel/src/coralnpu:rvv_core_mini_highmem_axi_cc_library_cc",
         "//hdl/verilog/opennpux:custom_mac_cc",
         "//hdl/verilog:sram_backdoor",
+        "//tests/cocotb/tutorial/tfmicro:mobilenet_v1_025_partial_layers_lib",
+        "@tflite_micro//tensorflow/lite/micro:micro_framework",
+        "@tflite_micro//tensorflow/lite/micro:micro_log",
+        "@tflite_micro//tensorflow/lite/micro:op_resolvers",
     ],
 )
 

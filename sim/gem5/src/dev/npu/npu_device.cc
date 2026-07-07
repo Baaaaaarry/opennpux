@@ -79,7 +79,7 @@ NPUDevice::NPUDevice(const Params &p)
         backendId = kVerilatedCoralBackendId;
         auto rtlBackend = std::make_unique<CoralVerilatedBackend>(
             p.coralRepo, p.verilatedWrapper, p.rtlFirmware, p.rtlTickPeriod,
-            p.rtlCyclesPerEvent, p.fastDma);
+            p.rtlCyclesPerEvent, p.fastDma, p.operatorMode);
         firmwareEntry = rtlBackend->entryPoint();
         backend = std::move(rtlBackend);
     } else {
@@ -322,6 +322,12 @@ NPUDevice::syncHostToLocalExtmem()
                           data.data());
     backend->writeLocalExtmem(dmaExtmemBase + fastDmaSyncOffset,
                               data.data(), data.size());
+    ++dmaRequests;
+    ++dmaCompletions;
+    DPRINTFR(NPUDevice,
+             "Coral local EXTMEM host-to-NPU sync count=%u size=%llu\n",
+             dmaCompletions,
+             static_cast<unsigned long long>(fastDmaSyncSize));
 }
 
 void
@@ -333,6 +339,12 @@ NPUDevice::syncLocalExtmemToHost()
     functionalMemoryRange(MemCmd::WriteReq,
                           dmaSharedBase + fastDmaSyncOffset, data.size(),
                           data.data());
+    ++dmaRequests;
+    ++dmaCompletions;
+    DPRINTFR(NPUDevice,
+             "Coral local EXTMEM NPU-to-host sync count=%u size=%llu\n",
+             dmaCompletions,
+             static_cast<unsigned long long>(fastDmaSyncSize));
 }
 
 void

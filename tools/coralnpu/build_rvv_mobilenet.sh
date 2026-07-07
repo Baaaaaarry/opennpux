@@ -92,7 +92,7 @@ if command -v readelf >/dev/null 2>&1; then
     readelf -lW "${OUT_DIR}/gem5_mobilenet.elf" |
         grep -E '^[[:space:]]*LOAD'
     readelf -sW "${OUT_DIR}/gem5_mobilenet.elf" |
-        grep -E '[[:space:]](_start|main|__bss_start__|__bss_end__|__stack_start__|__stack_end__)$'
+        grep -E '[[:space:]](_start|main|tensor_arena|__bss_start__|__bss_end__|__stack_start__|__stack_end__)$'
 fi
 
 if command -v nm >/dev/null 2>&1 &&

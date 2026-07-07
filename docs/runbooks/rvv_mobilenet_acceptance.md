@@ -220,6 +220,15 @@ memory path to the official RVV highmem RTL.
 The firmware initializes the input tensor using its runtime `input->bytes`
 metadata because this partial graph does not have the full model's fixed
 `224 * 224 * 3` input shape.
+For this partial graph, the 768 KiB tensor arena is placed in the highmem
+core's 1 MiB DTCM scratchpad. The measured graph working set is below 512 KiB;
+the remaining DTCM accommodates firmware globals and the 64 KiB stack. The
+mailbox remains in coherent EXTMEM, so ARM/Linux command and result transport
+is unchanged. This removes hundreds of thousands of 1-byte/4-byte AXI
+transactions from the Conv2D inner loop while preserving execution of the
+actual Coral RVV RTL and optimized kernels. Larger graphs that do not fit DTCM
+must use tiled EXTMEM staging or the planned hybrid operator backend rather
+than silently increasing this arena.
 
 The full `mobilenet_v1_0.25_224_int8_dummy.tflite` graph is not the Phase-4/5
 platform acceptance target. On cycle-accurate RTL it can spend more than 100

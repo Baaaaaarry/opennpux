@@ -19,6 +19,7 @@ using coralnpu_v2::opt::litert_micro::Register_CONV_2D;
 using coralnpu_v2::opt::litert_micro::Register_DEPTHWISE_CONV_2D;
 
 constexpr uintptr_t kExtmemBase = 0x20000000;
+constexpr size_t kPartialTensorArenaSize = 768 * 1024;
 
 volatile opennpux_coral_mobilenet_mailbox* Mailbox() {
   return reinterpret_cast<volatile opennpux_coral_mobilenet_mailbox*>(
@@ -96,8 +97,8 @@ __attribute__((used)) uint32_t opennpux_mobilenet_early_progress_enabled = 1;
   }
 }
 
-uint8_t tensor_arena[OPENNPUX_CORAL_MOBILENET_ARENA_SIZE]
-    __attribute__((section(".extbss"), aligned(16)));
+uint8_t tensor_arena[kPartialTensorArenaSize]
+    __attribute__((section(".bss"), aligned(16)));
 
 }  // extern "C"
 

@@ -90,6 +90,8 @@ shared DDR:
 | `0x4d4e0300` / `0x4d4e0301` | tensor allocation begin/end |
 | `0x4d4e0400` | input tensor initialized |
 | `0x4d4e0500` / `0x4d4e0501` | inference begin/end |
+| `0x4d4e0600` / `0x4d4e0601` | optimized Conv2D begin/end |
+| `0x4d4e0700` / `0x4d4e0701` | optimized DepthwiseConv2D begin/end |
 
 The gem5 backend reads every ELF `PT_LOAD` segment back through the Coral AXI
 slave port before boot and compares it byte-for-byte with the ELF image. A bad

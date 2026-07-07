@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "hw_sim/gem5_bridge/coral_mobilenet.h"
+#include "sw/opt/litert-micro/conv.h"
 #include "sw/opt/litert-micro/depthwise_conv.h"
 #include "sw/opt/rvv_opt.h"
 #include "sw/utils/utils.h"
@@ -14,16 +15,10 @@
 namespace {
 
 using MobilenetOpResolver = tflite::MicroMutableOpResolver<2>;
+using coralnpu_v2::opt::litert_micro::Register_CONV_2D;
 using coralnpu_v2::opt::litert_micro::Register_DEPTHWISE_CONV_2D;
 
 constexpr uintptr_t kExtmemBase = 0x20000000;
-
-TfLiteStatus RegisterOps(MobilenetOpResolver& resolver) {
-  TF_LITE_ENSURE_STATUS(resolver.AddConv2D());
-  TF_LITE_ENSURE_STATUS(
-      resolver.AddDepthwiseConv2D(Register_DEPTHWISE_CONV_2D()));
-  return kTfLiteOk;
-}
 
 volatile opennpux_coral_mobilenet_mailbox* Mailbox() {
   return reinterpret_cast<volatile opennpux_coral_mobilenet_mailbox*>(
@@ -34,6 +29,36 @@ void MarkProgress(uint32_t value) {
   *reinterpret_cast<volatile uint32_t*>(
       OPENNPUX_CORAL_MOBILENET_PROGRESS_ADDR) = value;
   asm volatile("fence rw, rw" ::: "memory");
+}
+
+TfLiteStatus (*convInvoke)(TfLiteContext*, TfLiteNode*) = nullptr;
+TfLiteStatus (*depthwiseInvoke)(TfLiteContext*, TfLiteNode*) = nullptr;
+
+TfLiteStatus TracedConvInvoke(TfLiteContext* context, TfLiteNode* node) {
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_CONV_BEGIN);
+  const TfLiteStatus status = convInvoke(context, node);
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_CONV_END);
+  return status;
+}
+
+TfLiteStatus TracedDepthwiseInvoke(TfLiteContext* context, TfLiteNode* node) {
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_DEPTHWISE_BEGIN);
+  const TfLiteStatus status = depthwiseInvoke(context, node);
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_DEPTHWISE_END);
+  return status;
+}
+
+TfLiteStatus RegisterOps(MobilenetOpResolver& resolver) {
+  TFLMRegistration conv = Register_CONV_2D();
+  convInvoke = conv.invoke;
+  conv.invoke = TracedConvInvoke;
+  TF_LITE_ENSURE_STATUS(resolver.AddConv2D(conv));
+
+  TFLMRegistration depthwise = Register_DEPTHWISE_CONV_2D();
+  depthwiseInvoke = depthwise.invoke;
+  depthwise.invoke = TracedDepthwiseInvoke;
+  TF_LITE_ENSURE_STATUS(resolver.AddDepthwiseConv2D(depthwise));
+  return kTfLiteOk;
 }
 
 __attribute__((constructor(101))) void MarkCrtReady() {

@@ -222,6 +222,7 @@ coralnpu_v2_binary(
     visibility = ["//visibility:public"],
     deps = [
         "//sw/opt:rvv_opt",
+        "//sw/opt/litert-micro:conv",
         "//sw/opt/litert-micro:depthwise_conv",
         "//sw/utils:utils",
         "//tests/cocotb/tutorial/tfmicro:mobilenet_v1_025_partial_layers_lib",

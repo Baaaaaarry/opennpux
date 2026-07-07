@@ -1,6 +1,5 @@
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 
 #include "hw_sim/gem5_bridge/coral_mobilenet.h"
 #include "sw/opt/litert-micro/depthwise_conv.h"
@@ -74,8 +73,6 @@ __attribute__((used)) uint32_t opennpux_mobilenet_early_progress_enabled = 1;
 
 uint8_t tensor_arena[OPENNPUX_CORAL_MOBILENET_ARENA_SIZE]
     __attribute__((section(".extbss"), aligned(16)));
-uint8_t inference_input[224 * 224 * 3]
-    __attribute__((section(".data"), aligned(16)));
 
 }  // extern "C"
 
@@ -104,11 +101,10 @@ int main() {
   }
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_ALLOCATE_END);
   TfLiteTensor* input = interpreter.input(0);
-  if (input == nullptr || input->bytes != sizeof(inference_input)) {
+  if (input == nullptr || input->data.data == nullptr || input->bytes == 0) {
     return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_INPUT);
   }
-  coralnpu_v2::opt::Memcpy(
-      input->data.data, inference_input, sizeof(inference_input));
+  coralnpu_v2::opt::Memset(input->data.data, 0, input->bytes);
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INPUT_READY);
   mailbox->state = OPENNPUX_CORAL_MOBILENET_TENSORS_READY;
 

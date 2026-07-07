@@ -200,6 +200,9 @@ This acceptance runs Coral's upstream
 and optimized DepthwiseConv2D path used by Coral's own RTL test, and proves that
 ARM Linux dispatches a LiteRT Micro graph through the driver and coherent
 memory path to the official RVV highmem RTL.
+The firmware initializes the input tensor using its runtime `input->bytes`
+metadata because this partial graph does not have the full model's fixed
+`224 * 224 * 3` input shape.
 
 The full `mobilenet_v1_0.25_224_int8_dummy.tflite` graph is not the Phase-4/5
 platform acceptance target. On cycle-accurate RTL it can spend more than 100

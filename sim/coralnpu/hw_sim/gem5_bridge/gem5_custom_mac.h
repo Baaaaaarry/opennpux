@@ -12,7 +12,7 @@ class Gem5CustomMac {
   static constexpr uint32_t kSize = 0x100;
 
   explicit Gem5CustomMac(VerilatedContext* context)
-      : context_(context), model_(context, "custom_mac") {
+      : context_(context), model_(context, "custom_mac"), active_cycles_(0) {
     model_.clk_i = 0;
     model_.rst_ni = 1;
     model_.write_en_i = 0;
@@ -26,6 +26,7 @@ class Gem5CustomMac {
     Step();
     model_.rst_ni = 1;
     Step();
+    active_cycles_ = 0;
   }
 
   void Step() {
@@ -35,6 +36,14 @@ class Gem5CustomMac {
     context_->timeInc(1);
     model_.clk_i = 0;
     model_.eval();
+  }
+
+  void StepIfActive() {
+    if (active_cycles_ == 0) {
+      return;
+    }
+    Step();
+    --active_cycles_;
   }
 
   bool Contains(uint32_t addr, uint32_t size) const {
@@ -49,6 +58,9 @@ class Gem5CustomMac {
     Step();
     model_.write_en_i = 0;
     model_.eval();
+    if (addr == kBase + 0x0c && (value & 1) != 0) {
+      active_cycles_ = 3;
+    }
   }
 
   uint32_t Read32(uint32_t addr) {
@@ -60,6 +72,7 @@ class Gem5CustomMac {
  private:
   VerilatedContext* const context_;
   VOpenNpuXCustomMac model_;
+  uint32_t active_cycles_;
 };
 
 #endif

@@ -157,6 +157,21 @@ The bridge prints the first ten local EXTMEM accesses and then one cumulative
 sample every 100,000 transactions, including read/write counts, bytes, and the
 last address. These counters demonstrate allocator activity but are not a
 completion percentage because TFLM does not publish its total access count.
+Every firmware marker also prints `Coral phase stats` with cumulative and
+per-phase RTL cycles, host wall time, EXTMEM accesses/bytes, and a
+1/2/4/8/16-byte access-width histogram. The begin/end marker pair for an
+operator therefore provides its simulation rate and memory-traffic cost
+without enabling high-volume per-transaction tracing.
+Summarize the current phase without following the complete trace using:
+
+```sh
+./tools/coralnpu/summarize_mobilenet_progress.sh
+```
+
+The bridge advances the independent OpenNpuX custom-MAC Verilator model only
+during its three active command cycles. Earlier builds evaluated that unused
+model on every Coral core cycle, roughly doubling Verilator evaluation work
+during MobileNet even though the firmware never addressed the custom MAC.
 
 The first MobileNet run may print `backend=stage-a` while Linux creates the
 dedicated boot checkpoint. The wrapper automatically starts a second gem5

@@ -24,9 +24,8 @@ int main() {
   mac.Write32(Gem5CustomMac::kBase + 0x04, 1);
   mac.Write32(Gem5CustomMac::kBase + 0x08, 35);
   mac.Write32(Gem5CustomMac::kBase + 0x0c, 1);
-  for (int i = 0; i < 4 && (mac.Read32(Gem5CustomMac::kBase + 0x14) & 1) == 0;
-       ++i) {
-    mac.Step();
+  for (int i = 0; i < 4; ++i) {
+    mac.StepIfActive();
   }
 
   Check(mac.Read32(Gem5CustomMac::kBase + 0x10) == 42,

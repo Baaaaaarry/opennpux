@@ -1,6 +1,8 @@
 #include "hw_sim/gem5_bridge/coralnpu_gem5_abi.h"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <new>
@@ -38,6 +40,23 @@ bool IsCustomWordAccess(const AxiAddr& addr) {
          addr.addr_bits_burst == 1 && (addr.addr_bits_addr & 3) == 0;
 }
 
+size_t AccessWidthBucket(uint32_t size) {
+  switch (size) {
+    case 1:
+      return 0;
+    case 2:
+      return 1;
+    case 4:
+      return 2;
+    case 8:
+      return 3;
+    case 16:
+      return 4;
+    default:
+      return 5;
+  }
+}
+
 }  // namespace
 
 struct coral_gem5_handle {
@@ -50,6 +69,12 @@ struct coral_gem5_handle {
   uint64_t local_extmem_reads;
   uint64_t local_extmem_writes;
   uint64_t local_extmem_bytes;
+  std::array<uint64_t, 6> local_extmem_widths;
+  uint64_t rtl_cycles;
+  uint64_t progress_cycles;
+  uint64_t progress_accesses;
+  uint64_t progress_bytes;
+  std::chrono::steady_clock::time_point progress_wall_time;
   coral_gem5_dma_request pending_dma;
   bool dma_pending;
   uint32_t dma_beat_size;
@@ -65,6 +90,12 @@ struct coral_gem5_handle {
         local_extmem_reads(0),
         local_extmem_writes(0),
         local_extmem_bytes(0),
+        local_extmem_widths(),
+        rtl_cycles(0),
+        progress_cycles(0),
+        progress_accesses(0),
+        progress_bytes(0),
+        progress_wall_time(std::chrono::steady_clock::now()),
         pending_dma(),
         dma_pending(false),
         dma_beat_size(0),
@@ -119,6 +150,7 @@ struct coral_gem5_handle {
         }
         ++local_extmem_reads;
         local_extmem_bytes += pending_dma.size;
+        ++local_extmem_widths[AccessWidthBucket(pending_dma.size)];
         const uint64_t accesses = local_extmem_reads + local_extmem_writes;
         if (accesses <= 10 || accesses % 100000 == 0) {
           std::fprintf(stderr,
@@ -155,6 +187,39 @@ struct coral_gem5_handle {
                 firmware_progress = value;
                 std::fprintf(stderr, "Coral firmware progress=0x%08x\n",
                              firmware_progress);
+                const uint64_t accesses =
+                    local_extmem_reads + local_extmem_writes;
+                const auto now = std::chrono::steady_clock::now();
+                const auto wall_ms =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        now - progress_wall_time).count();
+                std::fprintf(
+                    stderr,
+                    "Coral phase stats marker=0x%08x cycles=%llu "
+                    "delta_cycles=%llu wall_ms=%lld accesses=%llu "
+                    "delta_accesses=%llu bytes=%llu delta_bytes=%llu "
+                    "widths=1:%llu,2:%llu,4:%llu,8:%llu,16:%llu,other:%llu\n",
+                    firmware_progress,
+                    static_cast<unsigned long long>(rtl_cycles),
+                    static_cast<unsigned long long>(
+                        rtl_cycles - progress_cycles),
+                    static_cast<long long>(wall_ms),
+                    static_cast<unsigned long long>(accesses),
+                    static_cast<unsigned long long>(
+                        accesses - progress_accesses),
+                    static_cast<unsigned long long>(local_extmem_bytes),
+                    static_cast<unsigned long long>(
+                        local_extmem_bytes - progress_bytes),
+                    static_cast<unsigned long long>(local_extmem_widths[0]),
+                    static_cast<unsigned long long>(local_extmem_widths[1]),
+                    static_cast<unsigned long long>(local_extmem_widths[2]),
+                    static_cast<unsigned long long>(local_extmem_widths[3]),
+                    static_cast<unsigned long long>(local_extmem_widths[4]),
+                    static_cast<unsigned long long>(local_extmem_widths[5]));
+                progress_cycles = rtl_cycles;
+                progress_accesses = accesses;
+                progress_bytes = local_extmem_bytes;
+                progress_wall_time = now;
                 std::fflush(stderr);
               } else {
                 custom_mac.Write32(addr.addr_bits_addr, value);
@@ -178,6 +243,7 @@ struct coral_gem5_handle {
                         pending_dma.data, pending_dma.size);
             ++local_extmem_writes;
             local_extmem_bytes += pending_dma.size;
+            ++local_extmem_widths[AccessWidthBucket(pending_dma.size)];
             const uint64_t accesses = local_extmem_reads + local_extmem_writes;
             if (accesses <= 10 || accesses % 100000 == 0) {
               std::fprintf(stderr,
@@ -229,6 +295,11 @@ coral_gem5_reset(coral_gem5_handle* handle)
   handle->wrapper.Reset();
   handle->custom_mac.Reset();
   handle->firmware_progress = 0;
+  handle->rtl_cycles = 0;
+  handle->progress_cycles = 0;
+  handle->progress_accesses = 0;
+  handle->progress_bytes = 0;
+  handle->progress_wall_time = std::chrono::steady_clock::now();
   return 0;
 }
 
@@ -276,8 +347,9 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
     if (handle->wrapper.IsHalted()) {
       return 1;
     }
+    ++handle->rtl_cycles;
     handle->wrapper.Step();
-    handle->custom_mac.Step();
+    handle->custom_mac.StepIfActive();
     if (handle->dma_pending) {
       return 2;
     }
@@ -371,6 +443,7 @@ coral_gem5_extmem_enable(coral_gem5_handle* handle, int enable)
     handle->local_extmem_reads = 0;
     handle->local_extmem_writes = 0;
     handle->local_extmem_bytes = 0;
+    handle->local_extmem_widths.fill(0);
   }
   return 0;
 }

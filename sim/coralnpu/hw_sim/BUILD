@@ -129,6 +129,7 @@ cc_binary(
         "gem5_bridge/coralnpu_gem5_abi.cc",
         "gem5_bridge/coralnpu_gem5_abi.h",
         "gem5_bridge/coral_mobilenet.h",
+        "gem5_bridge/coral_operator.h",
         "gem5_bridge/gem5_axi_master_drivers.h",
         "gem5_bridge/gem5_core_mini_axi_wrapper.h",
         "gem5_bridge/gem5_custom_mac.h",
@@ -150,6 +151,7 @@ cc_binary(
         "gem5_bridge/coralnpu_gem5_abi.cc",
         "gem5_bridge/coralnpu_gem5_abi.h",
         "gem5_bridge/coral_mobilenet.h",
+        "gem5_bridge/coral_operator.h",
         "gem5_bridge/gem5_axi_master_drivers.h",
         "gem5_bridge/gem5_core_mini_axi_wrapper.h",
         "gem5_bridge/gem5_custom_mac.h",
@@ -220,6 +222,7 @@ coralnpu_v2_binary(
     name = "gem5_mobilenet",
     srcs = [
         "gem5_bridge/coral_mobilenet.h",
+        "gem5_bridge/coral_operator.h",
         "gem5_bridge/gem5_mobilenet.cc",
     ],
     dtcm_size_kbytes = 1024,

@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "hw_sim/gem5_bridge/coral_mobilenet.h"
+#include "hw_sim/gem5_bridge/coral_operator.h"
 #include "sw/opt/litert-micro/conv.h"
 #include "sw/opt/litert-micro/depthwise_conv.h"
 #include "sw/opt/rvv_opt.h"
@@ -20,15 +21,15 @@ using coralnpu_v2::opt::litert_micro::Register_DEPTHWISE_CONV_2D;
 
 constexpr uintptr_t kExtmemBase = 0x20000000;
 constexpr size_t kPartialTensorArenaSize = 768 * 1024;
-constexpr uintptr_t kHybridModeAddr = 0x30000100;
-constexpr uintptr_t kHybridCommandAddr = 0x30000104;
-constexpr uintptr_t kHybridStatusAddr = 0x30000108;
-constexpr uint32_t kHybridPartialMobilenet = 1;
-constexpr uint32_t kHybridComplete = 2;
 
 volatile opennpux_coral_mobilenet_mailbox* Mailbox() {
   return reinterpret_cast<volatile opennpux_coral_mobilenet_mailbox*>(
       kExtmemBase + OPENNPUX_CORAL_MOBILENET_MAILBOX_OFFSET);
+}
+
+coral_operator_descriptor* OperatorDescriptor() {
+  return reinterpret_cast<coral_operator_descriptor*>(
+      kExtmemBase + CORAL_OPERATOR_DESCRIPTOR_OFFSET);
 }
 
 void MarkProgress(uint32_t value) {
@@ -141,12 +142,23 @@ int main() {
 
   const uint64_t start_cycles = mcycle_read();
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_BEGIN);
-  if (*reinterpret_cast<volatile uint32_t*>(kHybridModeAddr) != 0) {
-    *reinterpret_cast<volatile uint32_t*>(kHybridCommandAddr) =
-        kHybridPartialMobilenet;
+  if (*reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_MODE_REG) ==
+      CORAL_OPERATOR_MODE_HYBRID) {
+    coral_operator_descriptor* descriptor = OperatorDescriptor();
+    coralnpu_v2::opt::Memset(descriptor, 0, sizeof(*descriptor));
+    descriptor->magic = CORAL_OPERATOR_ABI_MAGIC;
+    descriptor->version = CORAL_OPERATOR_ABI_VERSION;
+    descriptor->descriptor_size = sizeof(*descriptor);
+    descriptor->opcode = CORAL_OPERATOR_OP_PARTIAL_MOBILENET;
+    descriptor->state = CORAL_OPERATOR_STATE_SUBMITTED;
     asm volatile("fence rw, rw" ::: "memory");
-    if (*reinterpret_cast<volatile uint32_t*>(kHybridStatusAddr) !=
-        kHybridComplete) {
+    *reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_DOORBELL_REG) =
+        kExtmemBase + CORAL_OPERATOR_DESCRIPTOR_OFFSET;
+    asm volatile("fence rw, rw" ::: "memory");
+    if (*reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_STATUS_REG) !=
+            CORAL_OPERATOR_STATE_COMPLETE ||
+        descriptor->state != CORAL_OPERATOR_STATE_COMPLETE ||
+        descriptor->error != CORAL_OPERATOR_ERROR_NONE) {
       return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_INVOKE);
     }
     MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_END);

@@ -65,9 +65,14 @@ CORAL_OPERATOR_MODE=rtl ./tools/coralnpu/run_rvv_mobilenet_test.sh
 `rtl` is the default for backward compatibility. Both modes use the same gem5
 binary, bridge, firmware, Linux driver, mailbox ABI, and boot checkpoint.
 Changing modes does not rebuild the checkpoint. Hybrid `mobilenet_npu_cycles`
-currently reports host-kernel nanoseconds as a functional diagnostic and must
-not be compared with RTL cycle counts; modeled accelerator latency is a later
+reports zero until an accelerator latency model is configured. Host-kernel
+nanoseconds remain in the operator descriptor and bridge log and must not be
+compared with RTL cycle counts; modeled accelerator latency is a later
 calibration step.
+Both modes now share the versioned descriptor in
+`hw_sim/gem5_bridge/coral_operator.h`. The partial-MobileNet command is the
+first graph opcode; Conv2D, DepthwiseConv2D, and MatMul have reserved per-op
+opcodes and use the same tensor/quantization/status layout.
 
 For a functional run with NPU progress tracing, use:
 

@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
 
 #include <cassert>
+#include <cstring>
 #include <cstdint>
 #include <vector>
 

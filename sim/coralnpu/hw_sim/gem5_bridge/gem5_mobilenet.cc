@@ -49,6 +49,16 @@ void MarkProgress(uint32_t value) {
 TfLiteStatus (*convInvoke)(TfLiteContext*, TfLiteNode*) = nullptr;
 TfLiteStatus (*depthwiseInvoke)(TfLiteContext*, TfLiteNode*) = nullptr;
 
+uint32_t Fnv1a32(const void* data, uint32_t size) {
+  const uint8_t* bytes = static_cast<const uint8_t*>(data);
+  uint32_t hash = UINT32_C(2166136261);
+  for (uint32_t i = 0; i < size; ++i) {
+    hash ^= bytes[i];
+    hash *= UINT32_C(16777619);
+  }
+  return hash;
+}
+
 uint32_t TensorBytes(const TfLiteEvalTensor* tensor, uint32_t element_size) {
   if (tensor == nullptr || tensor->dims == nullptr || tensor->dims->size <= 0) {
     return 0;
@@ -341,6 +351,9 @@ int main() {
   for (uint32_t i = 0; i < OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT; ++i) {
     mailbox->output[i] = output->data.int8[i];
   }
+  const uint32_t output_bytes = static_cast<uint32_t>(output->bytes);
+  mailbox->output_checksum = Fnv1a32(output->data.raw, output_bytes);
+  mailbox->output_bytes = output_bytes;
   mailbox->cycle_low = static_cast<uint32_t>(descriptor->modeled_cycles);
   mailbox->cycle_high =
       static_cast<uint32_t>(descriptor->modeled_cycles >> 32);

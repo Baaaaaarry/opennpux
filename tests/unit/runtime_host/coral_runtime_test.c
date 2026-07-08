@@ -1,6 +1,7 @@
 #include "opennpux/coral_runtime.h"
 
 #include <errno.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,6 +79,12 @@ main(void)
           "model command ABI size changed");
     check(sizeof(struct opennpux_coral_mobilenet_mailbox) == 64,
           "MobileNet mailbox ABI size changed");
+    check(offsetof(struct opennpux_coral_mobilenet_mailbox,
+                   output_checksum) == 48,
+          "MobileNet checksum ABI offset changed");
+    check(offsetof(struct opennpux_coral_mobilenet_mailbox,
+                   output_bytes) == 52,
+          "MobileNet output bytes ABI offset changed");
 
     check(opennpux_coral_check_shared_u32_access(16, 0) == 0,
           "offset 0 rejected");

@@ -861,6 +861,8 @@ opennpux_coral_mobilenet_test(
     for (uint32_t i = 0; i < OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT; ++i) {
         result->output[i] = mailbox->output[i];
     }
+    result->output_checksum = mailbox->output_checksum;
+    result->output_bytes = mailbox->output_bytes;
     result->npu_cycles = ((uint64_t)mailbox->cycle_high << 32) |
                          mailbox->cycle_low;
     const int mailbox_valid =
@@ -868,7 +870,8 @@ opennpux_coral_mobilenet_test(
         mailbox->version == OPENNPUX_CORAL_MOBILENET_VERSION &&
         result->state == OPENNPUX_CORAL_MOBILENET_COMPLETE &&
         result->error_code == OPENNPUX_CORAL_MOBILENET_ERROR_NONE &&
-        result->output_count == OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT;
+        result->output_count == OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT &&
+        result->output_bytes != 0;
 
     opennpux_coral_get_info(dev, &after);
     result->dma_requests = after.dma_requests - before.dma_requests;

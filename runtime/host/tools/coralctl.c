@@ -216,6 +216,9 @@ print_mobilenet_test(struct opennpux_coral_device *dev, uint32_t entry,
     printf("mobilenet_state=0x%08" PRIx32 "\n", result.state);
     printf("mobilenet_error=%" PRIu32 "\n", result.error_code);
     printf("mobilenet_npu_cycles=%" PRIu64 "\n", result.npu_cycles);
+    printf("mobilenet_output_checksum=0x%08" PRIx32 "\n",
+           result.output_checksum);
+    printf("mobilenet_output_bytes=%" PRIu32 "\n", result.output_bytes);
     printf("mobilenet_dma_requests=%" PRIu32 "\n", result.dma_requests);
     printf("mobilenet_dma_completions=%" PRIu32 "\n",
            result.dma_completions);

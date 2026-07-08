@@ -101,6 +101,8 @@ struct opennpux_coral_mobilenet_result {
     uint32_t error_code;
     uint32_t output_count;
     int32_t output[OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT];
+    uint32_t output_checksum;
+    uint32_t output_bytes;
     uint64_t npu_cycles;
     uint32_t dma_requests;
     uint32_t dma_completions;

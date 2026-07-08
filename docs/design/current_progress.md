@@ -193,3 +193,140 @@ acceptance remains required after building the new bridge and firmware.
 2. Build and load `/dev/opennpux-coral` in the guest image.
 3. Pass the driver-only shared-window and DMA system test.
 4. Extend the generic model/operator registry as new workloads require.
+
+
+## 当前mobilenet base基线版本进展
+| 能力 | RTL 模式 | Hybrid 模式 |
+|---|---|---|
+| ARM Linux/驱动/runtime | 已跑通 | 已跑通 |
+| Coral 固件控制流 | RTL 执行 | RTL 执行 |
+| Partial MobileNet | 已完成 | 已完成 |
+| Conv/Depthwise | Coral RVV RTL kernel | 主机 TFLM reference |
+| Tensor arena | DTCM | RTL 分配，算子由 host 执行 |
+| 性能含义 | 可统计 RTL cycles | 只代表功能执行速度 |
+| 数值正确性 | 尚无完整 golden 校验 | 尚无完整 golden 校验 |
+| 完整 MobileNet | 尚未支持 | 尚未支持 |
+
+## 当前base调通后待开发项
+### RTL 模式待开发
+完整 MobileNet 的算子覆盖：
+Reshape
+AveragePool2D
+Softmax
+StridedSlice
+Pad
+Mean
+Shape
+Pack
+
+完整模型内存规划：
+DTCM scratchpad 分配。
+EXTMEM tensor tiling。
+权重预取和双缓冲。
+避免重新退化为大量 1-byte AXI 请求。
+
+RTL 访存优化：
+AXI burst。
+Read-ahead。
+Write combining。
+Cache-line buffer。
+权重和 activation DMA 批量搬运。
+
+性能计数器：
+每算子 cycles。
+MAC/RVV 利用率。
+pipeline stall。
+DTCM/EXTMEM 请求数。
+AXI burst 长度和有效带宽。
+
+中断路径：
+NPU completion IRQ。
+GIC 接入。
+Linux 驱动由轮询改为中断等待。
+
+自定义 RTL 单元：
+从当前独立 Custom MAC 扩展为可被 kernel 使用的加速单元。
+增加 descriptor、DMA、状态和异常处理。
+修改 Coral kernel 将目标计算下发给自定义单元。
+
+### Hybrid 模式待开发
+hybrid模式执行流：
+'''
+RTL 写 doorbell
+gem5 暂停当前事件
+x86 host 执行 TFLM
+结果写入 mailbox
+callback 返回
+RTL 继续
+从 partial graph 扩展到完整 MobileNet。
+'''
+
+从当前“固定 partial graph offload”升级为通用 operator descriptor：
+opcode
+tensor 地址和尺寸
+shape/stride/padding
+quantization multiplier/shift
+zero point
+activation clamp
+
+每算子独立 offload：
+Conv2D
+DepthwiseConv2D
+Pooling
+Softmax
+Elementwise
+MatMul
+
+支持 fallback：
+Hybrid kernel 支持时由 host 执行。
+不支持的 shape 自动回退到 Coral RTL kernel。
+日志明确记录 offload/fallback。
+
+性能模型：
+host wall time 与 simulated cycles 分离。
+根据 MAC 数、带宽、启动延迟计算 modeled cycles。
+Hybrid 结果不能直接使用 host 纳秒作为 NPU cycles。
+
+并发与一致性：
+operator staging buffer。
+DTCM/EXTMEM 批量同步。
+ARM 与 NPU 并发访问时的 ownership 和 fence。
+多 command queue。
+
+公共部分
+两种模式应共享：
+模型解析和转换工具。
+Operator ABI 和 descriptor。
+Tensor layout、shape 和量化参数定义。
+Linux 驱动和 /dev/opennpux-coral。
+用户态 runtime、coralctl 和模型提交接口。
+Mailbox、command queue 和错误码。
+输入数据生成和预处理。
+完整输出 tensor checksum。
+Golden output 和回归测试。
+每算子 marker、统计格式和报告工具。
+模型/固件/ABI 版本校验。
+checkpoint 和启动脚本。
+算子实现关系
+算子语义可以共享，但代码实现不能完全共用：
+Golden/reference：x86 TFLite reference kernel，作为正确性基准。
+Hybrid：主机 C++ functional kernel，应与 golden bit-exact。
+RTL：Coral RVV kernel或自定义 RTL accelerator。
+Fallback：Coral 标准 TFLM kernel。
+
+
+时钟一致性：
+当前有三套时钟系统：
+1、gem5 模拟时间：ARM CPU、内存、总线和设备使用 curTick()。
+2、Coral RTL 时间：Verilator VerilatedContext，每次 wrapper.Step() 推进一个 RTL cycle。
+3、Host时间：x86 实际运行时间，例如 Hybrid 的 host_ns=67093044。
+
+RTL模式配置参数：
+```
+--npu-rtl-tick-period=1ns
+--npu-rtl-cycles-per-event=1000
+
+cycles-per-event=1000
+tick-period=1ns
+每执行一个 RTL cycle，gem5 时间推进约 1 ns
+```

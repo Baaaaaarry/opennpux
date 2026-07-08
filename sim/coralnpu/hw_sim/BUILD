@@ -158,6 +158,8 @@ cc_binary(
         "gem5_bridge/gem5_dma_request_builder.h",
         "gem5_bridge/gem5_hybrid_mobilenet.cc",
         "gem5_bridge/gem5_hybrid_mobilenet.h",
+        "gem5_bridge/gem5_hybrid_operator.cc",
+        "gem5_bridge/gem5_hybrid_operator.h",
     ],
     copts = ["-DCORAL_GEM5_RVV_HIGHMEM"],
     linkshared = True,
@@ -223,6 +225,7 @@ coralnpu_v2_binary(
     srcs = [
         "gem5_bridge/coral_mobilenet.h",
         "gem5_bridge/coral_operator.h",
+        "gem5_bridge/coral_operator_client.h",
         "gem5_bridge/gem5_mobilenet.cc",
     ],
     dtcm_size_kbytes = 1024,

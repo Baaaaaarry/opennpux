@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define CORAL_OPERATOR_ABI_MAGIC UINT32_C(0x4e50584f)
-#define CORAL_OPERATOR_ABI_VERSION UINT32_C(1)
+#define CORAL_OPERATOR_ABI_VERSION UINT32_C(2)
 
 #define CORAL_OPERATOR_MMIO_BASE UINT32_C(0x30000100)
 #define CORAL_OPERATOR_MODE_REG (CORAL_OPERATOR_MMIO_BASE + UINT32_C(0x00))
@@ -12,8 +12,12 @@
     (CORAL_OPERATOR_MMIO_BASE + UINT32_C(0x04))
 #define CORAL_OPERATOR_STATUS_REG \
     (CORAL_OPERATOR_MMIO_BASE + UINT32_C(0x08))
+#define CORAL_OPERATOR_CAPABILITIES_REG \
+    (CORAL_OPERATOR_MMIO_BASE + UINT32_C(0x0c))
 
 #define CORAL_OPERATOR_DESCRIPTOR_OFFSET UINT32_C(0x00400100)
+#define CORAL_OPERATOR_STAGING_OFFSET UINT32_C(0x00500000)
+#define CORAL_OPERATOR_STAGING_SIZE UINT32_C(0x00300000)
 #define CORAL_OPERATOR_MAX_TENSORS UINT32_C(4)
 #define CORAL_OPERATOR_MAX_DIMS UINT32_C(4)
 
@@ -46,6 +50,15 @@ enum coral_operator_error {
     CORAL_OPERATOR_ERROR_ADDRESS = 4,
 };
 
+enum coral_operator_flags {
+    CORAL_OPERATOR_FLAG_ALLOW_RTL_FALLBACK = 1u << 0,
+};
+
+enum coral_operator_element_type {
+    CORAL_OPERATOR_ELEMENT_INT8 = 1,
+    CORAL_OPERATOR_ELEMENT_INT32 = 2,
+};
+
 struct coral_operator_tensor {
     uint32_t address;
     uint32_t size;
@@ -74,7 +87,7 @@ struct coral_operator_descriptor {
     int32_t output_zero_point;
     int32_t activation_min;
     int32_t activation_max;
-    uint32_t reserved0;
+    uint32_t quantization_count;
     uint64_t host_elapsed_ns;
     uint64_t modeled_cycles;
     uint64_t bytes_read;

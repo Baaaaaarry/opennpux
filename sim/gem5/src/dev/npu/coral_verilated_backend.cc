@@ -75,6 +75,7 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     mmioRead(nullptr),
     mmioWrite(nullptr),
     stepModel(nullptr),
+    cycleCount(nullptr),
     dmaRequestGet(nullptr),
     dmaComplete(nullptr),
     extmemRead(nullptr),
@@ -112,6 +113,7 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     mmioRead = loadSymbol<MmioReadFn>("coral_gem5_mmio_read");
     mmioWrite = loadSymbol<MmioWriteFn>("coral_gem5_mmio_write");
     stepModel = loadSymbol<StepFn>("coral_gem5_step");
+    cycleCount = loadSymbol<CycleCountFn>("coral_gem5_cycle_count");
     dmaRequestGet = loadSymbol<DmaRequestGetFn>(
         "coral_gem5_dma_request_get");
     dmaComplete = loadSymbol<DmaCompleteFn>("coral_gem5_dma_complete");
@@ -328,7 +330,17 @@ CoralVerilatedBackend::processEvent()
                  static_cast<unsigned long long>(rtlEventCount),
                  rtlCyclesPerEvent);
     }
+    const uint64_t cyclesBefore = cycleCount(modelHandle);
     const int result = stepModel(modelHandle, rtlCyclesPerEvent);
+    const uint64_t cyclesAfter = cycleCount(modelHandle);
+    fatal_if(cyclesAfter < cyclesBefore,
+             "Coral RTL cycle counter moved backwards");
+    const uint64_t executedCycles = cyclesAfter - cyclesBefore;
+    fatal_if(executedCycles != 0 &&
+                 rtlTickPeriod > MaxTick / executedCycles,
+             "Coral RTL batch delay overflows gem5 Tick");
+    const Tick stepDelay = executedCycles == 0 ? rtlTickPeriod :
+        executedCycles * rtlTickPeriod;
     fatal_if(result < 0, "Coral RTL bridge failed while stepping model");
     if (result == 4) {
         uint32_t mepc = 0;
@@ -349,7 +361,7 @@ CoralVerilatedBackend::processEvent()
                  "step_result=%d\n",
                  static_cast<unsigned long long>(rtlEventCount),
                  static_cast<unsigned long long>(
-                     rtlEventCount * rtlCyclesPerEvent),
+                     cyclesAfter),
                  result);
     }
 
@@ -359,7 +371,7 @@ CoralVerilatedBackend::processEvent()
                      "Coral RTL entered WFI; keeping backend scheduled\n");
             wfiObserved = true;
         }
-        pendingEventTick = curTick() + rtlTickPeriod;
+        pendingEventTick = curTick() + stepDelay;
     } else if (result == 2) {
         wfiObserved = false;
         coral_gem5_dma_request request = {};
@@ -397,7 +409,7 @@ CoralVerilatedBackend::processEvent()
         DPRINTFR(NPUDevice, "Coral RTL reached halted/WFI state\n");
     } else {
         wfiObserved = false;
-        pendingEventTick = curTick() + rtlTickPeriod;
+        pendingEventTick = curTick() + stepDelay;
     }
 }
 

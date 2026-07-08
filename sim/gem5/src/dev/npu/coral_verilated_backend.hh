@@ -26,6 +26,7 @@ class CoralVerilatedBackend : public CoralBackend
     using MmioWriteFn =
         int (*)(coral_gem5_handle *, uint32_t, const void *, size_t);
     using StepFn = int (*)(coral_gem5_handle *, uint32_t);
+    using CycleCountFn = uint64_t (*)(coral_gem5_handle *);
     using DmaRequestGetFn =
         int (*)(coral_gem5_handle *, coral_gem5_dma_request *);
     using DmaCompleteFn =
@@ -49,6 +50,7 @@ class CoralVerilatedBackend : public CoralBackend
     MmioReadFn mmioRead;
     MmioWriteFn mmioWrite;
     StepFn stepModel;
+    CycleCountFn cycleCount;
     DmaRequestGetFn dmaRequestGet;
     DmaCompleteFn dmaComplete;
     ExtmemReadFn extmemRead;

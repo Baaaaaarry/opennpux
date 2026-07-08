@@ -14,7 +14,7 @@
 #include "hw_sim/gem5_bridge/gem5_custom_mac.h"
 #include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
 #ifdef CORAL_GEM5_RVV_HIGHMEM
-#include "hw_sim/gem5_bridge/gem5_hybrid_mobilenet.h"
+#include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
 #endif
 
 namespace {
@@ -128,6 +128,11 @@ struct coral_gem5_handle {
           value = operator_mode;
         } else if (addr.addr_bits_addr == CORAL_OPERATOR_STATUS_REG) {
           value = hybrid_status;
+        } else if (addr.addr_bits_addr ==
+                   CORAL_OPERATOR_CAPABILITIES_REG) {
+#ifdef CORAL_GEM5_RVV_HIGHMEM
+          value = UINT32_C(1) << CORAL_OPERATOR_OP_PARTIAL_MOBILENET;
+#endif
         }
         auto* destination = reinterpret_cast<uint8_t*>(
             &response.read_data_bits_data[0]);
@@ -228,44 +233,19 @@ struct coral_gem5_handle {
                 auto* descriptor = reinterpret_cast<
                     coral_operator_descriptor*>(
                         local_extmem.data() + (command - kExtmemBase));
-                const bool descriptor_valid =
-                    descriptor->magic == CORAL_OPERATOR_ABI_MAGIC &&
-                    descriptor->version == CORAL_OPERATOR_ABI_VERSION &&
-                    descriptor->descriptor_size == sizeof(*descriptor) &&
-                    descriptor->execution_mode ==
-                        CORAL_OPERATOR_MODE_HYBRID &&
-                    descriptor->state == CORAL_OPERATOR_STATE_SUBMITTED;
-                if (!descriptor_valid) {
-                  descriptor->state = CORAL_OPERATOR_STATE_ERROR;
-                  descriptor->error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
-                  hybrid_status = CORAL_OPERATOR_STATE_ERROR;
-                  wrapper.QueueWriteResponse(response);
-                  return;
-                }
-                descriptor->state = CORAL_OPERATOR_STATE_RUNNING;
-                descriptor->error = CORAL_OPERATOR_ERROR_NONE;
-                hybrid_status = CORAL_OPERATOR_STATE_RUNNING;
 #ifdef CORAL_GEM5_RVV_HIGHMEM
-                int32_t output[OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT] = {};
-                uint64_t elapsed_ns = 0;
-                const bool supported = descriptor->opcode ==
-                    CORAL_OPERATOR_OP_PARTIAL_MOBILENET;
-                const bool execution_ok = supported && local_extmem_enabled &&
-                    RunGem5HybridMobilenet(output, &elapsed_ns);
-                const bool ok = execution_ok;
-                descriptor->host_elapsed_ns = elapsed_ns;
-                descriptor->modeled_cycles = 0;
-                descriptor->bytes_read = 0;
-                descriptor->bytes_written =
-                    OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT;
-                descriptor->error = ok ? CORAL_OPERATOR_ERROR_NONE :
-                    (!supported ? CORAL_OPERATOR_ERROR_UNSUPPORTED :
-                     (!local_extmem_enabled ? CORAL_OPERATOR_ERROR_ADDRESS :
-                                              CORAL_OPERATOR_ERROR_EXECUTION));
-                descriptor->state = ok ? CORAL_OPERATOR_STATE_COMPLETE :
-                                         CORAL_OPERATOR_STATE_ERROR;
+                Gem5HybridOperatorResult result = {};
+                bool ok = false;
+                if (local_extmem_enabled) {
+                  ok = DispatchGem5HybridOperator(
+                        descriptor, local_extmem.data(), kExtmemBase,
+                        local_extmem.size(), &result);
+                } else {
+                  descriptor->state = CORAL_OPERATOR_STATE_ERROR;
+                  descriptor->error = CORAL_OPERATOR_ERROR_ADDRESS;
+                }
                 hybrid_status = descriptor->state;
-                if (ok && local_extmem_enabled) {
+                if (ok && result.has_mobilenet_output) {
                   const size_t offset =
                       OPENNPUX_CORAL_MOBILENET_MAILBOX_OFFSET;
                   auto* mailbox = reinterpret_cast<
@@ -279,14 +259,15 @@ struct coral_gem5_handle {
                       OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT;
                   for (size_t i = 0;
                        i < OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT; ++i) {
-                    mailbox->output[i] = output[i];
+                    mailbox->output[i] = result.mobilenet_output[i];
                   }
                   mailbox->error_code =
                       OPENNPUX_CORAL_MOBILENET_ERROR_NONE;
                   mailbox->state = OPENNPUX_CORAL_MOBILENET_COMPLETE;
                   std::fprintf(stderr,
                                "Coral hybrid MobileNet complete host_ns=%llu\n",
-                               static_cast<unsigned long long>(elapsed_ns));
+                               static_cast<unsigned long long>(
+                                   descriptor->host_elapsed_ns));
                   std::fflush(stderr);
                 } else {
                   std::fprintf(stderr,
@@ -497,6 +478,12 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
     }
   }
   return handle->wrapper.IsWfi() ? 3 : 0;
+}
+
+extern "C" uint64_t
+coral_gem5_cycle_count(coral_gem5_handle* handle)
+{
+  return handle == nullptr ? 0 : handle->rtl_cycles;
 }
 
 extern "C" int

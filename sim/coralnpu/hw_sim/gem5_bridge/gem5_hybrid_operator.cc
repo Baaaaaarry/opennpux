@@ -1,0 +1,113 @@
+#include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
+
+#include <cstring>
+
+#include "hw_sim/gem5_bridge/gem5_hybrid_mobilenet.h"
+
+namespace {
+
+bool RangeValid(uint32_t address, uint32_t size, uint32_t base,
+                size_t capacity) {
+  return size != 0 && size <= capacity && address >= base &&
+         address - base <= capacity - size;
+}
+
+}  // namespace
+
+bool ValidateGem5HybridDescriptor(
+    const coral_operator_descriptor& descriptor, uint32_t extmem_base,
+    size_t extmem_size, uint32_t* error) {
+  if (error == nullptr) {
+    return false;
+  }
+  *error = CORAL_OPERATOR_ERROR_NONE;
+  if (descriptor.magic != CORAL_OPERATOR_ABI_MAGIC ||
+      descriptor.version != CORAL_OPERATOR_ABI_VERSION ||
+      descriptor.descriptor_size != sizeof(descriptor) ||
+      descriptor.execution_mode != CORAL_OPERATOR_MODE_HYBRID ||
+      descriptor.state != CORAL_OPERATOR_STATE_SUBMITTED ||
+      descriptor.tensor_count > CORAL_OPERATOR_MAX_TENSORS) {
+    *error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
+    return false;
+  }
+  for (uint32_t i = 0; i < descriptor.tensor_count; ++i) {
+    const coral_operator_tensor& tensor = descriptor.tensors[i];
+    const bool type_valid =
+        tensor.element_type == CORAL_OPERATOR_ELEMENT_INT8 ||
+        tensor.element_type == CORAL_OPERATOR_ELEMENT_INT32;
+    if (!type_valid ||
+        !RangeValid(tensor.address, tensor.size, extmem_base, extmem_size)) {
+      *error = CORAL_OPERATOR_ERROR_ADDRESS;
+      return false;
+    }
+  }
+  if ((descriptor.multiplier_address == 0) !=
+      (descriptor.shift_address == 0)) {
+    *error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
+    return false;
+  }
+  if (descriptor.quantization_count != 0) {
+    const uint64_t quantization_bytes =
+        static_cast<uint64_t>(descriptor.quantization_count) * sizeof(int32_t);
+    if (quantization_bytes > UINT32_MAX ||
+        !RangeValid(descriptor.multiplier_address,
+                    static_cast<uint32_t>(quantization_bytes), extmem_base,
+                    extmem_size) ||
+        !RangeValid(descriptor.shift_address,
+                    static_cast<uint32_t>(quantization_bytes), extmem_base,
+                    extmem_size)) {
+      *error = CORAL_OPERATOR_ERROR_ADDRESS;
+      return false;
+    }
+  }
+  return true;
+}
+
+bool DispatchGem5HybridOperator(
+    coral_operator_descriptor* descriptor, uint8_t* extmem,
+    uint32_t extmem_base, size_t extmem_size,
+    Gem5HybridOperatorResult* result) {
+  if (descriptor == nullptr || extmem == nullptr || result == nullptr) {
+    return false;
+  }
+  std::memset(result, 0, sizeof(*result));
+  uint32_t error = CORAL_OPERATOR_ERROR_NONE;
+  if (!ValidateGem5HybridDescriptor(
+          *descriptor, extmem_base, extmem_size, &error)) {
+    descriptor->state = CORAL_OPERATOR_STATE_ERROR;
+    descriptor->error = error;
+    return false;
+  }
+
+  descriptor->state = CORAL_OPERATOR_STATE_RUNNING;
+  descriptor->error = CORAL_OPERATOR_ERROR_NONE;
+  descriptor->host_elapsed_ns = 0;
+  descriptor->modeled_cycles = 0;
+  descriptor->bytes_read = 0;
+  descriptor->bytes_written = 0;
+
+  bool success = false;
+  switch (descriptor->opcode) {
+    case CORAL_OPERATOR_OP_PARTIAL_MOBILENET:
+      success = RunGem5HybridMobilenet(
+          result->mobilenet_output, &descriptor->host_elapsed_ns);
+      result->has_mobilenet_output = success;
+      descriptor->bytes_written = success ? 5 : 0;
+      break;
+    case CORAL_OPERATOR_OP_CONV_2D_INT8:
+    case CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8:
+    case CORAL_OPERATOR_OP_MATMUL_INT8:
+      descriptor->error = CORAL_OPERATOR_ERROR_UNSUPPORTED;
+      break;
+    default:
+      descriptor->error = CORAL_OPERATOR_ERROR_UNSUPPORTED;
+      break;
+  }
+
+  if (!success && descriptor->error == CORAL_OPERATOR_ERROR_NONE) {
+    descriptor->error = CORAL_OPERATOR_ERROR_EXECUTION;
+  }
+  descriptor->state = success ? CORAL_OPERATOR_STATE_COMPLETE :
+                                CORAL_OPERATOR_STATE_ERROR;
+  return success;
+}

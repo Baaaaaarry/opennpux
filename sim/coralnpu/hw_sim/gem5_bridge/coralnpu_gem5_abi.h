@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define CORAL_GEM5_ABI_VERSION 5u
+#define CORAL_GEM5_ABI_VERSION 6u
 #define CORAL_GEM5_AXI_DATA_BYTES 16u
 #define CORAL_GEM5_DMA_DATA_BYTES 4096u
 
@@ -36,6 +36,7 @@ int coral_gem5_mmio_read(
 int coral_gem5_mmio_write(
     coral_gem5_handle *handle, uint32_t addr, const void *data, size_t size);
 int coral_gem5_step(coral_gem5_handle *handle, uint32_t cycles);
+uint64_t coral_gem5_cycle_count(coral_gem5_handle *handle);
 int coral_gem5_dma_request_get(
     coral_gem5_handle *handle, coral_gem5_dma_request *request);
 int coral_gem5_dma_complete(

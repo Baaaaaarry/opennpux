@@ -3,6 +3,7 @@
 
 #include "hw_sim/gem5_bridge/coral_mobilenet.h"
 #include "hw_sim/gem5_bridge/coral_operator.h"
+#include "hw_sim/gem5_bridge/coral_operator_client.h"
 #include "sw/opt/litert-micro/conv.h"
 #include "sw/opt/litert-micro/depthwise_conv.h"
 #include "sw/opt/rvv_opt.h"
@@ -142,33 +143,27 @@ int main() {
 
   const uint64_t start_cycles = mcycle_read();
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_BEGIN);
-  const uint32_t execution_mode =
-      *reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_MODE_REG);
+  uint32_t execution_mode = opennpux::OperatorMode();
+  if (execution_mode == CORAL_OPERATOR_MODE_HYBRID &&
+      !opennpux::HybridOperatorSupported(
+          CORAL_OPERATOR_OP_PARTIAL_MOBILENET)) {
+    execution_mode = CORAL_OPERATOR_MODE_RTL;
+  }
   coral_operator_descriptor* descriptor = OperatorDescriptor();
-  coralnpu_v2::opt::Memset(descriptor, 0, sizeof(*descriptor));
-  descriptor->magic = CORAL_OPERATOR_ABI_MAGIC;
-  descriptor->version = CORAL_OPERATOR_ABI_VERSION;
-  descriptor->descriptor_size = sizeof(*descriptor);
-  descriptor->opcode = CORAL_OPERATOR_OP_PARTIAL_MOBILENET;
-  descriptor->execution_mode = execution_mode;
+  opennpux::InitializeOperatorDescriptor(
+      descriptor, CORAL_OPERATOR_OP_PARTIAL_MOBILENET, execution_mode);
+  descriptor->flags = CORAL_OPERATOR_FLAG_ALLOW_RTL_FALLBACK;
 
   if (execution_mode == CORAL_OPERATOR_MODE_HYBRID) {
-    descriptor->state = CORAL_OPERATOR_STATE_SUBMITTED;
-    asm volatile("fence rw, rw" ::: "memory");
-    *reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_DOORBELL_REG) =
-        kExtmemBase + CORAL_OPERATOR_DESCRIPTOR_OFFSET;
-    asm volatile("fence rw, rw" ::: "memory");
-    if (*reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_STATUS_REG) !=
-            CORAL_OPERATOR_STATE_COMPLETE ||
-        descriptor->state != CORAL_OPERATOR_STATE_COMPLETE ||
-        descriptor->error != CORAL_OPERATOR_ERROR_NONE) {
+    if (!opennpux::SubmitHybridOperator(
+            descriptor, kExtmemBase + CORAL_OPERATOR_DESCRIPTOR_OFFSET)) {
       return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_INVOKE);
     }
     MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_END);
     return 0;
   }
   descriptor->state = CORAL_OPERATOR_STATE_RUNNING;
-  asm volatile("fence rw, rw" ::: "memory");
+  opennpux::OperatorFence();
   if (interpreter.Invoke() != kTfLiteOk) {
     descriptor->state = CORAL_OPERATOR_STATE_ERROR;
     descriptor->error = CORAL_OPERATOR_ERROR_EXECUTION;
@@ -195,6 +190,6 @@ int main() {
   descriptor->bytes_written = OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT;
   descriptor->state = CORAL_OPERATOR_STATE_COMPLETE;
   descriptor->error = CORAL_OPERATOR_ERROR_NONE;
-  asm volatile("fence rw, rw" ::: "memory");
+  opennpux::OperatorFence();
   return 0;
 }

@@ -27,6 +27,11 @@ the RTL starts. The default is `rtl`.
 6. Completion writes result statistics and either `COMPLETE` or `ERROR`.
 7. Firmware performs another fence and validates both status and error.
 
+Full-RTL execution initializes the same descriptor without ringing the hybrid
+doorbell. Firmware sets `RUNNING` before the RVV kernel and writes its measured
+cycles and `COMPLETE`/`ERROR` state afterward. Consumers therefore read one
+execution record in both modes; only the producer and timing semantics differ.
+
 Malformed descriptors and unsupported opcodes are explicit protocol errors;
 they never silently fall back. Firmware may choose an RTL fallback before
 submission when an operator shape is unsupported by the hybrid backend.

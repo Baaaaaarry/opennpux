@@ -62,6 +62,7 @@ struct coral_operator_descriptor {
     uint32_t state;
     uint32_t error;
     uint32_t flags;
+    uint32_t execution_mode;
     uint32_t tensor_count;
     struct coral_operator_tensor tensors[CORAL_OPERATOR_MAX_TENSORS];
     uint32_t stride_height;

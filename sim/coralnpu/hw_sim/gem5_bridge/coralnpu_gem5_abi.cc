@@ -232,6 +232,8 @@ struct coral_gem5_handle {
                     descriptor->magic == CORAL_OPERATOR_ABI_MAGIC &&
                     descriptor->version == CORAL_OPERATOR_ABI_VERSION &&
                     descriptor->descriptor_size == sizeof(*descriptor) &&
+                    descriptor->execution_mode ==
+                        CORAL_OPERATOR_MODE_HYBRID &&
                     descriptor->state == CORAL_OPERATOR_STATE_SUBMITTED;
                 if (!descriptor_valid) {
                   descriptor->state = CORAL_OPERATOR_STATE_ERROR;

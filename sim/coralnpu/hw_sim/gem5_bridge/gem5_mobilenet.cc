@@ -142,14 +142,17 @@ int main() {
 
   const uint64_t start_cycles = mcycle_read();
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_BEGIN);
-  if (*reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_MODE_REG) ==
-      CORAL_OPERATOR_MODE_HYBRID) {
-    coral_operator_descriptor* descriptor = OperatorDescriptor();
-    coralnpu_v2::opt::Memset(descriptor, 0, sizeof(*descriptor));
-    descriptor->magic = CORAL_OPERATOR_ABI_MAGIC;
-    descriptor->version = CORAL_OPERATOR_ABI_VERSION;
-    descriptor->descriptor_size = sizeof(*descriptor);
-    descriptor->opcode = CORAL_OPERATOR_OP_PARTIAL_MOBILENET;
+  const uint32_t execution_mode =
+      *reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_MODE_REG);
+  coral_operator_descriptor* descriptor = OperatorDescriptor();
+  coralnpu_v2::opt::Memset(descriptor, 0, sizeof(*descriptor));
+  descriptor->magic = CORAL_OPERATOR_ABI_MAGIC;
+  descriptor->version = CORAL_OPERATOR_ABI_VERSION;
+  descriptor->descriptor_size = sizeof(*descriptor);
+  descriptor->opcode = CORAL_OPERATOR_OP_PARTIAL_MOBILENET;
+  descriptor->execution_mode = execution_mode;
+
+  if (execution_mode == CORAL_OPERATOR_MODE_HYBRID) {
     descriptor->state = CORAL_OPERATOR_STATE_SUBMITTED;
     asm volatile("fence rw, rw" ::: "memory");
     *reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_DOORBELL_REG) =
@@ -164,15 +167,22 @@ int main() {
     MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_END);
     return 0;
   }
+  descriptor->state = CORAL_OPERATOR_STATE_RUNNING;
+  asm volatile("fence rw, rw" ::: "memory");
   if (interpreter.Invoke() != kTfLiteOk) {
+    descriptor->state = CORAL_OPERATOR_STATE_ERROR;
+    descriptor->error = CORAL_OPERATOR_ERROR_EXECUTION;
     return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_INVOKE);
   }
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_END);
   const uint64_t elapsed_cycles = mcycle_read() - start_cycles;
+  descriptor->modeled_cycles = elapsed_cycles;
 
   TfLiteTensor* output = interpreter.output(0);
   if (output == nullptr ||
       output->bytes < OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT) {
+    descriptor->state = CORAL_OPERATOR_STATE_ERROR;
+    descriptor->error = CORAL_OPERATOR_ERROR_EXECUTION;
     return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_OUTPUT);
   }
   for (uint32_t i = 0; i < OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT; ++i) {
@@ -182,6 +192,9 @@ int main() {
   mailbox->cycle_high = static_cast<uint32_t>(elapsed_cycles >> 32);
   mailbox->output_count = OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT;
   mailbox->state = OPENNPUX_CORAL_MOBILENET_COMPLETE;
+  descriptor->bytes_written = OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT;
+  descriptor->state = CORAL_OPERATOR_STATE_COMPLETE;
+  descriptor->error = CORAL_OPERATOR_ERROR_NONE;
   asm volatile("fence rw, rw" ::: "memory");
   return 0;
 }

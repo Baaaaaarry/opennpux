@@ -184,6 +184,7 @@ cc_test(
 cc_test(
     name = "gem5_hybrid_kernels_test",
     srcs = [
+        "gem5_bridge/coral_operator.h",
         "gem5_bridge/gem5_hybrid_kernels.cc",
         "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_kernels_test.cc",

@@ -50,12 +50,15 @@ TfLiteStatus (*convInvoke)(TfLiteContext*, TfLiteNode*) = nullptr;
 TfLiteStatus (*depthwiseInvoke)(TfLiteContext*, TfLiteNode*) = nullptr;
 
 uint32_t TensorBytes(const TfLiteEvalTensor* tensor, uint32_t element_size) {
-  if (tensor == nullptr || tensor->dims == nullptr || tensor->dims->size <= 0 ||
-      tensor->dims->size > CORAL_OPERATOR_MAX_DIMS) {
+  if (tensor == nullptr || tensor->dims == nullptr || tensor->dims->size <= 0) {
+    return 0;
+  }
+  const uint32_t rank = static_cast<uint32_t>(tensor->dims->size);
+  if (rank > CORAL_OPERATOR_MAX_DIMS) {
     return 0;
   }
   uint64_t bytes = element_size;
-  for (int i = 0; i < tensor->dims->size; ++i) {
+  for (uint32_t i = 0; i < rank; ++i) {
     if (tensor->dims->data[i] <= 0 ||
         bytes > UINT32_MAX / static_cast<uint32_t>(tensor->dims->data[i])) {
       return 0;
@@ -69,7 +72,8 @@ void TensorDimensions(
     const TfLiteEvalTensor* tensor,
     uint32_t dimensions[CORAL_OPERATOR_MAX_DIMS]) {
   for (size_t i = 0; i < CORAL_OPERATOR_MAX_DIMS; ++i) dimensions[i] = 0;
-  for (int i = 0; i < tensor->dims->size; ++i) {
+  const uint32_t rank = static_cast<uint32_t>(tensor->dims->size);
+  for (uint32_t i = 0; i < rank; ++i) {
     dimensions[i] = tensor->dims->data[i];
   }
 }

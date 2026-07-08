@@ -58,15 +58,18 @@ inline uint32_t AllocateStaging(
 
 inline bool SetOperatorTensor(
     coral_operator_descriptor* descriptor, uint32_t index, uint32_t address,
-    uint32_t size, const uint32_t dimensions[CORAL_OPERATOR_MAX_DIMS],
+    uint32_t size, uint32_t rank,
+    const uint32_t dimensions[CORAL_OPERATOR_MAX_DIMS],
     uint32_t element_type, int32_t zero_point) {
   if (descriptor == nullptr || dimensions == nullptr ||
-      index >= CORAL_OPERATOR_MAX_TENSORS || address == 0 || size == 0) {
+      index >= CORAL_OPERATOR_MAX_TENSORS || address == 0 || size == 0 ||
+      rank == 0 || rank > CORAL_OPERATOR_MAX_DIMS) {
     return false;
   }
   coral_operator_tensor* tensor = &descriptor->tensors[index];
   tensor->address = address;
   tensor->size = size;
+  tensor->rank = rank;
   for (size_t i = 0; i < CORAL_OPERATOR_MAX_DIMS; ++i) {
     tensor->dimensions[i] = dimensions[i];
   }

@@ -7,8 +7,7 @@
 #include "hw_sim/gem5_bridge/coral_operator.h"
 
 struct Gem5HybridOperatorResult {
-  bool has_mobilenet_output;
-  int32_t mobilenet_output[5];
+  uint32_t opcode;
 };
 
 bool ValidateGem5HybridDescriptor(

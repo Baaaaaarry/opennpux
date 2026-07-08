@@ -54,8 +54,8 @@ Select the operator execution path explicitly:
 
 ```sh
 # Fast end-to-end functional mode. Coral RTL performs firmware control,
-# allocation, doorbell, completion, and mailbox handling; host TFLM reference
-# kernels execute the supported Conv2D + DepthwiseConv2D subgraph.
+# allocation, TFLM operator scheduling, staging, doorbell, completion, and
+# mailbox handling; host reference kernels execute Conv2D + DepthwiseConv2D.
 CORAL_OPERATOR_MODE=hybrid ./tools/coralnpu/run_rvv_mobilenet_test.sh
 
 # Full cycle-evaluated RVV RTL mode for hardware performance studies.
@@ -236,7 +236,8 @@ Hybrid mode additionally prints:
 
 ```text
 [coral-mobilenet] operator mode: hybrid
-Coral hybrid MobileNet complete host_ns=<non-zero>
+Coral hybrid operator complete opcode=2 host_ns=<non-zero> operations=<non-zero>
+Coral hybrid operator complete opcode=3 host_ns=<non-zero> operations=<non-zero>
 ```
 
 `mobilenet_run=started` is flushed immediately before reset is released. If

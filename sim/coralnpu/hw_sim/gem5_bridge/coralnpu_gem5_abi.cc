@@ -131,7 +131,9 @@ struct coral_gem5_handle {
         } else if (addr.addr_bits_addr ==
                    CORAL_OPERATOR_CAPABILITIES_REG) {
 #ifdef CORAL_GEM5_RVV_HIGHMEM
-          value = UINT32_C(1) << CORAL_OPERATOR_OP_PARTIAL_MOBILENET;
+          value = (UINT32_C(1) << CORAL_OPERATOR_OP_CONV_2D_INT8) |
+                  (UINT32_C(1) <<
+                   CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8);
 #endif
         }
         auto* destination = reinterpret_cast<uint8_t*>(
@@ -245,29 +247,15 @@ struct coral_gem5_handle {
                   descriptor->error = CORAL_OPERATOR_ERROR_ADDRESS;
                 }
                 hybrid_status = descriptor->state;
-                if (ok && result.has_mobilenet_output) {
-                  const size_t offset =
-                      OPENNPUX_CORAL_MOBILENET_MAILBOX_OFFSET;
-                  auto* mailbox = reinterpret_cast<
-                      opennpux_coral_mobilenet_mailbox*>(
-                          local_extmem.data() + offset);
-                  mailbox->cycle_low =
-                      static_cast<uint32_t>(descriptor->modeled_cycles);
-                  mailbox->cycle_high = static_cast<uint32_t>(
-                      descriptor->modeled_cycles >> 32);
-                  mailbox->output_count =
-                      OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT;
-                  for (size_t i = 0;
-                       i < OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT; ++i) {
-                    mailbox->output[i] = result.mobilenet_output[i];
-                  }
-                  mailbox->error_code =
-                      OPENNPUX_CORAL_MOBILENET_ERROR_NONE;
-                  mailbox->state = OPENNPUX_CORAL_MOBILENET_COMPLETE;
+                if (ok) {
                   std::fprintf(stderr,
-                               "Coral hybrid MobileNet complete host_ns=%llu\n",
+                               "Coral hybrid operator complete opcode=%u "
+                               "host_ns=%llu operations=%llu\n",
+                               descriptor->opcode,
                                static_cast<unsigned long long>(
-                                   descriptor->host_elapsed_ns));
+                                   descriptor->host_elapsed_ns),
+                               static_cast<unsigned long long>(
+                                   descriptor->operation_count));
                   std::fflush(stderr);
                 } else {
                   std::fprintf(stderr,

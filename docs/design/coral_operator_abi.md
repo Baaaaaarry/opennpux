@@ -47,15 +47,18 @@ versioned TCM-backdoor interface is implemented.
 
 The common client reserves a 3 MiB staging arena at EXTMEM offset `0x00500000`.
 Its monotonic aligned allocator has no heap dependency and returns zero on
-overflow. Tensor descriptors carry Coral addresses only. Per-channel
+overflow. Tensor descriptors carry Coral addresses and an explicit rank of
+one to four, so vectors such as bias are not encoded with ambiguous zero
+dimensions. Per-channel
 multiplier and shift arrays use `quantization_count` and are range-checked as
 signed 32-bit arrays before dispatch.
 
-The initial partial-MobileNet opcode has no external tensor descriptors because
-the host reference runner owns its deterministic zero input. It validates the
-control protocol. Conv2D, DepthwiseConv2D, and MatMul opcodes reserve the common
-tensor, shape, quantization, and modeled-cycle fields needed for real operator
-offload.
+Partial MobileNet now runs through per-operator Conv2D and DepthwiseConv2D
+descriptors. `MicroInterpreter::Invoke()` remains in Coral firmware; wrappers
+stage DTCM tensors and quantization arrays into EXTMEM, submit one operator,
+copy its output back, and continue normal TFLM scheduling. The older host-side
+whole-graph shortcut is unsupported. MatMul retains a reserved opcode until its
+kernel is implemented.
 
 ## Time
 

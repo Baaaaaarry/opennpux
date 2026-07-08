@@ -156,8 +156,8 @@ cc_binary(
         "gem5_bridge/gem5_core_mini_axi_wrapper.h",
         "gem5_bridge/gem5_custom_mac.h",
         "gem5_bridge/gem5_dma_request_builder.h",
-        "gem5_bridge/gem5_hybrid_mobilenet.cc",
-        "gem5_bridge/gem5_hybrid_mobilenet.h",
+        "gem5_bridge/gem5_hybrid_kernels.cc",
+        "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_operator.cc",
         "gem5_bridge/gem5_hybrid_operator.h",
     ],
@@ -169,10 +169,6 @@ cc_binary(
         "//hdl/chisel/src/coralnpu:rvv_core_mini_highmem_axi_cc_library_cc",
         "//hdl/verilog/opennpux:custom_mac_cc",
         "//hdl/verilog:sram_backdoor",
-        "//tests/cocotb/tutorial/tfmicro:mobilenet_v1_025_partial_layers_lib",
-        "@tflite_micro//tensorflow/lite/micro:micro_framework",
-        "@tflite_micro//tensorflow/lite/micro:micro_log",
-        "@tflite_micro//tensorflow/lite/micro:op_resolvers",
     ],
 )
 
@@ -183,6 +179,17 @@ cc_test(
         "gem5_bridge/gem5_custom_mac_test.cc",
     ],
     deps = ["//hdl/verilog/opennpux:custom_mac_cc"],
+)
+
+cc_test(
+    name = "gem5_hybrid_kernels_test",
+    srcs = [
+        "gem5_bridge/gem5_hybrid_kernels.cc",
+        "gem5_bridge/gem5_hybrid_kernels.h",
+        "gem5_bridge/gem5_hybrid_kernels_test.cc",
+        "gem5_bridge/gem5_hybrid_operator.cc",
+        "gem5_bridge/gem5_hybrid_operator.h",
+    ],
 )
 
 cc_test(

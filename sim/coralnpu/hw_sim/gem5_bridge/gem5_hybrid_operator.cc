@@ -2,7 +2,7 @@
 
 #include <cstring>
 
-#include "hw_sim/gem5_bridge/gem5_hybrid_mobilenet.h"
+#include "hw_sim/gem5_bridge/gem5_hybrid_kernels.h"
 
 namespace {
 
@@ -35,7 +35,8 @@ bool ValidateGem5HybridDescriptor(
     const bool type_valid =
         tensor.element_type == CORAL_OPERATOR_ELEMENT_INT8 ||
         tensor.element_type == CORAL_OPERATOR_ELEMENT_INT32;
-    if (!type_valid ||
+    if (!type_valid || tensor.rank == 0 ||
+        tensor.rank > CORAL_OPERATOR_MAX_DIMS ||
         !RangeValid(tensor.address, tensor.size, extmem_base, extmem_size)) {
       *error = CORAL_OPERATOR_ERROR_ADDRESS;
       return false;
@@ -71,6 +72,7 @@ bool DispatchGem5HybridOperator(
     return false;
   }
   std::memset(result, 0, sizeof(*result));
+  result->opcode = descriptor->opcode;
   uint32_t error = CORAL_OPERATOR_ERROR_NONE;
   if (!ValidateGem5HybridDescriptor(
           *descriptor, extmem_base, extmem_size, &error)) {
@@ -89,13 +91,16 @@ bool DispatchGem5HybridOperator(
   bool success = false;
   switch (descriptor->opcode) {
     case CORAL_OPERATOR_OP_PARTIAL_MOBILENET:
-      success = RunGem5HybridMobilenet(
-          result->mobilenet_output, &descriptor->host_elapsed_ns);
-      result->has_mobilenet_output = success;
-      descriptor->bytes_written = success ? 5 : 0;
+      descriptor->error = CORAL_OPERATOR_ERROR_UNSUPPORTED;
       break;
     case CORAL_OPERATOR_OP_CONV_2D_INT8:
+      success = RunGem5HybridConv2D(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
     case CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8:
+      success = RunGem5HybridDepthwiseConv2D(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
     case CORAL_OPERATOR_OP_MATMUL_INT8:
       descriptor->error = CORAL_OPERATOR_ERROR_UNSUPPORTED;
       break;

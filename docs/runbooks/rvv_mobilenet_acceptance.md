@@ -86,6 +86,33 @@ Both modes now share the versioned descriptor in
 first graph opcode; Conv2D, DepthwiseConv2D, and MatMul have reserved per-op
 opcodes and use the same tensor/quantization/status layout.
 
+To run both modes and compare the complete output tensor checksum
+automatically:
+
+```sh
+./tools/coralnpu/run_mobilenet_mode_matrix.sh
+```
+
+The script writes:
+
+```text
+simout/mobilenet-matrix/mobilenet-hybrid.log
+simout/mobilenet-matrix/mobilenet-rtl.log
+simout/mobilenet-matrix/mobilenet-compare.log
+```
+
+To compare logs from previous runs:
+
+```sh
+./tools/coralnpu/compare_mobilenet_results.sh \
+  simout/mobilenet-matrix/mobilenet-hybrid.log \
+  simout/mobilenet-matrix/mobilenet-rtl.log
+```
+
+Expected comparison output ends with `mobilenet_compare=PASS`. The comparison
+checks `mobilenet_test=PASS`, complete output tensor checksum equality, and
+output byte-count equality; it also prints both NPU cycle counts for reporting.
+
 For a functional run with NPU progress tracing, use:
 
 ```sh

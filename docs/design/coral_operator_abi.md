@@ -10,7 +10,8 @@ versioned contract for graph-level bring-up and future per-operator dispatch.
   are authoritative for NPU performance analysis.
 - `hybrid`: firmware submits an EXTMEM descriptor through the operator
   doorbell. The bridge executes a functional host kernel and returns through
-  the same descriptor. Host time is simulator performance, not NPU latency.
+  the same descriptor. Host time is simulator performance, not NPU latency;
+  `modeled_cycles` is produced by a configurable accelerator latency model.
 
 The mode register is read-only to firmware and is configured by gem5 before
 the RTL starts. The default is `rtl`.
@@ -67,3 +68,19 @@ schedules the next backend event after `executed_cycles * npu_cycle_period`,
 so batching no longer makes 1,000 cycles consume one cycle period. Functional
 fast mode may execute many batches at one gem5 tick by design and remains
 unsuitable for CPU/NPU overlap or SoC latency conclusions.
+
+Hybrid kernels fill `operation_count`, memory traffic counters, host runtime,
+and modeled accelerator cycles. The bridge currently uses a linear model:
+
+```text
+modeled_cycles =
+  fixed_cycles +
+  ceil(operation_count / ops_per_cycle) +
+  ceil((bytes_read + bytes_written) / bytes_per_cycle)
+```
+
+The model is configured by `CORAL_HYBRID_OPS_PER_CYCLE`,
+`CORAL_HYBRID_BYTES_PER_CYCLE`, and `CORAL_HYBRID_FIXED_CYCLES`. Defaults are
+`1`, `16`, and `0`, respectively. These values are intentionally explicit and
+calibratable; they provide deterministic end-to-end timing placeholders until a
+validated hardware latency model is available.

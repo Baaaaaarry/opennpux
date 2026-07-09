@@ -65,10 +65,22 @@ CORAL_OPERATOR_MODE=rtl ./tools/coralnpu/run_rvv_mobilenet_test.sh
 `rtl` is the default for backward compatibility. Both modes use the same gem5
 binary, bridge, firmware, Linux driver, mailbox ABI, and boot checkpoint.
 Changing modes does not rebuild the checkpoint. Hybrid `mobilenet_npu_cycles`
-reports zero until an accelerator latency model is configured. Host-kernel
+reports the sum of per-operator modeled accelerator cycles. Host-kernel
 nanoseconds remain in the operator descriptor and bridge log and must not be
-compared with RTL cycle counts; modeled accelerator latency is a later
-calibration step.
+compared with RTL cycle counts.
+
+Hybrid latency is controlled without rebuilding firmware:
+
+```sh
+CORAL_OPERATOR_MODE=hybrid \
+CORAL_HYBRID_OPS_PER_CYCLE=64 \
+CORAL_HYBRID_BYTES_PER_CYCLE=32 \
+CORAL_HYBRID_FIXED_CYCLES=128 \
+./tools/coralnpu/run_rvv_mobilenet_test.sh
+```
+
+The default model is conservative and deterministic:
+`ops_per_cycle=1`, `bytes_per_cycle=16`, `fixed_cycles=0`.
 Both modes now share the versioned descriptor in
 `hw_sim/gem5_bridge/coral_operator.h`. The partial-MobileNet command is the
 first graph opcode; Conv2D, DepthwiseConv2D, and MatMul have reserved per-op
@@ -238,8 +250,9 @@ Hybrid mode additionally prints:
 
 ```text
 [coral-mobilenet] operator mode: hybrid
-Coral hybrid operator complete opcode=2 host_ns=<non-zero> operations=<non-zero>
-Coral hybrid operator complete opcode=3 host_ns=<non-zero> operations=<non-zero>
+Coral hybrid latency model ops_per_cycle=<...> bytes_per_cycle=<...> fixed_cycles=<...>
+Coral hybrid operator complete opcode=2 host_ns=<non-zero> operations=<non-zero> modeled_cycles=<non-zero> bytes=<non-zero>
+Coral hybrid operator complete opcode=3 host_ns=<non-zero> operations=<non-zero> modeled_cycles=<non-zero> bytes=<non-zero>
 ```
 
 `mobilenet_run=started` is flushed immediately before reset is released. If

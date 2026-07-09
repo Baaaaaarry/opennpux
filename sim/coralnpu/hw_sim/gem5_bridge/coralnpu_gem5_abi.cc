@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <vector>
@@ -71,6 +72,21 @@ size_t AccessWidthBucket(uint32_t size) {
   }
 }
 
+uint64_t ReadEnvU64(const char* name, uint64_t default_value) {
+  const char* text = std::getenv(name);
+  if (text == nullptr || text[0] == '\0') {
+    return default_value;
+  }
+  char* end = nullptr;
+  const unsigned long long value = std::strtoull(text, &end, 0);
+  return end != text && end != nullptr && *end == '\0' && value != 0 ?
+      static_cast<uint64_t>(value) : default_value;
+}
+
+uint64_t DivCeil(uint64_t value, uint64_t divisor) {
+  return value == 0 ? 0 : 1 + (value - 1) / divisor;
+}
+
 }  // namespace
 
 struct coral_gem5_handle {
@@ -87,6 +103,9 @@ struct coral_gem5_handle {
   uint64_t local_extmem_bytes;
   std::array<uint64_t, 6> local_extmem_widths;
   uint64_t rtl_cycles;
+  uint64_t hybrid_ops_per_cycle;
+  uint64_t hybrid_bytes_per_cycle;
+  uint64_t hybrid_fixed_cycles;
   uint64_t progress_cycles;
   uint64_t progress_accesses;
   uint64_t progress_bytes;
@@ -110,6 +129,11 @@ struct coral_gem5_handle {
         local_extmem_bytes(0),
         local_extmem_widths(),
         rtl_cycles(0),
+        hybrid_ops_per_cycle(ReadEnvU64("CORAL_HYBRID_OPS_PER_CYCLE", 1)),
+        hybrid_bytes_per_cycle(
+            ReadEnvU64("CORAL_HYBRID_BYTES_PER_CYCLE", 16)),
+        hybrid_fixed_cycles(
+            ReadEnvU64("CORAL_HYBRID_FIXED_CYCLES", 0)),
         progress_cycles(0),
         progress_accesses(0),
         progress_bytes(0),
@@ -118,6 +142,13 @@ struct coral_gem5_handle {
         dma_pending(false),
         dma_beat_size(0),
         dma_beat_count(0) {
+    std::fprintf(stderr,
+                 "Coral hybrid latency model ops_per_cycle=%llu "
+                 "bytes_per_cycle=%llu fixed_cycles=%llu\n",
+                 static_cast<unsigned long long>(hybrid_ops_per_cycle),
+                 static_cast<unsigned long long>(hybrid_bytes_per_cycle),
+                 static_cast<unsigned long long>(hybrid_fixed_cycles));
+    std::fflush(stderr);
     wrapper.RegisterDeferredReadCallback([this](const AxiAddr& addr) {
       if (IsHybridWordAccess(addr)) {
         AxiRData response = {};
@@ -248,14 +279,26 @@ struct coral_gem5_handle {
                 }
                 hybrid_status = descriptor->state;
                 if (ok) {
+                  const uint64_t traffic_bytes =
+                      descriptor->bytes_read + descriptor->bytes_written;
+                  descriptor->modeled_cycles =
+                      hybrid_fixed_cycles +
+                      DivCeil(descriptor->operation_count,
+                              hybrid_ops_per_cycle) +
+                      DivCeil(traffic_bytes, hybrid_bytes_per_cycle);
                   std::fprintf(stderr,
                                "Coral hybrid operator complete opcode=%u "
-                               "host_ns=%llu operations=%llu\n",
+                               "host_ns=%llu operations=%llu "
+                               "modeled_cycles=%llu bytes=%llu\n",
                                descriptor->opcode,
                                static_cast<unsigned long long>(
                                    descriptor->host_elapsed_ns),
                                static_cast<unsigned long long>(
-                                   descriptor->operation_count));
+                                   descriptor->operation_count),
+                               static_cast<unsigned long long>(
+                                   descriptor->modeled_cycles),
+                               static_cast<unsigned long long>(
+                                   traffic_bytes));
                   std::fflush(stderr);
                 } else {
                   std::fprintf(stderr,

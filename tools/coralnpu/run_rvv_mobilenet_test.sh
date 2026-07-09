@@ -10,6 +10,9 @@ TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-mobilenet-test.r
 GEM5_OPTIONS_VALUE="${GEM5_OPTIONS:-}"
 RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}"
 OPERATOR_MODE="${CORAL_OPERATOR_MODE:-rtl}"
+HYBRID_OPS_PER_CYCLE="${CORAL_HYBRID_OPS_PER_CYCLE:-1}"
+HYBRID_BYTES_PER_CYCLE="${CORAL_HYBRID_BYTES_PER_CYCLE:-16}"
+HYBRID_FIXED_CYCLES="${CORAL_HYBRID_FIXED_CYCLES:-0}"
 FAST_DMA_OPTION=""
 [ "${CORAL_FAST_DMA:-1}" != "1" ] || FAST_DMA_OPTION=" --npu-fast-dma"
 KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
@@ -56,6 +59,9 @@ case "${OPERATOR_MODE}" in
     *) echo "error: CORAL_OPERATOR_MODE must be rtl or hybrid" >&2; exit 1 ;;
 esac
 echo "[coral-mobilenet] operator mode: ${OPERATOR_MODE}"
+if [ "${OPERATOR_MODE}" = "hybrid" ]; then
+    echo "[coral-mobilenet] hybrid latency: ops_per_cycle=${HYBRID_OPS_PER_CYCLE} bytes_per_cycle=${HYBRID_BYTES_PER_CYCLE} fixed_cycles=${HYBRID_FIXED_CYCLES}"
+fi
 if [ -n "${FAST_DMA_OPTION}" ]; then
     echo "[coral-mobilenet] DMA mode: functional-fast"
 else
@@ -88,6 +94,9 @@ CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_BRIDGE="${BRIDGE}" \
 CORAL_RTL_FIRMWARE="${FIRMWARE}" \
 CORAL_RTL_CYCLES_PER_EVENT="${RTL_CYCLES_PER_EVENT}" \
+CORAL_HYBRID_OPS_PER_CYCLE="${HYBRID_OPS_PER_CYCLE}" \
+CORAL_HYBRID_BYTES_PER_CYCLE="${HYBRID_BYTES_PER_CYCLE}" \
+CORAL_HYBRID_FIXED_CYCLES="${HYBRID_FIXED_CYCLES}" \
 CORAL_KERNEL_IMAGE="${CORAL_KERNEL_IMAGE}" \
 CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT}" \
 CORAL_DISK_IMG="${CORAL_DISK_IMG}" \

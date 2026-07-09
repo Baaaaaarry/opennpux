@@ -67,6 +67,7 @@ void TestConv2D() {
       &descriptor, memory.data(), kBase, memory.size(), &result));
   assert(static_cast<int8_t>(memory[48]) == 7);
   assert(descriptor.operation_count == 1);
+  assert(descriptor.modeled_cycles == 1);
 }
 
 void TestDepthwiseConv2D() {
@@ -99,6 +100,8 @@ void TestDepthwiseConv2D() {
       &descriptor, memory.data(), kBase, memory.size(), &result));
   assert(static_cast<int8_t>(memory[48]) == 7);
   assert(static_cast<int8_t>(memory[49]) == 14);
+  assert(descriptor.operation_count == 2);
+  assert(descriptor.modeled_cycles == 2);
 }
 
 }  // namespace

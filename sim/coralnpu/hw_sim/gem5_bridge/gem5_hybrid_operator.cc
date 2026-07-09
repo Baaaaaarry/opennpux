@@ -112,6 +112,9 @@ bool DispatchGem5HybridOperator(
   if (!success && descriptor->error == CORAL_OPERATOR_ERROR_NONE) {
     descriptor->error = CORAL_OPERATOR_ERROR_EXECUTION;
   }
+  if (success && descriptor->modeled_cycles == 0) {
+    descriptor->modeled_cycles = descriptor->operation_count;
+  }
   descriptor->state = success ? CORAL_OPERATOR_STATE_COMPLETE :
                                 CORAL_OPERATOR_STATE_ERROR;
   return success;

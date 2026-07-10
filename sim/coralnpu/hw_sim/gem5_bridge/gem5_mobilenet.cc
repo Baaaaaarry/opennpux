@@ -215,11 +215,80 @@ bool TryHybridConvInvoke(
   return true;
 }
 
+void AccumulateRtlConvStats(TfLiteContext* context, TfLiteNode* node,
+                            bool depthwise) {
+  if (context == nullptr || node == nullptr || node->user_data == nullptr ||
+      tflite::NumInputs(node) != 3) {
+    return;
+  }
+  const int input_index = depthwise ? tflite::kDepthwiseConvInputTensor :
+                                      tflite::kConvInputTensor;
+  const int filter_index = depthwise ? tflite::kDepthwiseConvWeightsTensor :
+                                       tflite::kConvWeightsTensor;
+  const int bias_index = depthwise ? tflite::kDepthwiseConvBiasTensor :
+                                     tflite::kConvBiasTensor;
+  const int output_index = depthwise ? tflite::kDepthwiseConvOutputTensor :
+                                       tflite::kConvOutputTensor;
+  const TfLiteEvalTensor* input =
+      tflite::micro::GetEvalInput(context, node, input_index);
+  const TfLiteEvalTensor* filter =
+      tflite::micro::GetEvalInput(context, node, filter_index);
+  const TfLiteEvalTensor* bias =
+      tflite::micro::GetEvalInput(context, node, bias_index);
+  const TfLiteEvalTensor* output =
+      tflite::micro::GetEvalOutput(context, node, output_index);
+  if (input == nullptr || filter == nullptr || bias == nullptr ||
+      output == nullptr || input->dims == nullptr || filter->dims == nullptr ||
+      output->dims == nullptr || input->dims->size != 4 ||
+      filter->dims->size != 4 || output->dims->size != 4) {
+    return;
+  }
+
+  const uint32_t input_bytes = TensorBytes(input, 1);
+  const uint32_t filter_bytes = TensorBytes(filter, 1);
+  const uint32_t bias_bytes = TensorBytes(bias, sizeof(int32_t));
+  const uint32_t output_bytes = TensorBytes(output, 1);
+  if (input_bytes == 0 || filter_bytes == 0 || bias_bytes == 0 ||
+      output_bytes == 0) {
+    return;
+  }
+
+  const uint64_t batches = static_cast<uint32_t>(output->dims->data[0]);
+  const uint64_t output_h = static_cast<uint32_t>(output->dims->data[1]);
+  const uint64_t output_w = static_cast<uint32_t>(output->dims->data[2]);
+  const uint64_t output_c = static_cast<uint32_t>(output->dims->data[3]);
+  const uint64_t filter_h = static_cast<uint32_t>(filter->dims->data[1]);
+  const uint64_t filter_w = static_cast<uint32_t>(filter->dims->data[2]);
+  const uint64_t input_c = static_cast<uint32_t>(input->dims->data[3]);
+  if (batches == 0 || output_h == 0 || output_w == 0 || output_c == 0 ||
+      filter_h == 0 || filter_w == 0 || input_c == 0) {
+    return;
+  }
+
+  const uint64_t quantization_bytes =
+      UINT64_C(2) * output_c * sizeof(int32_t);
+  coral_operator_descriptor* execution = ExecutionDescriptor();
+  if (depthwise) {
+    execution->operation_count +=
+        batches * output_h * output_w * output_c * filter_h * filter_w;
+  } else {
+    execution->operation_count +=
+        batches * output_h * output_w * output_c * filter_h * filter_w *
+        input_c;
+  }
+  execution->bytes_read += input_bytes + filter_bytes + bias_bytes +
+                           quantization_bytes;
+  execution->bytes_written += output_bytes;
+}
+
 TfLiteStatus TracedConvInvoke(TfLiteContext* context, TfLiteNode* node) {
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_CONV_BEGIN);
   TfLiteStatus status = kTfLiteError;
   if (!TryHybridConvInvoke(context, node, false, &status)) {
     status = convInvoke(context, node);
+    if (status == kTfLiteOk) {
+      AccumulateRtlConvStats(context, node, false);
+    }
   }
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_CONV_END);
   return status;
@@ -230,6 +299,9 @@ TfLiteStatus TracedDepthwiseInvoke(TfLiteContext* context, TfLiteNode* node) {
   TfLiteStatus status = kTfLiteError;
   if (!TryHybridConvInvoke(context, node, true, &status)) {
     status = depthwiseInvoke(context, node);
+    if (status == kTfLiteOk) {
+      AccumulateRtlConvStats(context, node, true);
+    }
   }
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_DEPTHWISE_END);
   return status;
@@ -354,6 +426,9 @@ int main() {
   const uint32_t output_bytes = static_cast<uint32_t>(output->bytes);
   mailbox->output_checksum = Fnv1a32(output->data.raw, output_bytes);
   mailbox->output_bytes = output_bytes;
+  mailbox->operation_count = descriptor->operation_count;
+  mailbox->bytes_read = descriptor->bytes_read;
+  mailbox->bytes_written = descriptor->bytes_written;
   mailbox->cycle_low = static_cast<uint32_t>(descriptor->modeled_cycles);
   mailbox->cycle_high =
       static_cast<uint32_t>(descriptor->modeled_cycles >> 32);

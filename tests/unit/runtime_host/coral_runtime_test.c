@@ -77,7 +77,7 @@ main(void)
           "model header ABI size changed");
     check(sizeof(struct opennpux_coral_model_command) == 32,
           "model command ABI size changed");
-    check(sizeof(struct opennpux_coral_mobilenet_mailbox) == 64,
+    check(sizeof(struct opennpux_coral_mobilenet_mailbox) == 80,
           "MobileNet mailbox ABI size changed");
     check(offsetof(struct opennpux_coral_mobilenet_mailbox,
                    output_checksum) == 48,
@@ -85,6 +85,15 @@ main(void)
     check(offsetof(struct opennpux_coral_mobilenet_mailbox,
                    output_bytes) == 52,
           "MobileNet output bytes ABI offset changed");
+    check(offsetof(struct opennpux_coral_mobilenet_mailbox,
+                   operation_count) == 56,
+          "MobileNet operation count ABI offset changed");
+    check(offsetof(struct opennpux_coral_mobilenet_mailbox,
+                   bytes_read) == 64,
+          "MobileNet bytes-read ABI offset changed");
+    check(offsetof(struct opennpux_coral_mobilenet_mailbox,
+                   bytes_written) == 72,
+          "MobileNet bytes-written ABI offset changed");
 
     check(opennpux_coral_check_shared_u32_access(16, 0) == 0,
           "offset 0 rejected");

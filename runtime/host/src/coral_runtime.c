@@ -863,6 +863,9 @@ opennpux_coral_mobilenet_test(
     }
     result->output_checksum = mailbox->output_checksum;
     result->output_bytes = mailbox->output_bytes;
+    result->operation_count = mailbox->operation_count;
+    result->bytes_read = mailbox->bytes_read;
+    result->bytes_written = mailbox->bytes_written;
     result->npu_cycles = ((uint64_t)mailbox->cycle_high << 32) |
                          mailbox->cycle_low;
     const int mailbox_valid =

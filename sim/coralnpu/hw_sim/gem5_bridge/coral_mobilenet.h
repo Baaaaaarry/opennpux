@@ -45,7 +45,9 @@ struct opennpux_coral_mobilenet_mailbox {
     int32_t output[OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT];
     uint32_t output_checksum;
     uint32_t output_bytes;
-    uint32_t reserved[2];
+    uint64_t operation_count;
+    uint64_t bytes_read;
+    uint64_t bytes_written;
 };
 
 #endif

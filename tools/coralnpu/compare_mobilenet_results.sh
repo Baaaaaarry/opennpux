@@ -76,6 +76,21 @@ rtl_cycles="$(require_value mobilenet_npu_cycles "${RTL_LOG}")"
 echo "hybrid_npu_cycles=${hybrid_cycles}"
 echo "rtl_npu_cycles=${rtl_cycles}"
 
+for key in mobilenet_operation_count mobilenet_bytes_read mobilenet_bytes_written; do
+    hybrid_value="$(last_value "${key}" "${HYBRID_LOG}")"
+    rtl_value="$(last_value "${key}" "${RTL_LOG}")"
+    if [ -n "${hybrid_value}" ] || [ -n "${rtl_value}" ]; then
+        echo "hybrid_${key#mobilenet_}=${hybrid_value:-missing}"
+        echo "rtl_${key#mobilenet_}=${rtl_value:-missing}"
+        if [ -n "${hybrid_value}" ] && [ -n "${rtl_value}" ] &&
+           [ "${hybrid_value}" != "${rtl_value}" ]; then
+            echo "mobilenet_compare=FAIL"
+            echo "error: ${key} mismatch" >&2
+            exit 1
+        fi
+    fi
+done
+
 hybrid_checksum="$(last_value mobilenet_output_checksum "${HYBRID_LOG}")"
 rtl_checksum="$(last_value mobilenet_output_checksum "${RTL_LOG}")"
 hybrid_bytes="$(last_value mobilenet_output_bytes "${HYBRID_LOG}")"

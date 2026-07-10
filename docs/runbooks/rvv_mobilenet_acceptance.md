@@ -101,6 +101,10 @@ simout/mobilenet-matrix/mobilenet-rtl.log
 simout/mobilenet-matrix/mobilenet-compare.log
 ```
 
+Each mode log contains gem5 host output plus the matching guest
+`system.terminal` appended immediately after that mode exits. This prevents the
+second mode from overwriting the terminal output before checksum comparison.
+
 To compare logs from previous runs:
 
 ```sh

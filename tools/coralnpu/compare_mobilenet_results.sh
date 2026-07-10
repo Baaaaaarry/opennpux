@@ -26,7 +26,13 @@ RTL_LOG="$2"
 last_value() {
     key="$1"
     file="$2"
-    awk -F= -v key="${key}" '$1 == key { value=$2 } END { if (value != "") print value }' "${file}"
+    awk -F= -v key="${key}" '
+        $1 == key {
+            value=$2
+            gsub(/\r/, "", value)
+        }
+        END { if (value != "") print value }
+    ' "${file}"
 }
 
 require_value() {

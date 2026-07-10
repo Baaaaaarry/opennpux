@@ -46,6 +46,19 @@ require_value() {
     printf '%s\n' "${value}"
 }
 
+compare_value() {
+    name="$1"
+    hybrid_value="$2"
+    rtl_value="$3"
+    echo "hybrid_${name}=${hybrid_value}"
+    echo "rtl_${name}=${rtl_value}"
+    if [ "${hybrid_value}" != "${rtl_value}" ]; then
+        echo "mobilenet_compare=FAIL"
+        echo "error: ${name} mismatch" >&2
+        exit 1
+    fi
+}
+
 hybrid_pass="$(last_value mobilenet_test "${HYBRID_LOG}")"
 rtl_pass="$(last_value mobilenet_test "${RTL_LOG}")"
 [ "${hybrid_pass}" = "PASS" ] || {
@@ -57,30 +70,28 @@ rtl_pass="$(last_value mobilenet_test "${RTL_LOG}")"
     exit 1
 }
 
-hybrid_checksum="$(require_value mobilenet_output_checksum "${HYBRID_LOG}")"
-rtl_checksum="$(require_value mobilenet_output_checksum "${RTL_LOG}")"
-hybrid_bytes="$(require_value mobilenet_output_bytes "${HYBRID_LOG}")"
-rtl_bytes="$(require_value mobilenet_output_bytes "${RTL_LOG}")"
 hybrid_cycles="$(require_value mobilenet_npu_cycles "${HYBRID_LOG}")"
 rtl_cycles="$(require_value mobilenet_npu_cycles "${RTL_LOG}")"
 
-echo "hybrid_checksum=${hybrid_checksum}"
-echo "rtl_checksum=${rtl_checksum}"
-echo "hybrid_output_bytes=${hybrid_bytes}"
-echo "rtl_output_bytes=${rtl_bytes}"
 echo "hybrid_npu_cycles=${hybrid_cycles}"
 echo "rtl_npu_cycles=${rtl_cycles}"
 
-if [ "${hybrid_checksum}" != "${rtl_checksum}" ]; then
-    echo "mobilenet_compare=FAIL"
-    echo "error: output checksum mismatch" >&2
-    exit 1
-fi
+hybrid_checksum="$(last_value mobilenet_output_checksum "${HYBRID_LOG}")"
+rtl_checksum="$(last_value mobilenet_output_checksum "${RTL_LOG}")"
+hybrid_bytes="$(last_value mobilenet_output_bytes "${HYBRID_LOG}")"
+rtl_bytes="$(last_value mobilenet_output_bytes "${RTL_LOG}")"
 
-if [ "${hybrid_bytes}" != "${rtl_bytes}" ]; then
-    echo "mobilenet_compare=FAIL"
-    echo "error: output byte count mismatch" >&2
-    exit 1
+if [ -n "${hybrid_checksum}" ] && [ -n "${rtl_checksum}" ] &&
+   [ -n "${hybrid_bytes}" ] && [ -n "${rtl_bytes}" ]; then
+    echo "mobilenet_compare_scope=full-output-checksum"
+    compare_value checksum "${hybrid_checksum}" "${rtl_checksum}"
+    compare_value output_bytes "${hybrid_bytes}" "${rtl_bytes}"
+else
+    hybrid_output="$(require_value mobilenet_output "${HYBRID_LOG}")"
+    rtl_output="$(require_value mobilenet_output "${RTL_LOG}")"
+    echo "mobilenet_compare_scope=sample-output"
+    echo "warning: mobilenet_output_checksum missing; rebuild/install the latest guest coralctl and rebuild the checkpoint for full-output comparison" >&2
+    compare_value output "${hybrid_output}" "${rtl_output}"
 fi
 
 echo "mobilenet_compare=PASS"

@@ -36,6 +36,11 @@ IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
 ./sim/gem5/apply_patchset.sh
 ```
 
+If an existing checkpoint was created before the checksum-capable `coralctl`
+was installed, rebuild it once with `CORAL_REBUILD_CKPT=1`. Otherwise the
+checkpoint may keep the old `/tmp/coralctl`, and logs will only contain
+`mobilenet_output=<first five values>` without `mobilenet_output_checksum`.
+
 ## Create Dedicated Checkpoint
 
 The MobileNet configuration reserves an 8 MiB coherent window, so it uses a
@@ -113,9 +118,12 @@ To compare logs from previous runs:
   simout/mobilenet-matrix/mobilenet-rtl.log
 ```
 
-Expected comparison output ends with `mobilenet_compare=PASS`. The comparison
-checks `mobilenet_test=PASS`, complete output tensor checksum equality, and
-output byte-count equality; it also prints both NPU cycle counts for reporting.
+Expected comparison output ends with `mobilenet_compare=PASS`. With current
+guest tools, the comparison checks `mobilenet_test=PASS`, complete output
+tensor checksum equality, and output byte-count equality; it also prints both
+NPU cycle counts for reporting. If old logs lack `mobilenet_output_checksum`,
+the tool explicitly downgrades to `mobilenet_compare_scope=sample-output` and
+compares the first five output values only.
 
 For a functional run with NPU progress tracing, use:
 

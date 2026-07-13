@@ -59,6 +59,24 @@ compare_value() {
     fi
 }
 
+ratio() {
+    numerator="$1"
+    denominator="$2"
+    awk -v n="${numerator}" -v d="${denominator}" 'BEGIN {
+        if (d == 0) {
+            print "nan"
+        } else {
+            printf "%.6f\n", n / d
+        }
+    }'
+}
+
+sum_u64() {
+    left="$1"
+    right="$2"
+    awk -v l="${left}" -v r="${right}" 'BEGIN { printf "%.0f\n", l + r }'
+}
+
 hybrid_pass="$(last_value mobilenet_test "${HYBRID_LOG}")"
 rtl_pass="$(last_value mobilenet_test "${RTL_LOG}")"
 [ "${hybrid_pass}" = "PASS" ] || {
@@ -76,6 +94,13 @@ rtl_cycles="$(require_value mobilenet_npu_cycles "${RTL_LOG}")"
 echo "hybrid_npu_cycles=${hybrid_cycles}"
 echo "rtl_npu_cycles=${rtl_cycles}"
 
+hybrid_operation_count=""
+rtl_operation_count=""
+hybrid_bytes_read=""
+rtl_bytes_read=""
+hybrid_bytes_written=""
+rtl_bytes_written=""
+
 for key in mobilenet_operation_count mobilenet_bytes_read mobilenet_bytes_written; do
     hybrid_value="$(last_value "${key}" "${HYBRID_LOG}")"
     rtl_value="$(last_value "${key}" "${RTL_LOG}")"
@@ -89,7 +114,37 @@ for key in mobilenet_operation_count mobilenet_bytes_read mobilenet_bytes_writte
             exit 1
         fi
     fi
+    case "${key}" in
+        mobilenet_operation_count)
+            hybrid_operation_count="${hybrid_value}"
+            rtl_operation_count="${rtl_value}"
+            ;;
+        mobilenet_bytes_read)
+            hybrid_bytes_read="${hybrid_value}"
+            rtl_bytes_read="${rtl_value}"
+            ;;
+        mobilenet_bytes_written)
+            hybrid_bytes_written="${hybrid_value}"
+            rtl_bytes_written="${rtl_value}"
+            ;;
+    esac
 done
+
+if [ -n "${hybrid_operation_count}" ] && [ -n "${rtl_operation_count}" ]; then
+    echo "hybrid_cycles_per_operation=$(ratio "${hybrid_cycles}" "${hybrid_operation_count}")"
+    echo "rtl_cycles_per_operation=$(ratio "${rtl_cycles}" "${rtl_operation_count}")"
+    echo "rtl_to_hybrid_cycle_ratio=$(ratio "${rtl_cycles}" "${hybrid_cycles}")"
+fi
+
+if [ -n "${hybrid_bytes_read}" ] && [ -n "${hybrid_bytes_written}" ] &&
+   [ -n "${rtl_bytes_read}" ] && [ -n "${rtl_bytes_written}" ]; then
+    hybrid_total_bytes="$(sum_u64 "${hybrid_bytes_read}" "${hybrid_bytes_written}")"
+    rtl_total_bytes="$(sum_u64 "${rtl_bytes_read}" "${rtl_bytes_written}")"
+    echo "hybrid_total_bytes=${hybrid_total_bytes}"
+    echo "rtl_total_bytes=${rtl_total_bytes}"
+    echo "hybrid_bytes_per_cycle=$(ratio "${hybrid_total_bytes}" "${hybrid_cycles}")"
+    echo "rtl_bytes_per_cycle=$(ratio "${rtl_total_bytes}" "${rtl_cycles}")"
+fi
 
 hybrid_checksum="$(last_value mobilenet_output_checksum "${HYBRID_LOG}")"
 rtl_checksum="$(last_value mobilenet_output_checksum "${RTL_LOG}")"

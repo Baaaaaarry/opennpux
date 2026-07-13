@@ -104,6 +104,7 @@ The script writes:
 simout/mobilenet-matrix/mobilenet-hybrid.log
 simout/mobilenet-matrix/mobilenet-rtl.log
 simout/mobilenet-matrix/mobilenet-compare.log
+simout/mobilenet-matrix/mobilenet-report.md
 ```
 
 Each mode log contains gem5 host output plus the matching guest
@@ -124,6 +125,11 @@ tensor checksum equality, and output byte-count equality; it also prints both
 NPU cycle counts for reporting. If old logs lack `mobilenet_output_checksum`,
 the tool explicitly downgrades to `mobilenet_compare_scope=sample-output` and
 compares the first five output values only.
+
+`mobilenet-report.md` is the RTL performance summary artifact. It records
+hybrid and RTL cycles, operation count, memory traffic, cycles per operation,
+bytes per cycle, and the RTL/hybrid cycle ratio. Use this file for regressions
+and design reviews instead of copying terminal fragments manually.
 
 For a functional run with NPU progress tracing, use:
 

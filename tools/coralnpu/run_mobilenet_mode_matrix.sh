@@ -7,6 +7,7 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 OUT_DIR="${CORAL_MOBILENET_MATRIX_OUT:-${ROOT_DIR}/simout/mobilenet-matrix}"
 RUNNER="${ROOT_DIR}/tools/coralnpu/run_rvv_mobilenet_test.sh"
 COMPARE="${ROOT_DIR}/tools/coralnpu/compare_mobilenet_results.sh"
+WRITE_REPORT="${ROOT_DIR}/tools/coralnpu/write_mobilenet_report.sh"
 TERMINAL_CANDIDATES="
 ${ROOT_DIR}/thirdparty/gem5/m5out/system.terminal
 ${ROOT_DIR}/m5out/system.terminal
@@ -54,3 +55,7 @@ run_mode rtl
 "${COMPARE}" \
     "${OUT_DIR}/mobilenet-hybrid.log" \
     "${OUT_DIR}/mobilenet-rtl.log" | tee "${OUT_DIR}/mobilenet-compare.log"
+
+"${WRITE_REPORT}" \
+    "${OUT_DIR}/mobilenet-compare.log" \
+    "${OUT_DIR}/mobilenet-report.md"

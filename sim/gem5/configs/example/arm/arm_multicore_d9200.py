@@ -558,6 +558,18 @@ def addOptions(parser):
         default="4KiB",
         help="Reserved SoC shared-buffer size for Coral coherent DMA"
     )
+    parser.add_argument(
+        "--npu-fast-dma",
+        action="store_true",
+        default=False,
+        help="Use coherent functional accesses for NPU DMA"
+    )
+    parser.add_argument(
+        "--npu-fast-dma-event-batch",
+        type=int,
+        default=1024,
+        help="Maximum RTL backend batches processed per gem5 event in fast DMA mode"
+    )
 
     # Gemmini/NDP integration
     parser.add_argument(
@@ -752,6 +764,10 @@ def build(options):
             dmaExtmemBase=options.npu_dma_extmem_base,
             dmaSharedBase=options.npu_dma_shared_base,
             dmaSharedSize=options.npu_dma_shared_size,
+            fastDma=options.npu_fast_dma,
+            fastDmaEventBatch=options.npu_fast_dma_event_batch,
+            fastDmaSyncOffset=0x00400000,
+            fastDmaSyncSize="4KiB",
         )
         # Attach MMIO port to the IO bus, similar to other devices.
         system.npu.pio = system.iobus.mem_side_ports

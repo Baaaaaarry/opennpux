@@ -80,6 +80,10 @@ class NPUDevice(DmaVirtDevice):
         False,
         "Use coherent functional memory accesses for RTL DMA",
     )
+    fastDmaEventBatch = Param.Unsigned(
+        1024,
+        "Maximum RTL backend batches processed per gem5 event in fast DMA mode",
+    )
     fastDmaSyncOffset = Param.Addr(
         0x00400000,
         "Bridge-local EXTMEM range synchronized with the host",

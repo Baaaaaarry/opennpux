@@ -33,6 +33,7 @@ class NPUDevice : public DmaVirtDevice
     Addr dmaSharedBase;
     Addr dmaSharedSize;
     bool fastDma;
+    uint32_t fastDmaEventBatch;
     Addr fastDmaSyncOffset;
     Addr fastDmaSyncSize;
     uint32_t backendId;

@@ -9,6 +9,7 @@ FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_mobilenet.elf"
 TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-mobilenet-test.rcS"
 GEM5_OPTIONS_VALUE="${GEM5_OPTIONS:-}"
 RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}"
+FAST_DMA_EVENT_BATCH="${CORAL_FAST_DMA_EVENT_BATCH:-4096}"
 OPERATOR_MODE="${CORAL_OPERATOR_MODE:-rtl}"
 HYBRID_OPS_PER_CYCLE="${CORAL_HYBRID_OPS_PER_CYCLE:-1}"
 HYBRID_BYTES_PER_CYCLE="${CORAL_HYBRID_BYTES_PER_CYCLE:-16}"
@@ -64,6 +65,7 @@ if [ "${OPERATOR_MODE}" = "hybrid" ]; then
 fi
 if [ -n "${FAST_DMA_OPTION}" ]; then
     echo "[coral-mobilenet] DMA mode: functional-fast"
+    echo "[coral-mobilenet] fast DMA event batch: ${FAST_DMA_EVENT_BATCH}"
 else
     echo "[coral-mobilenet] DMA mode: timing"
 fi
@@ -103,6 +105,6 @@ CORAL_DISK_IMG="${CORAL_DISK_IMG}" \
 CORAL_AUTO_RESUME_AFTER_CKPT=1 \
 CORAL_CKPT_ROOT="${CKPT_ROOT}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
-CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${DMA_SHARED_BASE} --npu-dma-shared-size=8MiB --npu-operator-mode=${OPERATOR_MODE}${FAST_DMA_OPTION}" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${DMA_SHARED_BASE} --npu-dma-shared-size=8MiB --npu-operator-mode=${OPERATOR_MODE}${FAST_DMA_OPTION} --npu-fast-dma-event-batch=${FAST_DMA_EVENT_BATCH}" \
 GEM5_OPTIONS="${GEM5_OPTIONS_VALUE}" \
 exec "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"

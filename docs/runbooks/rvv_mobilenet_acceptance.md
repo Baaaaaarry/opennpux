@@ -231,13 +231,16 @@ intended for end-to-end functional inference. Omit the option for cycle/timing
 studies and DMA protocol acceptance.
 Set `CORAL_FAST_DMA=0` when invoking the MobileNet wrapper to select timing
 DMA explicitly.
-Fast mode also executes up to 1024 RTL batches within one gem5 event, including
+Fast mode also executes multiple RTL batches within one gem5 event, including
 synchronous functional DMA completions. This removes hundreds of thousands of
 gem5 event-queue round trips while retaining the same Verilated RTL execution
-and AXI response sequence.
+and AXI response sequence. The SimObject default is 1024 batches per event; the
+MobileNet wrapper defaults `CORAL_FAST_DMA_EVENT_BATCH=4096` for long inference
+runs. Increase it to 8192 or 16384 for throughput sweeps, or reduce it when
+debugging fine-grained RTL/DMA progress.
 The MobileNet wrapper defaults each batch to 1000 RTL cycles, so one fast-mode
-gem5 event can advance up to 1,024,000 cycles. Override this with
-`CORAL_RTL_CYCLES_PER_EVENT` only for debugging.
+gem5 event can advance up to 4,096,000 cycles with the wrapper default.
+Override this with `CORAL_RTL_CYCLES_PER_EVENT` only for debugging.
 Fast DMA uses a lazy 4 KiB page cache over the shared EXTMEM window. The first
 NPU access fills a page through the coherent functional port, byte/word AXI
 requests then hit the local page, and dirty pages are written back before the

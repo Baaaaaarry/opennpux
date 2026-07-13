@@ -560,6 +560,12 @@ def addOptions(parser):
         default=False,
         help="Use coherent functional accesses for NPU DMA"
     )
+    parser.add_argument(
+        "--npu-fast-dma-event-batch",
+        type=int,
+        default=1024,
+        help="Maximum RTL backend batches processed per gem5 event in fast DMA mode"
+    )
 
     # Gemmini/NDP integration
     parser.add_argument(
@@ -756,6 +762,7 @@ def build(options):
             dmaSharedBase=options.npu_dma_shared_base,
             dmaSharedSize=options.npu_dma_shared_size,
             fastDma=options.npu_fast_dma,
+            fastDmaEventBatch=options.npu_fast_dma_event_batch,
             fastDmaSyncOffset=0x00400000,
             fastDmaSyncSize="4KiB",
         )

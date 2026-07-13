@@ -46,6 +46,7 @@ NPUDevice::NPUDevice(const Params &p)
     dmaSharedBase(p.dmaSharedBase),
     dmaSharedSize(p.dmaSharedSize),
     fastDma(p.fastDma),
+    fastDmaEventBatch(p.fastDmaEventBatch),
     fastDmaSyncOffset(p.fastDmaSyncOffset),
     fastDmaSyncSize(p.fastDmaSyncSize),
     backendId(0),
@@ -62,6 +63,8 @@ NPUDevice::NPUDevice(const Params &p)
     backendEvent(*this)
 {
     fatal_if(dmaSharedSize == 0, "Coral NPU DMA shared size is zero");
+    fatal_if(fastDma && fastDmaEventBatch == 0,
+             "Coral fast DMA event batch must be non-zero");
     fatal_if(p.backendType == "verilated-coral" && fastDma &&
                  (fastDmaSyncOffset > dmaSharedSize ||
                   fastDmaSyncSize > dmaSharedSize - fastDmaSyncOffset),
@@ -86,8 +89,11 @@ NPUDevice::NPUDevice(const Params &p)
         fatal("Unknown NPU backend type '%s'", p.backendType);
     }
 
-    DPRINTFR(NPUDevice, "Created NPUDevice backend=%s pio=%#x size=%#x\n",
-             backend->name(), pioAddr, pioSize);
+    DPRINTFR(NPUDevice,
+             "Created NPUDevice backend=%s pio=%#x size=%#x "
+             "fast_dma=%d fast_dma_event_batch=%u\n",
+             backend->name(), pioAddr, pioSize, fastDma,
+             fastDmaEventBatch);
     syncBackendEvent();
 }
 
@@ -148,7 +154,7 @@ NPUDevice::processBackendEvent()
     // batch. Keep crossing the Verilator/gem5 boundary locally until the
     // batch budget is exhausted or execution stops. Timing mode processes one
     // batch and preserves the original event/DMA scheduling behavior.
-    const unsigned batchBudget = fastDma ? 1024 : 1;
+    const unsigned batchBudget = fastDma ? fastDmaEventBatch : 1;
     for (unsigned batch = 0; batch < batchBudget; ++batch) {
         backend->processEvent();
         startBackendDma();

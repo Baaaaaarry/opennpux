@@ -8,6 +8,7 @@ OUT_DIR="${CORAL_MOBILENET_MATRIX_OUT:-${ROOT_DIR}/simout/mobilenet-matrix}"
 RUNNER="${ROOT_DIR}/tools/coralnpu/run_rvv_mobilenet_test.sh"
 COMPARE="${ROOT_DIR}/tools/coralnpu/compare_mobilenet_results.sh"
 WRITE_REPORT="${ROOT_DIR}/tools/coralnpu/write_mobilenet_report.sh"
+SUMMARIZE_PROGRESS="${ROOT_DIR}/tools/coralnpu/summarize_mobilenet_progress.sh"
 TERMINAL_CANDIDATES="
 ${ROOT_DIR}/thirdparty/gem5/m5out/system.terminal
 ${ROOT_DIR}/m5out/system.terminal
@@ -43,10 +44,17 @@ append_terminal_log() {
 run_mode() {
     mode="$1"
     log="${OUT_DIR}/mobilenet-${mode}.log"
+    debug_log="${OUT_DIR}/mobilenet-${mode}.debug"
+    summary="${OUT_DIR}/mobilenet-${mode}.summary"
     echo "[mobilenet-matrix] running mode=${mode}, log=${log}"
     clear_terminal_logs
-    CORAL_OPERATOR_MODE="${mode}" "${RUNNER}" 2>&1 | tee "${log}"
+    CORAL_OPERATOR_MODE="${mode}" \
+    CORAL_MOBILENET_DEBUG_LOG="${debug_log}" \
+        "${RUNNER}" 2>&1 | tee "${log}"
     append_terminal_log "${mode}" "${log}"
+    if [ "${CORAL_MOBILENET_DEBUG:-0}" = "1" ] && [ -f "${debug_log}" ]; then
+        "${SUMMARIZE_PROGRESS}" "${debug_log}" | tee "${summary}"
+    fi
 }
 
 run_mode hybrid

@@ -131,6 +131,24 @@ hybrid and RTL cycles, operation count, memory traffic, cycles per operation,
 bytes per cycle, and the RTL/hybrid cycle ratio. Use this file for regressions
 and design reviews instead of copying terminal fragments manually.
 
+For RTL diagnosis, run the matrix with debug enabled:
+
+```sh
+CORAL_MOBILENET_DEBUG=1 ./tools/coralnpu/run_mobilenet_mode_matrix.sh
+```
+
+This additionally writes per-mode debug logs and summaries:
+
+```text
+simout/mobilenet-matrix/mobilenet-hybrid.debug
+simout/mobilenet-matrix/mobilenet-hybrid.summary
+simout/mobilenet-matrix/mobilenet-rtl.debug
+simout/mobilenet-matrix/mobilenet-rtl.summary
+```
+
+The summary reports the last firmware marker, fault CSRs if present, latest
+RTL heartbeat, EXTMEM/DMA samples, and per-phase cycle/access deltas.
+
 For a functional run with NPU progress tracing, use:
 
 ```sh
@@ -141,6 +159,12 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_rvv_mobilenet_test.sh
 
 tail -F simout/coral-mobilenet.debug
+```
+
+To summarize an existing debug log:
+
+```sh
+./tools/coralnpu/summarize_mobilenet_progress.sh simout/coral-mobilenet.debug
 ```
 
 The wrapper prints the effective gem5 options and RTL cycle batch before it

@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
 
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <cstdint>
 #include <vector>
@@ -40,6 +41,16 @@ coral_operator_descriptor Descriptor(uint32_t opcode) {
 
 void Write32(std::vector<uint8_t>* memory, size_t offset, int32_t value) {
   std::memcpy(memory->data() + offset, &value, sizeof(value));
+}
+
+void WriteFloat(std::vector<uint8_t>* memory, size_t offset, float value) {
+  std::memcpy(memory->data() + offset, &value, sizeof(value));
+}
+
+float ReadFloat(const std::vector<uint8_t>& memory, size_t offset) {
+  float value = 0.0f;
+  std::memcpy(&value, memory.data() + offset, sizeof(value));
+  return value;
 }
 
 void TestConv2D() {
@@ -104,10 +115,146 @@ void TestDepthwiseConv2D() {
   assert(descriptor.modeled_cycles == 2);
 }
 
+void TestMatMulInt8() {
+  std::vector<uint8_t> memory(256, 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_MATMUL_INT8);
+  descriptor.tensor_count = 3;
+  SetTensor(&descriptor.tensors[0], kBase, 4, 2, 2, 2, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  SetTensor(&descriptor.tensors[1], kBase + 16, 4, 2, 2, 2, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  SetTensor(&descriptor.tensors[2], kBase + 32, 4, 2, 2, 2, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  memory[0] = 1;
+  memory[1] = 2;
+  memory[2] = 3;
+  memory[3] = 4;
+  memory[16] = 1;
+  memory[17] = 0;
+  memory[18] = 0;
+  memory[19] = 1;
+
+  Gem5HybridOperatorResult result = {};
+  assert(DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result));
+  assert(static_cast<int8_t>(memory[32]) == 1);
+  assert(static_cast<int8_t>(memory[33]) == 2);
+  assert(static_cast<int8_t>(memory[34]) == 3);
+  assert(static_cast<int8_t>(memory[35]) == 4);
+  assert(descriptor.operation_count == 8);
+}
+
+void TestFullyConnectedInt8() {
+  std::vector<uint8_t> memory(256, 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8);
+  descriptor.tensor_count = 4;
+  SetTensor(&descriptor.tensors[0], kBase, 2, 2, 1, 2, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  SetTensor(&descriptor.tensors[1], kBase + 16, 4, 2, 2, 2, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  SetTensor(&descriptor.tensors[2], kBase + 32, 8, 1, 2, 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT32);
+  SetTensor(&descriptor.tensors[3], kBase + 48, 2, 2, 1, 2, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  memory[0] = 1;
+  memory[1] = 2;
+  memory[16] = 3;
+  memory[17] = 4;
+  memory[18] = 5;
+  memory[19] = 6;
+  Write32(&memory, 32, 1);
+  Write32(&memory, 36, -1);
+
+  Gem5HybridOperatorResult result = {};
+  assert(DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result));
+  assert(static_cast<int8_t>(memory[48]) == 12);
+  assert(static_cast<int8_t>(memory[49]) == 16);
+  assert(descriptor.operation_count == 4);
+}
+
+void TestAddInt8() {
+  std::vector<uint8_t> memory(256, 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_ADD_INT8);
+  descriptor.tensor_count = 3;
+  SetTensor(&descriptor.tensors[0], kBase, 3, 1, 3, 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  SetTensor(&descriptor.tensors[1], kBase + 16, 3, 1, 3, 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  SetTensor(&descriptor.tensors[2], kBase + 32, 3, 1, 3, 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  memory[0] = 1;
+  memory[1] = 2;
+  memory[2] = 3;
+  memory[16] = 4;
+  memory[17] = 5;
+  memory[18] = 6;
+
+  Gem5HybridOperatorResult result = {};
+  assert(DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result));
+  assert(static_cast<int8_t>(memory[32]) == 5);
+  assert(static_cast<int8_t>(memory[33]) == 7);
+  assert(static_cast<int8_t>(memory[34]) == 9);
+}
+
+void TestSoftmaxFloat() {
+  std::vector<uint8_t> memory(256, 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_SOFTMAX);
+  descriptor.tensor_count = 2;
+  SetTensor(&descriptor.tensors[0], kBase, 8, 1, 2, 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_FLOAT32);
+  SetTensor(&descriptor.tensors[1], kBase + 16, 8, 1, 2, 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_FLOAT32);
+  WriteFloat(&memory, 0, 1.0f);
+  WriteFloat(&memory, 4, 2.0f);
+
+  Gem5HybridOperatorResult result = {};
+  assert(DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result));
+  assert(std::fabs(ReadFloat(memory, 16) - 0.268941f) < 0.0001f);
+  assert(std::fabs(ReadFloat(memory, 20) - 0.731059f) < 0.0001f);
+}
+
+void TestLayerNormFloat() {
+  std::vector<uint8_t> memory(256, 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_LAYER_NORM);
+  descriptor.tensor_count = 4;
+  SetTensor(&descriptor.tensors[0], kBase, 16, 2, 2, 2, 0, 0,
+            CORAL_OPERATOR_ELEMENT_FLOAT32);
+  SetTensor(&descriptor.tensors[1], kBase + 32, 8, 1, 2, 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_FLOAT32);
+  SetTensor(&descriptor.tensors[2], kBase + 48, 8, 1, 2, 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_FLOAT32);
+  SetTensor(&descriptor.tensors[3], kBase + 64, 16, 2, 2, 2, 0, 0,
+            CORAL_OPERATOR_ELEMENT_FLOAT32);
+  WriteFloat(&memory, 0, 1.0f);
+  WriteFloat(&memory, 4, 2.0f);
+  WriteFloat(&memory, 8, 3.0f);
+  WriteFloat(&memory, 12, 4.0f);
+  WriteFloat(&memory, 32, 1.0f);
+  WriteFloat(&memory, 36, 1.0f);
+  WriteFloat(&memory, 48, 0.0f);
+  WriteFloat(&memory, 52, 0.0f);
+
+  Gem5HybridOperatorResult result = {};
+  assert(DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result));
+  assert(std::fabs(ReadFloat(memory, 64) + 0.99998f) < 0.0001f);
+  assert(std::fabs(ReadFloat(memory, 68) - 0.99998f) < 0.0001f);
+  assert(std::fabs(ReadFloat(memory, 72) + 0.99998f) < 0.0001f);
+  assert(std::fabs(ReadFloat(memory, 76) - 0.99998f) < 0.0001f);
+}
+
 }  // namespace
 
 int main() {
   TestConv2D();
   TestDepthwiseConv2D();
+  TestMatMulInt8();
+  TestFullyConnectedInt8();
+  TestAddInt8();
+  TestSoftmaxFloat();
+  TestLayerNormFloat();
   return 0;
 }

@@ -187,6 +187,43 @@ versioned completion mailbox. The initial firmware runs the upstream full
 MobileNet V1 0.25 dummy graph without HTIF semihosting. x86 full-system
 acceptance remains required after building the new bridge and firmware.
 
+The RVV highmem path has since been validated far enough to distinguish system
+bottlenecks from RTL execution cost:
+
+- Fast DMA and bridge-local EXTMEM remove the earlier real-scenario DMA
+  bottleneck; MobileNet now reports only mailbox/local EXTMEM synchronization
+  traffic during long operator phases.
+- `CORAL_FAST_DMA_EVENT_BATCH=4096` and `8192` produce nearly identical
+  MobileNet phase times, proving the remaining long runtime is inside the
+  Verilated RVV operator itself rather than gem5 event scheduling.
+- `CORAL_OPERATOR_MODE=sampled` was added for daily bring-up: Linux, driver,
+  firmware, mailbox, EXTMEM, and operator doorbell still run through the RTL
+  path, while supported long operators use hybrid kernels to avoid multi-hour
+  full-RTL waits.
+- Full RTL mode remains available for performance studies and has matched
+  hybrid output checksum for the current MobileNet partial workload.
+- The canonical Coral gem5 ABI header is synchronized at ABI v6 across
+  `rtl/wrappers`, `sim/coralnpu`, and `sim/gem5`.
+
+### Transformer Operator Bring-up
+
+The hybrid/sampled operator library now includes first-pass functional kernels
+for Transformer-class graphs:
+
+| Operator | Current Support | Notes |
+|---|---|---|
+| MatMul | int8 x int8 -> int8 | Basic 2-D matrix multiply, symmetric/simple quantization |
+| FullyConnected | int8 input/weights, optional int32 bias | Maps MLP projection layers to the same descriptor path |
+| Add | int8 elementwise | Same-shape residual add; broadcast and full quant rescale still pending |
+| Softmax | float32 and int8 | Functional reference for attention bring-up |
+| LayerNorm | float32 input/scale/bias/output | Uses descriptor `reserved[0]` as optional epsilon bits |
+| Conv2D/DepthwiseConv2D | int8 | Existing MobileNet coverage retained |
+
+These kernels are host-side hybrid functional models, not final custom RTL.
+They unblock end-to-end graph partitioning and correctness validation for DS4
+and other Transformer-like models while custom RTL units and bit-exact
+quantized TFLM semantics are developed.
+
 ## Immediate Development Order
 
 1. Run the Phase-3 runtime acceptance suite on x86 Linux.
@@ -204,8 +241,9 @@ acceptance remains required after building the new bridge and firmware.
 | Conv/Depthwise | Coral RVV RTL kernel | 主机 TFLM reference |
 | Tensor arena | DTCM | RTL 分配，算子由 host 执行 |
 | 性能含义 | 可统计 RTL cycles | 只代表功能执行速度 |
-| 数值正确性 | 尚无完整 golden 校验 | 尚无完整 golden 校验 |
-| 完整 MobileNet | 尚未支持 | 尚未支持 |
+| 数值正确性 | 已有 checksum 对比 | 已有 checksum 对比 |
+| 完整 MobileNet | sampled/hybrid 路径可快速推进 | sampled/hybrid 路径可快速推进 |
+| Transformer 基础算子 | 待 RTL 化 | MatMul/FC/Add/Softmax/LayerNorm 已有 bring-up kernel |
 
 ## 当前base调通后待开发项
 ### RTL 模式待开发
@@ -329,4 +367,14 @@ RTL模式配置参数：
 cycles-per-event=1000
 tick-period=1ns
 每执行一个 RTL cycle，gem5 时间推进约 1 ns
+```
+
+Hybrid模式
+```
+RTL 写 doorbell
+gem5 暂停当前事件
+x86 host 执行 TFLM
+结果写入 mailbox
+callback 返回
+RTL 继续
 ```

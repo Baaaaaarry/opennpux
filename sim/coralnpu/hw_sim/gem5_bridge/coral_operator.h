@@ -34,6 +34,10 @@ enum coral_operator_opcode {
     CORAL_OPERATOR_OP_CONV_2D_INT8 = 2,
     CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8 = 3,
     CORAL_OPERATOR_OP_MATMUL_INT8 = 4,
+    CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8 = 5,
+    CORAL_OPERATOR_OP_ADD_INT8 = 6,
+    CORAL_OPERATOR_OP_SOFTMAX = 7,
+    CORAL_OPERATOR_OP_LAYER_NORM = 8,
 };
 
 enum coral_operator_state {
@@ -59,6 +63,7 @@ enum coral_operator_flags {
 enum coral_operator_element_type {
     CORAL_OPERATOR_ELEMENT_INT8 = 1,
     CORAL_OPERATOR_ELEMENT_INT32 = 2,
+    CORAL_OPERATOR_ELEMENT_FLOAT32 = 3,
 };
 
 struct coral_operator_tensor {

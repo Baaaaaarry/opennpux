@@ -164,7 +164,13 @@ struct coral_gem5_handle {
 #ifdef CORAL_GEM5_RVV_HIGHMEM
           value = (UINT32_C(1) << CORAL_OPERATOR_OP_CONV_2D_INT8) |
                   (UINT32_C(1) <<
-                   CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8);
+                   CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8) |
+                  (UINT32_C(1) << CORAL_OPERATOR_OP_MATMUL_INT8) |
+                  (UINT32_C(1) <<
+                   CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8) |
+                  (UINT32_C(1) << CORAL_OPERATOR_OP_ADD_INT8) |
+                  (UINT32_C(1) << CORAL_OPERATOR_OP_SOFTMAX) |
+                  (UINT32_C(1) << CORAL_OPERATOR_OP_LAYER_NORM);
 #endif
         }
         auto* destination = reinterpret_cast<uint8_t*>(

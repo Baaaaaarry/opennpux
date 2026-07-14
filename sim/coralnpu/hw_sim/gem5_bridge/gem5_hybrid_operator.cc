@@ -34,7 +34,8 @@ bool ValidateGem5HybridDescriptor(
     const coral_operator_tensor& tensor = descriptor.tensors[i];
     const bool type_valid =
         tensor.element_type == CORAL_OPERATOR_ELEMENT_INT8 ||
-        tensor.element_type == CORAL_OPERATOR_ELEMENT_INT32;
+        tensor.element_type == CORAL_OPERATOR_ELEMENT_INT32 ||
+        tensor.element_type == CORAL_OPERATOR_ELEMENT_FLOAT32;
     if (!type_valid || tensor.rank == 0 ||
         tensor.rank > CORAL_OPERATOR_MAX_DIMS ||
         !RangeValid(tensor.address, tensor.size, extmem_base, extmem_size)) {
@@ -102,7 +103,24 @@ bool DispatchGem5HybridOperator(
           descriptor, extmem, extmem_base, extmem_size);
       break;
     case CORAL_OPERATOR_OP_MATMUL_INT8:
-      descriptor->error = CORAL_OPERATOR_ERROR_UNSUPPORTED;
+      success = RunGem5HybridMatMulInt8(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
+    case CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8:
+      success = RunGem5HybridFullyConnectedInt8(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
+    case CORAL_OPERATOR_OP_ADD_INT8:
+      success = RunGem5HybridAddInt8(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
+    case CORAL_OPERATOR_OP_SOFTMAX:
+      success = RunGem5HybridSoftmax(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
+    case CORAL_OPERATOR_OP_LAYER_NORM:
+      success = RunGem5HybridLayerNorm(
+          descriptor, extmem, extmem_base, extmem_size);
       break;
     default:
       descriptor->error = CORAL_OPERATOR_ERROR_UNSUPPORTED;

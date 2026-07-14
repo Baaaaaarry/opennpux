@@ -12,6 +12,10 @@ versioned contract for graph-level bring-up and future per-operator dispatch.
   doorbell. The bridge executes a functional host kernel and returns through
   the same descriptor. Host time is simulator performance, not NPU latency;
   `modeled_cycles` is produced by a configurable accelerator latency model.
+- `sampled`: firmware and driver still run through the Verilated Coral path,
+  but supported long operators are executed by the hybrid host kernel. This is
+  the default bring-up mode for large graphs where full RVV RTL execution would
+  take hours.
 
 The mode register is read-only to firmware and is configured by gem5 before
 the RTL starts. The default is `rtl`.
@@ -58,8 +62,25 @@ Partial MobileNet now runs through per-operator Conv2D and DepthwiseConv2D
 descriptors. `MicroInterpreter::Invoke()` remains in Coral firmware; wrappers
 stage DTCM tensors and quantization arrays into EXTMEM, submit one operator,
 copy its output back, and continue normal TFLM scheduling. The older host-side
-whole-graph shortcut is unsupported. MatMul retains a reserved opcode until its
-kernel is implemented.
+whole-graph shortcut is unsupported.
+
+The current hybrid kernel library covers these bring-up operators:
+
+| Opcode | Tensor Types | Status |
+|---|---|---|
+| `CONV_2D_INT8` | int8 activations/weights, int32 bias | Implemented |
+| `DEPTHWISE_CONV_2D_INT8` | int8 activations/weights, int32 bias | Implemented |
+| `MATMUL_INT8` | int8 x int8 -> int8 | Implemented, symmetric/simple quantization |
+| `FULLY_CONNECTED_INT8` | int8 input/weights, optional int32 bias | Implemented, symmetric/simple quantization |
+| `ADD_INT8` | int8 elementwise | Implemented, same-shape only |
+| `SOFTMAX` | float32 or int8 | Implemented for bring-up reference |
+| `LAYER_NORM` | float32 input/scale/bias/output | Implemented for transformer bring-up |
+
+MatMul, FullyConnected, Add, Softmax, and LayerNorm currently target functional
+graph bring-up and hybrid/sampled correctness checks. Their quantized
+production ABI still needs per-input scales, output scale, and richer
+broadcast semantics before it can be treated as bit-exact TFLM coverage for
+arbitrary models.
 
 ## Time
 

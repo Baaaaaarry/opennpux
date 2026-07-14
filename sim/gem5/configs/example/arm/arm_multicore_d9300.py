@@ -532,7 +532,7 @@ def addOptions(parser):
     )
     parser.add_argument(
         "--npu-operator-mode",
-        choices=("rtl", "hybrid"),
+        choices=("rtl", "hybrid", "sampled"),
         default="rtl",
         help="Coral operator execution mode"
     )

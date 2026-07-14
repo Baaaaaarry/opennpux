@@ -97,7 +97,8 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     fatal_if(rtlTickPeriod == 0, "Coral RTL tick period must be non-zero");
     fatal_if(rtlCyclesPerEvent == 0,
              "Coral RTL cycles per event must be non-zero");
-    fatal_if(operator_mode != "rtl" && operator_mode != "hybrid",
+    fatal_if(operator_mode != "rtl" && operator_mode != "hybrid" &&
+                 operator_mode != "sampled",
              "Unsupported Coral operator mode '%s'", operator_mode);
 
     libraryHandle = dlopen(wrapperPath.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -135,7 +136,13 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
              "Coral RTL bridge failed to reset AXI model");
     fatal_if(extmemEnable(modelHandle, localExtmemEnabled ? 1 : 0) != 0,
              "Coral RTL bridge failed to configure local EXTMEM");
-    fatal_if(setOperatorMode(modelHandle, operator_mode == "hybrid" ? 1 : 0) != 0,
+    uint32_t operatorModeValue = 0;
+    if (operator_mode == "hybrid") {
+        operatorModeValue = 1;
+    } else if (operator_mode == "sampled") {
+        operatorModeValue = 2;
+    }
+    fatal_if(setOperatorMode(modelHandle, operatorModeValue) != 0,
              "Coral RTL bridge failed to configure operator mode");
     loadFirmware();
 

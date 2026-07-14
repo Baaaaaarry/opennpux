@@ -256,7 +256,8 @@ struct coral_gem5_handle {
                   &data[0].write_data_bits_data[0]);
               std::memcpy(&command, source + lane, sizeof(command));
               if (addr.addr_bits_addr != CORAL_OPERATOR_DOORBELL_REG ||
-                  operator_mode != CORAL_OPERATOR_MODE_HYBRID ||
+                  (operator_mode != CORAL_OPERATOR_MODE_HYBRID &&
+                   operator_mode != CORAL_OPERATOR_MODE_SAMPLED) ||
                   command < kExtmemBase ||
                   command - kExtmemBase >
                       local_extmem.size() -
@@ -631,7 +632,7 @@ coral_gem5_extmem_write(
 extern "C" int
 coral_gem5_operator_mode(coral_gem5_handle* handle, uint32_t mode)
 {
-  if (handle == nullptr || mode > CORAL_OPERATOR_MODE_HYBRID) {
+  if (handle == nullptr || mode > CORAL_OPERATOR_MODE_SAMPLED) {
     return -1;
   }
   handle->operator_mode = mode;

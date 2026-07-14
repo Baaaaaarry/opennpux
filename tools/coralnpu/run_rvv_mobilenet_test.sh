@@ -56,11 +56,11 @@ fi
 
 echo "[coral-mobilenet] RTL cycles per event: ${RTL_CYCLES_PER_EVENT}"
 case "${OPERATOR_MODE}" in
-    rtl|hybrid) ;;
-    *) echo "error: CORAL_OPERATOR_MODE must be rtl or hybrid" >&2; exit 1 ;;
+    rtl|hybrid|sampled) ;;
+    *) echo "error: CORAL_OPERATOR_MODE must be rtl, hybrid, or sampled" >&2; exit 1 ;;
 esac
 echo "[coral-mobilenet] operator mode: ${OPERATOR_MODE}"
-if [ "${OPERATOR_MODE}" = "hybrid" ]; then
+if [ "${OPERATOR_MODE}" = "hybrid" ] || [ "${OPERATOR_MODE}" = "sampled" ]; then
     echo "[coral-mobilenet] hybrid latency: ops_per_cycle=${HYBRID_OPS_PER_CYCLE} bytes_per_cycle=${HYBRID_BYTES_PER_CYCLE} fixed_cycles=${HYBRID_FIXED_CYCLES}"
 fi
 if [ -n "${FAST_DMA_OPTION}" ]; then

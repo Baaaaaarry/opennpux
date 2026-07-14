@@ -270,6 +270,15 @@ per-phase RTL cycles, host wall time, EXTMEM accesses/bytes, and a
 1/2/4/8/16-byte access-width histogram. The begin/end marker pair for an
 operator therefore provides its simulation rate and memory-traffic cost
 without enabling high-volume per-transaction tracing.
+If `CORAL_FAST_DMA_EVENT_BATCH=4096` and `8192` produce nearly identical phase
+times, the bottleneck is no longer gem5 DMA or event scheduling. For example,
+the MobileNet Conv2D phase can spend tens of millions of cycles inside the
+Verilated RVV RTL while reporting only a handful of EXTMEM accesses. Use
+`CORAL_OPERATOR_MODE=sampled` for daily model bring-up: it still boots the
+Verilated firmware and exercises the driver, mailbox, EXTMEM, and operator
+doorbell path, but routes the currently supported long Conv2D and
+DepthwiseConv2D operators through the calibrated hybrid kernel. Use
+`CORAL_OPERATOR_MODE=rtl` only for full RTL performance studies.
 Summarize the current phase without following the complete trace using:
 
 ```sh

@@ -25,6 +25,7 @@
 enum coral_operator_mode {
     CORAL_OPERATOR_MODE_RTL = 0,
     CORAL_OPERATOR_MODE_HYBRID = 1,
+    CORAL_OPERATOR_MODE_SAMPLED = 2,
 };
 
 enum coral_operator_opcode {

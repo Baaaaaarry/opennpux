@@ -115,7 +115,9 @@ bool TryHybridConvInvoke(
   const uint32_t opcode = depthwise ?
       CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8 :
       CORAL_OPERATOR_OP_CONV_2D_INT8;
-  if (opennpux::OperatorMode() != CORAL_OPERATOR_MODE_HYBRID ||
+  const uint32_t mode = opennpux::OperatorMode();
+  if ((mode != CORAL_OPERATOR_MODE_HYBRID &&
+       mode != CORAL_OPERATOR_MODE_SAMPLED) ||
       !opennpux::HybridOperatorSupported(opcode) || node == nullptr ||
       node->user_data == nullptr || node->builtin_data == nullptr ||
       tflite::NumInputs(node) != 3) {

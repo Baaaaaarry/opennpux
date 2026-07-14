@@ -279,6 +279,10 @@ Verilated firmware and exercises the driver, mailbox, EXTMEM, and operator
 doorbell path, but routes the currently supported long Conv2D and
 DepthwiseConv2D operators through the calibrated hybrid kernel. Use
 `CORAL_OPERATOR_MODE=rtl` only for full RTL performance studies.
+If an older bridge was built before sampled mode existed, gem5 falls back to
+hybrid bridge mode for compatibility and prints a warning. Rebuild the bridge
+with `./tools/coralnpu/build_rvv_mobilenet.sh` to remove the warning and expose
+mode `2` end-to-end.
 Summarize the current phase without following the complete trace using:
 
 ```sh

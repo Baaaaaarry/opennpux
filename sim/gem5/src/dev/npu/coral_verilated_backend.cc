@@ -142,8 +142,14 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     } else if (operator_mode == "sampled") {
         operatorModeValue = 2;
     }
-    fatal_if(setOperatorMode(modelHandle, operatorModeValue) != 0,
-             "Coral RTL bridge failed to configure operator mode");
+    if (setOperatorMode(modelHandle, operatorModeValue) != 0) {
+        fatal_if(operator_mode != "sampled" ||
+                     setOperatorMode(modelHandle, 1) != 0,
+                 "Coral RTL bridge failed to configure operator mode");
+        warn("Coral RTL bridge rejected sampled operator mode; "
+             "falling back to hybrid bridge mode. Rebuild the Coral bridge "
+             "to expose sampled mode explicitly.");
+    }
     loadFirmware();
 
     DPRINTFR(NPUDevice,

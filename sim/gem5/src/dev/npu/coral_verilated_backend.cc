@@ -28,6 +28,7 @@ constexpr Addr kResetControlOffset = 0x30000;
 constexpr Addr kMepcOffset = 0x30104;
 constexpr Addr kMtvalOffset = 0x30108;
 constexpr Addr kMcauseOffset = 0x3010c;
+constexpr Addr kCoralExtmemBase = 0x20000000;
 constexpr uint32_t kResetBit = 1u << 0;
 constexpr uint32_t kClockGateBit = 1u << 1;
 
@@ -203,16 +204,15 @@ CoralVerilatedBackend::loadFirmware()
                      segment->p_filesz > image.size(),
                  "Coral RTL firmware '%s' has a truncated load segment",
                  firmwarePath);
-        fatal_if(mmioWrite(modelHandle, segment->p_paddr,
-                           image.data() + segment->p_offset,
-                           segment->p_filesz) != 0,
-                 "Unable to load Coral RTL firmware segment at %#x",
-                 segment->p_paddr);
-
-        // TCM is directly reachable through the model's AXI slave port.
-        // EXTMEM/DDR use the deferred AXI master path and cannot be read back
-        // synchronously while constructing the backend.
-        if (segment->p_paddr >= 0x20000000) {
+        if (segment->p_paddr >= kCoralExtmemBase) {
+            fatal_if(extmemWrite == nullptr ||
+                         extmemWrite(modelHandle, segment->p_paddr,
+                                     image.data() + segment->p_offset,
+                                     segment->p_filesz) != 0,
+                     "Unable to load Coral RTL external firmware segment "
+                     "at %#x size=%#x. Check --npu-local-extmem and the "
+                     "bridge EXTMEM aperture.",
+                     segment->p_paddr, segment->p_filesz);
             DPRINTFR(NPUDevice,
                      "Loaded external Coral firmware LOAD segment addr=%#x "
                      "filesz=%#x memsz=%#x flags=%#x\n",
@@ -220,6 +220,11 @@ CoralVerilatedBackend::loadFirmware()
                      segment->p_flags);
             continue;
         }
+        fatal_if(mmioWrite(modelHandle, segment->p_paddr,
+                           image.data() + segment->p_offset,
+                           segment->p_filesz) != 0,
+                 "Unable to load Coral RTL firmware segment at %#x",
+                 segment->p_paddr);
 
         std::vector<uint8_t> loaded(segment->p_filesz);
         fatal_if(mmioRead(modelHandle, segment->p_paddr, loaded.data(),

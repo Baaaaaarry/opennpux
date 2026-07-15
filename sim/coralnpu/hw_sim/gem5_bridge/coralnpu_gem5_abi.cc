@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -87,7 +88,120 @@ uint64_t DivCeil(uint64_t value, uint64_t divisor) {
   return value == 0 ? 0 : 1 + (value - 1) / divisor;
 }
 
+bool IsHexMaskText(const char* text) {
+  return text != nullptr && text[0] == '0' &&
+         (text[1] == 'x' || text[1] == 'X');
+}
+
+uint32_t OperatorMaskBit(uint32_t opcode) {
+  return opcode < 32 ? (UINT32_C(1) << opcode) : 0;
+}
+
+const char* OperatorName(uint32_t opcode) {
+  switch (opcode) {
+    case CORAL_OPERATOR_OP_PARTIAL_MOBILENET:
+      return "partial_mobilenet";
+    case CORAL_OPERATOR_OP_CONV_2D_INT8:
+      return "conv2d_int8";
+    case CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8:
+      return "depthwise_conv2d_int8";
+    case CORAL_OPERATOR_OP_MATMUL_INT8:
+      return "matmul_int8";
+    case CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8:
+      return "fully_connected_int8";
+    case CORAL_OPERATOR_OP_ADD_INT8:
+      return "add_int8";
+    case CORAL_OPERATOR_OP_SOFTMAX:
+      return "softmax";
+    case CORAL_OPERATOR_OP_LAYER_NORM:
+      return "layer_norm";
+    default:
+      return "unknown";
+  }
+}
+
+bool TokenEquals(const char* begin, const char* end, const char* name) {
+  while (begin < end && std::isspace(static_cast<unsigned char>(*begin))) {
+    ++begin;
+  }
+  while (end > begin && std::isspace(static_cast<unsigned char>(end[-1]))) {
+    --end;
+  }
+  const size_t length = static_cast<size_t>(end - begin);
+  return std::strlen(name) == length && std::strncmp(begin, name, length) == 0;
+}
+
+uint32_t ParseSampledRtlMask() {
+  const char* text = std::getenv("CORAL_SAMPLED_RTL_OPS");
+  if (text == nullptr || text[0] == '\0' || std::strcmp(text, "none") == 0) {
+    return 0;
+  }
+  if (std::strcmp(text, "all") == 0) {
+    return OperatorMaskBit(CORAL_OPERATOR_OP_CONV_2D_INT8) |
+           OperatorMaskBit(CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8) |
+           OperatorMaskBit(CORAL_OPERATOR_OP_MATMUL_INT8) |
+           OperatorMaskBit(CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8) |
+           OperatorMaskBit(CORAL_OPERATOR_OP_ADD_INT8) |
+           OperatorMaskBit(CORAL_OPERATOR_OP_SOFTMAX) |
+           OperatorMaskBit(CORAL_OPERATOR_OP_LAYER_NORM);
+  }
+  if (IsHexMaskText(text)) {
+    return static_cast<uint32_t>(std::strtoul(text, nullptr, 0));
+  }
+
+  uint32_t mask = 0;
+  const char* token_begin = text;
+  for (const char* p = text; ; ++p) {
+    if (*p != ',' && *p != '\0') {
+      continue;
+    }
+    if (TokenEquals(token_begin, p, "conv")) {
+      mask |= OperatorMaskBit(CORAL_OPERATOR_OP_CONV_2D_INT8);
+    } else if (TokenEquals(token_begin, p, "depthwise")) {
+      mask |= OperatorMaskBit(CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8);
+    } else if (TokenEquals(token_begin, p, "matmul")) {
+      mask |= OperatorMaskBit(CORAL_OPERATOR_OP_MATMUL_INT8);
+    } else if (TokenEquals(token_begin, p, "fc") ||
+               TokenEquals(token_begin, p, "fully_connected")) {
+      mask |= OperatorMaskBit(CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8);
+    } else if (TokenEquals(token_begin, p, "add")) {
+      mask |= OperatorMaskBit(CORAL_OPERATOR_OP_ADD_INT8);
+    } else if (TokenEquals(token_begin, p, "softmax")) {
+      mask |= OperatorMaskBit(CORAL_OPERATOR_OP_SOFTMAX);
+    } else if (TokenEquals(token_begin, p, "layernorm") ||
+               TokenEquals(token_begin, p, "layer_norm")) {
+      mask |= OperatorMaskBit(CORAL_OPERATOR_OP_LAYER_NORM);
+    }
+    if (*p == '\0') {
+      break;
+    }
+    token_begin = p + 1;
+  }
+  return mask;
+}
+
 }  // namespace
+
+struct HybridOperatorStats {
+  uint64_t count = 0;
+  uint64_t host_ns = 0;
+  uint64_t operations = 0;
+  uint64_t modeled_cycles = 0;
+  uint64_t bytes = 0;
+};
+
+struct OperatorPhaseStats {
+  uint64_t count = 0;
+  uint64_t rtl_cycles = 0;
+  uint64_t wall_ms = 0;
+  uint64_t extmem_accesses = 0;
+  uint64_t extmem_bytes = 0;
+  bool active = false;
+  uint64_t begin_cycles = 0;
+  uint64_t begin_accesses = 0;
+  uint64_t begin_bytes = 0;
+  std::chrono::steady_clock::time_point begin_wall_time;
+};
 
 struct coral_gem5_handle {
   VerilatedContext context;
@@ -95,6 +209,7 @@ struct coral_gem5_handle {
   Gem5CustomMac custom_mac;
   uint32_t firmware_progress;
   uint32_t operator_mode;
+  uint32_t sampled_rtl_mask;
   uint32_t hybrid_status;
   bool local_extmem_enabled;
   std::vector<uint8_t> local_extmem;
@@ -110,10 +225,103 @@ struct coral_gem5_handle {
   uint64_t progress_accesses;
   uint64_t progress_bytes;
   std::chrono::steady_clock::time_point progress_wall_time;
+  std::array<HybridOperatorStats, 32> hybrid_operator_stats;
+  std::array<OperatorPhaseStats, 32> operator_phase_stats;
   coral_gem5_dma_request pending_dma;
   bool dma_pending;
   uint32_t dma_beat_size;
   uint32_t dma_beat_count;
+
+  void TrackOperatorPhase(uint32_t marker,
+                          std::chrono::steady_clock::time_point now,
+                          uint64_t accesses) {
+    uint32_t opcode = CORAL_OPERATOR_OP_INVALID;
+    bool begin = false;
+    if (marker == OPENNPUX_CORAL_MOBILENET_PROGRESS_CONV_BEGIN) {
+      opcode = CORAL_OPERATOR_OP_CONV_2D_INT8;
+      begin = true;
+    } else if (marker == OPENNPUX_CORAL_MOBILENET_PROGRESS_CONV_END) {
+      opcode = CORAL_OPERATOR_OP_CONV_2D_INT8;
+    } else if (marker ==
+               OPENNPUX_CORAL_MOBILENET_PROGRESS_DEPTHWISE_BEGIN) {
+      opcode = CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8;
+      begin = true;
+    } else if (marker == OPENNPUX_CORAL_MOBILENET_PROGRESS_DEPTHWISE_END) {
+      opcode = CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8;
+    } else {
+      return;
+    }
+
+    OperatorPhaseStats& stats = operator_phase_stats[opcode];
+    if (begin) {
+      stats.active = true;
+      stats.begin_cycles = rtl_cycles;
+      stats.begin_accesses = accesses;
+      stats.begin_bytes = local_extmem_bytes;
+      stats.begin_wall_time = now;
+      return;
+    }
+    if (!stats.active || rtl_cycles < stats.begin_cycles ||
+        accesses < stats.begin_accesses ||
+        local_extmem_bytes < stats.begin_bytes) {
+      return;
+    }
+    stats.active = false;
+    ++stats.count;
+    stats.rtl_cycles += rtl_cycles - stats.begin_cycles;
+    stats.extmem_accesses += accesses - stats.begin_accesses;
+    stats.extmem_bytes += local_extmem_bytes - stats.begin_bytes;
+    stats.wall_ms += static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - stats.begin_wall_time).count());
+  }
+
+  void PrintOperatorSummary() {
+    std::fprintf(stderr,
+                 "Coral operator summary begin mode=%u sampled_rtl_mask=0x%08x "
+                 "rtl_cycles=%llu extmem_accesses=%llu extmem_bytes=%llu\n",
+                 operator_mode, sampled_rtl_mask,
+                 static_cast<unsigned long long>(rtl_cycles),
+                 static_cast<unsigned long long>(
+                     local_extmem_reads + local_extmem_writes),
+                 static_cast<unsigned long long>(local_extmem_bytes));
+    for (size_t opcode = 0; opcode < operator_phase_stats.size(); ++opcode) {
+      const OperatorPhaseStats& stats = operator_phase_stats[opcode];
+      if (stats.count == 0) {
+        continue;
+      }
+      const uint32_t opcode_value = static_cast<uint32_t>(opcode);
+      std::fprintf(stderr,
+                   "Coral operator phase summary opcode=%u name=%s "
+                   "count=%llu rtl_cycles=%llu wall_ms=%llu "
+                   "extmem_accesses=%llu extmem_bytes=%llu\n",
+                   opcode_value, OperatorName(opcode_value),
+                   static_cast<unsigned long long>(stats.count),
+                   static_cast<unsigned long long>(stats.rtl_cycles),
+                   static_cast<unsigned long long>(stats.wall_ms),
+                   static_cast<unsigned long long>(stats.extmem_accesses),
+                   static_cast<unsigned long long>(stats.extmem_bytes));
+    }
+    for (size_t opcode = 0; opcode < hybrid_operator_stats.size();
+         ++opcode) {
+      const HybridOperatorStats& stats = hybrid_operator_stats[opcode];
+      if (stats.count == 0) {
+        continue;
+      }
+      const uint32_t opcode_value = static_cast<uint32_t>(opcode);
+      std::fprintf(stderr,
+                   "Coral hybrid operator summary opcode=%u name=%s "
+                   "count=%llu host_ns=%llu operations=%llu "
+                   "modeled_cycles=%llu bytes=%llu\n",
+                   opcode_value, OperatorName(opcode_value),
+                   static_cast<unsigned long long>(stats.count),
+                   static_cast<unsigned long long>(stats.host_ns),
+                   static_cast<unsigned long long>(stats.operations),
+                   static_cast<unsigned long long>(stats.modeled_cycles),
+                   static_cast<unsigned long long>(stats.bytes));
+    }
+    std::fprintf(stderr, "Coral operator summary end\n");
+  }
 
   coral_gem5_handle()
       : context(),
@@ -121,6 +329,7 @@ struct coral_gem5_handle {
         custom_mac(&context),
         firmware_progress(0),
         operator_mode(0),
+        sampled_rtl_mask(ParseSampledRtlMask()),
         hybrid_status(0),
         local_extmem_enabled(false),
         local_extmem(kExtmemSize, 0),
@@ -138,6 +347,8 @@ struct coral_gem5_handle {
         progress_accesses(0),
         progress_bytes(0),
         progress_wall_time(std::chrono::steady_clock::now()),
+        hybrid_operator_stats(),
+        operator_phase_stats(),
         pending_dma(),
         dma_pending(false),
         dma_beat_size(0),
@@ -148,6 +359,8 @@ struct coral_gem5_handle {
                  static_cast<unsigned long long>(hybrid_ops_per_cycle),
                  static_cast<unsigned long long>(hybrid_bytes_per_cycle),
                  static_cast<unsigned long long>(hybrid_fixed_cycles));
+    std::fprintf(stderr, "Coral sampled RTL operator mask=0x%08x\n",
+                 sampled_rtl_mask);
     std::fflush(stderr);
     wrapper.RegisterDeferredReadCallback([this](const AxiAddr& addr) {
       if (IsHybridWordAccess(addr)) {
@@ -159,6 +372,9 @@ struct coral_gem5_handle {
           value = operator_mode;
         } else if (addr.addr_bits_addr == CORAL_OPERATOR_STATUS_REG) {
           value = hybrid_status;
+        } else if (addr.addr_bits_addr ==
+                   CORAL_OPERATOR_SAMPLED_RTL_MASK_REG) {
+          value = sampled_rtl_mask;
         } else if (addr.addr_bits_addr ==
                    CORAL_OPERATOR_CAPABILITIES_REG) {
 #ifdef CORAL_GEM5_RVV_HIGHMEM
@@ -293,11 +509,28 @@ struct coral_gem5_handle {
                       DivCeil(descriptor->operation_count,
                               hybrid_ops_per_cycle) +
                       DivCeil(traffic_bytes, hybrid_bytes_per_cycle);
+                  if (static_cast<size_t>(descriptor->opcode) <
+                      hybrid_operator_stats.size()) {
+                    HybridOperatorStats& stats =
+                        hybrid_operator_stats[descriptor->opcode];
+                    ++stats.count;
+                    stats.host_ns += descriptor->host_elapsed_ns;
+                    stats.operations += descriptor->operation_count;
+                    stats.modeled_cycles += descriptor->modeled_cycles;
+                    stats.bytes += traffic_bytes;
+                  }
                   std::fprintf(stderr,
                                "Coral hybrid operator complete opcode=%u "
-                               "host_ns=%llu operations=%llu "
-                               "modeled_cycles=%llu bytes=%llu\n",
+                               "name=%s count=%llu host_ns=%llu "
+                               "operations=%llu modeled_cycles=%llu "
+                               "bytes=%llu\n",
                                descriptor->opcode,
+                               OperatorName(descriptor->opcode),
+                               static_cast<size_t>(descriptor->opcode) <
+                                   hybrid_operator_stats.size() ?
+                                   static_cast<unsigned long long>(
+                                       hybrid_operator_stats[
+                                           descriptor->opcode].count) : 0ULL,
                                static_cast<unsigned long long>(
                                    descriptor->host_elapsed_ns),
                                static_cast<unsigned long long>(
@@ -347,6 +580,7 @@ struct coral_gem5_handle {
                 const auto wall_ms =
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         now - progress_wall_time).count();
+                TrackOperatorPhase(firmware_progress, now, accesses);
                 std::fprintf(
                     stderr,
                     "Coral phase stats marker=0x%08x cycles=%llu "
@@ -374,6 +608,10 @@ struct coral_gem5_handle {
                 progress_accesses = accesses;
                 progress_bytes = local_extmem_bytes;
                 progress_wall_time = now;
+                if (firmware_progress ==
+                    OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_END) {
+                  PrintOperatorSummary();
+                }
                 std::fflush(stderr);
               } else {
                 custom_mac.Write32(addr.addr_bits_addr, value);

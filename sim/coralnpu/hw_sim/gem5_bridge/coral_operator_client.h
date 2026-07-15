@@ -27,9 +27,26 @@ inline uint32_t OperatorCapabilities() {
       CORAL_OPERATOR_CAPABILITIES_REG);
 }
 
+inline uint32_t SampledRtlMask() {
+  return *reinterpret_cast<volatile uint32_t*>(
+      CORAL_OPERATOR_SAMPLED_RTL_MASK_REG);
+}
+
 inline bool HybridOperatorSupported(uint32_t opcode) {
   return opcode < 32 &&
          (OperatorCapabilities() & (UINT32_C(1) << opcode)) != 0;
+}
+
+inline bool OperatorUsesHybrid(uint32_t opcode) {
+  const uint32_t mode = OperatorMode();
+  if (mode == CORAL_OPERATOR_MODE_HYBRID) {
+    return HybridOperatorSupported(opcode);
+  }
+  if (mode == CORAL_OPERATOR_MODE_SAMPLED) {
+    return HybridOperatorSupported(opcode) &&
+           (SampledRtlMask() & (UINT32_C(1) << opcode)) == 0;
+  }
+  return false;
 }
 
 inline void InitializeStagingAllocator(

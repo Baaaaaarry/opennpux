@@ -245,7 +245,7 @@ coralnpu_v2_binary(
         "//sw/opt/litert-micro:conv",
         "//sw/opt/litert-micro:depthwise_conv",
         "//sw/utils:utils",
-        "//tests/cocotb/tutorial/tfmicro:mobilenet_v1_025_partial_layers_lib",
+        "//tests/cocotb/tutorial/tfmicro:mobilenet_v1_025_224_int8_dummy_lib",
         "@tflite_micro//tensorflow/lite/micro:micro_framework",
         "@tflite_micro//tensorflow/lite/micro:micro_log",
         "@tflite_micro//tensorflow/lite/micro:op_resolvers",

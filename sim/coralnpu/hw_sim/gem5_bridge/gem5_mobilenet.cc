@@ -14,16 +14,16 @@
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/kernels/kernel_util.h"
 #include "tensorflow/lite/micro/system_setup.h"
-#include "tests/cocotb/tutorial/tfmicro/mobilenet_v1_025_partial_layers.h"
+#include "tests/cocotb/tutorial/tfmicro/mobilenet_v1_025_224_int8_dummy.h"
 
 namespace {
 
-using MobilenetOpResolver = tflite::MicroMutableOpResolver<2>;
+using MobilenetOpResolver = tflite::MicroMutableOpResolver<10>;
 using coralnpu_v2::opt::litert_micro::Register_CONV_2D;
 using coralnpu_v2::opt::litert_micro::Register_DEPTHWISE_CONV_2D;
 
 constexpr uintptr_t kExtmemBase = 0x20000000;
-constexpr size_t kPartialTensorArenaSize = 768 * 1024;
+constexpr size_t kTensorArenaSize = 4 * 1024 * 1024;
 
 volatile opennpux_coral_mobilenet_mailbox* Mailbox() {
   return reinterpret_cast<volatile opennpux_coral_mobilenet_mailbox*>(
@@ -115,10 +115,7 @@ bool TryHybridConvInvoke(
   const uint32_t opcode = depthwise ?
       CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8 :
       CORAL_OPERATOR_OP_CONV_2D_INT8;
-  const uint32_t mode = opennpux::OperatorMode();
-  if ((mode != CORAL_OPERATOR_MODE_HYBRID &&
-       mode != CORAL_OPERATOR_MODE_SAMPLED) ||
-      !opennpux::HybridOperatorSupported(opcode) || node == nullptr ||
+  if (!opennpux::OperatorUsesHybrid(opcode) || node == nullptr ||
       node->user_data == nullptr || node->builtin_data == nullptr ||
       tflite::NumInputs(node) != 3) {
     return false;
@@ -319,6 +316,14 @@ TfLiteStatus RegisterOps(MobilenetOpResolver& resolver) {
   depthwiseInvoke = depthwise.invoke;
   depthwise.invoke = TracedDepthwiseInvoke;
   TF_LITE_ENSURE_STATUS(resolver.AddDepthwiseConv2D(depthwise));
+  TF_LITE_ENSURE_STATUS(resolver.AddReshape());
+  TF_LITE_ENSURE_STATUS(resolver.AddAveragePool2D());
+  TF_LITE_ENSURE_STATUS(resolver.AddSoftmax());
+  TF_LITE_ENSURE_STATUS(resolver.AddStridedSlice());
+  TF_LITE_ENSURE_STATUS(resolver.AddPad());
+  TF_LITE_ENSURE_STATUS(resolver.AddMean());
+  TF_LITE_ENSURE_STATUS(resolver.AddShape());
+  TF_LITE_ENSURE_STATUS(resolver.AddPack());
   return kTfLiteOk;
 }
 
@@ -357,8 +362,8 @@ __attribute__((used)) uint32_t opennpux_mobilenet_early_progress_enabled = 1;
   }
 }
 
-uint8_t tensor_arena[kPartialTensorArenaSize]
-    __attribute__((section(".bss"), aligned(16)));
+uint8_t tensor_arena[kTensorArenaSize]
+    __attribute__((section(".extdata"), aligned(16)));
 
 }  // extern "C"
 
@@ -373,7 +378,7 @@ int main() {
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_MAILBOX);
 
   const tflite::Model* model =
-      tflite::GetModel(g_mobilenet_v1_025_partial_layers_model_data);
+      tflite::GetModel(g_25_224_int8_dummy_model_data);
   MobilenetOpResolver resolver;
   if (RegisterOps(resolver) != kTfLiteOk) {
     return Fail(OPENNPUX_CORAL_MOBILENET_ERROR_ALLOCATE);
@@ -397,6 +402,7 @@ int main() {
   const uint64_t start_cycles = mcycle_read();
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_BEGIN);
   const uint32_t execution_mode = opennpux::OperatorMode();
+  const uint32_t sampled_rtl_mask = opennpux::SampledRtlMask();
   coral_operator_descriptor* descriptor = ExecutionDescriptor();
   opennpux::InitializeOperatorDescriptor(
       descriptor, CORAL_OPERATOR_OP_PARTIAL_MOBILENET, execution_mode);
@@ -411,7 +417,9 @@ int main() {
   }
   MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_INVOKE_END);
   const uint64_t elapsed_cycles = mcycle_read() - start_cycles;
-  if (execution_mode == CORAL_OPERATOR_MODE_RTL) {
+  if (execution_mode == CORAL_OPERATOR_MODE_RTL ||
+      (execution_mode == CORAL_OPERATOR_MODE_SAMPLED &&
+       sampled_rtl_mask != 0)) {
     descriptor->modeled_cycles = elapsed_cycles;
   }
 

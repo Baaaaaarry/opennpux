@@ -116,3 +116,11 @@ awk '
         printf "%s cycles=%s delta_cycles=%s wall_ms=%s accesses=%s delta_accesses=%s bytes=%s delta_bytes=%s\n", marker, cycles, delta, wall, accesses, daccesses, bytes, dbytes
     }
 ' "${LOG}" | tail -n 20
+
+echo
+echo "Operator phase summary:"
+grep 'Coral operator phase summary' "${LOG}" | tail -n 20 || true
+
+echo
+echo "Hybrid operator summary:"
+grep 'Coral hybrid operator summary' "${LOG}" | tail -n 20 || true

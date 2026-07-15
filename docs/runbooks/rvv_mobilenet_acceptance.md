@@ -283,6 +283,29 @@ If an older bridge was built before sampled mode existed, gem5 falls back to
 hybrid bridge mode for compatibility and prints a warning. Rebuild the bridge
 with `./tools/coralnpu/build_rvv_mobilenet.sh` to remove the warning and expose
 mode `2` end-to-end.
+Use `CORAL_SAMPLED_RTL_OPS` to keep selected sampled-mode operators on the real
+Coral RVV RTL path while the rest use hybrid kernels. Accepted names are
+`conv`, `depthwise`, `matmul`, `fc`, `add`, `softmax`, `layernorm`, `all`, and
+`none`; a hexadecimal bitmask is also accepted. For example:
+
+```sh
+CORAL_OPERATOR_MODE=sampled CORAL_SAMPLED_RTL_OPS=conv \
+  ./tools/coralnpu/run_rvv_mobilenet_test.sh
+```
+
+At `invoke-end`, the bridge prints per-operator summaries:
+
+```text
+Coral operator phase summary opcode=2 name=conv2d_int8 count=... rtl_cycles=... wall_ms=... extmem_accesses=... extmem_bytes=...
+Coral hybrid operator summary opcode=2 name=conv2d_int8 count=... host_ns=... operations=... modeled_cycles=... bytes=...
+```
+
+`operator phase summary` is the firmware-visible begin/end window for that
+operator class. `hybrid operator summary` is emitted only for operators that
+actually crossed the hybrid doorbell. If `CORAL_SAMPLED_RTL_OPS=all` still
+prints a non-zero hybrid summary, rebuild the bridge and firmware; otherwise
+the run is using an older artifact or sampled-mode fallback.
+
 Summarize the current phase without following the complete trace using:
 
 ```sh
@@ -347,26 +370,16 @@ Coral hybrid operator complete opcode=3 host_ns=<non-zero> operations=<non-zero>
 RTL inference is slow, this distinguishes it from guest-side shared-memory
 initialization.
 
-This acceptance runs Coral's upstream
-`mobilenet_v1_025_partial_layers.tflite` graph. It contains the initial Conv2D
-and optimized DepthwiseConv2D path used by Coral's own RTL test, and proves that
-ARM Linux dispatches a LiteRT Micro graph through the driver and coherent
-memory path to the official RVV highmem RTL.
-The firmware initializes the input tensor using its runtime `input->bytes`
-metadata because this partial graph does not have the full model's fixed
-`224 * 224 * 3` input shape.
-For this partial graph, the 768 KiB tensor arena is placed in the highmem
-core's 1 MiB DTCM scratchpad. The measured graph working set is below 512 KiB;
-the remaining DTCM accommodates firmware globals and the 64 KiB stack. The
-mailbox remains in coherent EXTMEM, so ARM/Linux command and result transport
-is unchanged. This removes hundreds of thousands of 1-byte/4-byte AXI
-transactions from the Conv2D inner loop while preserving execution of the
-actual Coral RVV RTL and optimized kernels. Larger graphs that do not fit DTCM
-must use tiled EXTMEM staging or the planned hybrid operator backend rather
-than silently increasing this arena.
+This acceptance runs Coral's upstream full
+`mobilenet_v1_0.25_224_int8_dummy.tflite` graph. The firmware registers the
+complete MobileNet operator set used by Coral's own full-model runner:
+Conv2D, DepthwiseConv2D, Reshape, AveragePool2D, Softmax, StridedSlice, Pad,
+Mean, Shape, and Pack. The tensor arena is placed in coherent highmem EXTMEM
+so the full graph is no longer constrained by the highmem core's 1 MiB DTCM.
 
-The full `mobilenet_v1_0.25_224_int8_dummy.tflite` graph is not the Phase-4/5
-platform acceptance target. On cycle-accurate RTL it can spend more than 100
-million cycles in `AllocateTensors()` before inference begins. Full-graph
-execution remains a separate operator-coverage and memory-planning milestone;
-heartbeat counts alone are RTL cycles, not DMA counts or completion progress.
+Use `sampled` mode for full-graph acceptance. Full cycle-accurate RTL remains
+available, but it can spend tens or hundreds of millions of cycles in allocator
+and Conv/Depthwise phases. In sampled mode, set `CORAL_SAMPLED_RTL_OPS` to keep
+specific compute classes on real Coral RVV RTL while the rest of the graph uses
+hybrid kernels. Heartbeat counts alone are RTL cycles, not DMA counts or
+completion progress.

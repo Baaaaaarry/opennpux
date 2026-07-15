@@ -200,8 +200,15 @@ bottlenecks from RTL execution cost:
   firmware, mailbox, EXTMEM, and operator doorbell still run through the RTL
   path, while supported long operators use hybrid kernels to avoid multi-hour
   full-RTL waits.
+- MobileNet firmware now targets the full upstream
+  `mobilenet_v1_0.25_224_int8_dummy.tflite` graph and registers the complete
+  MobileNet op set: Conv2D, DepthwiseConv2D, Reshape, AveragePool2D, Softmax,
+  StridedSlice, Pad, Mean, Shape, and Pack.
+- Sampled mode can force selected compute operators back onto real Coral RVV
+  RTL using `CORAL_SAMPLED_RTL_OPS` (`conv`, `depthwise`, `matmul`, `fc`,
+  `add`, `softmax`, `layernorm`, `all`, `none`, or a hex mask).
 - Full RTL mode remains available for performance studies and has matched
-  hybrid output checksum for the current MobileNet partial workload.
+  hybrid output checksum on the previously validated MobileNet workload.
 - The canonical Coral gem5 ABI header is synchronized at ABI v6 across
   `rtl/wrappers`, `sim/coralnpu`, and `sim/gem5`.
 
@@ -242,7 +249,7 @@ quantized TFLM semantics are developed.
 | Tensor arena | DTCM | RTL 分配，算子由 host 执行 |
 | 性能含义 | 可统计 RTL cycles | 只代表功能执行速度 |
 | 数值正确性 | 已有 checksum 对比 | 已有 checksum 对比 |
-| 完整 MobileNet | sampled/hybrid 路径可快速推进 | sampled/hybrid 路径可快速推进 |
+| 完整 MobileNet | full RTL 可运行但极慢 | sampled/hybrid 路径作为验收主路径 |
 | Transformer 基础算子 | 待 RTL 化 | MatMul/FC/Add/Softmax/LayerNorm 已有 bring-up kernel |
 
 ## 当前base调通后待开发项

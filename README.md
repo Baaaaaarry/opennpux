@@ -42,7 +42,7 @@ sudo tools/guest_tools/install_mmio32_to_image.sh \
 Rebuild the boot checkpoint after modifying the disk image so Linux sees the
 updated contents.
 
-The Phase-3 userspace control utility can be built and installed similarly:
+The userspace control utility can be built and installed similarly:
 
 ```sh
 tools/guest_tools/build_coralctl.sh
@@ -165,7 +165,3 @@ The first run creates a dedicated 8 MiB-window checkpoint; the second restores
 it and executes MobileNet. See
 `docs/runbooks/rvv_mobilenet_acceptance.md` for the complete procedure.
 
-## Scope
-
-This superproject intentionally excludes macOS-specific build caches, ARM guest
- image build helpers, and transient simulation outputs from the tracked tree.

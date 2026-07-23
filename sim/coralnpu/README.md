@@ -12,3 +12,26 @@ Workflow:
    same relative paths they have in upstream Coral.
 3. Run `apply_patchset.sh` to merge `sim/coralnpu` into `thirdparty/coralnpu`.
 4. Build from `thirdparty/coralnpu`.
+
+difference between CoreMini & RvvCoreMiniHignMemAxi
+
+CoreMiniAxi / coralmini
+  |
+  ├── CoreMini RTL
+  ├── AXI Slave
+  ├── AXI Master
+  ├── ITCM
+  ├── DTCM
+  └── CSR
+
+RvvCoreMiniHighmemAxi
+  |
+  ├── RvvCoreMini RTL
+  ├── RVV / Vector execution path
+  ├── AXI Slave
+  ├── AXI Master
+  ├── ITCM
+  ├── DTCM
+  ├── CSR
+  ├── Highmem address mapping
+  └── Local EXTMEM

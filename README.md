@@ -173,7 +173,8 @@ official/custom RTL acceptance criteria.
 | `0x1d030000` | Coral NPU CSR | `RESET_CONTROL`，bit0 reset，bit1 clock gate |
 | `0x1d030004` | Coral NPU CSR | `PC_START` |
 | `0x1d030008` | Coral NPU CSR | `STATUS`，bit0 halted，bit1 fault |
-| `0x20000000-0x3fffffff` | VExpress on-chip | GIC、timer、HDLCD、SMMU、PCI IO/config 等 |
+| `0x20000000-0x207fffff` | Coral NPU EXTMEM 8M |
+| `0x20800000-0x3fffffff` | VExpress on-chip | 、GIC、timer、HDLCD、SMMU、PCI IO/config 等 |
 | `0x2c001000-0x2c001fff` | GIC | GIC distributor |
 | `0x2c002000-0x2c003fff` | GIC | GIC CPU interface |
 | `0x2c1c0000-0x2c1cffff` | GICv2m | MSI frame |

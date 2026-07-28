@@ -6,3 +6,18 @@ m5out/
 simout/
 run_upstream_smoke.log
 *.log
+
+# kbuild artifacts in runtime/kernel/
+runtime/kernel/*.o
+runtime/kernel/*.ko
+runtime/kernel/*.mod
+runtime/kernel/*.mod.c
+runtime/kernel/*.mod.o
+runtime/kernel/.*.cmd
+runtime/kernel/.tmp_versions/
+runtime/kernel/Module.symvers
+runtime/kernel/modules.order
+
+# agent plugins
+.claude*
+.ua/

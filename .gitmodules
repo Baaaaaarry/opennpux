@@ -1,6 +1,7 @@
 [submodule "thirdparty/gem5"]
 	path = thirdparty/gem5
 	url = https://github.com/gem5/gem5.git
+	ignore = dirty
 [submodule "thirdparty/coralnpu"]
 	path = thirdparty/coralnpu
 	url = https://github.com/google-coral/coralnpu.git

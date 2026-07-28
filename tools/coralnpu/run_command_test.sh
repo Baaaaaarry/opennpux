@@ -1,4 +1,15 @@
 #!/bin/sh
+# Run the Phase-4 command submission acceptance test.
+#
+# Validates the vector_add command through the Coral driver,
+# firmware descriptor parsing, and output checksum verification.
+#
+# Prerequisites:
+#   - Bridge and command firmware must be built (tools/coralnpu/phase2_build_bridge.sh)
+#   - coralctl must be installed in the guest image with driver support
+#   - The validated 4.19 kernel with opennpux_coral.ko must be installed
+#
+# Expected output: vector_add=PASS completed_elements=16 output_checksum=0x00000198
 
 set -eu
 

@@ -43,7 +43,13 @@ if [ ! -b "${PART}" ]; then
     PART="${LOOP}"
 fi
 
-sudo mount "${PART}" "${MNT}"
+if ! sudo mount "${PART}" "${MNT}"; then
+    echo "error: unable to mount image filesystem from ${PART}" >&2
+    echo "detected loop layout:" >&2
+    lsblk -f "${LOOP}" >&2 || true
+    sudo blkid "${LOOP}" "${LOOP}"p* >&2 || true
+    exit 1
+fi
 sudo install -D -m 0755 "${BIN}" "${MNT}/usr/local/bin/mmio32"
 sync
 

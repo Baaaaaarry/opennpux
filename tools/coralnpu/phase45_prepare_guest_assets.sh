@@ -4,7 +4,7 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
-IMAGE="${IMAGE:-/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img}"
+IMAGE="${IMAGE:-${HOME}/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img}"
 MODEL="${ROOT_DIR}/build/models/heterogeneous-smoke.npxm"
 
 "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"

@@ -48,7 +48,7 @@ Build guest tools and install them into the runtime image:
 ```sh
 ./tools/guest_tools/build_coralctl.sh
 sudo ./tools/guest_tools/install_coralctl_to_image.sh \
-  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+  $IMAGE_PATH/ubuntu-18.04-arm64-docker.img
 ```
 
 Build gem5:

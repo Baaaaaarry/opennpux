@@ -5,8 +5,8 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 
-IMAGE="${IMAGE:-/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img}"
-KERNEL_BASE_CONFIG="${KERNEL_BASE_CONFIG:-${ROOT_DIR}/build/kernel/gem5-4.18.config}"
+IMAGE="${IMAGE:-${HOME}/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img}"
+KERNEL_BASE_CONFIG="${KERNEL_BASE_CONFIG:-${ROOT_DIR}/tools/kernel/gem5-4.18.config}"
 LINUX_BRANCH="${LINUX_BRANCH:-linux-4.19.y}"
 
 if [ "${LINUX_BRANCH}" != "linux-4.19.y" ]; then
@@ -16,7 +16,7 @@ if [ "${LINUX_BRANCH}" != "linux-4.19.y" ]; then
 fi
 if [ ! -f "${KERNEL_BASE_CONFIG}" ]; then
     echo "error: KERNEL_BASE_CONFIG not found: ${KERNEL_BASE_CONFIG}" >&2
-    echo "hint: copy the booting 4.18 config to build/kernel/gem5-4.18.config" >&2
+    echo "hint: copy the booting 4.18 config to tools/kernel/gem5-4.18.config" >&2
     exit 1
 fi
 if [ ! -f "${IMAGE}" ]; then

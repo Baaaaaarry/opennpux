@@ -31,7 +31,7 @@ sudo chown -R "$USER:$(id -gn)" build/coralnpu
 Update the guest `coralctl` before creating the dedicated checkpoint:
 
 ```sh
-IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+IMAGE=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
 ./tools/coralnpu/phase45_prepare_guest_assets.sh
 ./sim/gem5/apply_patchset.sh
 ```
@@ -47,7 +47,7 @@ The MobileNet configuration reserves an 8 MiB coherent window, so it uses a
 separate checkpoint from the 4 KiB command tests:
 
 ```sh
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_rvv_mobilenet_test.sh
 ```
@@ -154,7 +154,7 @@ For a functional run with NPU progress tracing, use:
 ```sh
 CORAL_MOBILENET_DEBUG=1 \
 CORAL_RTL_CYCLES_PER_EVENT=1000 \
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_rvv_mobilenet_test.sh
 
@@ -326,7 +326,7 @@ and uses `/sbin/opennpux-init.sh`; it fails before starting gem5 when that
 kernel artifact is missing. Explicit `CORAL_KERNEL_IMAGE` and
 `CORAL_KERNEL_INIT` values still override these defaults.
 It also defaults to the Phase-3 validated Ubuntu 18.04 image at
-`/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img` instead
+`$IMAGE_PATH/ubuntu-18.04-arm64-docker.img` instead
 of allowing the generic launcher to select an incompatible development image.
 Use `CORAL_DISK_IMG` when the validated image is stored elsewhere.
 

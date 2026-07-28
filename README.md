@@ -3,6 +3,18 @@
 This repository is the x86-oriented superproject for system-level Coral NPU
 simulation work.
 
+## Quick Start
+
+Set the path to your gem5 ARM disk images and kernels once per session:
+
+```sh
+export IMAGE_PATH="${IMAGE_PATH:-$HOME/wlk/gem5_arm_linux_images}"
+```
+
+If your images live elsewhere, set `IMAGE_PATH` explicitly. The examples below use `$IMAGE_PATH` for all disk image paths.
+
+The gem5 run script (`run_multicore.sh`) also respects `IMAGE_PATH`, and most test wrappers accept `CORAL_DISK_IMG` and `CORAL_KERNEL_IMAGE` overrides.
+
 ## Layout
 
 - `thirdparty/gem5`: pinned gem5 submodule
@@ -36,7 +48,7 @@ The Coral bring-up scripts need a guest-side MMIO helper because `dd` reads from
 ```sh
 tools/guest_tools/build_mmio32.sh
 sudo tools/guest_tools/install_mmio32_to_image.sh \
-  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+  $IMAGE_PATH/ubuntu-18.04-arm64-docker.img
 ```
 
 Rebuild the boot checkpoint after modifying the disk image so Linux sees the
@@ -47,7 +59,7 @@ The userspace control utility can be built and installed similarly:
 ```sh
 tools/guest_tools/build_coralctl.sh
 sudo tools/guest_tools/install_coralctl_to_image.sh \
-  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+  $IMAGE_PATH/ubuntu-18.04-arm64-docker.img
 ```
 
 Use `coralctl info` to inspect the active backend and `coralctl run` to start
@@ -60,7 +72,7 @@ shared-memory reads and writes.
 On the supported x86 Linux host, build the official `CoreMiniAxi` Verilator
 model and the OpenNPUX C ABI adapter:
 
-```bash
+```sh
 ./tools/coralnpu/phase2_prepare_bazel.sh
 ./tools/coralnpu/phase2_check_abi.sh
 ./tools/coralnpu/phase2_build_bridge.sh
@@ -69,14 +81,14 @@ model and the OpenNPUX C ABI adapter:
 If the x86 host cannot resolve `releases.bazel.build`, download
 `bazel-8.6.0-linux-x86_64` on another machine and install it with:
 
-```bash
+```sh
 BAZEL_BINARY=/path/to/bazel-8.6.0-linux-x86_64 \
   ./tools/coralnpu/phase2_prepare_bazel.sh
 ```
 
 The staged Phase-2 artifacts are:
 
-```text
+```sh
 build/coralnpu/libcoralnpu_gem5_bridge.so
 build/coralnpu/gem5_smoke_halt.elf
 build/coralnpu/gem5_dma_smoke.elf
@@ -86,7 +98,7 @@ build/coralnpu/gem5_command_smoke.elf
 Apply the gem5 overlay and run the existing full-system flow with the RTL
 backend:
 
-```bash
+```sh
 ./sim/gem5/apply_patchset.sh
 CORAL_NPU_BACKEND=verilated-coral ./thirdparty/gem5/run_multicore.sh
 ```
@@ -104,20 +116,20 @@ must be recreated.
 Build the bridge and command firmware, rebuild/install `coralctl`, and run the
 driver-backed multi-buffer command test:
 
-```bash
+```sh
 ./tools/coralnpu/phase2_build_bridge.sh
 ./tools/guest_tools/build_coralctl.sh
 sudo ./tools/guest_tools/install_coralctl_to_image.sh \
-  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+  $IMAGE_PATH/ubuntu-18.04-arm64-docker.img
 
 cd thirdparty/gem5
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=../../build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 CORAL_REBUILD_CKPT=1 \
 ./run_multicore.sh
 cd ../..
 
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_command_test.sh
 ```
@@ -130,16 +142,16 @@ The acceptance result is `vector_add=PASS`, `completed_elements=16`, and
 The generic model runtime and custom RTL accelerator use the same driver and
 command ABI as the official Coral path. Build and install the sample assets:
 
-```bash
+```sh
 ./tools/coralnpu/phase2_build_bridge.sh
-IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+IMAGE=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
   ./tools/coralnpu/phase45_prepare_guest_assets.sh
 ```
 
 After rebuilding the boot checkpoint once, run:
 
-```bash
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+```sh
+CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_model_test.sh
 ```
@@ -152,11 +164,11 @@ official/custom RTL acceptance criteria.
 The optional highmem path retains the standard bridge and adds the official
 `RvvCoreMiniHighmemAxi` configuration with LiteRT Micro MobileNet firmware:
 
-```bash
+```sh
 ./tools/coralnpu/build_rvv_mobilenet.sh
-IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+IMAGE=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
 ./tools/coralnpu/phase45_prepare_guest_assets.sh
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_rvv_mobilenet_test.sh
 ```
@@ -164,4 +176,3 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 The first run creates a dedicated 8 MiB-window checkpoint; the second restores
 it and executes MobileNet. See
 `docs/runbooks/rvv_mobilenet_acceptance.md` for the complete procedure.
-

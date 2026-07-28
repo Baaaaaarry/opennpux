@@ -1,13 +1,16 @@
 #!/bin/sh
 
-set -e
+set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 GEM5_ROOT="${SCRIPT_DIR}"
 SUPER_ROOT="$(CDPATH= cd -- "${GEM5_ROOT}/../.." && pwd -P)"
 cd "${GEM5_ROOT}"
 
-export IMAGE_PATH="/home/barry/wlk/gem5_arm_linux_images"
+# IMAGE_PATH is the directory containing gem5 ARM disk images and kernels.
+# Override it when your images live elsewhere:
+#   IMAGE_PATH=/your/path ./run_multicore.sh
+export IMAGE_PATH="${IMAGE_PATH:-${HOME}/wlk/gem5_arm_linux_images}"
 export M5_PATH="${IMAGE_PATH}"
 export CORAL_CKPT_BOOTSCRIPT="${CORAL_CKPT_BOOTSCRIPT:-${GEM5_ROOT}/configs/coralnpu/boot-to-checkpoint.rcS}"
 export CORAL_RESUME_BOOTSCRIPT="${CORAL_RESUME_BOOTSCRIPT:-${GEM5_ROOT}/configs/coralnpu/fs-run.rcS}"
@@ -15,11 +18,12 @@ export CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/gem5-init.sh}"
 export CORAL_KERNEL_IMAGE="${CORAL_KERNEL_IMAGE:-${IMAGE_PATH}/vmlinux.arm64}"
 export CORAL_KERNEL_CMDLINE="${CORAL_KERNEL_CMDLINE:-}"
 export BUILD_JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)"
+# Disk image search order: built images in the gem5 tree, then IMAGE_PATH fallback.
 export CORAL_DISK_IMG_BUILT_DEFAULT="${GEM5_ROOT}/image/out/ubuntu-22.04-arm64-runtime-min-nosystemd.img"
 export CORAL_DISK_IMG_BUILT_ALT1="${GEM5_ROOT}/image/out/ubuntu-22.04-arm64-runtime-min.img"
 export CORAL_DISK_IMG_BUILT_ALT2="${GEM5_ROOT}/image/out/ubuntu-18.04-arm64-dev-dense.img"
 export CORAL_DISK_IMG_BUILT_ALT3="${GEM5_ROOT}/image/out/ubuntu-18.04-arm64-dev.img"
-export CORAL_DISK_IMG_FALLBACK="/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img"
+export CORAL_DISK_IMG_FALLBACK="${IMAGE_PATH}/ubuntu-18.04-arm64-docker.img"
 export CORAL_DISK_IMG="${CORAL_DISK_IMG:-${IMAGE_PATH}/ubuntu-18.04-arm64-docker.img}"
 export CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${SUPER_ROOT}/m5out/coralnpu_ckpt}"
 export CORAL_BOOTED_CKPT="${CORAL_CKPT_ROOT}/booted"

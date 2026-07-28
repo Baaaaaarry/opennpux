@@ -79,7 +79,7 @@ Build the 4.19 kernel, build `opennpux_coral.ko`, and install both into the
 lightweight image:
 
 ```sh
-IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+IMAGE=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
 ./tools/kernel/phase3_validate_4.19_kernel.sh
 ```
 
@@ -102,7 +102,7 @@ Install the resulting multicall binary:
 
 ```sh
 ./tools/guest_tools/install_module_loader_to_image.sh \
-  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+  $IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
   ./build/guest-tools/busybox-aarch64
 ```
 
@@ -126,7 +126,7 @@ with gem5. First rebuild the checkpoint with the 4.19 kernel:
 
 ```sh
 cd thirdparty/gem5
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_KERNEL_IMAGE=../../build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 CORAL_REBUILD_CKPT=1 \
 ./run_multicore.sh
@@ -135,7 +135,7 @@ CORAL_REBUILD_CKPT=1 \
 Then validate the driver-backed info path:
 
 ```sh
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_KERNEL_IMAGE=../../build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 CORAL_RESUME_BOOTSCRIPT="$PWD/configs/coralnpu/coral-driver-info-test.rcS" \
 ./run_multicore.sh
@@ -157,7 +157,7 @@ On the x86 Linux development host:
 ```sh
 ./tools/guest_tools/build_coralctl.sh
 sudo ./tools/guest_tools/install_coralctl_to_image.sh \
-  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+  $IMAGE_PATH/ubuntu-18.04-arm64-docker.img
 ```
 
 The build script now compiles both the runtime library source and the CLI
@@ -214,7 +214,7 @@ After rebuilding and installing the Phase-3 module and `coralctl`, rebuild the
 boot checkpoint once so both files are preloaded into tmpfs. Then run:
 
 ```sh
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_driver_dma_test.sh
 ```

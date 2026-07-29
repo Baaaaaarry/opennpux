@@ -58,6 +58,7 @@ class O3_ARM_Cortex_x4_FUP(FUPool):
         O3_ARM_Cortex_x4_Store(),
         O3_ARM_Cortex_x4_FP(),
         O3_ARM_Cortex_x4_SIMD(),
+        PredALU(),
     ]
 
 class O3_ARM_Cortex_x4_BTB(SimpleBTB):

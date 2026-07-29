@@ -1,4 +1,39 @@
 #!/bin/sh
+#
+# build_busybox_aarch64.sh — Build a minimal aarch64 BusyBox for the gem5 guest.
+#
+# Cross-compiles a static BusyBox binary containing only the insmod applet.
+# The binary is installed into the guest disk image so the boot checkpoint
+# can preload it into tmpfs.  After checkpoint restore, BusyBox loads the
+# opennpux-coral kernel module without touching virtio-blk — the current
+# gem5 virtio queue has a known restoration defect that triggers SIGBUS
+# on post-restore disk reads.
+#
+# The build is pinned to BusyBox 1.36.1 with SHA-256 verification.
+#
+# Pipeline:
+#   Download busybox-1.36.1.tar.bz2 (cached under .cache/busybox/)
+#     → allnoconfig → enable STATIC + BUSYBOX + INSMOD
+#       → make busybox → aarch64-linux-gnu-strip
+#         → validate with qemu-aarch64
+#           → build/guest-tools/busybox-aarch64
+#
+# Output:
+#   build/guest-tools/busybox-aarch64    static aarch64 binary (~1 MB)
+#
+# Environment:
+#   BUSYBOX_VERSION      source version (default: 1.36.1)
+#   BUSYBOX_URL          download URL
+#   BUSYBOX_SHA256       expected SHA-256 (pinned for 1.36.1)
+#   BUSYBOX_TARBALL      path to pre-downloaded tarball (offline mode)
+#   CROSS_COMPILE        cross-compiler prefix (default: aarch64-linux-gnu-)
+#   JOBS                 parallel build jobs (default: nproc)
+#
+# Host dependencies:
+#   gcc-aarch64-linux-gnu  libc6-dev-arm64-cross  make  tar  curl/wget
+#   qemu-user (for post-build validation of the aarch64 binary)
+#
+# @guest-tools-spec  v1  2025-07-29
 
 set -eu
 
@@ -13,6 +48,9 @@ BUILD_DIR="${BUSYBOX_BUILD_DIR:-${ROOT_DIR}/build/busybox-aarch64}"
 OUT="${BUSYBOX_OUT:-${ROOT_DIR}/build/guest-tools/busybox-aarch64}"
 TARBALL="${BUSYBOX_TARBALL:-${CACHE_DIR}/busybox-${BUSYBOX_VERSION}.tar.bz2}"
 
+# ---------------------------------------------------------------------------
+# Pinned SHA-256 for BusyBox 1.36.1.
+# ---------------------------------------------------------------------------
 case "${BUSYBOX_VERSION}" in
     1.36.1)
         DEFAULT_SHA256=b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314
@@ -30,11 +68,17 @@ else
 fi
 JOBS="${JOBS:-${DEFAULT_JOBS}}"
 
+# ---------------------------------------------------------------------------
+# Helper for consistent error messages.
+# ---------------------------------------------------------------------------
 fail() {
     echo "error: $*" >&2
     exit 1
 }
 
+# ---------------------------------------------------------------------------
+# Preflight: host tools must be available.
+# ---------------------------------------------------------------------------
 for tool in make tar; do
     command -v "${tool}" >/dev/null 2>&1 || fail "${tool} not found"
 done
@@ -44,6 +88,9 @@ command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 || {
     exit 1
 }
 
+# ---------------------------------------------------------------------------
+# Step 1: Download or reuse the source tarball (with SHA-256 verification).
+# ---------------------------------------------------------------------------
 mkdir -p "${CACHE_DIR}" "$(dirname -- "${TARBALL}")" "$(dirname -- "${OUT}")"
 rm -f "${OUT}"
 
@@ -73,12 +120,26 @@ else
     echo "warning: set BUSYBOX_SHA256 to verify the source archive" >&2
 fi
 
+# ---------------------------------------------------------------------------
+# Step 2: Extract source (cached — only done once per version).
+# ---------------------------------------------------------------------------
 SRC_DIR="${CACHE_DIR}/busybox-${BUSYBOX_VERSION}"
 if [ ! -f "${SRC_DIR}/Makefile" ]; then
     rm -rf "${SRC_DIR}"
     tar -xjf "${TARBALL}" -C "${CACHE_DIR}"
 fi
 
+# ---------------------------------------------------------------------------
+# Step 3: Configure — start from allnoconfig, then enable only what we need.
+#   STATIC: no shared-lib dependency in the guest (libc not required).
+#   BUSYBOX: the multicall binary entry point.
+#   INSMOD: the only applet we need — load kernel modules.
+# ---------------------------------------------------------------------------
+# Safety: BUILD_DIR must be an absolute path under the project root.
+case "${BUILD_DIR}" in
+    "${ROOT_DIR}/build/"*) ;;
+    *) fail "BUILD_DIR is outside the project build tree: ${BUILD_DIR}" ;;
+esac
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"
 
@@ -104,23 +165,34 @@ enable_config() {
     mv "${BUILD_DIR}/.config.tmp" "${BUILD_DIR}/.config"
 }
 
-# The driver test loads an exact .ko path, so full modprobe is unnecessary.
 enable_config STATIC
 enable_config BUSYBOX
 enable_config INSMOD
 
+# ---------------------------------------------------------------------------
+# Step 4: Resolve dependencies (oldconfig) and verify the three options stuck.
+# ---------------------------------------------------------------------------
 yes '' | make -C "${SRC_DIR}" O="${BUILD_DIR}" \
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" oldconfig >/dev/null
 for option in STATIC BUSYBOX INSMOD; do
     grep -q "^CONFIG_${option}=y$" "${BUILD_DIR}/.config" || \
         fail "BusyBox configuration rejected CONFIG_${option}=y"
 done
+
+# ---------------------------------------------------------------------------
+# Step 5: Build and strip.
+# ---------------------------------------------------------------------------
 make -C "${SRC_DIR}" O="${BUILD_DIR}" \
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" -j"${JOBS}" busybox
 
 "${CROSS_COMPILE}strip" -s "${BUILD_DIR}/busybox" 2>/dev/null || true
 install -m 0755 "${BUILD_DIR}/busybox" "${OUT}"
 
+# ---------------------------------------------------------------------------
+# Step 6: Validate the binary runs on aarch64 and contains the insmod applet.
+#   qemu-aarch64 runs the binary in user-mode emulation; --list prints all
+#   compiled-in applets.
+# ---------------------------------------------------------------------------
 command -v qemu-aarch64 >/dev/null 2>&1 || {
     rm -f "${OUT}"
     fail "qemu-aarch64 not found; install qemu-user to validate the target binary"

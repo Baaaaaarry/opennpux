@@ -62,6 +62,7 @@ class O3_ARM_Cortex_x2_FUP(FUPool):
         O3_ARM_Cortex_x2_Store(),
         O3_ARM_Cortex_x2_FP(),
         O3_ARM_Cortex_x2_SIMD(),
+        PredALU(),
     ]
 
 

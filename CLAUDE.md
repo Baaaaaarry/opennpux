@@ -192,7 +192,7 @@ Detailed progress is tracked in `docs/design/current_progress.md`.
 
 ## Coding Standards
 
-**[Shell Script Header Standard](docs/standards/shell-script-header.md)** — mandatory template for production shell scripts. Key rules:
+**[Shell Scripting Standard](docs/standards/shell-scripting.md)** — mandatory template for production shell scripts. Key rules:
 
 - Resolve the superproject root via `SCRIPT_DIR`/`ROOT_DIR`, never `$PWD`
 - Use `set -eu`, never `set -e` alone

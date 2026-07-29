@@ -1,4 +1,31 @@
 #!/bin/sh
+#
+# build_rvv_mobilenet.sh — Build the RVV Highmem bridge and MobileNet firmware.
+#
+# Compiles two Bazel targets from the Coral submodule using the RvvCoreMiniHighmemAxi
+# configuration: a gem5 bridge shared library and an ELF firmware image containing
+# the full upstream mobilenet_v1_0.25_224_int8_dummy.tflite graph.
+#
+# The RvvCoreMiniHighmemAxi configuration differs from the base CoreMiniAxi by
+# enabling the RISC-V Vector (RVV) execution path and an 8 MiB coherent EXTMEM
+# window.  The resulting bridge is a separate .so from the standard bridge
+# (libcoralnpu_gem5_bridge.so) and the firmware is gem5_mobilenet.elf.
+#
+# Pipeline:
+#   thirdparty/coralnpu (with sim/coralnpu overlay applied)
+#     → Bazel build //hw_sim:libcoralnpu_gem5_rvv_highmem_bridge.so
+#     → Bazel build //hw_sim:gem5_mobilenet.elf
+#       → build/coralnpu/libcoralnpu_gem5_rvv_highmem_bridge.so
+#       → build/coralnpu/gem5_mobilenet.elf
+#
+# Environment:
+#   BAZEL                 Bazel executable (auto-detected from PATH or .cache)
+#   CORAL_REPO            Coral submodule path (default: thirdparty/coralnpu)
+#   PHASE2_BAZEL_OUTPUT_ROOT  Bazel output base (default: .cache/coralnpu/bazel)
+#   PHASE2_REPO_CACHE     Bazel repository cache (default: .cache/coralnpu/repository)
+#   PHASE2_DISTDIR        Bazel distdir for offline deps (default: thirdparty/coralnpu/distdir)
+#
+# @coral-build-spec  v1  2025-07-28
 
 set -eu
 
@@ -13,6 +40,9 @@ BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel
 REPO_CACHE="${PHASE2_REPO_CACHE:-${ROOT_DIR}/.cache/coralnpu/repository}"
 DISTDIR="${PHASE2_DISTDIR:-${CORAL_REPO}/distdir}"
 
+# ---------------------------------------------------------------------------
+# Resolve Bazel: explicit BAZEL env, system PATH, or local install.
+# ---------------------------------------------------------------------------
 if [ -n "${BAZEL:-}" ]; then
     :
 elif command -v bazel >/dev/null 2>&1; then
@@ -24,8 +54,15 @@ else
     exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Pre-build checks: ABI consistency and Coral overlay.
+# ---------------------------------------------------------------------------
 "${ROOT_DIR}/tools/coralnpu/check_mobilenet_abi.sh"
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
+
+# ---------------------------------------------------------------------------
+# Ensure Bazel cache directories and output directory exist and are writable.
+# ---------------------------------------------------------------------------
 mkdir -p "${BAZEL_OUTPUT_ROOT}" "${REPO_CACHE}" "${DISTDIR}" "${OUT_DIR}"
 if [ ! -w "${OUT_DIR}" ]; then
     echo "error: output directory is not writable: ${OUT_DIR}" >&2
@@ -34,12 +71,73 @@ if [ ! -w "${OUT_DIR}" ]; then
     exit 1
 fi
 
-cd "${CORAL_REPO}"
-"${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" build \
-    --repository_cache="${REPO_CACHE}" \
-    --distdir="${DISTDIR}" \
-    "${BRIDGE_TARGET}" "${FIRMWARE_TARGET}" "$@"
+# ---------------------------------------------------------------------------
+# Build both targets: bridge .so and firmware .elf.
+#
+# Bazel's JVM-based downloader does not always respect HTTPS_PROXY.  On hosts
+# behind a firewall, this causes "Connect timed out" failures.  When that
+# happens, we pre-download every declared dependency into the distdir via wget
+# (which does respect the proxy), then retry.  The retry finds everything
+# locally and completes without network access.
+# ---------------------------------------------------------------------------
+# Build output (stdout + stderr) is saved to simout/coralnpu-build.log while
+# also shown on the terminal in real time ("tee /dev/stderr" writes to both
+# the log file and the terminal via stderr).
+# Each build writes a timestamped log.  A convenience symlink points to the
+# most recent one so "simout/coralnpu-build.log" always gives the latest result.
+BUILD_TS="$(date +%Y-%m-%dT%H-%M-%S)"
+BUILD_LOG="${ROOT_DIR}/simout/coralnpu-build-${BUILD_TS}.log"
+BUILD_LATEST="${ROOT_DIR}/simout/coralnpu-build.log"
+mkdir -p "$(dirname "${BUILD_LOG}")"
+ln -sfn "coralnpu-build-${BUILD_TS}.log" "${BUILD_LATEST}"
 
+# Run a command, saving combined output to the build log while showing it on
+# the terminal.  Returns the command's exit code (POSIX-compatible via a temp
+# file, since we cannot use PIPESTATUS in /bin/sh).
+_capture() {
+    outfile="$1"; shift
+    ecfile="$(mktemp)"
+    { "$@" 2>&1; printf '%d\n' $? >"${ecfile}"; } | tee -a "${outfile}" >&2
+    read -r ec <"${ecfile}"
+    rm -f "${ecfile}"
+    return "${ec}"
+}
+
+cd "${CORAL_REPO}"
+bazel_ok=0
+
+echo "[bazel] build started $(date -Iseconds)" | tee -a "${BUILD_LOG}"
+
+if _capture "${BUILD_LOG}" \
+       "${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" build \
+       --repository_cache="${REPO_CACHE}" \
+       --distdir="${DISTDIR}" \
+       "${BRIDGE_TARGET}" "${FIRMWARE_TARGET}" "$@"; then
+    bazel_ok=1
+elif grep -qE 'Connect timed out|Closed by interrupt|Error downloading' "${BUILD_LOG}" 2>/dev/null; then
+    echo "[bazel] network download failed; pre-fetching all dependencies with wget" | tee -a "${BUILD_LOG}" >&2
+    "${ROOT_DIR}/tools/kernel/download_bazel_deps.sh" 2>&1 | tee -a "${BUILD_LOG}"
+    echo "[bazel] retrying build with populated distdir" | tee -a "${BUILD_LOG}" >&2
+    if _capture "${BUILD_LOG}" \
+           "${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" build \
+           --repository_cache="${REPO_CACHE}" \
+           --distdir="${DISTDIR}" \
+           "${BRIDGE_TARGET}" "${FIRMWARE_TARGET}" "$@"; then
+        bazel_ok=1
+    fi
+fi
+
+if [ "${bazel_ok}" -eq 0 ]; then
+    echo "[bazel] BUILD FAILED $(date -Iseconds)" | tee -a "${BUILD_LOG}" >&2
+    echo "error: Bazel build failed (see above)" >&2
+    echo "build log: ${BUILD_LOG}" >&2
+    exit 1
+fi
+echo "[bazel] build succeeded $(date -Iseconds)" | tee -a "${BUILD_LOG}"
+# ---------------------------------------------------------------------------
+# Resolve Bazel output paths (may be under the execution root or a convenience
+# symlink tree — cquery tells us the absolute location).
+# ---------------------------------------------------------------------------
 EXEC_ROOT="$("${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" \
     info execution_root)"
 
@@ -57,6 +155,10 @@ resolve_output()
 
 BRIDGE="$(resolve_output "${BRIDGE_TARGET}")"
 FIRMWARE="$(resolve_output "${FIRMWARE_TARGET}")"
+
+# ---------------------------------------------------------------------------
+# Verify Bazel produced both artifacts.
+# ---------------------------------------------------------------------------
 [ -f "${BRIDGE}" ] || {
     echo "error: RVV highmem bridge output not found: ${BRIDGE}" >&2
     exit 1
@@ -66,6 +168,9 @@ FIRMWARE="$(resolve_output "${FIRMWARE_TARGET}")"
     exit 1
 }
 
+# ---------------------------------------------------------------------------
+# Install artifacts into build/coralnpu/ with atomic temporary-file writes.
+# ---------------------------------------------------------------------------
 install_output()
 {
     source_path="$1"
@@ -85,16 +190,27 @@ install_output "${BRIDGE}" \
     "${OUT_DIR}/libcoralnpu_gem5_rvv_highmem_bridge.so" 0755
 install_output "${FIRMWARE}" "${OUT_DIR}/gem5_mobilenet.elf" 0644
 
+# ---------------------------------------------------------------------------
+# Print firmware ELF layout for diagnostics.
+#   Entry point, LOAD segments, and key symbols are useful when debugging
+#   ITCM/DTCM placement or BSS initialization issues.
+# ---------------------------------------------------------------------------
 if command -v readelf >/dev/null 2>&1; then
-    echo "MobileNet firmware ELF layout:"
-    readelf -hW "${OUT_DIR}/gem5_mobilenet.elf" |
-        grep -E 'Entry point address|Number of program headers'
-    readelf -lW "${OUT_DIR}/gem5_mobilenet.elf" |
-        grep -E '^[[:space:]]*LOAD'
-    readelf -sW "${OUT_DIR}/gem5_mobilenet.elf" |
-        grep -E '[[:space:]](_start|main|tensor_arena|__bss_start__|__bss_end__|__stack_start__|__stack_end__)$'
+    {
+        echo "MobileNet firmware ELF layout:"
+        readelf -hW "${OUT_DIR}/gem5_mobilenet.elf" |
+            grep -E 'Entry point address|Number of program headers'
+        readelf -lW "${OUT_DIR}/gem5_mobilenet.elf" |
+            grep -E '^[[:space:]]*LOAD'
+        readelf -sW "${OUT_DIR}/gem5_mobilenet.elf" |
+            grep -E '[[:space:]](_start|main|tensor_arena|__bss_start__|__bss_end__|__stack_start__|__stack_end__)$'
+    } | tee -a "${BUILD_LOG}"
 fi
 
+# ---------------------------------------------------------------------------
+# Sanity checks: the bridge must not have unresolved SRAM backdoor symbols
+# or link against a second libsystemc (gem5 already provides one).
+# ---------------------------------------------------------------------------
 if command -v nm >/dev/null 2>&1 &&
    nm -D --undefined-only \
        "${OUT_DIR}/libcoralnpu_gem5_rvv_highmem_bridge.so" 2>/dev/null |
@@ -110,5 +226,5 @@ if command -v ldd >/dev/null 2>&1 &&
     exit 1
 fi
 
-echo "built: ${OUT_DIR}/libcoralnpu_gem5_rvv_highmem_bridge.so"
-echo "built: ${OUT_DIR}/gem5_mobilenet.elf"
+echo "built: ${OUT_DIR}/libcoralnpu_gem5_rvv_highmem_bridge.so" | tee -a "${BUILD_LOG}"
+echo "built: ${OUT_DIR}/gem5_mobilenet.elf" | tee -a "${BUILD_LOG}"

@@ -205,6 +205,70 @@ they grow complex enough to warrant them.
 
 ---
 
+## CI / Automation Requirements
+
+Scripts that produce artifacts (build logs, binaries, test reports) must
+be compatible with headless CI runners such as Jenkins or GitHub Actions.
+
+### Log files
+
+- **Timestamped, never appended.**  Each invocation creates a new file
+  named with ISO-8601-like ordering so `ls` sorts them chronologically:
+
+  ```sh
+  BUILD_TS="$(date +%Y-%m-%dT%H-%M-%S)"
+  BUILD_LOG="${ROOT_DIR}/simout/build-${BUILD_TS}.log"
+  ```
+
+- **Convenience symlink** for the latest run so humans and CI scripts can
+  reference a stable path:
+
+  ```sh
+  ln -sfn "build-${BUILD_TS}.log" "${ROOT_DIR}/simout/build.log"
+  ```
+
+- All log files go under `simout/`.  This directory is already in
+  `.gitignore` and maps cleanly to Jenkins `archiveArtifacts`:
+
+  ```groovy
+  archiveArtifacts artifacts: 'simout/*.log'
+  ```
+
+### Exit codes
+
+- `exit 0` on success, `exit 1` (or higher) on any failure.
+- Always use `set -eu`.  A pipeline that masks errors is a CI-breaking bug.
+- No interactive prompts.  If a script requires user input, it must accept
+  an environment variable or CLI flag as a non-interactive alternative.
+
+### Artifact paths
+
+Build outputs must land in deterministic, CI-discoverable locations:
+
+| Artifact type | Directory | Jenkins glob |
+|---|---|---|
+| Build logs | `simout/` | `simout/*.log` |
+| Simulation traces | `simout/` or `m5out/` | `simout/*.debug`, `m5out/system.terminal` |
+| Compiled binaries | `build/` | `build/coralnpu/*.so`, `build/coralnpu/*.elf` |
+| Kernel images | `build/kernel/` | `build/kernel/vmlinux-*` |
+
+Scripts that write to these directories are responsible for `mkdir -p`
+before the first write.  The CI runner must be able to start from a clean
+checkout with no pre-existing `build/` or `simout/` directories.
+
+### CI mode detection
+
+Scripts may optionally detect headless mode and suppress ANSI color
+or progress spinners:
+
+```sh
+if [ -n "${CI:-}" ] || [ ! -t 1 ]; then
+    # headless: suppress progress bars, use plain output
+fi
+```
+
+---
+
 ## Migration Notes
 
 Existing scripts are being migrated incrementally.  When you touch a
@@ -212,14 +276,25 @@ script for any functional change, add the header if it is missing.  Do
 not add a header to a script you are not otherwise changing — that can
 wait for its next functional update.
 
-Scripts already conforming (as of 2025-07-28):
+Scripts already conforming (as of 2026-07-29):
 
 - `tools/kernel/build_arm64_kernel.sh`
+- `tools/kernel/build_opennpux_coral_ko.sh`
 - `tools/kernel/configure_arm64_gem5_kernel.sh`
 - `tools/kernel/check_gem5_kernel_config.sh`
+- `tools/kernel/download_gem5_arm_images.sh`
+- `tools/kernel/download_bazel_deps.sh`
+- `tools/kernel/install_kernel_to_image.sh`
+- `tools/kernel/install_opennpux_init_to_image.sh`
+- `tools/coralnpu/phase2_prepare_bazel.sh`
+- `tools/coralnpu/build_rvv_mobilenet.sh`
 - `tools/coralnpu/run_coralctl_test.sh`
 - `tools/coralnpu/run_dma_smoke_test.sh`
 - `tools/coralnpu/run_command_test.sh`
 - `tools/coralnpu/run_model_test.sh`
 - `tools/coralnpu/run_custom_rtl_test.sh`
+- `tools/coralnpu/run_driver_dma_test.sh`
+- `tools/guest_tools/build_coralctl.sh`
+- `tools/guest_tools/build_mmio32.sh`
+- `tools/guest_tools/install_coralctl_to_image.sh`
 - `tools/coralnpu/run_driver_dma_test.sh`

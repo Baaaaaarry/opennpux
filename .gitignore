@@ -20,4 +20,4 @@ runtime/kernel/modules.order
 
 # agent plugins
 .claude*
-.ua/
+.ua/__pycache__/

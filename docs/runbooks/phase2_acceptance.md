@@ -70,7 +70,7 @@ CORAL_REBUILD_CKPT=1 CORAL_NPU_BACKEND=stage-a ./run_multicore.sh
 Expected terminal output:
 
 ```text
-Boot checkpoint saved at .../m5out/coralnpu_ckpt/booted
+Boot checkpoint saved at .../checkpoint/coralnpu_ckpt/booted
 ```
 
 For ordinary Phase-2 tests, do not set `CORAL_REBUILD_CKPT=1`; the resume

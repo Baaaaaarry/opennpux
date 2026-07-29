@@ -1,12 +1,75 @@
 #!/bin/sh
+#
+# run_rvv_mobilenet_test.sh — Run the RVV Highmem MobileNet acceptance test.
+#
+# Launches gem5 ARM full-system simulation with the RvvCoreMiniHighmemAxi
+# Verilated Coral backend and executes the full mobilenet_v1_0.25_224_int8
+# graph against LiteRT Micro reference kernels.
+#
+# The first invocation creates a dedicated boot checkpoint with an 8 MiB
+# coherent DMA window at CORAL_MOBILENET_SHARED_BASE.  The second invocation
+# (launched automatically via CORAL_AUTO_RESUME_AFTER_CKPT=1) restores from
+# that checkpoint and executes the MobileNet firmware.
+#
+# Operator execution modes (CORAL_OPERATOR_MODE):
+#   rtl      All operators run on the Verilated RISC-V RTL core.
+#            Cycle counts are authoritative for NPU performance analysis.
+#            Hours-long runtime for a full MobileNet graph.
+#
+#   hybrid   Supported compute operators (Conv2D, DepthwiseConv2D, etc.) are
+#            dispatched through an EXTMEM doorbell to x86 host TFLite kernels.
+#            Firmware control flow and tensor management still run through RTL.
+#            Minutes-long runtime; modeled_cycles are estimates, not RTL cycles.
+#
+#   sampled  Firmware, driver, and doorbell path all run through RTL, but
+#            long-running operators use hybrid host kernels so the full graph
+#            completes in minutes.  Use CORAL_SAMPLED_RTL_OPS to force specific
+#            operator classes back onto real RTL.  Default bring-up mode.
+#
+# Pipeline:
+#   apply_patchset.sh  → overlay sim/gem5 into thirdparty/gem5
+#     → run_multicore.sh  → scons + gem5 ARM FS boot
+#       → checkpoint bootstrap (stage-a) → checkpoint restore (verilated-coral)
+#         → coral-mobilenet-test.rcS → coralctl run
+#
+# Environment:
+#   CORAL_OPERATOR_MODE        rtl | hybrid | sampled (default: rtl)
+#   CORAL_SAMPLED_RTL_OPS      ops to force to RTL in sampled mode (default: none)
+#   CORAL_FAST_DMA             1 = functional fast path, 0 = timing (default: 1)
+#   CORAL_FAST_DMA_EVENT_BATCH batches per gem5 event (default: 4096)
+#   CORAL_RTL_CYCLES_PER_EVENT cycles per Verilator step (default: 1000)
+#   CORAL_HYBRID_OPS_PER_CYCLE hybrid latency model (default: 1)
+#   CORAL_HYBRID_BYTES_PER_CYCLE  hybrid latency model (default: 16)
+#   CORAL_HYBRID_FIXED_CYCLES  hybrid latency model fixed cost (default: 0)
+#   CORAL_KERNEL_IMAGE         vmlinux ELF (auto-detected from build/kernel/)
+#   CORAL_KERNEL_INIT          guest init path (default: /sbin/opennpux-init.sh)
+#   CORAL_DISK_IMG             ARM64 disk image path
+#   CORAL_MOBILENET_DEBUG      1 = enable NPUDevice debug trace
+#   CORAL_MOBILENET_CKPT_ROOT  checkpoint directory (default: checkpoint/coralnpu_mobilenet_ckpt)
+#   CORAL_MOBILENET_SHARED_BASE  DMA window base address (default: 0x8f000000)
+#
+# Expected output:
+#   mobilenet_test=PASS
+#   mobilenet_output_checksum=<non-zero>
+#   mobilenet_dma_errors=0
+#
+# @coral-build-spec  v1  2025-07-29
 
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
+
+# ---------------------------------------------------------------------------
+# Fixed paths: bridge, firmware, and resume script.
+# ---------------------------------------------------------------------------
 BRIDGE="${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_rvv_highmem_bridge.so"
 FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_mobilenet.elf"
 TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-mobilenet-test.rcS"
+
+# ---------------------------------------------------------------------------
+# Tunable parameters — all overridable via environment.
+# ---------------------------------------------------------------------------
 GEM5_OPTIONS_VALUE="${GEM5_OPTIONS:-}"
 RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}"
 FAST_DMA_EVENT_BATCH="${CORAL_FAST_DMA_EVENT_BATCH:-4096}"
@@ -15,11 +78,18 @@ SAMPLED_RTL_OPS="${CORAL_SAMPLED_RTL_OPS:-none}"
 HYBRID_OPS_PER_CYCLE="${CORAL_HYBRID_OPS_PER_CYCLE:-1}"
 HYBRID_BYTES_PER_CYCLE="${CORAL_HYBRID_BYTES_PER_CYCLE:-16}"
 HYBRID_FIXED_CYCLES="${CORAL_HYBRID_FIXED_CYCLES:-0}"
+
+# Fast DMA is enabled by default for functional inference throughput.
+# Set CORAL_FAST_DMA=0 to select timing-DMA mode for cycle studies.
 FAST_DMA_OPTION=""
 [ "${CORAL_FAST_DMA:-1}" != "1" ] || FAST_DMA_OPTION=" --npu-fast-dma"
+
+# ---------------------------------------------------------------------------
+# Resolve kernel image from build/kernel/kernel.release if not provided.
+# ---------------------------------------------------------------------------
 KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
 VALIDATED_DISK_DEFAULT="${HOME}/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img"
-CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/m5out/coralnpu_mobilenet_ckpt}"
+CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_mobilenet_ckpt}"
 DMA_SHARED_BASE="${CORAL_MOBILENET_SHARED_BASE:-0x8f000000}"
 DMA_SHARED_BASE_META="${CKPT_ROOT}.shared_base"
 
@@ -44,12 +114,15 @@ CORAL_DISK_IMG="${CORAL_DISK_IMG:-${VALIDATED_DISK_DEFAULT}}"
     exit 1
 }
 
+# ---------------------------------------------------------------------------
+# Report the effective configuration.
+# ---------------------------------------------------------------------------
 echo "[coral-mobilenet] kernel: ${CORAL_KERNEL_IMAGE}"
 echo "[coral-mobilenet] init: ${CORAL_KERNEL_INIT}"
 echo "[coral-mobilenet] disk: ${CORAL_DISK_IMG}"
 
 if [ "${CORAL_MOBILENET_DEBUG:-0}" = "1" ]; then
-    DEBUG_LOG="${CORAL_MOBILENET_DEBUG_LOG:-${ROOT_DIR}/simout/coral-mobilenet.debug}"
+    DEBUG_LOG="${CORAL_MOBILENET_DEBUG_LOG:-${ROOT_DIR}/logs/sim/coral-mobilenet.debug}"
     mkdir -p "$(dirname "${DEBUG_LOG}")"
     GEM5_OPTIONS_VALUE="${GEM5_OPTIONS_VALUE} --debug-flags=NPUDevice --debug-file=${DEBUG_LOG}"
     echo "[coral-mobilenet] debug log: ${DEBUG_LOG}"
@@ -76,6 +149,9 @@ fi
 [ -z "${GEM5_OPTIONS_VALUE}" ] || \
     echo "[coral-mobilenet] gem5 options: ${GEM5_OPTIONS_VALUE}"
 
+# ---------------------------------------------------------------------------
+# Preflight: bridge and firmware must have been built.
+# ---------------------------------------------------------------------------
 [ -f "${BRIDGE}" ] || {
     echo "error: RVV highmem bridge not found: ${BRIDGE}" >&2
     exit 1
@@ -85,6 +161,11 @@ fi
     exit 1
 }
 
+# ---------------------------------------------------------------------------
+# Checkpoint management: invalidate when the shared DMA base changes.
+# The MobileNet configuration uses a dedicated 8 MiB window at a different
+# address from the standard 4 KiB command-test window.
+# ---------------------------------------------------------------------------
 if [ -f "${CKPT_ROOT}/booted/m5.cpt" ] &&
    { [ ! -f "${DMA_SHARED_BASE_META}" ] ||
      [ "$(cat "${DMA_SHARED_BASE_META}")" != "${DMA_SHARED_BASE}" ]; }; then
@@ -94,6 +175,12 @@ fi
 mkdir -p "$(dirname "${DMA_SHARED_BASE_META}")"
 printf '%s\n' "${DMA_SHARED_BASE}" > "${DMA_SHARED_BASE_META}"
 
+# ---------------------------------------------------------------------------
+# Apply gem5 overlay and launch.
+#   CORAL_AUTO_RESUME_AFTER_CKPT=1 tells run_multicore.sh to automatically
+#   resume from a freshly-created checkpoint, so MobileNet execution begins
+#   without a second manual invocation.
+# ---------------------------------------------------------------------------
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 
 CORAL_NPU_BACKEND=verilated-coral \

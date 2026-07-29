@@ -106,7 +106,7 @@ CORAL_NPU_BACKEND=verilated-coral ./thirdparty/gem5/run_multicore.sh
 The default remains `stage-a`. Set `CORAL_RTL_TICK_PERIOD` and
 `CORAL_RTL_CYCLES_PER_EVENT` to tune the RTL scheduling quantum.
 
-The boot checkpoint is stored at `m5out/coralnpu_ckpt` relative to the
+The boot checkpoint is stored at `checkpoint/coralnpu_ckpt` relative to the
 superproject root. Pulling code or changing the injected resume script does
 not rebuild it. Use `CORAL_REBUILD_CKPT=1` only when the booted guest state
 must be recreated.

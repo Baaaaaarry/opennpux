@@ -169,7 +169,7 @@ you passed the raw arm64 `Image` instead of `vmlinux`. Re-run with
 
 ## No Serial Output
 
-If `m5out/system.terminal` stays empty, Linux did not reach the PL011 console.
+If `logs/sim/m5out/system.terminal` stays empty, Linux did not reach the PL011 console.
 First rebuild with the repository config script so `CONFIG_SERIAL_EARLYCON` and
 the gem5-safe command line are applied:
 

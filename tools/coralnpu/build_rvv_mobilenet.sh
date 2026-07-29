@@ -80,14 +80,14 @@ fi
 # (which does respect the proxy), then retry.  The retry finds everything
 # locally and completes without network access.
 # ---------------------------------------------------------------------------
-# Build output (stdout + stderr) is saved to simout/coralnpu-build.log while
-# also shown on the terminal in real time ("tee /dev/stderr" writes to both
-# the log file and the terminal via stderr).
+# Build output (stdout + stderr) is saved to logs/build/coralnpu-build.log
+# while also shown on the terminal in real time ("tee /dev/stderr" writes to
+# both the log file and the terminal via stderr).
 # Each build writes a timestamped log.  A convenience symlink points to the
-# most recent one so "simout/coralnpu-build.log" always gives the latest result.
+# most recent one so "logs/build/coralnpu-build.log" always gives the latest.
 BUILD_TS="$(date +%Y-%m-%dT%H-%M-%S)"
-BUILD_LOG="${ROOT_DIR}/simout/coralnpu-build-${BUILD_TS}.log"
-BUILD_LATEST="${ROOT_DIR}/simout/coralnpu-build.log"
+BUILD_LOG="${ROOT_DIR}/logs/build/coralnpu-build-${BUILD_TS}.log"
+BUILD_LATEST="${ROOT_DIR}/logs/build/coralnpu-build.log"
 mkdir -p "$(dirname "${BUILD_LOG}")"
 ln -sfn "coralnpu-build-${BUILD_TS}.log" "${BUILD_LATEST}"
 

@@ -52,7 +52,7 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_rvv_mobilenet_test.sh
 ```
 
-The first invocation creates `m5out/coralnpu_mobilenet_ckpt`. Run the same
+The first invocation creates `checkpoint/coralnpu_mobilenet_ckpt`. Run the same
 command again to restore it and execute MobileNet.
 
 Select the operator execution path explicitly:
@@ -101,10 +101,10 @@ automatically:
 The script writes:
 
 ```text
-simout/mobilenet-matrix/mobilenet-hybrid.log
-simout/mobilenet-matrix/mobilenet-rtl.log
-simout/mobilenet-matrix/mobilenet-compare.log
-simout/mobilenet-matrix/mobilenet-report.md
+logs/sim/mobilenet-matrix/mobilenet-hybrid.log
+logs/sim/mobilenet-matrix/mobilenet-rtl.log
+logs/sim/mobilenet-matrix/mobilenet-compare.log
+logs/sim/mobilenet-matrix/mobilenet-report.md
 ```
 
 Each mode log contains gem5 host output plus the matching guest
@@ -115,8 +115,8 @@ To compare logs from previous runs:
 
 ```sh
 ./tools/coralnpu/compare_mobilenet_results.sh \
-  simout/mobilenet-matrix/mobilenet-hybrid.log \
-  simout/mobilenet-matrix/mobilenet-rtl.log
+  logs/sim/mobilenet-matrix/mobilenet-hybrid.log \
+  logs/sim/mobilenet-matrix/mobilenet-rtl.log
 ```
 
 Expected comparison output ends with `mobilenet_compare=PASS`. With current
@@ -140,10 +140,10 @@ CORAL_MOBILENET_DEBUG=1 ./tools/coralnpu/run_mobilenet_mode_matrix.sh
 This additionally writes per-mode debug logs and summaries:
 
 ```text
-simout/mobilenet-matrix/mobilenet-hybrid.debug
-simout/mobilenet-matrix/mobilenet-hybrid.summary
-simout/mobilenet-matrix/mobilenet-rtl.debug
-simout/mobilenet-matrix/mobilenet-rtl.summary
+logs/sim/mobilenet-matrix/mobilenet-hybrid.debug
+logs/sim/mobilenet-matrix/mobilenet-hybrid.summary
+logs/sim/mobilenet-matrix/mobilenet-rtl.debug
+logs/sim/mobilenet-matrix/mobilenet-rtl.summary
 ```
 
 The summary reports the last firmware marker, fault CSRs if present, latest
@@ -158,13 +158,13 @@ CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_rvv_mobilenet_test.sh
 
-tail -F simout/coral-mobilenet.debug
+tail -F logs/sim/coral-mobilenet.debug
 ```
 
 To summarize an existing debug log:
 
 ```sh
-./tools/coralnpu/summarize_mobilenet_progress.sh simout/coral-mobilenet.debug
+./tools/coralnpu/summarize_mobilenet_progress.sh logs/sim/coral-mobilenet.debug
 ```
 
 The wrapper prints the effective gem5 options and RTL cycle batch before it

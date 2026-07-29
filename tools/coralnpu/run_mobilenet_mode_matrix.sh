@@ -4,12 +4,13 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
-OUT_DIR="${CORAL_MOBILENET_MATRIX_OUT:-${ROOT_DIR}/simout/mobilenet-matrix}"
+OUT_DIR="${CORAL_MOBILENET_MATRIX_OUT:-${ROOT_DIR}/logs/sim/mobilenet-matrix}"
 RUNNER="${ROOT_DIR}/tools/coralnpu/run_rvv_mobilenet_test.sh"
 COMPARE="${ROOT_DIR}/tools/coralnpu/compare_mobilenet_results.sh"
 WRITE_REPORT="${ROOT_DIR}/tools/coralnpu/write_mobilenet_report.sh"
 SUMMARIZE_PROGRESS="${ROOT_DIR}/tools/coralnpu/summarize_mobilenet_progress.sh"
 TERMINAL_CANDIDATES="
+${ROOT_DIR}/logs/sim/m5out/system.terminal
 ${ROOT_DIR}/thirdparty/gem5/m5out/system.terminal
 ${ROOT_DIR}/m5out/system.terminal
 "

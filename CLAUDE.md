@@ -77,7 +77,7 @@ Provides bounded non-cached mmap of the DT-reserved shared DMA window.
 ### Checkpoint System
 
 Simulation uses a two-phase flow:
-1. **Bootstrap**: Boot ARM Linux with `--npu-backend=stage-a`, run a minimal init script, take a checkpoint at `m5out/coralnpu_ckpt/booted/`.
+1. **Bootstrap**: Boot ARM Linux with `--npu-backend=stage-a`, run a minimal init script, take a checkpoint at `checkpoint/coralnpu_ckpt/booted/`.
 2. **Restore**: Restore from checkpoint with the real NPU backend and test bootscript.
 
 Checkpoint invalidation is automatic when the disk image, kernel image, kernel init path, or kernel cmdline changes. Force rebuild with `CORAL_REBUILD_CKPT=1`.

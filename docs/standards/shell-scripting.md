@@ -217,21 +217,21 @@ be compatible with headless CI runners such as Jenkins or GitHub Actions.
 
   ```sh
   BUILD_TS="$(date +%Y-%m-%dT%H-%M-%S)"
-  BUILD_LOG="${ROOT_DIR}/simout/build-${BUILD_TS}.log"
+  BUILD_LOG="${ROOT_DIR}/logs/build-${BUILD_TS}.log"
   ```
 
 - **Convenience symlink** for the latest run so humans and CI scripts can
   reference a stable path:
 
   ```sh
-  ln -sfn "build-${BUILD_TS}.log" "${ROOT_DIR}/simout/build.log"
+  ln -sfn "build-${BUILD_TS}.log" "${ROOT_DIR}/logs/build.log"
   ```
 
-- All log files go under `simout/`.  This directory is already in
+- All log files go under `logs/`.  This directory is already in
   `.gitignore` and maps cleanly to Jenkins `archiveArtifacts`:
 
   ```groovy
-  archiveArtifacts artifacts: 'simout/*.log'
+  archiveArtifacts artifacts: 'logs/*.log'
   ```
 
 ### Exit codes
@@ -247,14 +247,14 @@ Build outputs must land in deterministic, CI-discoverable locations:
 
 | Artifact type | Directory | Jenkins glob |
 |---|---|---|
-| Build logs | `simout/` | `simout/*.log` |
-| Simulation traces | `simout/` or `m5out/` | `simout/*.debug`, `m5out/system.terminal` |
+| Build logs | `logs/` | `logs/*.log` |
+| Simulation traces | `logs/m5out/` | `logs/m5out/system.terminal` |
 | Compiled binaries | `build/` | `build/coralnpu/*.so`, `build/coralnpu/*.elf` |
 | Kernel images | `build/kernel/` | `build/kernel/vmlinux-*` |
 
 Scripts that write to these directories are responsible for `mkdir -p`
 before the first write.  The CI runner must be able to start from a clean
-checkout with no pre-existing `build/` or `simout/` directories.
+checkout with no pre-existing `build/` or `logs/` directories.
 
 ### CI mode detection
 

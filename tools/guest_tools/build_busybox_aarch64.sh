@@ -28,12 +28,14 @@
 #   BUSYBOX_TARBALL      path to pre-downloaded tarball (offline mode)
 #   CROSS_COMPILE        cross-compiler prefix (default: aarch64-linux-gnu-)
 #   JOBS                 parallel build jobs (default: nproc)
+#   BUSYBOX_SKIP_VALIDATE  1 = skip qemu-aarch64 post-build validation
 #
 # Host dependencies:
 #   gcc-aarch64-linux-gnu  libc6-dev-arm64-cross  make  tar  curl/wget
 #   qemu-user (for post-build validation of the aarch64 binary)
 #
 # @guest-tools-spec  v1  2025-07-29
+# @synchronized-with  tools/guest_tools/install_module_loader_to_image.sh
 
 set -eu
 
@@ -88,6 +90,14 @@ command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 || {
     exit 1
 }
 
+# Build output is saved to a timestamped log for CI archiving.
+BUILD_TS="$(date +%Y-%m-%dT%H-%M-%S)"
+BUILD_LOG="${ROOT_DIR}/logs/build/busybox-build-${BUILD_TS}.log"
+BUILD_LATEST="${ROOT_DIR}/logs/build/busybox-build.log"
+mkdir -p "$(dirname "${BUILD_LOG}")"
+ln -sfn "busybox-build-${BUILD_TS}.log" "${BUILD_LATEST}"
+echo "[busybox] build started $(date -Iseconds)" | tee -a "${BUILD_LOG}"
+
 # ---------------------------------------------------------------------------
 # Step 1: Download or reuse the source tarball (with SHA-256 verification).
 # ---------------------------------------------------------------------------
@@ -104,21 +114,35 @@ if [ ! -f "${TARBALL}" ]; then
         fail "curl or wget is required to download BusyBox"
     fi
     mv "${TARBALL}.tmp" "${TARBALL}"
-fi
+else
+    echo "Using cached tarball: ${TARBALL}"
+    echo "  (set BUSYBOX_TARBALL=/path/to/busybox-${BUSYBOX_VERSION}.tar.bz2 for offline builds)"
+fi 2>&1 | tee -a "${BUILD_LOG}"
 
 if [ -n "${BUSYBOX_SHA256}" ]; then
+    sha_ok=0
     if command -v sha256sum >/dev/null 2>&1; then
-        printf '%s  %s\n' "${BUSYBOX_SHA256}" "${TARBALL}" | sha256sum -c -
+        printf '%s  %s\n' "${BUSYBOX_SHA256}" "${TARBALL}" | sha256sum -c - && sha_ok=1
     elif command -v shasum >/dev/null 2>&1; then
         actual="$(shasum -a 256 "${TARBALL}" | awk '{print $1}')"
-        [ "${actual}" = "${BUSYBOX_SHA256}" ] || fail "BusyBox SHA-256 mismatch"
+        [ "${actual}" = "${BUSYBOX_SHA256}" ] && sha_ok=1
     else
         fail "sha256sum or shasum is required to verify BusyBox"
+    fi
+    if [ "${sha_ok}" != "1" ]; then
+        cat >&2 <<EOF
+error: BusyBox SHA-256 verification failed.
+The downloaded tarball may be corrupted or tampered with.
+To re-download:  rm "${TARBALL}" && re-run this script.
+To skip verification (not recommended):  BUSYBOX_SHA256="" $0
+To use a pre-verified tarball:  BUSYBOX_TARBALL=/path/to/verified.tar.bz2 $0
+EOF
+        exit 1
     fi
 else
     echo "warning: no SHA-256 is pinned for BusyBox ${BUSYBOX_VERSION}" >&2
     echo "warning: set BUSYBOX_SHA256 to verify the source archive" >&2
-fi
+fi 2>&1 | tee -a "${BUILD_LOG}"
 
 # ---------------------------------------------------------------------------
 # Step 2: Extract source (cached — only done once per version).
@@ -183,7 +207,13 @@ done
 # Step 5: Build and strip.
 # ---------------------------------------------------------------------------
 make -C "${SRC_DIR}" O="${BUILD_DIR}" \
-    ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" -j"${JOBS}" busybox
+    ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" -j"${JOBS}" busybox 2>&1 \
+    | tee -a "${BUILD_LOG}"
+
+# Verify the make step actually produced a binary.
+if [ ! -f "${BUILD_DIR}/busybox" ]; then
+    fail "make completed but ${BUILD_DIR}/busybox was not produced"
+fi
 
 "${CROSS_COMPILE}strip" -s "${BUILD_DIR}/busybox" 2>/dev/null || true
 install -m 0755 "${BUILD_DIR}/busybox" "${OUT}"
@@ -191,20 +221,26 @@ install -m 0755 "${BUILD_DIR}/busybox" "${OUT}"
 # ---------------------------------------------------------------------------
 # Step 6: Validate the binary runs on aarch64 and contains the insmod applet.
 #   qemu-aarch64 runs the binary in user-mode emulation; --list prints all
-#   compiled-in applets.
+#   compiled-in applets.  Validation is skipped when qemu is unavailable
+#   (common in CI environments without qemu-user) or when explicitly
+#   disabled via BUSYBOX_SKIP_VALIDATE=1.
 # ---------------------------------------------------------------------------
-command -v qemu-aarch64 >/dev/null 2>&1 || {
-    rm -f "${OUT}"
-    fail "qemu-aarch64 not found; install qemu-user to validate the target binary"
-}
-applets="$(qemu-aarch64 "${OUT}" --list)"
-printf '%s\n' "${applets}" | grep -qx insmod || {
-    rm -f "${OUT}"
-    fail "insmod applet is missing"
-}
+if [ "${BUSYBOX_SKIP_VALIDATE:-0}" = "1" ]; then
+    echo "Skipping qemu-aarch64 validation (BUSYBOX_SKIP_VALIDATE=1)"
+elif command -v qemu-aarch64 >/dev/null 2>&1; then
+    applets="$(qemu-aarch64 "${OUT}" --list)"
+    if printf '%s\n' "${applets}" | grep -qx insmod; then
+        echo "verified with qemu-aarch64: insmod"
+    else
+        rm -f "${OUT}"
+        fail "insmod applet is missing from the compiled binary"
+    fi
+else
+    echo "warning: qemu-aarch64 not found; skipping binary validation" >&2
+    echo "warning: install qemu-user or set BUSYBOX_SKIP_VALIDATE=1 to suppress" >&2
+fi
 
 file "${OUT}" 2>/dev/null || true
 size_bytes="$(wc -c < "${OUT}" | tr -d ' ')"
-echo "built: ${OUT} (${size_bytes} bytes)"
-
-echo "verified with qemu-aarch64: insmod"
+echo "built: ${OUT} (${size_bytes} bytes)" | tee -a "${BUILD_LOG}"
+echo "[busybox] build succeeded $(date -Iseconds)" >> "${BUILD_LOG}"

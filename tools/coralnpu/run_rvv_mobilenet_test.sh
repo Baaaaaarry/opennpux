@@ -24,7 +24,10 @@
 #   sampled  Firmware, driver, and doorbell path all run through RTL, but
 #            long-running operators use hybrid host kernels so the full graph
 #            completes in minutes.  Use CORAL_SAMPLED_RTL_OPS to force specific
-#            operator classes back onto real RTL.  Default bring-up mode.
+#            operator classes back onto real RTL.
+#
+# The default mode is rtl (see CORAL_OPERATOR_MODE below), kept for backward
+# compatibility; hybrid/sampled are the fast bring-up modes.
 #
 # Pipeline:
 #   apply_patchset.sh  → overlay sim/gem5 into thirdparty/gem5
@@ -45,6 +48,7 @@
 #   CORAL_KERNEL_INIT          guest init path (default: /sbin/opennpux-init.sh)
 #   CORAL_DISK_IMG             ARM64 disk image path
 #   CORAL_MOBILENET_DEBUG      1 = enable NPUDevice debug trace
+#   CORAL_MOBILENET_HOST_LOG   host output log (default: logs/sim/coral-mobilenet-host-<ts>.log)
 #   CORAL_MOBILENET_CKPT_ROOT  checkpoint directory (default: checkpoint/coralnpu_mobilenet_ckpt)
 #   CORAL_MOBILENET_SHARED_BASE  DMA window base address (default: 0x8f000000)
 #
@@ -59,6 +63,47 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
+
+# ---------------------------------------------------------------------------
+# Host-side output capture and wall-clock timing.
+#   Re-exec through tee so every byte of console output (this script,
+#   apply_patchset, run_multicore.sh, gem5, and the bridge's stderr) lands in
+#   CORAL_MOBILENET_HOST_LOG while still printing to the console.  On exit —
+#   normal, error, or Ctrl+C / SIGINT — a footer with the start/end wall
+#   times and elapsed seconds is appended to both destinations.
+#   To interrupt: press Ctrl+C, or run: pkill -INT -f 'build/ARM/gem5.opt'
+#   (gem5 dumps stats on SIGINT; the footer prints in both cases).
+# ---------------------------------------------------------------------------
+if [ -z "${CORAL_MOBILENET_TEE_ACTIVE:-}" ]; then
+    LOG_DIR="${ROOT_DIR}/logs/sim"
+    mkdir -p "${LOG_DIR}"
+    HOST_LOG="${CORAL_MOBILENET_HOST_LOG:-${LOG_DIR}/coral-mobilenet-host-$(date +%Y%m%d-%H%M%S).log}"
+    ln -sfn "$(basename "${HOST_LOG}")" "${LOG_DIR}/coral-mobilenet-host.log"
+    _start_epoch="$(date +%s)"
+    _status_file="$(mktemp)"
+    {
+        printf '[coral-mobilenet] host log: %s\n' "${HOST_LOG}"
+        printf '[coral-mobilenet] start: %s\n' "$(date -Is)"
+        printf '[coral-mobilenet] interrupt: Ctrl+C, or: pkill -INT -f build/ARM/gem5.opt\n'
+    } | tee "${HOST_LOG}"
+    trap '' INT   # gem5 gets Ctrl+C itself via the process group; survive to print the footer
+    (
+        trap 'printf "%s\n" "$?" > "${_status_file}"' EXIT
+        CORAL_MOBILENET_TEE_ACTIVE=1 "$0" "$@"
+    ) 2>&1 | (trap '' INT; exec tee -a "${HOST_LOG}")
+    if [ -s "${_status_file}" ]; then
+        _rc="$(cat "${_status_file}")"
+    else
+        _rc=130    # interrupted before the inner script could report
+    fi
+    rm -f "${_status_file}"
+    {
+        printf '[coral-mobilenet] end: %s elapsed=%ss exit=%s\n' \
+            "$(date -Is)" "$(( $(date +%s) - _start_epoch ))" "${_rc}"
+        printf '[coral-mobilenet] gem5 stats: %s\n' "${LOG_DIR}/m5out/stats.txt"
+    } | tee -a "${HOST_LOG}"
+    exit "${_rc}"
+fi
 
 # ---------------------------------------------------------------------------
 # Fixed paths: bridge, firmware, and resume script.
@@ -183,6 +228,13 @@ printf '%s\n' "${DMA_SHARED_BASE}" > "${DMA_SHARED_BASE_META}"
 # ---------------------------------------------------------------------------
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 
+# Record simulation start time for wall-clock timing report.
+# The file survives the exec chain below; run_multicore.sh consumes it
+# when gem5 exits (normal, error, or Ctrl+C).
+_sim_timing_file="${ROOT_DIR}/logs/sim/.sim_timing"
+mkdir -p "$(dirname "${_sim_timing_file}")"
+printf '%s %s\n' "$(date +%s)" "${0##*/}" > "${_sim_timing_file}"
+
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_BRIDGE="${BRIDGE}" \
 CORAL_RTL_FIRMWARE="${FIRMWARE}" \
@@ -199,4 +251,6 @@ CORAL_CKPT_ROOT="${CKPT_ROOT}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
 CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${DMA_SHARED_BASE} --npu-dma-shared-size=8MiB --npu-operator-mode=${OPERATOR_MODE}${FAST_DMA_OPTION} --npu-fast-dma-event-batch=${FAST_DMA_EVENT_BATCH}" \
 GEM5_OPTIONS="${GEM5_OPTIONS_VALUE}" \
-exec "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"
+"${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"
+# No exec: the script's exit status must propagate run_multicore.sh's status
+# to the tee wrapper at the top of this file.

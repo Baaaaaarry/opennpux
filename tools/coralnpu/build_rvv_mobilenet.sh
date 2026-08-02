@@ -11,6 +11,11 @@
 # window.  The resulting bridge is a separate .so from the standard bridge
 # (libcoralnpu_gem5_bridge.so) and the firmware is gem5_mobilenet.elf.
 #
+# Note: tflite_micro sources are compiled with vector code generation disabled
+# (--per_file_copt, see TFLM_NOVEC_COPTS below) to work around a Coral RTL
+# erratum: the core's external/ibus memory paths deadlock on vector
+# loads/stores that span a 16-byte line boundary.
+#
 # Pipeline:
 #   thirdparty/coralnpu (with sim/coralnpu overlay applied)
 #     → Bazel build //hw_sim:libcoralnpu_gem5_rvv_highmem_bridge.so
@@ -106,12 +111,27 @@ _capture() {
 cd "${CORAL_REPO}"
 bazel_ok=0
 
+# RTL erratum workaround: the Coral external/ibus memory paths deadlock on
+# vector loads/stores that span a 16-byte line boundary. Auto-vectorized
+# copies inside upstream TFLM reference kernels (PadEval PadParams copy,
+# micro::GetTensorShape dims copy, ...) can hit such accesses on EXTMEM/ITCM
+# addresses and wedge the core. Disable compiler vector code generation for
+# tflite_micro sources only; coralnpu's own RVV kernels (intrinsics and
+# rvv_opt helpers) stay vectorized. GCC emits vector code through three
+# independent paths, so all must be suppressed: the loop/SLP vectorizers,
+# loop-to-memcpy idiom recognition, and inline memcpy/memset expansion.
+TFLM_NOVEC_COPTS="--per_file_copt=external/tflite_micro/.*@-fno-tree-vectorize"
+TFLM_NOVEC_COPTS="${TFLM_NOVEC_COPTS} --per_file_copt=external/tflite_micro/.*@-fno-tree-slp-vectorize"
+TFLM_NOVEC_COPTS="${TFLM_NOVEC_COPTS} --per_file_copt=external/tflite_micro/.*@-fno-tree-loop-distribute-patterns"
+TFLM_NOVEC_COPTS="${TFLM_NOVEC_COPTS} --per_file_copt=external/tflite_micro/.*@-mstringop-strategy=scalar"
+
 echo "[bazel] build started $(date -Iseconds)" | tee -a "${BUILD_LOG}"
 
 if _capture "${BUILD_LOG}" \
        "${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" build \
        --repository_cache="${REPO_CACHE}" \
        --distdir="${DISTDIR}" \
+       ${TFLM_NOVEC_COPTS} \
        "${BRIDGE_TARGET}" "${FIRMWARE_TARGET}" "$@"; then
     bazel_ok=1
 elif grep -qE 'Connect timed out|Closed by interrupt|Error downloading' "${BUILD_LOG}" 2>/dev/null; then
@@ -122,6 +142,7 @@ elif grep -qE 'Connect timed out|Closed by interrupt|Error downloading' "${BUILD
            "${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" build \
            --repository_cache="${REPO_CACHE}" \
            --distdir="${DISTDIR}" \
+           ${TFLM_NOVEC_COPTS} \
            "${BRIDGE_TARGET}" "${FIRMWARE_TARGET}" "$@"; then
         bazel_ok=1
     fi
@@ -141,12 +162,18 @@ echo "[bazel] build succeeded $(date -Iseconds)" | tee -a "${BUILD_LOG}"
 EXEC_ROOT="$("${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" \
     info execution_root)"
 
+# Extra CLI args ("$@") are forwarded to bazel build AND to the cquery
+# resolution below, so the installed artifacts match the requested
+# configuration (e.g. "-c opt" — otherwise cquery resolves the default
+# fastbuild output path and the build's extra flags are silently ignored).
+BUILD_EXTRA_ARGS="$*"
+
 resolve_output()
 {
     target="$1"
     output="$("${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" \
         cquery --repository_cache="${REPO_CACHE}" \
-        --distdir="${DISTDIR}" --output=files "${target}")"
+        --distdir="${DISTDIR}" ${BUILD_EXTRA_ARGS} --output=files "${target}")"
     case "${output}" in
         /*) printf '%s\n' "${output}" ;;
         *) printf '%s\n' "${EXEC_ROOT}/${output}" ;;

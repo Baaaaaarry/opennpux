@@ -385,3 +385,48 @@ x86 host 执行 TFLM
 callback 返回
 RTL 继续
 ```
+
+## 2026-08-02 RVV Highmem MobileNet: mobilenet_test=PASS（hybrid 模式全程跑通）
+
+根因（RTL erratum，不修改 RTL，仅固件侧规避）：
+Coral 核（RvvCoreMiniHighmemAxi）的外部存储通路在执行跨越 16 字节 line 边界的
+vector load/store 时死锁：第一个 line 的总线事务完成后，第二个 line 的事务
+永不发出，指令无法退休，in-order dispatch 全部堵死（无 fault/wfi/halt，AXI
+master 通道全空闲，bridge 无挂起事务）。DTCM 路径不受影响；标量访问不受影响；
+16 字节对齐的 vector 访问不受影响。EXTMEM（ebus）与 ITCM（ibus）路径均受影响。
+
+观测方法：bridge wrapper 增加核内 debug 采样（io_debug_dispatch instAddr/instFire、
+io_debug_rb_inst retire PC、fetch PC），watchdog dump 输出 dispatch/retire 计数与
+PC 环；mrd/mwr 驱动记录最近 AXI handshake 地址/size 历史。三个卡死点逐一确认：
+1. PadEval 的 PadParams vector copy（vle8.v @ OpData+4，EXTMEM，≡4 mod 16）：
+   第一个 16B line read 完成（bridge last_handshake=0x203ff170 size=4），第二个
+   line read 永不发出。
+2. 第 15 个 conv（FC 层）staging：per-channel multiplier 数组 Memcpy 到
+   4 字节对齐的 staging 槽（vse8 跨 line）：W 数据已发出（last=1）但 AW 永不发出。
+3. StridedSliceEval 调 micro::GetTensorShape：dims->data（≡4 mod 16）的
+   vector copy（ibus 路径）。
+
+固件/构建侧规避（不改 RTL、不改 TFLM 源码、不 bump ABI）：
+- gem5_mobilenet.cc：TracedPadInvoke 将 OpData 拷贝到 16 对齐 DTCM 静态缓冲再调用
+  上游 PadEval；per-channel multiplier/shift 改用 volatile 标量 word 拷贝；
+  新增 PAD_BEGIN/PAD_END=0x4d4e0800/0x4d4e0801 marker（两个 coral_mobilenet.h 同步）。
+- coral_operator_client.h：AllocateStaging 将分配大小向上取整到 16，保证所有
+  staging 地址 16 字节对齐。
+- tools/coralnpu/build_rvv_mobilenet.sh：tflite_micro 源文件用 --per_file_copt
+  关闭 GCC 全部三条 vector 代码生成路径（-fno-tree-vectorize、
+  -fno-tree-slp-vectorize、-fno-tree-loop-distribute-patterns、
+  -mstringop-strategy=scalar）；coralnpu 自身 RVV kernel 保持 vectorized。
+
+结果（logs/sim/coral-mobilenet-host-20260802-013722.log +
+logs/sim/m5out/system.terminal）：
+interpreter.Invoke() 完成（PROGRESS_INVOKE_END=0x4d4e0501 @ RTL cycle 14,750,827），
+15×conv + 13×depthwise + 4×pad 全部 hybrid 完成，m5_exit 正常退出，exit=0。
+mobilenet_state=0x3 mobilenet_error=0 mobilenet_npu_cycles=40957800
+mobilenet_operation_count=40775552 mobilenet_output_checksum=0x38c2a6a4
+mobilenet_output=-85,-69,-78,-89,-64
+mobilenet_test=PASS / [coral-mobilenet-test] PASS
+//hw_sim:gem5_axi_master_drivers_test 通过；phase2_check_abi.sh /
+check_mobilenet_abi.sh 通过。
+
+后续建议（RTL 侧，超出本次范围）：定位 Lsu.scala vector slot 的跨 line
+事务迭代 / DBus2Axi 在跨 line vector 访问时的第二个 line 事务生成逻辑。

@@ -193,6 +193,11 @@ TestIndependentWriteChannels()
   addr_valid = 1;
   clock.Step();
   Check(requests == 0, "write submitted before W channel arrived");
+  // The AW ready drop is intentionally deferred by one falling edge after the
+  // capture, so the DUT sees a full rising edge with valid && ready.
+  Check(addr_ready == 1 && data_ready == 1,
+        "AW ready was not held for one extra falling edge after capture");
+  clock.Step();
   Check(addr_ready == 0 && data_ready == 1,
         "AW and W readiness was not independent");
 
@@ -394,6 +399,11 @@ TestWriteBurstCollection()
     Check(requests == 0, "write burst submitted before AW arrived");
   }
   data_valid = 0;
+  // The W ready drop is intentionally deferred by one falling edge after the
+  // WLAST capture, so the DUT sees a full rising edge with valid && ready.
+  Check(data_ready == 1,
+        "W ready was not held for one extra falling edge after WLAST");
+  clock.Step();
   Check(data_ready == 0, "write burst accepted data after WLAST");
 
   addr_valid = 1;

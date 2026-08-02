@@ -63,13 +63,19 @@ inline uint32_t AllocateStaging(
       (alignment & (alignment - 1)) != 0) {
     return 0;
   }
+  // RTL erratum workaround: the Coral external memory path deadlocks on
+  // vector loads/stores that span a 16-byte line boundary. Keep every
+  // staging allocation 16-byte aligned so vectorized copies to/from the
+  // staging area never cross a line. The recorded tensor sizes are
+  // unaffected; this only pads the allocator cursor.
+  const uint32_t aligned_size = (size + 15) & ~UINT32_C(15);
   const uint32_t aligned =
       (allocator->cursor + alignment - 1) & ~(alignment - 1);
-  if (aligned < allocator->cursor || size > allocator->size ||
-      aligned > allocator->size - size) {
+  if (aligned < allocator->cursor || aligned_size > allocator->size ||
+      aligned > allocator->size - aligned_size) {
     return 0;
   }
-  allocator->cursor = aligned + size;
+  allocator->cursor = aligned + aligned_size;
   return allocator->base + aligned;
 }
 

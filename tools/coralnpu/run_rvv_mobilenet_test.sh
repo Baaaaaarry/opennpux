@@ -228,13 +228,8 @@ printf '%s\n' "${DMA_SHARED_BASE}" > "${DMA_SHARED_BASE_META}"
 # ---------------------------------------------------------------------------
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 
-# Record simulation start time for wall-clock timing report.
-# The file survives the exec chain below; run_multicore.sh consumes it
-# when gem5 exits (normal, error, or Ctrl+C).
-_sim_timing_file="${ROOT_DIR}/logs/sim/.sim_timing"
-mkdir -p "$(dirname "${_sim_timing_file}")"
-printf '%s %s\n' "$(date +%s)" "${0##*/}" > "${_sim_timing_file}"
-
+# Wall-clock timing is reported by the tee wrapper's footer at the top of
+# this script; no separate timing file is needed here.
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_BRIDGE="${BRIDGE}" \
 CORAL_RTL_FIRMWARE="${FIRMWARE}" \

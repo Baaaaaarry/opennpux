@@ -28,6 +28,28 @@ simulation work.
 4. Use the runbooks under `docs/runbooks` to validate phase-1 and later system
    flows on an x86 Linux host.
 
+## Team Collaboration
+
+This project is intended for multi-developer work with separate Codex accounts.
+Do not share one working directory or one branch between multiple people. Each
+developer should claim a GitHub Issue, create an independent branch or worktree,
+keep Codex scoped to that Issue, and merge through Pull Request review.
+
+Start here before development:
+
+- `AGENTS.md`: repository-wide Codex rules, ownership boundaries, and validation
+  expectations.
+- `sim/gem5/AGENTS.md`: gem5 overlay rules.
+- `sim/coralnpu/AGENTS.md`: CoralNPU overlay rules.
+- `docs/process/team_collaboration.md`: team workflow, design review, branch,
+  PR, and ownership process.
+- `docs/process/task_template.md`: standard Issue/Codex task template.
+- `docs/process/review_checklist.md`: human and Codex review checklist.
+
+Shared interfaces such as SoC memory map, NPU CSR/MMIO, shared DMA window,
+TCB/operator descriptors, kernel UAPI, Verilated bridge C ABI, checkpoint flow,
+and operator semantics must be documented and reviewed before merge.
+
 ## Guest MMIO Tool
 
 The Coral bring-up scripts need a guest-side MMIO helper because `dd` reads from
@@ -210,4 +232,3 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 The first run creates a dedicated 8 MiB-window checkpoint; the second restores
 it and executes MobileNet. See
 `docs/runbooks/rvv_mobilenet_acceptance.md` for the complete procedure.
-

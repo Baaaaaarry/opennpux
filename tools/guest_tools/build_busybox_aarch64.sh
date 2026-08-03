@@ -98,6 +98,18 @@ mkdir -p "$(dirname "${BUILD_LOG}")"
 ln -sfn "busybox-build-${BUILD_TS}.log" "${BUILD_LATEST}"
 echo "[busybox] build started $(date -Iseconds)" | tee -a "${BUILD_LOG}"
 
+# Run a command, logging combined output while preserving its exit status.
+# Plain "cmd | tee" would mask the command's failure behind tee's exit code
+# (POSIX sh has no pipefail); fail/exit inside a pipeline also only exits the
+# pipeline's subshell, so abort paths must live outside pipelines.
+_logrun() {
+    _ecfile="$(mktemp)"
+    { "$@" 2>&1; printf '%d\n' "$?" >"${_ecfile}"; } | tee -a "${BUILD_LOG}"
+    read -r _ec <"${_ecfile}"
+    rm -f "${_ecfile}"
+    return "${_ec}"
+}
+
 # ---------------------------------------------------------------------------
 # Step 1: Download or reuse the source tarball (with SHA-256 verification).
 # ---------------------------------------------------------------------------
@@ -105,24 +117,35 @@ mkdir -p "${CACHE_DIR}" "$(dirname -- "${TARBALL}")" "$(dirname -- "${OUT}")"
 rm -f "${OUT}"
 
 if [ ! -f "${TARBALL}" ]; then
-    echo "Downloading ${BUSYBOX_URL}"
+    echo "Downloading ${BUSYBOX_URL}" | tee -a "${BUILD_LOG}"
     if command -v curl >/dev/null 2>&1; then
-        curl -fL --retry 3 --retry-delay 2 -o "${TARBALL}.tmp" "${BUSYBOX_URL}"
+        _logrun curl -fL --retry 3 --retry-delay 2 \
+            -o "${TARBALL}.tmp" "${BUSYBOX_URL}" || {
+            rm -f "${TARBALL}.tmp"
+            fail "BusyBox download failed (see ${BUILD_LOG})"
+        }
     elif command -v wget >/dev/null 2>&1; then
-        wget -O "${TARBALL}.tmp" "${BUSYBOX_URL}"
+        _logrun wget -O "${TARBALL}.tmp" "${BUSYBOX_URL}" || {
+            rm -f "${TARBALL}.tmp"
+            fail "BusyBox download failed (see ${BUILD_LOG})"
+        }
     else
         fail "curl or wget is required to download BusyBox"
     fi
     mv "${TARBALL}.tmp" "${TARBALL}"
 else
-    echo "Using cached tarball: ${TARBALL}"
-    echo "  (set BUSYBOX_TARBALL=/path/to/busybox-${BUSYBOX_VERSION}.tar.bz2 for offline builds)"
-fi 2>&1 | tee -a "${BUILD_LOG}"
+    echo "Using cached tarball: ${TARBALL}" | tee -a "${BUILD_LOG}"
+    echo "  (set BUSYBOX_TARBALL=/path/to/busybox-${BUSYBOX_VERSION}.tar.bz2 for offline builds)" |
+        tee -a "${BUILD_LOG}"
+fi
 
 if [ -n "${BUSYBOX_SHA256}" ]; then
     sha_ok=0
     if command -v sha256sum >/dev/null 2>&1; then
-        printf '%s  %s\n' "${BUSYBOX_SHA256}" "${TARBALL}" | sha256sum -c - && sha_ok=1
+        _sha_file="$(mktemp)"
+        printf '%s  %s\n' "${BUSYBOX_SHA256}" "${TARBALL}" >"${_sha_file}"
+        _logrun sha256sum -c "${_sha_file}" && sha_ok=1
+        rm -f "${_sha_file}"
     elif command -v shasum >/dev/null 2>&1; then
         actual="$(shasum -a 256 "${TARBALL}" | awk '{print $1}')"
         [ "${actual}" = "${BUSYBOX_SHA256}" ] && sha_ok=1
@@ -130,19 +153,21 @@ if [ -n "${BUSYBOX_SHA256}" ]; then
         fail "sha256sum or shasum is required to verify BusyBox"
     fi
     if [ "${sha_ok}" != "1" ]; then
-        cat >&2 <<EOF
-error: BusyBox SHA-256 verification failed.
-The downloaded tarball may be corrupted or tampered with.
-To re-download:  rm "${TARBALL}" && re-run this script.
-To skip verification (not recommended):  BUSYBOX_SHA256="" $0
-To use a pre-verified tarball:  BUSYBOX_TARBALL=/path/to/verified.tar.bz2 $0
-EOF
+        {
+            echo "error: BusyBox SHA-256 verification failed."
+            echo "The downloaded tarball may be corrupted or tampered with."
+            echo "To re-download:  rm \"${TARBALL}\" && re-run this script."
+            echo "To skip verification (not recommended):  BUSYBOX_SHA256=\"\" $0"
+            echo "To use a pre-verified tarball:  BUSYBOX_TARBALL=/path/to/verified.tar.bz2 $0"
+        } 2>&1 | tee -a "${BUILD_LOG}"
         exit 1
     fi
 else
-    echo "warning: no SHA-256 is pinned for BusyBox ${BUSYBOX_VERSION}" >&2
-    echo "warning: set BUSYBOX_SHA256 to verify the source archive" >&2
-fi 2>&1 | tee -a "${BUILD_LOG}"
+    echo "warning: no SHA-256 is pinned for BusyBox ${BUSYBOX_VERSION}" 2>&1 |
+        tee -a "${BUILD_LOG}"
+    echo "warning: set BUSYBOX_SHA256 to verify the source archive" 2>&1 |
+        tee -a "${BUILD_LOG}"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 2: Extract source (cached — only done once per version).
@@ -206,9 +231,9 @@ done
 # ---------------------------------------------------------------------------
 # Step 5: Build and strip.
 # ---------------------------------------------------------------------------
-make -C "${SRC_DIR}" O="${BUILD_DIR}" \
-    ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" -j"${JOBS}" busybox 2>&1 \
-    | tee -a "${BUILD_LOG}"
+_logrun make -C "${SRC_DIR}" O="${BUILD_DIR}" \
+    ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" -j"${JOBS}" busybox || \
+    fail "busybox make failed (see ${BUILD_LOG})"
 
 # Verify the make step actually produced a binary.
 if [ ! -f "${BUILD_DIR}/busybox" ]; then

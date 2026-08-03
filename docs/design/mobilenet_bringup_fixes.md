@@ -4,7 +4,8 @@
 "14 分钟 PASS"过程中发现并修复的全部问题，每个改动点附原理讲解，
 可供 code review、提交整理，以及向不熟悉 RTL/AXI 的同事讲解。
 
-最终结果（`logs/sim/coral-mobilenet-host-20260802-013722.log`）：
+最终结果（guest 串口输出见 `logs/sim/m5out/system.terminal`；host 侧
+运行日志与 footer 见 `logs/sim/coral-mobilenet-host-20260802-013722.log`）：
 
 ```
 mobilenet_state=0x00000003  mobilenet_error=0
@@ -148,7 +149,7 @@ RTL 当场异常死亡。
   部分掩码写无法表达——不在窗口内的掩码写拒绝并 loud-log，ABI v7 列为
   后续）；
 - 所有拒绝点带**原因码**打印（`partial-strb`、`window-overflow` 等
-  9 种），下次同类问题一眼定位。
+  10 种），下次同类问题一眼定位。
 
 ### 一句话讲给别人
 

@@ -23,8 +23,8 @@ echo "[coral-driver-info-test] started"
 echo "[coral-driver-info-test] tool=${CORALCTL}"
 echo "[coral-driver-info-test] kernel=${kernel_release}"
 
-if [ ! -f /tmp/coralnpu-phase3-preload.ready ]; then
-    echo "[coral-driver-info-test] FAIL: stale or incomplete Phase-3 checkpoint"
+if [ ! -f /tmp/coralnpu-baseline-preload.ready ]; then
+    echo "[coral-driver-info-test] FAIL: stale or incomplete baseline checkpoint"
     echo "[coral-driver-info-test] rebuild with CORAL_REBUILD_CKPT=1"
     if command -v m5 >/dev/null 2>&1; then
         m5 --inst exit

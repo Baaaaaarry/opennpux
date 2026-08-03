@@ -1,11 +1,11 @@
-# Phase 2 Acceptance Runbook
+# RTL Bridge Acceptance Runbook
 
-This runbook validates the Phase-2 gem5 + Coral RTL integration on the x86
+This runbook validates the gem5 + Coral RTL bridge integration on the x86
 Linux development host.
 
 ## Scope
 
-Phase 2 is accepted when the system demonstrates:
+The RTL bridge baseline is accepted when the system demonstrates:
 
 - upstream submodules remain overlaid by `sim/gem5` and `sim/coralnpu`
 - Coral bridge and smoke firmware build reproducibly
@@ -17,8 +17,8 @@ Phase 2 is accepted when the system demonstrates:
 - unsupported in-flight checkpointing and invalid DMA windows fail safely
 - AXI master adapter enforces single-outstanding ordering with burst support
 
-Multiple outstanding AXI IDs are intentionally out of Phase-2 acceptance. The
-Phase-2 bridge backpressures `AR`, `AW`, and `W` while a request is outstanding.
+Multiple outstanding AXI IDs are intentionally out of RTL bridge baseline acceptance. The
+RTL bridge backpressures `AR`, `AW`, and `W` while a request is outstanding.
 
 ## Host Build
 
@@ -28,11 +28,11 @@ Run from the superproject root:
 git submodule update --init --recursive
 ./sim/gem5/apply_patchset.sh
 ./sim/coralnpu/apply_patchset.sh
-./tools/coralnpu/phase2_prepare_bazel.sh
-./tools/coralnpu/phase2_check_abi.sh
-./tools/coralnpu/phase2_check_overlay_boundary.sh
-./tools/coralnpu/phase2_test_axi_adapter.sh
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/prepare_coral_bazel.sh
+./tools/coralnpu/check_rtl_bridge_abi.sh
+./tools/coralnpu/check_overlay_boundary.sh
+./tools/coralnpu/test_axi_adapter.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ```
 
 Expected:
@@ -73,7 +73,7 @@ Expected terminal output:
 Boot checkpoint saved at .../m5out/coralnpu_ckpt/booted
 ```
 
-For ordinary Phase-2 tests, do not set `CORAL_REBUILD_CKPT=1`; the resume
+For ordinary RTL bridge tests, do not set `CORAL_REBUILD_CKPT=1`; the resume
 script is injected through `m5 readfile`, so guest test scripts can change
 without rebuilding the boot checkpoint.
 
@@ -152,11 +152,11 @@ Coral DMA complete count=4
 
 ## Acceptance Criteria
 
-Phase 2 passes when all of these are true:
+The RTL bridge baseline passes when all of these are true:
 
-- `phase2_build_bridge.sh` completes without unresolved `sram_*` symbols and
+- `build_rtl_bridge.sh` completes without unresolved `sram_*` symbols and
   without linking `libsystemc`
-- `phase2_test_axi_adapter.sh` passes
+- `test_axi_adapter.sh` passes
 - `coralctl-test` passes from a restored boot checkpoint
 - `dma-test` passes from a restored boot checkpoint
 - `coralctl mem-*` commands can inspect and modify the shared window
@@ -166,10 +166,10 @@ Phase 2 passes when all of these are true:
 
 ## Failure Triage
 
-- `Unable to load Coral RTL bridge`: rebuild with `phase2_build_bridge.sh` and
+- `Unable to load Coral RTL bridge`: rebuild with `build_rtl_bridge.sh` and
   verify `CORAL_RTL_BRIDGE`.
 - `undefined symbol: sram_init`: stale bridge artifact; rerun
-  `phase2_build_bridge.sh`.
+  `build_rtl_bridge.sh`.
 - `Coral NPU did not halt`: verify `CORAL_RTL_FIRMWARE` points at the intended
   ELF and that the bridge ABI check passes.
 - `dma_errors > 0`: Coral firmware accessed outside the configured EXTMEM

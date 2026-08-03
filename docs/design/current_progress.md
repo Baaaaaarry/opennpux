@@ -88,7 +88,7 @@ dma_test=PASS
 
 ## Remaining Work
 
-### Phase 2 completion
+### RTL bridge baseline
 
 - The single-outstanding asynchronous AXI-to-gem5 DMA transport is verified.
 - A DT reserved-memory buffer maps Coral EXTMEM onto SoC physical memory.
@@ -115,10 +115,10 @@ dma_test=PASS
   (`mem-info`, `mem-clear`, `mem-read32`, and `mem-write32`) over the same
   mapper used by `dma-test`.
 - AXI `AR`, `AW`, and `W` channels are backpressured while one request is
-  outstanding, making the single-outstanding Phase-2 contract explicit.
-- Phase-2 acceptance is documented in `docs/runbooks/phase2_acceptance.md`.
+  outstanding, making the single-outstanding RTL bridge contract explicit.
+- RTL bridge acceptance is documented in `docs/runbooks/rtl_bridge_acceptance.md`.
 
-### Phase 3
+### Driver runtime baseline
 
 - Replace shell control with a stable userspace runtime and then a Linux driver.
 - Allocate and pin shared input, output, command, and completion buffers.
@@ -127,35 +127,35 @@ dma_test=PASS
 - Add multiple outstanding AXI IDs if firmware/runtime profiling shows the
   single-outstanding bridge is a bottleneck.
 
-The first Phase-3 increment has split `coralctl` into a reusable host runtime
+The first driver-runtime increment has split `coralctl` into a reusable host runtime
 API (`runtime/host/include/opennpux/coral_runtime.h` and
 `runtime/host/src/coral_runtime.c`) plus a CLI frontend. The runtime still uses
-the Phase-2 `/dev/mem` backend so existing checkpoint-based tests continue to
+the `/dev/mem` bring-up backend so existing checkpoint-based tests continue to
 work. The next increment is to replace that backend with a minimal Linux
 character device while keeping the userspace API stable.
 
-The second Phase-3 increment has added the shared user/kernel UAPI
+The second driver-runtime increment has added the shared user/kernel UAPI
 (`runtime/host/include/opennpux/coral_uapi.h`), runtime transport selection,
 and a minimal platform-driver scaffold under `runtime/kernel`. The runtime now
 auto-selects `/dev/opennpux-coral` when available and falls back to `/dev/mem`
 for the existing checkpoint smoke tests.
 
-The third Phase-3 increment completes the device boundary: the driver exposes
+The third driver-runtime increment completes the device boundary: the driver exposes
 only the DT-reserved shared DMA window through non-cached mmap, negotiates a
 versioned capability ABI, accepts asynchronous START, wakes userspace through
 poll using a kernel completion worker, and supports RESET after timeout. The
 driver-only DMA acceptance covers control ioctl, shared mmap, completion, and
 coherent RTL DMA without opening `/dev/mem`.
 
-### Phase 4
+### Command runtime baseline
 
 - Load a real model and tensors from Linux.
 - Integrate a narrow inference runtime API.
 - Measure CPU scheduling, memory traffic, NPU execution, and end-to-end latency.
 
-The first Phase-4 increment defines a 64-byte versioned command descriptor and
+The first command-runtime increment defines a 64-byte versioned command descriptor and
 bounded input/output tensor regions in the shared window. `coralctl vector-add`
-now submits a multi-buffer command through the Phase-3 driver, while
+now submits a multi-buffer command through the driver runtime, while
 `gem5_command_smoke.elf` parses the descriptor on the Coral core and reports
 completion. This is the reusable end-to-end contract for subsequent DS4
 operators.
@@ -165,14 +165,14 @@ real input tensors, sequential multi-command dispatch, output verification, and
 model-level simulated-time reporting. The sample graph mixes official Coral
 software execution and custom RTL execution without DS4-specific assumptions.
 
-### Phase 5
+### Custom RTL baseline
 
 - Add the custom RTL accelerator inside the Coral source hierarchy.
 - Add instructions or command descriptors, compiler/runtime support, and RTL
   verification.
 - Compare official and custom execution using the same Linux workload.
 
-Phase 5 now includes a synthesizable three-cycle custom MAC, standalone
+Custom RTL baseline now includes a synthesizable three-cycle custom MAC, standalone
 Verilator regression, a bounded AXI register aperture in the Coral bridge, a
 custom command opcode, firmware support, cycle accounting, and Linux A/B tests.
 The official `CoreMiniAxi`, gem5 device, kernel driver, and userspace transport
@@ -233,7 +233,7 @@ quantized TFLM semantics are developed.
 
 ## Immediate Development Order
 
-1. Run the Phase-3 runtime acceptance suite on x86 Linux.
+1. Run the driver runtime acceptance suite on x86 Linux.
 2. Build and load `/dev/opennpux-coral` in the guest image.
 3. Pass the driver-only shared-window and DMA system test.
 4. Extend the generic model/operator registry as new workloads require.

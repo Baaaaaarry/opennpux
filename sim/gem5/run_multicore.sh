@@ -44,19 +44,19 @@ BOOTSTRAP_NPU_BACKEND_ARGS="--npu-backend=stage-a"
 if [ "${CORAL_NPU_BACKEND}" = "verilated-coral" ]; then
   if [ ! -f "${CORAL_RTL_BRIDGE}" ]; then
     echo "Coral RTL bridge not found: ${CORAL_RTL_BRIDGE}" >&2
-    echo "Build it with tools/coralnpu/phase2_build_bridge.sh" >&2
+    echo "Build it with tools/coralnpu/build_rtl_bridge.sh" >&2
     exit 1
   fi
   if [ ! -f "${CORAL_RTL_FIRMWARE}" ]; then
     echo "Coral RTL firmware not found: ${CORAL_RTL_FIRMWARE}" >&2
-    echo "Build it with tools/coralnpu/phase2_build_bridge.sh" >&2
+    echo "Build it with tools/coralnpu/build_rtl_bridge.sh" >&2
     exit 1
   fi
   if command -v ldd >/dev/null 2>&1 &&
      ldd "${CORAL_RTL_BRIDGE}" 2>/dev/null | grep -qi systemc; then
     echo "Coral RTL bridge links libsystemc and is incompatible with gem5:" >&2
     echo "  ${CORAL_RTL_BRIDGE}" >&2
-    echo "Rebuild it with ./tools/coralnpu/phase2_build_bridge.sh" >&2
+    echo "Rebuild it with ./tools/coralnpu/build_rtl_bridge.sh" >&2
     exit 1
   fi
   NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-verilated-wrapper=${CORAL_RTL_BRIDGE}"

@@ -12,5 +12,5 @@ MODEL="${ROOT_DIR}/build/models/heterogeneous-smoke.npxm"
 "${ROOT_DIR}/tools/guest_tools/install_coralctl_to_image.sh" "${IMAGE}"
 "${ROOT_DIR}/tools/guest_tools/install_model_to_image.sh" "${IMAGE}" "${MODEL}"
 
-echo "Phase 4/5 guest assets installed into ${IMAGE}"
+echo "Baseline guest assets installed into ${IMAGE}"
 echo "Rebuild the boot checkpoint once before running model tests"

@@ -18,7 +18,7 @@ HOST_OS="$(uname -s)"
 HOST_ARCH="$(uname -m)"
 
 if [ "${HOST_OS}" != "Linux" ] || [ "${HOST_ARCH}" != "x86_64" ]; then
-    echo "error: Coral Phase 2 requires x86_64 Linux; found ${HOST_OS} ${HOST_ARCH}" >&2
+    echo "error: Coral RTL bridge requires x86_64 Linux; found ${HOST_OS} ${HOST_ARCH}" >&2
     exit 1
 fi
 
@@ -33,12 +33,12 @@ if [ -n "${BAZEL_BINARY:-}" ]; then
     fi
     cp "${BAZEL_BINARY}" "${DEST}"
 elif [ -s "${DEST}" ]; then
-    echo "[phase2-bazel] reusing cached ${DEST}"
+    echo "[coral-bazel] reusing cached ${DEST}"
 else
     URL="${BAZEL_DOWNLOAD_URL:-https://releases.bazel.build/${VERSION}/release/bazel-${VERSION}-linux-x86_64}"
     TMP="${DEST}.tmp"
     rm -f "${DEST}" "${TMP}"
-    echo "[phase2-bazel] downloading ${URL}"
+    echo "[coral-bazel] downloading ${URL}"
     if command -v curl >/dev/null 2>&1; then
         curl -fL --retry 3 --connect-timeout 20 -o "${TMP}" "${URL}"
     elif command -v wget >/dev/null 2>&1; then
@@ -62,5 +62,5 @@ case "${ACTUAL}" in
         ;;
 esac
 
-echo "[phase2-bazel] ready: ${LINK}"
-echo "[phase2-bazel] ${ACTUAL}"
+echo "[coral-bazel] ready: ${LINK}"
+echo "[coral-bazel] ${ACTUAL}"

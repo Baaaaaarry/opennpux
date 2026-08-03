@@ -26,7 +26,7 @@ fail() {
 
 echo "[coral-mobilenet-partial-test] started"
 echo "[coral-mobilenet-partial-test] firmware=partial-mailbox"
-[ -f /tmp/coralnpu-phase3-preload.ready ] || fail "stale checkpoint"
+[ -f /tmp/coralnpu-baseline-preload.ready ] || fail "stale checkpoint"
 [ -x "${CORALCTL}" ] || fail "coralctl missing"
 [ -f "${MODULE}" ] || fail "kernel module missing"
 [ -x /tmp/busybox ] || fail "BusyBox missing"

@@ -92,13 +92,13 @@ Apply overlays before building:
 Core validation commands:
 
 ```bash
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ./tools/coralnpu/build_rvv_mobilenet_partial.sh
 CORAL_MOBILENET_PARTIAL_DEBUG=1 ./tools/coralnpu/run_rvv_mobilenet_partial.sh
 CORAL_OPERATOR_MODE=hybrid ./tools/coralnpu/run_rvv_mobilenet_test.sh
 ```
 
-Use the runbooks under `docs/runbooks/` for phase-specific acceptance. PRs must
+Use the runbooks under `docs/runbooks/` for baseline acceptance. PRs must
 include the exact commands run, host type, commit, and PASS/FAIL output.
 
 ## Ownership Boundaries

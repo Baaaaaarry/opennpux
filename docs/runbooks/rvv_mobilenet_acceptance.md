@@ -32,7 +32,7 @@ Update the guest `coralctl` before creating the dedicated checkpoint:
 
 ```sh
 IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
-./tools/coralnpu/phase45_prepare_guest_assets.sh
+./tools/coralnpu/prepare_guest_assets.sh
 ./sim/gem5/apply_patchset.sh
 ```
 
@@ -325,7 +325,7 @@ The wrapper resolves the validated kernel from `build/kernel/kernel.release`
 and uses `/sbin/opennpux-init.sh`; it fails before starting gem5 when that
 kernel artifact is missing. Explicit `CORAL_KERNEL_IMAGE` and
 `CORAL_KERNEL_INIT` values still override these defaults.
-It also defaults to the Phase-3 validated Ubuntu 18.04 image at
+It also defaults to the baseline validated Ubuntu 18.04 image at
 `/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img` instead
 of allowing the generic launcher to select an incompatible development image.
 Use `CORAL_DISK_IMG` when the validated image is stored elsewhere.

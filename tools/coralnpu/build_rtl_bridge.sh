@@ -11,9 +11,9 @@ DMA_FIRMWARE_TARGET="//hw_sim:gem5_dma_smoke.elf"
 COMMAND_FIRMWARE_TARGET="//hw_sim:gem5_command_smoke.elf"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
-BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
-REPO_CACHE="${PHASE2_REPO_CACHE:-${ROOT_DIR}/.cache/coralnpu/repository}"
-DISTDIR="${PHASE2_DISTDIR:-${CORAL_REPO}/distdir}"
+BAZEL_OUTPUT_ROOT="${CORAL_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
+REPO_CACHE="${CORAL_REPO_CACHE:-${ROOT_DIR}/.cache/coralnpu/repository}"
+DISTDIR="${CORAL_DISTDIR:-${CORAL_REPO}/distdir}"
 
 if [ -n "${BAZEL:-}" ]; then
     :
@@ -26,20 +26,20 @@ else
 error: bazel not found
 
 Prepare the repository-local Bazel executable first:
-  ./tools/coralnpu/phase2_prepare_bazel.sh
+  ./tools/coralnpu/prepare_coral_bazel.sh
 
 For an offline/DNS-restricted host:
-  BAZEL_BINARY=/path/to/bazel-$(cat "${CORAL_REPO}/.bazelversion")-linux-x86_64 ./tools/coralnpu/phase2_prepare_bazel.sh
+  BAZEL_BINARY=/path/to/bazel-$(cat "${CORAL_REPO}/.bazelversion")-linux-x86_64 ./tools/coralnpu/prepare_coral_bazel.sh
 EOF
     exit 1
 fi
 
-"${ROOT_DIR}/tools/coralnpu/phase2_check_abi.sh"
+"${ROOT_DIR}/tools/coralnpu/check_rtl_bridge_abi.sh"
 "${ROOT_DIR}/tools/coralnpu/check_command_abi.sh"
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
-"${ROOT_DIR}/tools/coralnpu/phase2_check_overlay_boundary.sh"
-"${ROOT_DIR}/tools/coralnpu/phase2_test_axi_adapter.sh"
-"${ROOT_DIR}/tools/coralnpu/phase5_test_custom_rtl.sh"
+"${ROOT_DIR}/tools/coralnpu/check_overlay_boundary.sh"
+"${ROOT_DIR}/tools/coralnpu/test_axi_adapter.sh"
+"${ROOT_DIR}/tools/coralnpu/test_custom_rtl.sh"
 
 mkdir -p "${BAZEL_OUTPUT_ROOT}" "${REPO_CACHE}" "${DISTDIR}"
 rm -f \

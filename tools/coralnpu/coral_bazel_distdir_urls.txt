@@ -1,10 +1,10 @@
-# Phase-1 Bazel distdir seed list for Coral standalone builds
+# Coral standalone Bazel distdir seed list for Coral standalone builds
 #
 # Save each artifact under thirdparty/coralnpu/distdir/ with the basename shown
 # in the URL. Bazel's --distdir lookup is filename-based.
 #
 # This list covers the main http_archive/http_file dependencies used by the
-# current Phase-1 "host-sim" setup in this gem5 tree. It does not cover Maven
+# current Coral standalone "host-sim" setup in this gem5 tree. It does not cover Maven
 # artifacts fetched by rules_scala / scala_maven_import_external.
 
 https://github.com/bazelbuild/rules_cc/releases/download/0.2.9/rules_cc-0.2.9.tar.gz

@@ -46,4 +46,4 @@ operator registration, tensor allocation, and inference. Linux validates:
 - five output bytes were produced;
 - DMA requests equal DMA completions and DMA errors remain zero.
 
-This leaves the standard bridge and Phase 2-5 command tests unchanged.
+This leaves the standard bridge and baseline command tests unchanged.

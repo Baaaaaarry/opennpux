@@ -1,4 +1,4 @@
-# Phase 5 Custom RTL Accelerator
+# Custom RTL Accelerator
 
 ## Architecture
 
@@ -16,7 +16,7 @@ This keeps the boundaries explicit:
 - official Coral core executes firmware and issues AXI transactions;
 - custom RTL performs the MAC computation and reports hardware cycles;
 - gem5 models the ARM SoC, coherent memory, MMIO shell, and scheduling;
-- Linux uses the unchanged Phase-3 driver and Phase-4 command ABI.
+- Linux uses the unchanged driver runtime and command runtime command ABI.
 
 ## Register Interface
 

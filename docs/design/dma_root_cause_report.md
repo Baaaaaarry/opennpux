@@ -1,8 +1,8 @@
-# Phase 2 Coral DMA Integration Report
+# Coral DMA Integration Report
 
 ## 1. Executive summary
 
-Phase 2 connected the official Verilated Coral `CoreMiniAxi` RTL model to the
+The RTL bridge connected the official Verilated Coral `CoreMiniAxi` RTL model to the
 gem5 D9200/D9300 full-system platform. Linux controls the NPU through MMIO,
 while Coral external-memory AXI requests are converted into coherent gem5 DMA
 transactions behind the SLC.

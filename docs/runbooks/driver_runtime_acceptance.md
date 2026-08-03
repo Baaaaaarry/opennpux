@@ -1,11 +1,11 @@
-# Phase 3 Runtime Acceptance Runbook
+# Driver Runtime Acceptance Runbook
 
-This runbook validates the Phase-3 Linux driver and stable host runtime API.
+This runbook validates the Linux driver and stable host runtime API.
 
 ## Scope
 
-The Phase-2 `/dev/mem` backend remains available for bring-up compatibility,
-but normal Phase-3 operation uses `/dev/opennpux-coral` for control and shared
+The `/dev/mem` bring-up backend remains available for bring-up compatibility,
+but normal driver operation uses `/dev/opennpux-coral` for control and shared
 memory:
 
 - `runtime/host/include/opennpux/coral_runtime.h`
@@ -13,7 +13,7 @@ memory:
 - `runtime/host/tools/coralctl.c`
 
 `coralctl` is now only a CLI frontend. System-level output remains compatible
-with the Phase-2 scripts.
+with the RTL bridge scripts.
 
 The repository now carries the first driver boundary scaffold:
 
@@ -80,7 +80,7 @@ lightweight image:
 
 ```sh
 IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
-./tools/kernel/phase3_validate_4.19_kernel.sh
+./tools/kernel/validate_4.19_kernel.sh
 ```
 
 The guest image must also contain a module loader. If the driver-info test
@@ -165,7 +165,7 @@ frontend into the static aarch64 guest binary.
 
 ## System-Level Regression
 
-Reuse the Phase-2 boot checkpoint. Do not rebuild the checkpoint for this
+Reuse the baseline boot checkpoint. Do not rebuild the checkpoint for this
 runtime-only change.
 
 ```sh
@@ -210,7 +210,7 @@ dma_test=PASS
 
 ## Driver DMA Acceptance
 
-After rebuilding and installing the Phase-3 module and `coralctl`, rebuild the
+After rebuilding and installing the baseline module and `coralctl`, rebuild the
 boot checkpoint once so both files are preloaded into tmpfs. Then run:
 
 ```sh
@@ -231,7 +231,7 @@ shared_clear=PASS
 
 ## Acceptance Criteria
 
-Phase-3 runtime increment passes when all of these are true:
+Driver runtime baseline passes when all of these are true:
 
 - host runtime unit test passes
 - host `coralctl` compile passes with `-Wall -Wextra -Werror`
@@ -239,7 +239,7 @@ Phase-3 runtime increment passes when all of these are true:
 - `coralctl-test` still passes from the existing checkpoint
 - `coral-dma-test` still passes from the existing checkpoint
 - `coral-driver-dma-test` passes without opening `/dev/mem`
-- no `coralctl` command output used by Phase-2 scripts regresses
+- no `coralctl` command output used by RTL bridge scripts regresses
 
 ## Next Increment
 
@@ -247,5 +247,5 @@ Define the inference submission contract on top of the completed device
 boundary: versioned command descriptors, runtime-owned tensor buffers, and a
 real interrupt source when the platform model exposes one.
 
-The descriptor and first multi-buffer command are implemented by the Phase-4
-flow documented in `docs/design/phase4_command_runtime.md`.
+The descriptor and first multi-buffer command are implemented by the command runtime
+flow documented in `docs/design/command_runtime.md`.

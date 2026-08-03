@@ -117,7 +117,7 @@ cvfpu_repos()
 
 rvvi_repos()
 
-# Phase-1 host-sim mode inside the gem5 integration tree:
+# Coral standalone host-sim mode inside the gem5 integration tree:
 # keep standalone Coral simulation and example builds working without pulling
 # FPGA/OpenTitan-only repositories. Restore the original section before using
 # FPGA targets or UVM flows.

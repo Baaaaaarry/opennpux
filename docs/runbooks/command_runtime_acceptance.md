@@ -1,4 +1,4 @@
-# Phase 4 Command Acceptance
+# Command Runtime Acceptance
 
 Run all commands from the superproject root on the x86 Linux host.
 
@@ -6,7 +6,7 @@ Run all commands from the superproject root on the x86 Linux host.
 
 ```sh
 git pull
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh
 sudo ./tools/guest_tools/install_coralctl_to_image.sh \
   /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img

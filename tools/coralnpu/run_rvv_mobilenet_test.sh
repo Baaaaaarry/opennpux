@@ -40,7 +40,7 @@ CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/opennpux-init.sh}"
 CORAL_DISK_IMG="${CORAL_DISK_IMG:-${VALIDATED_DISK_DEFAULT}}"
 [ -f "${CORAL_DISK_IMG}" ] || {
     echo "error: validated gem5 disk image not found: ${CORAL_DISK_IMG}" >&2
-    echo "set CORAL_DISK_IMG to the Phase-3 validated image" >&2
+    echo "set CORAL_DISK_IMG to the baseline validated image" >&2
     exit 1
 }
 

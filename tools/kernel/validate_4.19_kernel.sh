@@ -10,7 +10,7 @@ KERNEL_BASE_CONFIG="${KERNEL_BASE_CONFIG:-${ROOT_DIR}/build/kernel/gem5-4.18.con
 LINUX_BRANCH="${LINUX_BRANCH:-linux-4.19.y}"
 
 if [ "${LINUX_BRANCH}" != "linux-4.19.y" ]; then
-    echo "error: Phase-3 kernel validation is pinned to linux-4.19.y" >&2
+    echo "error: baseline kernel validation is pinned to linux-4.19.y" >&2
     echo "hint: run generic tools/kernel/build_arm64_kernel.sh for other branches" >&2
     exit 1
 fi
@@ -26,18 +26,18 @@ fi
 
 cd "${ROOT_DIR}"
 
-echo "[phase3-kernel] building ${LINUX_BRANCH} with ${KERNEL_BASE_CONFIG}"
+echo "[kernel-baseline] building ${LINUX_BRANCH} with ${KERNEL_BASE_CONFIG}"
 KERNEL_BASE_CONFIG="${KERNEL_BASE_CONFIG}" \
 LINUX_BRANCH="${LINUX_BRANCH}" \
 "${SCRIPT_DIR}/build_arm64_kernel.sh"
 
-echo "[phase3-kernel] checking gem5 kernel config"
+echo "[kernel-baseline] checking gem5 kernel config"
 "${SCRIPT_DIR}/check_gem5_kernel_config.sh" "${ROOT_DIR}/build/linux-arm64/.config"
 
-echo "[phase3-kernel] building opennpux_coral.ko"
+echo "[kernel-baseline] building opennpux_coral.ko"
 "${SCRIPT_DIR}/build_opennpux_coral_ko.sh"
 
-echo "[phase3-kernel] building driver-aware coralctl"
+echo "[kernel-baseline] building driver-aware coralctl"
 "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
 
 kernel_release="$(cat "${ROOT_DIR}/build/kernel/kernel.release")"
@@ -45,21 +45,21 @@ kernel_image="${ROOT_DIR}/build/kernel/Image-${kernel_release}"
 gem5_kernel="${ROOT_DIR}/build/kernel/vmlinux-${kernel_release}"
 ko="${ROOT_DIR}/build/kernel/opennpux_coral-${kernel_release}.ko"
 
-echo "[phase3-kernel] installing kernel/modules/driver into image"
+echo "[kernel-baseline] installing kernel/modules/driver into image"
 sudo "${SCRIPT_DIR}/install_kernel_to_image.sh" \
     "${IMAGE}" \
     "${ROOT_DIR}/build/linux-arm64" \
     "${kernel_image}" \
     "${ko}"
 
-echo "[phase3-kernel] installing OpenNPUX minimal init"
+echo "[kernel-baseline] installing OpenNPUX minimal init"
 "${SCRIPT_DIR}/install_opennpux_init_to_image.sh" "${IMAGE}"
 
-echo "[phase3-kernel] installing coralctl"
+echo "[kernel-baseline] installing coralctl"
 "${ROOT_DIR}/tools/guest_tools/install_coralctl_to_image.sh" "${IMAGE}"
 
 cat <<EOF
-[phase3-kernel] build complete
+[kernel-baseline] build complete
 kernel_release=${kernel_release}
 gem5_kernel=${gem5_kernel}
 guest_kernel_image=${kernel_image}
@@ -85,7 +85,7 @@ Expected guest output:
   backend=stage-a
   [coral-driver-info-test] PASS
 
-After building the Phase-2 RTL bridge, validate driver mmap and DMA with:
+After building the RTL bridge, validate driver mmap and DMA with:
   CORAL_KERNEL_IMAGE=${gem5_kernel} \
   CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
   ${ROOT_DIR}/tools/coralnpu/run_driver_dma_test.sh

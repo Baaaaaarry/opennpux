@@ -1,10 +1,10 @@
-# Phase 4/5 Platform Acceptance
+# Heterogeneous Platform Acceptance
 
 ## Build RTL And Firmware
 
 ```sh
 git pull
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ```
 
 This runs the AXI adapter regression and standalone custom RTL test, then
@@ -14,7 +14,7 @@ builds the official Coral bridge and command firmware.
 
 ```sh
 IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
-./tools/coralnpu/phase45_prepare_guest_assets.sh
+./tools/coralnpu/prepare_guest_assets.sh
 ./sim/gem5/apply_patchset.sh
 ```
 
@@ -68,7 +68,7 @@ accelerator cycles and the custom path reports 48.
 If an older checkpoint completes the first model command and fails the second
 with `Device or resource busy`, rebuild and install `coralctl`, then rebuild the
 checkpoint once. The runtime now acknowledges each completion before submitting
-the next command, so this update works with the previous Phase-3 kernel module.
+the next command, so this update works with the previous baseline kernel module.
 
 Rebuilding `opennpux_coral.ko` is still recommended: the current driver also
 consumes terminal status in `poll()` and cancels stale completion work before a

@@ -16,7 +16,7 @@ The current repository status is:
 - Generic model files dispatch real tensors through versioned commands.
 - Official software and custom RTL execution pass the same system workload.
 
-## Phase 1: Official Coral Standalone Environment
+## Official Coral Standalone Environment
 
 Goal:
 - Build the official `google-coral/coralnpu` repository outside gem5.
@@ -29,23 +29,27 @@ Expected outputs:
 - Successful standalone build logs for Coral examples and simulation targets.
 - A documented command sequence for rebuilding Coral RTL artifacts.
 
-## Phase 2: gem5 SoC Bridge to Official Coral RTL
+## gem5 SoC Bridge to Official Coral RTL
 
 Goal:
 - Keep the current gem5 ARM FS environment and replace the stage-A execution
   model with a backend that talks to official Coral RTL artifacts.
 
 Implementation split:
-- `NPUDevice`: SoC shell with MMIO aperture, DMA port, and event scheduling.
-- `CoralStageABackend`: current transaction-level baseline.
-- `CoralVerilatedBackend`: future bridge to `CoreMiniAxi` wrapper artifacts.
+- `NPUDevice`: SoC shell with MMIO aperture, DMA port, backend selection, and
+  event scheduling.
+- `CoralStageABackend`: transaction-level smoke-test fallback.
+- `CoralVerilatedBackend`: runtime-loaded bridge to Verilated Coral wrapper
+  artifacts.
 
-Required bridge work:
+Baseline bridge capability:
 - AXI slave path: host MMIO accesses from gem5 packets into Coral wrapper.
 - AXI master path: Coral memory requests into gem5 DMA/packet transactions.
 - Event loop: drive the RTL backend with a configurable tick quantum.
+- Shared DMA window: exchange tensors, commands, status, and mailbox data.
+- Operator modes: full RTL, hybrid modeling, and sampled RTL execution.
 
-## Phase 3: Linux Driver and Minimal Runtime
+## Driver runtime baseline: Linux Driver and Minimal Runtime
 
 Goal:
 - Replace ad-hoc shell MMIO tests with a proper Linux-side control path.
@@ -56,10 +60,10 @@ Minimum software surface:
 - poll or interrupt on completion
 - manage host-visible input/output buffers
 
-This phase should still avoid full framework integration. The objective is a
+This step should still avoid full framework integration. The objective is a
 small, debuggable driver/runtime pair.
 
-## Phase 4: End-to-End Framework Integration
+## Command runtime baseline: End-to-End Framework Integration
 
 Goal:
 - CPU runs real system software and a host runtime that dispatches inference
@@ -72,7 +76,7 @@ Recommended progression:
 
 This is where CPU-side workload fidelity becomes important.
 
-## Phase 5: Custom RTL Accelerator Unit
+## Custom RTL baseline: Custom RTL Accelerator Unit
 
 Goal:
 - Modify the official Coral RTL to include custom accelerator logic while
@@ -99,13 +103,13 @@ Guideline:
 - `runtime/host/bootscripts/*`
   - temporary bring-up scripts
 - `tools/coralnpu/*`
-  - phase-1 validation and migration helpers
+  - Coral standalone validation and migration helpers
 
 ### Repository-local submodule
 
 - `thirdparty/coralnpu`
   - official Coral RTL/software checkout
-  - authoritative location for RTL and software changes in phases 1-5
+  - authoritative location for RTL and software changes in baseline integration areas
 
 ### Outside this gem5 tree
 
@@ -113,8 +117,14 @@ Guideline:
 - custom RTL modifications
 - Coral standalone tests and examples
 
-## Immediate Next Steps
+## Baseline Next Steps
 
-1. Build and validate the repository-local Coral submodule.
-2. Replace the placeholder `CoralVerilatedBackend` with a real wrapper bridge.
-3. Preserve `CoralStageABackend` as a smoke-test fallback.
+1. Keep the baseline acceptance flows green: RTL bridge, driver DMA, partial
+   MobileNet, hybrid MobileNet, and sampled MobileNet.
+2. Improve full RTL performance around MobileNet tensor allocation and operator
+   execution.
+3. Extend the operator table toward Transformer workloads: MatMul, Linear,
+   Softmax, LayerNorm/RMSNorm, GELU/SILU, RoPE/KV cache, and MoE routing.
+4. Evolve the current operator modeling into a real NPU pipe model with queues,
+   issue/execute/retire timing, memory bandwidth limits, and operator-level
+   resource accounting.

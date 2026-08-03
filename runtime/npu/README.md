@@ -31,7 +31,7 @@ driver is introduced. They discover the DT reserved-memory window via the NPU
 shell CSRs and access it through the current runtime backend, with explicit
 bounds and alignment checks.
 
-The first Phase-3 increment keeps `/dev/mem` as the backend but moves all MMIO,
+The first runtime increment keeps `/dev/mem` as the backend but moves all MMIO,
 shared-window, run, and DMA-smoke logic into `opennpux_coral_*` APIs. The next
 increment replaces this backend with `/dev/opennpux-coral` ioctls and mmap
 without changing `coralctl` commands or higher-level runtime calls.

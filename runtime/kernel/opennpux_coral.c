@@ -2,7 +2,7 @@
 /*
  * Minimal OpenNPUX Coral platform driver.
  *
- * This is the Phase-3 kernel boundary behind the host runtime API. The shared
+ * This is the kernel boundary behind the host runtime API. The shared
  * DMA window is exposed through a bounded mmap. Completion is
  * delivered through poll; delayed work is used until the platform wires a
  * real interrupt.

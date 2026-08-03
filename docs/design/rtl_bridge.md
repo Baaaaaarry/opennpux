@@ -1,8 +1,8 @@
-# Phase 2: gem5 to Coral RTL Bridge
+# gem5 to Coral RTL Bridge
 
 ## Implemented milestone
 
-The first Phase-2 milestone replaces the placeholder backend with a
+The RTL bridge baseline replaces the placeholder backend with a
 runtime-loaded bridge to the official Coral `CoreMiniAxiWrapper`.
 
 The split is:
@@ -34,11 +34,11 @@ lifecycles conflict during process teardown.
 Run on x86 Linux:
 
 ```bash
-./tools/coralnpu/phase2_prepare_bazel.sh
-./tools/coralnpu/phase2_check_abi.sh
-./tools/coralnpu/phase2_check_overlay_boundary.sh
-./tools/coralnpu/phase2_test_axi_adapter.sh
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/prepare_coral_bazel.sh
+./tools/coralnpu/check_rtl_bridge_abi.sh
+./tools/coralnpu/check_overlay_boundary.sh
+./tools/coralnpu/test_axi_adapter.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ./sim/gem5/apply_patchset.sh
 ```
 
@@ -69,7 +69,7 @@ CORAL_RTL_BRIDGE="$PWD/build/coralnpu/libcoralnpu_gem5_bridge.so" \
 Use `--debug-flags=NPUDevice` when invoking gem5 directly to see bridge load,
 MMIO, stepping, and halt messages.
 
-Checkpoint support is intentionally quiescent-only in Phase 2. The NPU device
+Checkpoint support is intentionally quiescent-only in the RTL bridge baseline. The NPU device
 drains only when the RTL bridge has no scheduled event, no pending AXI/DMA
 request, and no active gem5 DMA. Serializing with in-flight RTL/DMA state is
 rejected instead of writing an unrecoverable checkpoint. Existing boot
@@ -98,10 +98,10 @@ DMA. Reads are returned to Coral as ordered AXI `R` beats with `RLAST` only on
 the final beat. Writes accept independent `AW` and `W` arrival, cache all write
 beats until `WLAST`, validate the burst shape and strobes, and then submit one
 coherent DMA write. `AR`, `AW`, and `W` are backpressured while a request is
-outstanding, making the single-outstanding Phase-2 contract explicit.
+outstanding, making the single-outstanding RTL bridge contract explicit.
 Multiple outstanding IDs remain a future performance extension.
 
-`phase2_test_axi_adapter.sh` runs a signal-level regression without Linux or
+`test_axi_adapter.sh` runs a signal-level regression without Linux or
 the Coral core. It covers independent `AW`/`W` arrival, held-valid replay
 prevention, deferred responses, response-ready changes after a rising-edge
 handshake, read burst response retirement, and write burst collection when the
@@ -113,7 +113,7 @@ deterministic randomized read transactions and 64 write transactions with
 channel delays and response backpressure.
 
 The detailed failure analysis and AXI timing resolution are documented in
-`docs/design/phase2_dma_root_cause_report.md`.
+`docs/design/dma_root_cause_report.md`.
 
 ## Coherent DMA smoke
 
@@ -129,14 +129,14 @@ Coral as AXI `SLVERR`; gem5 no longer terminates the whole simulation for this
 class of firmware/runtime bug. Valid DMA requests and completions remain
 tracked separately from rejected requests.
 
-Before a Linux kernel driver is available, `coralctl` owns the Phase-2
+Before a Linux kernel driver is available, `coralctl` owns the RTL bridge
 shared-buffer management contract. It discovers the reserved window through
 the shell CSRs and provides bounded `mem-info`, `mem-clear`, `mem-read32`, and
 `mem-write32` commands. The DMA smoke path uses the same mapper, so manual
 buffer inspection and automated smoke tests exercise the same guest-side ABI.
 
-## Phase-2 acceptance
+## RTL bridge acceptance
 
-Run `docs/runbooks/phase2_acceptance.md` on x86 Linux. Phase 2 is complete when
+Run `docs/runbooks/rtl_bridge_acceptance.md` on x86 Linux. The RTL bridge baseline is complete when
 bridge build, adapter regression, restored-checkpoint MMIO, shared-window
 commands, Verilated halt, and coherent DMA smoke all pass.

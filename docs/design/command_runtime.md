@@ -1,8 +1,8 @@
-# Phase 4 Command Runtime
+# Command Runtime
 
 ## Objective
 
-Phase 4 replaces the fixed-address DMA smoke contract with a versioned command
+The command runtime replaces the fixed-address DMA smoke contract with a versioned command
 descriptor that can carry real inference operations. The first operator is
 `VECTOR_ADD_U32`; it validates the complete CPU-to-NPU submission path before
 DS4 tensor formats and operators are added.

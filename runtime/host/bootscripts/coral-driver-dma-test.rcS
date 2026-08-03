@@ -31,8 +31,8 @@ fail() {
     exit 1
 }
 
-[ -f /tmp/coralnpu-phase3-preload.ready ] ||
-    fail "stale or incomplete Phase-3 checkpoint"
+[ -f /tmp/coralnpu-baseline-preload.ready ] ||
+    fail "stale or incomplete baseline checkpoint"
 [ -x "${CORALCTL}" ] || fail "preloaded coralctl is missing"
 [ -f "${MODULE}" ] || fail "preloaded kernel module is missing"
 [ -x /tmp/busybox ] || fail "preloaded BusyBox is missing"

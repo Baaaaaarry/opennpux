@@ -20,7 +20,6 @@ export CORAL_DISK_IMG_BUILT_ALT1="${GEM5_ROOT}/image/out/ubuntu-22.04-arm64-runt
 export CORAL_DISK_IMG_BUILT_ALT2="${GEM5_ROOT}/image/out/ubuntu-18.04-arm64-dev-dense.img"
 export CORAL_DISK_IMG_BUILT_ALT3="${GEM5_ROOT}/image/out/ubuntu-18.04-arm64-dev.img"
 export CORAL_DISK_IMG_FALLBACK="/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img"
-export CORAL_AUTO_SELECT_BUILT_IMAGE="${CORAL_AUTO_SELECT_BUILT_IMAGE:-0}"
 export CORAL_DISK_IMG="${CORAL_DISK_IMG:-${IMAGE_PATH}/ubuntu-18.04-arm64-docker.img}"
 export CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${SUPER_ROOT}/m5out/coralnpu_ckpt}"
 export CORAL_BOOTED_CKPT="${CORAL_CKPT_ROOT}/booted"
@@ -66,8 +65,7 @@ if [ "${CORAL_NPU_BACKEND}" = "verilated-coral" ]; then
   NPU_BACKEND_ARGS="${NPU_BACKEND_ARGS} --npu-rtl-cycles-per-event=${CORAL_RTL_CYCLES_PER_EVENT}"
 fi
 
-if [ "${CORAL_AUTO_SELECT_BUILT_IMAGE}" = "1" ] &&
-   [ "${CORAL_DISK_IMG}" = "${IMAGE_PATH}/ubuntu-18.04-arm64-docker.img" ]; then
+if [ "${CORAL_DISK_IMG}" = "${IMAGE_PATH}/ubuntu-18.04-arm64-docker.img" ]; then
   for candidate in \
     "${CORAL_DISK_IMG_BUILT_DEFAULT}" \
     "${CORAL_DISK_IMG_BUILT_ALT1}" \

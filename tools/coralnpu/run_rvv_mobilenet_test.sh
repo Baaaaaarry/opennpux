@@ -81,12 +81,13 @@ if [ -z "${CORAL_MOBILENET_TEE_ACTIVE:-}" ]; then
     ln -sfn "$(basename "${HOST_LOG}")" "${LOG_DIR}/coral-mobilenet-host.log"
     _start_epoch="$(date +%s)"
     _status_file="$(mktemp)"
-    # Snapshot the guest terminal's length so the footer only reports a
-    # verdict produced by THIS run (gem5 rewrites the file per run, but a
-    # preflight failure leaves a previous run's PASS/FAIL in place).
+    # Snapshot the guest terminal's mtime so the footer only reports a
+    # verdict produced by THIS run. gem5 rewrites (truncates) the file at
+    # startup, so a line-count baseline breaks when the new log is shorter;
+    # an mtime comparison is robust for both rewrite and preflight-failure.
     _term="${LOG_DIR}/m5out/system.terminal"
-    _term_lines=0
-    [ -f "${_term}" ] && _term_lines="$(wc -l < "${_term}")"
+    _term_mtime=0
+    [ -f "${_term}" ] && _term_mtime="$(stat -c %Y "${_term}")"
     {
         printf '[coral-mobilenet] host log: %s\n' "${HOST_LOG}"
         printf '[coral-mobilenet] start: %s\n' "$(date -Is)"
@@ -106,9 +107,9 @@ if [ -z "${CORAL_MOBILENET_TEE_ACTIVE:-}" ]; then
     _end_epoch="$(date +%s)"
     _elapsed=$(( _end_epoch - _start_epoch ))
     _verdict=""
-    if [ -f "${_term}" ]; then
-        _verdict="$(tail -n +"$((_term_lines + 1))" "${_term}" |
-            grep -m1 'mobilenet_test=' || true)"
+    if [ -f "${_term}" ] && \
+       [ "$(stat -c %Y "${_term}")" -gt "${_term_mtime}" ]; then
+        _verdict="$(grep -m1 'mobilenet_test=' "${_term}" || true)"
     fi
     {
         printf '[coral-mobilenet] start: %s\n' "$(date -Is -d "@${_start_epoch}")"

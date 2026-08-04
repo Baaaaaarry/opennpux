@@ -91,6 +91,35 @@ Both modes now share the versioned descriptor in
 first graph opcode; Conv2D, DepthwiseConv2D, and MatMul have reserved per-op
 opcodes and use the same tensor/quantization/status layout.
 
+## Regression Pre-flight Checklist
+
+Before treating a run as regression evidence, check what changed since the
+last known-good run. Not every change requires the same rebuild, and two
+staleness traps are NOT covered by any automatic invalidation:
+
+| What changed | Required action |
+|---|---|
+| `sim/coralnpu/` or `rtl/wrappers/` (bridge, firmware) | `./tools/coralnpu/build_rvv_mobilenet.sh -c opt`. No checkpoint rebuild needed — bridge and firmware are loaded by gem5 at restore time. |
+| `sim/gem5/` or gem5 sources | Rebuild gem5.opt (mtime auto-detect, `GEM5_REBUILD=1` to force). If `NPUDevice` parameters or serialized state changed, also bump the checkpoint format version and `CORAL_REBUILD_CKPT=1`. |
+| Disk image, kernel image, kernel init, kernel cmdline | Automatic (8 invalidation conditions) or `CORAL_REBUILD_CKPT=1`. |
+| `runtime/host/` or `runtime/kernel/` (coralctl, driver .ko) | **Trap #1**: the /tmp payload (coralctl, opennpux_coral.ko, busybox) is baked into the checkpoint tmpfs at bootstrap. No invalidation condition covers it — reinstall the guest tools into the disk image AND `CORAL_REBUILD_CKPT=1`, or the regression silently tests the OLD guest tools. |
+| Checkpoint format/resume mechanism | **Trap #2**: bump the format version and force a rebuild; restoring an NPU checkpoint with a changed device state layout can mis-restore without any error. |
+
+Additional rules:
+
+- Build and run only through the official scripts
+  (`build_rvv_mobilenet.sh`, `run_rvv_mobilenet_test.sh`); they apply the
+  `sim/` overlays first. Building directly inside `thirdparty/` may pick up
+  a stale overlay.
+- Run with `CORAL_MOBILENET_DEBUG=1` so the heartbeat/cycle progress is
+  available if the run stalls.
+- Confirm the binaries under test match the intended source state:
+  `ls -la build/coralnpu/` (bridge/firmware mtimes) and the `gem5 compiled`
+  banner line in the host log.
+- Evidence completeness: PASS lives in the guest serial log
+  (`logs/sim/m5out/system.terminal`); the host log footer mirrors it as
+  `guest verdict:` and records start/end/elapsed.
+
 To run both modes and compare the complete output tensor checksum
 automatically:
 

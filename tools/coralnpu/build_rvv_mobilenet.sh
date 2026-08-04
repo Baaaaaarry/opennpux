@@ -30,6 +30,9 @@
 #   PHASE2_REPO_CACHE     Bazel repository cache (default: .cache/coralnpu/repository)
 #   PHASE2_DISTDIR        Bazel distdir for offline deps (default: thirdparty/coralnpu/distdir)
 #
+# Extra CLI args are forwarded to bazel build and cquery. The compilation
+# mode defaults to "-c opt"; pass "-c fastbuild" or "-c dbg" to override.
+#
 # @coral-build-spec  v1  2025-07-28
 
 set -eu
@@ -44,6 +47,16 @@ LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
 REPO_CACHE="${PHASE2_REPO_CACHE:-${ROOT_DIR}/.cache/coralnpu/repository}"
 DISTDIR="${PHASE2_DISTDIR:-${CORAL_REPO}/distdir}"
+
+# Default to an optimized build. The bridge contains the Verilated RTL model,
+# and a default fastbuild (-O0) runs it ~14x slower; pass an explicit mode to
+# override, e.g. "build_rvv_mobilenet.sh -c fastbuild" (faster compile, debug
+# info) or "-c dbg". The chosen flags also flow to the cquery resolution via
+# BUILD_EXTRA_ARGS below.
+case " $* " in
+    *" -c "*|*" --compilation_mode"*) ;;
+    *) set -- -c opt "$@" ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Resolve Bazel: explicit BAZEL env, system PATH, or local install.

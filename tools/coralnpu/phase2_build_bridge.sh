@@ -38,6 +38,9 @@
 #   PHASE2_REPO_CACHE        Bazel repository cache
 #   PHASE2_DISTDIR           Bazel distdir for offline deps
 #
+# Extra CLI args are forwarded to bazel build and cquery. The compilation
+# mode defaults to "-c opt"; pass "-c fastbuild" or "-c dbg" to override.
+#
 # @coral-build-spec  v1  2025-07-29
 
 set -eu
@@ -54,6 +57,14 @@ LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
 REPO_CACHE="${PHASE2_REPO_CACHE:-${ROOT_DIR}/.cache/coralnpu/repository}"
 DISTDIR="${PHASE2_DISTDIR:-${CORAL_REPO}/distdir}"
+
+# Default to an optimized build. The bridge contains the Verilated RTL model,
+# and a default fastbuild (-O0) runs it ~14x slower; pass an explicit mode to
+# override, e.g. "phase2_build_bridge.sh -c fastbuild" or "-c dbg".
+case " $* " in
+    *" -c "*|*" --compilation_mode"*) ;;
+    *) set -- -c opt "$@" ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Resolve Bazel: explicit BAZEL env, system PATH, or local install.
@@ -165,7 +176,12 @@ echo "[bazel] build succeeded $(date -Iseconds)" | tee -a "${BUILD_LOG}"
 # ---------------------------------------------------------------------------
 # Resolve Bazel output paths.
 #   cquery returns absolute or execution-root-relative paths.
+#   BUILD_EXTRA_ARGS must mirror the build invocation so cquery resolves the
+#   same configuration (e.g. "-c opt"); otherwise it silently returns the
+#   default fastbuild output path and the build's extra flags are ignored.
 # ---------------------------------------------------------------------------
+BUILD_EXTRA_ARGS="$*"
+
 EXEC_ROOT="$("${BAZEL}" \
     --output_user_root="${BAZEL_OUTPUT_ROOT}" \
     info execution_root)"
@@ -178,6 +194,7 @@ resolve_output()
         cquery \
         --repository_cache="${REPO_CACHE}" \
         --distdir="${DISTDIR}" \
+        ${BUILD_EXTRA_ARGS} \
         --output=files \
         "${target}")"
     case "${output}" in

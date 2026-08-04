@@ -1,5 +1,8 @@
 # RVV Highmem MobileNet Acceptance
 
+Starting from a fresh clone? See
+[From-Scratch Bring-up](from_scratch_bringup.md) first.
+
 ## Build
 
 Run on x86 Linux:

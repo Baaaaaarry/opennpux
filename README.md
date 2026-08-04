@@ -159,6 +159,52 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 See `docs/runbooks/phase45_platform_acceptance.md` for the model and explicit
 official/custom RTL acceptance criteria.
 
+
+## 当前SOC memmap
+
+当前 D9200 / D9300 全系统脚本基于 gem5 `VExpress_GEM5_V1` 平台，并在此基础上增加 Coral NPU aperture。默认内存大小是 `4GiB`，DRAM 从 `0x80000000` 开始。
+
+| 地址范围 | 归属 | 用途 |
+| --- | --- | --- |
+| `0x00000000-0x03ffffff` | VExpress off-chip CS0 | Flash / boot 相关保留窗口 |
+| `0x08000000-0x0bffffff` | VExpress off-chip CS0 | 默认 bootloader 装载区域，`boot.arm64` 常用 |
+| `0x0c000000-0x0fffffff` | VExpress off-chip CS0 | 保留窗口 |
+| `0x10000000-0x13ffffff` | VExpress off-chip CS4 | gem5 平台扩展外设窗口 |
+| `0x14000000-0x17ffffff` | VExpress off-chip CS1 | 保留 / PSRAM 窗口 |
+| `0x18000000-0x1bffffff` | VExpress off-chip CS2 | VRAM / 保留窗口 |
+| `0x1c000000-0x1fffffff` | VExpress off-chip CS3 | 外设窗口，UART、RTC、VirtIO 等 |
+| `0x1c010000-0x1c01ffff` | RealView IO | VE system control registers |
+| `0x1c090000-0x1c09ffff` | UART0 | Linux 主串口，命令行使用 `console=ttyAMA0 earlycon=pl011,0x1c090000` |
+| `0x1c0a0000-0x1c0cffff` | UART1-3 | 额外串口 / fake UART |
+| `0x1c130000-0x1c14ffff` | VirtIO | gem5 VirtIO 扩展窗口，块设备会映射为 guest `/dev/vda*` |
+| `0x1c170000-0x1c17ffff` | RTC | guest RTC |
+| `0x1d000000-0x1d030fff` | Coral NPU | 当前 NPU MMIO aperture，默认 `--npu-pio-addr=0x1D000000 --npu-pio-size=0x31000` |
+| `0x1d000000-0x1d001fff` | Coral NPU ITCM | stage-a 模型默认 ITCM window，大小由 `itcmSize=8KiB` 控制 |
+| `0x1d020000-0x1d027fff` | Coral NPU DTCM | stage-a 模型默认 DTCM window，大小由 `dtcmSize=32KiB` 控制 |
+| `0x1d030000-0x1d030fff` | Coral NPU CSR | reset / pc_start / status 等 CSR window |
+| `0x1d030000` | Coral NPU CSR | `RESET_CONTROL`，bit0 reset，bit1 clock gate |
+| `0x1d030004` | Coral NPU CSR | `PC_START` |
+| `0x1d030008` | Coral NPU CSR | `STATUS`，bit0 halted，bit1 fault |
+| `0x20000000-0x207fffff` | Coral NPU EXTMEM 8M |
+| `0x20800000-0x3fffffff` | VExpress on-chip | 、GIC、timer、HDLCD、SMMU、PCI IO/config 等 |
+| `0x2c001000-0x2c001fff` | GIC | GIC distributor |
+| `0x2c002000-0x2c003fff` | GIC | GIC CPU interface |
+| `0x2c1c0000-0x2c1cffff` | GICv2m | MSI frame |
+| `0x2f000000-0x2fffffff` | PCI IO | PCI IO space |
+| `0x30000000-0x3fffffff` | PCI config | PCI config space |
+| `0x40000000-0x7fffffff` | PCI memory | External AXI / PCI memory window |
+| `0x80000000-0xffffffff` | DRAM | 默认 `4GiB` 配置下的 guest 物理内存窗口 |
+
+实现位置：
+
+- 平台地址图：`src/dev/arm/RealView.py`
+- 系统内存范围：`configs/example/arm/devices.py`
+- D9300/NPU 参数：`configs/example/arm/arm_multicore_d9300.py`
+- NPU MMIO aperture：`src/dev/npu/NPUDevice.py`、`src/dev/npu/npu_device.cc`
+- stage-a NPU 内部 ITCM/DTCM/CSR 分段：`src/dev/npu/coral_stagea_backend.*`
+
+注意：`0x1d000000-0x1d030fff` 选在 VExpress CS3 外设窗口内，避免和 DRAM、GIC、PCI config/mem 空间冲突。若修改 `--npu-pio-addr` 或 `--npu-pio-size`，需要同时检查 `membus/iobus` bridge range，避免出现 “two ports responding within range”。
+
 ## RVV Highmem MobileNet
 
 The optional highmem path retains the standard bridge and adds the official

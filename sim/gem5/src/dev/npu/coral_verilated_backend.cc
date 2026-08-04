@@ -18,6 +18,9 @@
 #include "debug/NPUDevice.hh"
 #include "mem/packet_access.hh"
 
+/****************************************************************************************************/
+/* 负责执行dlopen\dlsym,将MMIO 访问转成RTL AXI Slave transaction, 同时把RTL AXI Master请求转成gem5 DMA */
+/****************************************************************************************************/
 namespace gem5
 {
 

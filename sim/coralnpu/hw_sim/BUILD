@@ -252,3 +252,15 @@ coralnpu_v2_binary(
         "@tflite_micro//tensorflow/lite/micro:system_setup",
     ],
 )
+
+coralnpu_v2_binary(
+    name = "gem5_mobilenet_partial",
+    srcs = [
+        "gem5_bridge/coral_mobilenet.h",
+        "gem5_bridge/gem5_mobilenet_partial.c",
+    ],
+    dtcm_size_kbytes = 64,
+    itcm_size_kbytes = 64,
+    stack_size_bytes = 4096,
+    visibility = ["//visibility:public"],
+)

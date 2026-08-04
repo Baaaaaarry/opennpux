@@ -18,6 +18,15 @@
 #include "tensorflow/lite/micro/system_setup.h"
 #include "tests/cocotb/tutorial/tfmicro/mobilenet_v1_025_224_int8_dummy.h"
 
+/*****************************************************************************/
+/* 1、初始化MobileNet模型数据
+/* 2、准备tensor arena
+/* 3、读取CPU/runtime 下发的mailbox/task descriptor
+/* 4、调用TFLM/operator runtime
+/* 5、在关键阶段写progress marker，例如0x4d4e0300...
+/* 6、写回output\checksum\cycles\operator stats
+/* 7、最后执行halt\m5_exit标记完成
+/*****************************************************************************/
 namespace {
 
 using MobilenetOpResolver = tflite::MicroMutableOpResolver<10>;

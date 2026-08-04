@@ -81,6 +81,12 @@ if [ -z "${CORAL_MOBILENET_TEE_ACTIVE:-}" ]; then
     ln -sfn "$(basename "${HOST_LOG}")" "${LOG_DIR}/coral-mobilenet-host.log"
     _start_epoch="$(date +%s)"
     _status_file="$(mktemp)"
+    # Snapshot the guest terminal's length so the footer only reports a
+    # verdict produced by THIS run (gem5 rewrites the file per run, but a
+    # preflight failure leaves a previous run's PASS/FAIL in place).
+    _term="${LOG_DIR}/m5out/system.terminal"
+    _term_lines=0
+    [ -f "${_term}" ] && _term_lines="$(wc -l < "${_term}")"
     {
         printf '[coral-mobilenet] host log: %s\n' "${HOST_LOG}"
         printf '[coral-mobilenet] start: %s\n' "$(date -Is)"
@@ -97,9 +103,24 @@ if [ -z "${CORAL_MOBILENET_TEE_ACTIVE:-}" ]; then
         _rc=130    # interrupted before the inner script could report
     fi
     rm -f "${_status_file}"
+    _end_epoch="$(date +%s)"
+    _elapsed=$(( _end_epoch - _start_epoch ))
+    _verdict=""
+    if [ -f "${_term}" ]; then
+        _verdict="$(tail -n +"$((_term_lines + 1))" "${_term}" |
+            grep -m1 'mobilenet_test=' || true)"
+    fi
     {
-        printf '[coral-mobilenet] end: %s elapsed=%ss exit=%s\n' \
-            "$(date -Is)" "$(( $(date +%s) - _start_epoch ))" "${_rc}"
+        printf '[coral-mobilenet] start: %s\n' "$(date -Is -d "@${_start_epoch}")"
+        printf '[coral-mobilenet] end: %s elapsed=%ss (%dh %dm %ds) exit=%s\n' \
+            "$(date -Is -d "@${_end_epoch}")" "${_elapsed}" \
+            "$((_elapsed / 3600))" "$((_elapsed % 3600 / 60))" \
+            "$((_elapsed % 60))" "${_rc}"
+        if [ -n "${_verdict}" ]; then
+            printf '[coral-mobilenet] guest verdict: %s (from system.terminal)\n' "${_verdict}"
+        else
+            printf '[coral-mobilenet] guest verdict: (no new terminal output this run)\n'
+        fi
         printf '[coral-mobilenet] gem5 stats: %s\n' "${LOG_DIR}/m5out/stats.txt"
     } | tee -a "${HOST_LOG}"
     exit "${_rc}"

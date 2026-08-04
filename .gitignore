@@ -1,8 +1,10 @@
 .DS_Store
 .cache/
 .venv/
+.codex-tmp/
 build/
 m5out/
 simout/
 run_upstream_smoke.log
 *.log
+docs/presentations/

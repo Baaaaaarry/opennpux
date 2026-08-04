@@ -1,6 +1,9 @@
 #ifndef HW_SIM_GEM5_BRIDGE_GEM5_AXI_MASTER_DRIVERS_H_
 #define HW_SIM_GEM5_BRIDGE_GEM5_AXI_MASTER_DRIVERS_H_
 
+#include <algorithm>
+#include <array>
+#include <cstdio>
 #include <functional>
 #include <queue>
 #include <vector>
@@ -50,6 +53,32 @@ class Gem5AxiMasterReadDriver : Clock::Observer {
 
   bool HasDeferredRequest() const { return request_pending_; }
 
+  // Dumps the driver-internal flags. Called from the bridge watchdog dump to
+  // show whether a stall is a missing response or a lost request capture.
+  void DumpState() const {
+    std::fprintf(stderr,
+                 "Coral AXI mrd driver request_pending=%u request_seen=%u "
+                 "responses=%zu last_handshake_addr=0x%08x "
+                 "handshakes=%llu\n",
+                 request_pending_ ? 1u : 0u, request_seen_ ? 1u : 0u,
+                 responses_.size(), last_handshake_addr_,
+                 static_cast<unsigned long long>(handshake_count_));
+    std::fprintf(stderr, "Coral AXI mrd driver recent_handshakes=");
+    const size_t count =
+        std::min<size_t>(handshake_history_cursor_, handshake_history_.size());
+    for (size_t i = 0; i < count; ++i) {
+      const size_t index = (handshake_history_cursor_ - count + i) %
+                           handshake_history_.size();
+      std::fprintf(stderr, "%s(addr=0x%08x,size=%u,len=%u,id=%u)",
+                   i == 0 ? "" : ",",
+                   handshake_history_[index].addr,
+                   handshake_history_[index].size,
+                   handshake_history_[index].len,
+                   handshake_history_[index].id);
+    }
+    std::fprintf(stderr, "\n");
+  }
+
  private:
   void OnFallingEdge() final {
     const bool addr_handshake = *addr_valid_ && *addr_ready_;
@@ -81,6 +110,16 @@ class Gem5AxiMasterReadDriver : Clock::Observer {
 
     if (addr_handshake && !request_seen_ && !request_pending_) {
       request_seen_ = true;
+      last_handshake_addr_ = *addr_;
+      ++handshake_count_;
+      HandshakeRecord& record =
+          handshake_history_[handshake_history_cursor_ %
+                             handshake_history_.size()];
+      record.addr = *addr_;
+      record.size = *size_;
+      record.len = *len_;
+      record.id = *id_;
+      ++handshake_history_cursor_;
       request_.addr_bits_addr = *addr_;
       request_.addr_bits_prot = *prot_;
       request_.addr_bits_id = *id_;
@@ -93,8 +132,15 @@ class Gem5AxiMasterReadDriver : Clock::Observer {
       request_.addr_bits_region = *region_;
       request_pending_ = true;
       callback_(request_);
-      *addr_ready_ = 0;
-      clock().Eval();
+      // Do NOT drop addr_ready_ here. The capture above samples the handshake
+      // half a cycle before the DUT evaluates it (the DUT samples ready at
+      // the next rising edge). Dropping ready now would let this driver
+      // consume an address the DUT never transferred, deadlocking the bus:
+      // the driver would wait for read completion while the DUT keeps
+      // addr_valid high waiting for addr_ready. addr_ready_ is recomputed as
+      // !request_pending_ at the top of the next OnFallingEdge, which gives
+      // the DUT one full rising edge with valid && ready to complete the
+      // handshake.
     }
   }
 
@@ -123,6 +169,16 @@ class Gem5AxiMasterReadDriver : Clock::Observer {
   bool request_pending_ = false;
   bool request_seen_ = false;
   bool response_handshake_pending_ = false;
+  uint32_t last_handshake_addr_ = 0;
+  uint64_t handshake_count_ = 0;
+  struct HandshakeRecord {
+    uint32_t addr;
+    uint8_t size;
+    uint8_t len;
+    uint8_t id;
+  };
+  std::array<HandshakeRecord, 8> handshake_history_{};
+  size_t handshake_history_cursor_ = 0;
 };
 
 class Gem5AxiMasterWriteDriver : Clock::Observer {
@@ -174,6 +230,19 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
 
   bool HasDeferredRequest() const { return request_pending_; }
 
+  // Dumps the driver-internal flags. Called from the bridge watchdog dump to
+  // show where in the capture/submit/response pipeline a write is stuck.
+  void DumpState() const {
+    std::fprintf(stderr,
+                 "Coral AXI mwr driver request_pending=%u addr_captured=%u "
+                 "data_complete=%u request_submitted=%u request_data=%zu "
+                 "responses=%zu hold_addr_ready=%u hold_data_ready=%u\n",
+                 request_pending_ ? 1u : 0u, addr_captured_ ? 1u : 0u,
+                 data_complete_ ? 1u : 0u, request_submitted_ ? 1u : 0u,
+                 request_data_.size(), responses_.size(),
+                 hold_addr_ready_ ? 1u : 0u, hold_data_ready_ ? 1u : 0u);
+  }
+
  private:
   void OnFallingEdge() final {
     const bool addr_handshake = *addr_valid_ && *addr_ready_;
@@ -210,6 +279,13 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
       request_addr_.addr_bits_cache = *cache_;
       request_addr_.addr_bits_qos = *qos_;
       request_addr_.addr_bits_region = *region_;
+      // Keep addr_ready_ high for one more falling edge: this capture samples
+      // the handshake half a cycle before the DUT evaluates it, so the DUT
+      // must still see ready && valid at the next rising edge. Dropping
+      // addr_ready_ now would consume an address the DUT never transferred
+      // and deadlock the bus (driver waits for W data, DUT waits for
+      // addr_ready).
+      hold_addr_ready_ = true;
     }
 
     if (data_handshake && !data_complete_) {
@@ -219,6 +295,11 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
       beat.write_data_bits_last = *last_;
       request_data_.push_back(beat);
       data_complete_ = *last_;
+      if (*last_) {
+        // Same deferred-ready discipline for the final W beat: keep
+        // data_ready_ high until the DUT had its rising-edge handshake.
+        hold_data_ready_ = true;
+      }
     }
 
     if (addr_captured_ && data_complete_ && !request_submitted_) {
@@ -227,9 +308,19 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
       callback_(request_addr_, request_data_);
     }
 
-    *addr_ready_ = !request_pending_ && !addr_captured_;
-    *data_ready_ = !request_pending_ && !data_complete_ &&
-                   request_data_.size() < 256;
+    bool next_addr_ready = !request_pending_ && !addr_captured_;
+    if (hold_addr_ready_) {
+      next_addr_ready = true;
+      hold_addr_ready_ = false;
+    }
+    *addr_ready_ = next_addr_ready;
+    bool next_data_ready = !request_pending_ && !data_complete_ &&
+                           request_data_.size() < 256;
+    if (hold_data_ready_) {
+      next_data_ready = true;
+      hold_data_ready_ = false;
+    }
+    *data_ready_ = next_data_ready;
     clock().Eval();
   }
 
@@ -264,6 +355,11 @@ class Gem5AxiMasterWriteDriver : Clock::Observer {
   bool data_complete_ = false;
   bool request_submitted_ = false;
   bool response_handshake_pending_ = false;
+  // One-shot flags that delay the ready drop by one falling edge after a
+  // capture, so the DUT always sees a full rising edge with valid && ready
+  // before the driver consumes the transfer (see OnFallingEdge).
+  bool hold_addr_ready_ = false;
+  bool hold_data_ready_ = false;
 };
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_AXI_MASTER_DRIVERS_H_

@@ -9,7 +9,7 @@ git pull
 ./tools/coralnpu/phase2_build_bridge.sh
 ./tools/guest_tools/build_coralctl.sh
 sudo ./tools/guest_tools/install_coralctl_to_image.sh \
-  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+  $IMAGE_PATH/ubuntu-18.04-arm64-docker.img
 ./sim/gem5/apply_patchset.sh
 ```
 
@@ -26,7 +26,7 @@ The new `coralctl` must be captured in tmpfs. Rebuild the checkpoint once:
 
 ```sh
 cd thirdparty/gem5
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=../../build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 CORAL_REBUILD_CKPT=1 \
 ./run_multicore.sh
@@ -36,7 +36,7 @@ cd ../..
 ## End-To-End Test
 
 ```sh
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=../../build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_command_test.sh
 ```

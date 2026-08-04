@@ -58,6 +58,7 @@ class O3_ARM_Cortex_A510_FUP(FUPool):
         O3_ARM_Cortex_A510_Store(),
         O3_ARM_Cortex_A510_FP(),
         O3_ARM_Cortex_A510_SIMD(),
+        PredALU(),
     ]
 
 class O3_ARM_Cortex_A510_BTB(SimpleBTB):

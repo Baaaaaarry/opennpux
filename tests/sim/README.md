@@ -60,7 +60,7 @@ Build and install the updated guest tool:
 ```bash
 ./tools/guest_tools/build_coralctl.sh
 sudo ./tools/guest_tools/install_coralctl_to_image.sh \
-  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+  $IMAGE_PATH/ubuntu-18.04-arm64-docker.img
 ```
 
 Build the bridge, DMA firmware, and gem5 as shown above. Then run the DMA test

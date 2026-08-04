@@ -13,7 +13,7 @@ builds the official Coral bridge and command firmware.
 ## Install Generic Model Runtime
 
 ```sh
-IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+IMAGE=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
 ./tools/coralnpu/phase45_prepare_guest_assets.sh
 ./sim/gem5/apply_patchset.sh
 ```
@@ -22,7 +22,7 @@ Rebuild the checkpoint once:
 
 ```sh
 cd thirdparty/gem5
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=../../build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 CORAL_REBUILD_CKPT=1 \
 ./run_multicore.sh
@@ -32,7 +32,7 @@ cd ../..
 ## Model Execution
 
 ```sh
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=../../build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_model_test.sh
 ```
@@ -55,7 +55,7 @@ model_run=PASS
 ## Explicit Software/RTL Comparison
 
 ```sh
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_custom_rtl_test.sh
 ```

@@ -203,6 +203,28 @@ struct OperatorPhaseStats {
   std::chrono::steady_clock::time_point begin_wall_time;
 };
 
+// Dumps a transaction the bridge is about to answer with SLVERR. Used to
+// identify exactly which AXI shape (burst type, beat size, strobe pattern)
+// the request builder rejected — e.g. vector-unit stores that differ from
+// the scalar traffic the bridge was written for.
+void DumpRejectedAxi(const char* direction, const AxiAddr& addr,
+                     const std::vector<AxiWData>* data, const char* reason) {
+  std::fprintf(stderr,
+               "Coral AXI reject %s addr=0x%08x id=%u len=%u size=%u "
+               "burst=%u reason=%s\n",
+               direction, addr.addr_bits_addr, addr.addr_bits_id,
+               addr.addr_bits_len, addr.addr_bits_size, addr.addr_bits_burst,
+               reason != nullptr ? reason : "unknown");
+  if (data != nullptr) {
+    for (size_t i = 0; i < data->size(); ++i) {
+      std::fprintf(stderr, "  beat[%zu] strb=0x%04x last=%u\n", i,
+                   (*data)[i].write_data_bits_strb,
+                   (*data)[i].write_data_bits_last);
+    }
+  }
+  std::fflush(stderr);
+}
+
 struct coral_gem5_handle {
   VerilatedContext context;
   Gem5CoreMiniAxiWrapper wrapper;
@@ -231,6 +253,11 @@ struct coral_gem5_handle {
   bool dma_pending;
   uint32_t dma_beat_size;
   uint32_t dma_beat_count;
+  // Watchdog: rtl_cycles of the last observed AXI master activity. When the
+  // core makes no master transaction for watchdog_cycles, the bridge dumps
+  // the channel handshake levels to pinpoint the stall.
+  uint64_t last_activity_cycles;
+  uint64_t watchdog_cycles;
 
   void TrackOperatorPhase(uint32_t marker,
                           std::chrono::steady_clock::time_point now,
@@ -352,7 +379,9 @@ struct coral_gem5_handle {
         pending_dma(),
         dma_pending(false),
         dma_beat_size(0),
-        dma_beat_count(0) {
+        dma_beat_count(0),
+        last_activity_cycles(0),
+        watchdog_cycles(ReadEnvU64("CORAL_AXI_WATCHDOG_CYCLES", 5000000)) {
     std::fprintf(stderr,
                  "Coral hybrid latency model ops_per_cycle=%llu "
                  "bytes_per_cycle=%llu fixed_cycles=%llu\n",
@@ -363,6 +392,7 @@ struct coral_gem5_handle {
                  sampled_rtl_mask);
     std::fflush(stderr);
     wrapper.RegisterDeferredReadCallback([this](const AxiAddr& addr) {
+      last_activity_cycles = rtl_cycles;
       if (IsHybridWordAccess(addr)) {
         AxiRData response = {};
         response.read_data_bits_id = addr.addr_bits_id;
@@ -415,8 +445,11 @@ struct coral_gem5_handle {
         wrapper.QueueReadResponse(response);
         return;
       }
+      const char* read_reject_reason = nullptr;
       if (!BuildGem5DmaReadRequest(
-              addr, &pending_dma, &dma_beat_size, &dma_beat_count)) {
+              addr, &pending_dma, &dma_beat_size, &dma_beat_count,
+              &read_reject_reason)) {
+        DumpRejectedAxi("read", addr, nullptr, read_reject_reason);
         AxiRData response = {};
         response.read_data_bits_id = addr.addr_bits_id;
         response.read_data_bits_resp = kAxiSlvErr;
@@ -465,6 +498,7 @@ struct coral_gem5_handle {
     });
     wrapper.RegisterDeferredWriteCallback(
         [this](const AxiAddr& addr, const std::vector<AxiWData>& data) {
+          last_activity_cycles = rtl_cycles;
           if (IsHybridWordAccess(addr)) {
             AxiWResp response = {};
             response.write_resp_bits_id = addr.addr_bits_id;
@@ -620,7 +654,103 @@ struct coral_gem5_handle {
             wrapper.QueueWriteResponse(response);
             return;
           }
-          if (!BuildGem5DmaWriteRequest(addr, data, &pending_dma)) {
+          // Byte-enable-aware local EXTMEM absorb: the Coral LSU emits
+          // 16-byte line writes with partial strobes (e.g. vse8.v tails),
+          // which coral_gem5_dma_request cannot represent (the ABI has no
+          // strobe field). Absorb any INCR write that lies fully inside the
+          // local EXTMEM window with a per-byte merge; masked writes that
+          // cannot be absorbed fall through to the strict gem5 DMA path
+          // below and are rejected loudly.
+          const uint32_t bytes_per_beat = 1u << addr.addr_bits_size;
+          const uint32_t beats =
+              static_cast<uint32_t>(addr.addr_bits_len) + 1;
+          const uint64_t total_bytes =
+              static_cast<uint64_t>(bytes_per_beat) * beats;
+          const uint64_t window_end =
+              static_cast<uint64_t>(kExtmemBase) + local_extmem.size();
+          if (local_extmem_enabled && addr.addr_bits_burst == 1 &&
+              addr.addr_bits_size <= 4 && data.size() == beats &&
+              addr.addr_bits_addr >= kExtmemBase &&
+              static_cast<uint64_t>(addr.addr_bits_addr) + total_bytes - 1 <
+                  window_end) {
+            // Validate before applying: a single enabled byte outside the
+            // window rejects the whole transaction (no partial apply).
+            bool enabled_bytes_in_window = true;
+            for (uint32_t beat = 0; beat < beats && enabled_bytes_in_window;
+                 ++beat) {
+              const uint64_t beat_addr =
+                  static_cast<uint64_t>(addr.addr_bits_addr) +
+                  beat * bytes_per_beat;
+              const uint32_t lane =
+                  beat_addr & (CORAL_GEM5_AXI_DATA_BYTES - 1);
+              for (uint32_t i = 0; i < bytes_per_beat; ++i) {
+                if ((data[beat].write_data_bits_strb &
+                     (1u << (lane + i))) != 0 &&
+                    beat_addr + i >= window_end) {
+                  enabled_bytes_in_window = false;
+                  break;
+                }
+              }
+            }
+            if (!enabled_bytes_in_window) {
+              DumpRejectedAxi("write", addr, &data, "extmem-window-overflow");
+              AxiWResp response = {};
+              response.write_resp_bits_id = addr.addr_bits_id;
+              response.write_resp_bits_resp = kAxiSlvErr;
+              wrapper.QueueWriteResponse(response);
+              return;
+            }
+            for (uint32_t beat = 0; beat < beats; ++beat) {
+              const uint64_t beat_addr =
+                  static_cast<uint64_t>(addr.addr_bits_addr) +
+                  beat * bytes_per_beat;
+              const uint32_t lane =
+                  beat_addr & (CORAL_GEM5_AXI_DATA_BYTES - 1);
+              const auto* source = reinterpret_cast<const uint8_t*>(
+                  &data[beat].write_data_bits_data[0]);
+              uint8_t* destination =
+                  local_extmem.data() + (beat_addr - kExtmemBase);
+              for (uint32_t i = 0; i < bytes_per_beat; ++i) {
+                if ((data[beat].write_data_bits_strb &
+                     (1u << (lane + i))) != 0) {
+                  destination[i] = source[lane + i];
+                }
+              }
+            }
+            ++local_extmem_writes;
+            local_extmem_bytes += total_bytes;
+            ++local_extmem_widths[
+                AccessWidthBucket(static_cast<uint32_t>(total_bytes))];
+            const uint64_t accesses = local_extmem_reads + local_extmem_writes;
+            if (accesses <= 10 || accesses % 100000 == 0) {
+              std::fprintf(stderr,
+                           "Coral local EXTMEM accesses=%llu reads=%llu "
+                           "writes=%llu bytes=%llu last=write@0x%08x/%u\n",
+                           static_cast<unsigned long long>(accesses),
+                           static_cast<unsigned long long>(local_extmem_reads),
+                           static_cast<unsigned long long>(local_extmem_writes),
+                           static_cast<unsigned long long>(local_extmem_bytes),
+                           addr.addr_bits_addr,
+                           static_cast<uint32_t>(total_bytes));
+              std::fflush(stderr);
+            }
+            AxiWResp response = {};
+            response.write_resp_bits_id = addr.addr_bits_id;
+            wrapper.QueueWriteResponse(response);
+            return;
+          }
+          const char* write_reject_reason = nullptr;
+          if (!BuildGem5DmaWriteRequest(addr, data, &pending_dma,
+                                        &write_reject_reason)) {
+            if (write_reject_reason != nullptr &&
+                std::strcmp(write_reject_reason, "partial-strb") == 0 &&
+                addr.addr_bits_addr >= kExtmemBase) {
+              // Masked write into the EXTMEM region that the absorb path
+              // above could not take (local EXTMEM disabled or window
+              // overflow): the gem5 DMA ABI carries no byte enables.
+              write_reject_reason = "extmem-masked-nonlocal";
+            }
+            DumpRejectedAxi("write", addr, &data, write_reject_reason);
             AxiWResp response = {};
             response.write_resp_bits_id = addr.addr_bits_id;
             response.write_resp_bits_resp = kAxiSlvErr;
@@ -743,6 +873,13 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
     ++handle->rtl_cycles;
     handle->wrapper.Step();
     handle->custom_mac.StepIfActive();
+    if (handle->rtl_cycles - handle->last_activity_cycles >=
+        handle->watchdog_cycles) {
+      // No AXI master activity for a full watchdog window: dump the channel
+      // handshake levels so a stalled transaction can be identified.
+      handle->last_activity_cycles = handle->rtl_cycles;
+      handle->wrapper.DumpMasterChannels(handle->rtl_cycles);
+    }
     if (handle->dma_pending) {
       return 2;
     }

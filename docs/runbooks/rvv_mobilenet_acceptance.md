@@ -1,5 +1,8 @@
 # RVV Highmem MobileNet Acceptance
 
+Starting from a fresh clone? See
+[From-Scratch Bring-up](from_scratch_bringup.md) first.
+
 ## Build
 
 Run on x86 Linux:
@@ -31,7 +34,7 @@ sudo chown -R "$USER:$(id -gn)" build/coralnpu
 Update the guest `coralctl` before creating the dedicated checkpoint:
 
 ```sh
-IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+IMAGE=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
 ./tools/coralnpu/phase45_prepare_guest_assets.sh
 ./sim/gem5/apply_patchset.sh
 ```
@@ -47,12 +50,12 @@ The MobileNet configuration reserves an 8 MiB coherent window, so it uses a
 separate checkpoint from the 4 KiB command tests:
 
 ```sh
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_rvv_mobilenet_test.sh
 ```
 
-The first invocation creates `m5out/coralnpu_mobilenet_ckpt`. Run the same
+The first invocation creates `checkpoint/coralnpu_mobilenet_ckpt`. Run the same
 command again to restore it and execute MobileNet.
 
 Select the operator execution path explicitly:
@@ -91,6 +94,35 @@ Both modes now share the versioned descriptor in
 first graph opcode; Conv2D, DepthwiseConv2D, and MatMul have reserved per-op
 opcodes and use the same tensor/quantization/status layout.
 
+## Regression Pre-flight Checklist
+
+Before treating a run as regression evidence, check what changed since the
+last known-good run. Not every change requires the same rebuild, and two
+staleness traps are NOT covered by any automatic invalidation:
+
+| What changed | Required action |
+|---|---|
+| `sim/coralnpu/` or `rtl/wrappers/` (bridge, firmware) | `./tools/coralnpu/build_rvv_mobilenet.sh -c opt`. No checkpoint rebuild needed — bridge and firmware are loaded by gem5 at restore time. |
+| `sim/gem5/` or gem5 sources | Rebuild gem5.opt (mtime auto-detect, `GEM5_REBUILD=1` to force). If `NPUDevice` parameters or serialized state changed, also bump the checkpoint format version and `CORAL_REBUILD_CKPT=1`. |
+| Disk image, kernel image, kernel init, kernel cmdline | Automatic (8 invalidation conditions) or `CORAL_REBUILD_CKPT=1`. |
+| `runtime/host/` or `runtime/kernel/` (coralctl, driver .ko) | **Trap #1**: the /tmp payload (coralctl, opennpux_coral.ko, busybox) is baked into the checkpoint tmpfs at bootstrap. No invalidation condition covers it — reinstall the guest tools into the disk image AND `CORAL_REBUILD_CKPT=1`, or the regression silently tests the OLD guest tools. |
+| Checkpoint format/resume mechanism | **Trap #2**: bump the format version and force a rebuild; restoring an NPU checkpoint with a changed device state layout can mis-restore without any error. |
+
+Additional rules:
+
+- Build and run only through the official scripts
+  (`build_rvv_mobilenet.sh`, `run_rvv_mobilenet_test.sh`); they apply the
+  `sim/` overlays first. Building directly inside `thirdparty/` may pick up
+  a stale overlay.
+- Run with `CORAL_MOBILENET_DEBUG=1` so the heartbeat/cycle progress is
+  available if the run stalls.
+- Confirm the binaries under test match the intended source state:
+  `ls -la build/coralnpu/` (bridge/firmware mtimes) and the `gem5 compiled`
+  banner line in the host log.
+- Evidence completeness: PASS lives in the guest serial log
+  (`logs/sim/m5out/system.terminal`); the host log footer mirrors it as
+  `guest verdict:` and records start/end/elapsed.
+
 To run both modes and compare the complete output tensor checksum
 automatically:
 
@@ -101,10 +133,10 @@ automatically:
 The script writes:
 
 ```text
-simout/mobilenet-matrix/mobilenet-hybrid.log
-simout/mobilenet-matrix/mobilenet-rtl.log
-simout/mobilenet-matrix/mobilenet-compare.log
-simout/mobilenet-matrix/mobilenet-report.md
+logs/sim/mobilenet-matrix/mobilenet-hybrid.log
+logs/sim/mobilenet-matrix/mobilenet-rtl.log
+logs/sim/mobilenet-matrix/mobilenet-compare.log
+logs/sim/mobilenet-matrix/mobilenet-report.md
 ```
 
 Each mode log contains gem5 host output plus the matching guest
@@ -115,8 +147,8 @@ To compare logs from previous runs:
 
 ```sh
 ./tools/coralnpu/compare_mobilenet_results.sh \
-  simout/mobilenet-matrix/mobilenet-hybrid.log \
-  simout/mobilenet-matrix/mobilenet-rtl.log
+  logs/sim/mobilenet-matrix/mobilenet-hybrid.log \
+  logs/sim/mobilenet-matrix/mobilenet-rtl.log
 ```
 
 Expected comparison output ends with `mobilenet_compare=PASS`. With current
@@ -140,10 +172,10 @@ CORAL_MOBILENET_DEBUG=1 ./tools/coralnpu/run_mobilenet_mode_matrix.sh
 This additionally writes per-mode debug logs and summaries:
 
 ```text
-simout/mobilenet-matrix/mobilenet-hybrid.debug
-simout/mobilenet-matrix/mobilenet-hybrid.summary
-simout/mobilenet-matrix/mobilenet-rtl.debug
-simout/mobilenet-matrix/mobilenet-rtl.summary
+logs/sim/mobilenet-matrix/mobilenet-hybrid.debug
+logs/sim/mobilenet-matrix/mobilenet-hybrid.summary
+logs/sim/mobilenet-matrix/mobilenet-rtl.debug
+logs/sim/mobilenet-matrix/mobilenet-rtl.summary
 ```
 
 The summary reports the last firmware marker, fault CSRs if present, latest
@@ -154,17 +186,17 @@ For a functional run with NPU progress tracing, use:
 ```sh
 CORAL_MOBILENET_DEBUG=1 \
 CORAL_RTL_CYCLES_PER_EVENT=1000 \
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-4.19.325-opennpux \
+CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_rvv_mobilenet_test.sh
 
-tail -F simout/coral-mobilenet.debug
+tail -F logs/sim/coral-mobilenet.debug
 ```
 
 To summarize an existing debug log:
 
 ```sh
-./tools/coralnpu/summarize_mobilenet_progress.sh simout/coral-mobilenet.debug
+./tools/coralnpu/summarize_mobilenet_progress.sh logs/sim/coral-mobilenet.debug
 ```
 
 The wrapper prints the effective gem5 options and RTL cycle batch before it
@@ -326,7 +358,7 @@ and uses `/sbin/opennpux-init.sh`; it fails before starting gem5 when that
 kernel artifact is missing. Explicit `CORAL_KERNEL_IMAGE` and
 `CORAL_KERNEL_INIT` values still override these defaults.
 It also defaults to the Phase-3 validated Ubuntu 18.04 image at
-`/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img` instead
+`$IMAGE_PATH/ubuntu-18.04-arm64-docker.img` instead
 of allowing the generic launcher to select an incompatible development image.
 Use `CORAL_DISK_IMG` when the validated image is stored elsewhere.
 

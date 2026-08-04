@@ -48,7 +48,7 @@ Build guest tools and install them into the runtime image:
 ```sh
 ./tools/guest_tools/build_coralctl.sh
 sudo ./tools/guest_tools/install_coralctl_to_image.sh \
-  /home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+  $IMAGE_PATH/ubuntu-18.04-arm64-docker.img
 ```
 
 Build gem5:
@@ -70,7 +70,7 @@ CORAL_REBUILD_CKPT=1 CORAL_NPU_BACKEND=stage-a ./run_multicore.sh
 Expected terminal output:
 
 ```text
-Boot checkpoint saved at .../m5out/coralnpu_ckpt/booted
+Boot checkpoint saved at .../checkpoint/coralnpu_ckpt/booted
 ```
 
 For ordinary Phase-2 tests, do not set `CORAL_REBUILD_CKPT=1`; the resume

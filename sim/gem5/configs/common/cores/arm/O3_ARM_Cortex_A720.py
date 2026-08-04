@@ -58,6 +58,7 @@ class O3_ARM_Cortex_A720_FUP(FUPool):
         O3_ARM_Cortex_A720_Store(),
         O3_ARM_Cortex_A720_FP(),
         O3_ARM_Cortex_A720_SIMD(),
+        PredALU(),
     ]
 
 class O3_ARM_Cortex_A720_BTB(SimpleBTB):

@@ -1,4 +1,14 @@
 #!/bin/sh
+# Run the Phase-3 driver-backed DMA smoke test.
+#
+# Validates the Linux kernel driver (/dev/opennpux-coral) with coherent DMA
+# without requiring /dev/mem access.
+#
+# Prerequisites:
+#   - DMA firmware must be built (tools/coralnpu/phase2_build_bridge.sh)
+#   - Validated 4.19 kernel with opennpux_coral.ko must be installed in guest image
+#
+# Expected output: dma_test=PASS
 
 set -eu
 

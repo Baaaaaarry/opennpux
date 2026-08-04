@@ -16,13 +16,12 @@ into the image.
 
 ## Build A New arm64 Kernel
 
-On the x86 Linux host:
+Run from the superproject root on the x86 Linux host:
 
 ```sh
 sudo apt-get install -y \
   bc bison flex git libssl-dev make gcc-aarch64-linux-gnu
 
-cd ~/code/opennpux
 ./tools/kernel/build_arm64_kernel.sh
 ```
 
@@ -46,21 +45,24 @@ booting guest config as the base. Boot the known-good 4.18 system and run:
 zcat /proc/config.gz > /tmp/gem5-4.18.config
 ```
 
-Copy it to the x86 host:
+Copy it to the x86 host, overwriting the bundled reference config:
 
 ```sh
-mkdir -p ~/code/opennpux/build/kernel
 # Use whatever transfer path is available in the guest: 9p, mounted data disk,
 # scp, or paste through the terminal.
 cp /path/from/guest/gem5-4.18.config \
-  ~/code/opennpux/build/kernel/gem5-4.18.config
+  ./tools/kernel/gem5-4.18.config
 ```
 
-Then rebuild the new kernel using that config as the base:
+The bundled config at `tools/kernel/gem5-4.18.config` is the default; placing
+the extracted config there makes every subsequent `build_arm64_kernel.sh`
+invocation use it automatically. To keep the bundled config and use a custom
+one, set `KERNEL_BASE_CONFIG` explicitly.
+
+Then rebuild:
 
 ```sh
-cd ~/code/opennpux
-KERNEL_BASE_CONFIG="$PWD/build/kernel/gem5-4.18.config" \
+KERNEL_BASE_CONFIG="./tools/kernel/gem5-4.18.config" \
 LINUX_BRANCH=linux-4.19.y \
 ./tools/kernel/build_arm64_kernel.sh
 ```
@@ -99,14 +101,13 @@ Compare a non-booting kernel against the known-good kernel:
 
 ```sh
 ./tools/kernel/diagnose_gem5_kernel.sh \
-  "$PWD/build/kernel/vmlinux-$(cat build/kernel/kernel.release)" \
-  /home/barry/wlk/gem5_arm_linux_images/vmlinux.arm64
+  "./build/kernel/vmlinux-$(cat build/kernel/kernel.release)" \
+  $IMAGE_PATH/vmlinux.arm64
 ```
 
 ## Build The Coral Driver Module
 
 ```sh
-cd ~/code/opennpux
 ./tools/kernel/build_opennpux_coral_ko.sh
 ```
 
@@ -119,13 +120,13 @@ build/kernel/opennpux_coral-<kernel-release>.ko
 ## Install Into The Lightweight Image
 
 ```sh
-IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img
+IMG=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img
 
 sudo ./tools/kernel/install_kernel_to_image.sh \
   "$IMG" \
-  "$PWD/build/linux-arm64" \
-  "$PWD/build/kernel/Image-$(cat build/kernel/kernel.release)" \
-  "$PWD/build/kernel/opennpux_coral-$(cat build/kernel/kernel.release).ko"
+  "./build/linux-arm64" \
+  "./build/kernel/Image-$(cat build/kernel/kernel.release)" \
+  "./build/kernel/opennpux_coral-$(cat build/kernel/kernel.release).ko"
 sudo ./tools/kernel/install_opennpux_init_to_image.sh "$IMG"
 ```
 
@@ -148,7 +149,7 @@ completeness, but this ARM full-system config loads the host-side ELF through
 
 ```sh
 cd thirdparty/gem5
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_KERNEL_IMAGE=../../build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 CORAL_REBUILD_CKPT=1 \
 ./run_multicore.sh
@@ -168,7 +169,7 @@ you passed the raw arm64 `Image` instead of `vmlinux`. Re-run with
 
 ## No Serial Output
 
-If `m5out/system.terminal` stays empty, Linux did not reach the PL011 console.
+If `logs/sim/m5out/system.terminal` stays empty, Linux did not reach the PL011 console.
 First rebuild with the repository config script so `CONFIG_SERIAL_EARLYCON` and
 the gem5-safe command line are applied:
 
@@ -179,7 +180,7 @@ the gem5-safe command line are applied:
 Then boot with an explicit early console override:
 
 ```sh
-CORAL_KERNEL_IMAGE=/home/barry/code/opennpux/build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
+CORAL_KERNEL_IMAGE=../../build/kernel/vmlinux-$(cat ../../build/kernel/kernel.release) \
 CORAL_KERNEL_CMDLINE="earlycon=pl011,mmio32,0x1c090000 console=ttyAMA0 keep_bootcon ignore_loglevel loglevel=8 nokaslr root=/dev/vda1 rw init=/bin/sh" \
 CORAL_REBUILD_CKPT=1 \
 ./run_multicore.sh
@@ -190,7 +191,7 @@ contains:
 
 ```sh
 grep -E 'CONFIG_SERIAL_EARLYCON|CONFIG_PRINTK|CONFIG_SERIAL_AMBA_PL011|CONFIG_RANDOMIZE_BASE|CONFIG_ARM64_BTI|CONFIG_ARM64_MTE|CONFIG_ARM64_PTR_AUTH' \
-  /home/barry/code/opennpux/build/linux-arm64/.config
+  ./build/linux-arm64/.config
 ```
 
 Expected:

@@ -1,4 +1,13 @@
 #!/bin/sh
+# Run the Phase-5 custom RTL accelerator A/B test.
+#
+# Compares official Coral software execution against custom RTL accelerator
+# execution using the same Linux workload and model.
+#
+# Prerequisites:
+#   - Bridge and command firmware must be built (tools/coralnpu/phase2_build_bridge.sh)
+#   - Guest model assets must be installed (tools/coralnpu/phase45_prepare_guest_assets.sh)
+#   - Custom RTL accelerator must be verified (tools/coralnpu/phase5_test_custom_rtl.sh)
 
 set -eu
 

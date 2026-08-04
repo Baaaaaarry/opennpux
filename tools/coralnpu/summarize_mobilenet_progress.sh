@@ -3,7 +3,7 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)"
-LOG="${1:-${ROOT_DIR}/simout/coral-mobilenet.debug}"
+LOG="${1:-${ROOT_DIR}/logs/sim/coral-mobilenet.debug}"
 
 [ -f "${LOG}" ] || {
     echo "error: MobileNet log not found: ${LOG}" >&2

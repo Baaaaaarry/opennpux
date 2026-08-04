@@ -10,6 +10,8 @@
 #include "sw/opt/rvv_opt.h"
 #include "sw/utils/utils.h"
 #include "tensorflow/lite/core/c/common.h"
+#include "tensorflow/lite/micro/kernels/micro_ops.h"
+#include "tensorflow/lite/micro/kernels/pad.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/kernels/kernel_util.h"
@@ -18,13 +20,13 @@
 
 /*****************************************************************************/
 /* 1、初始化MobileNet模型数据
-/* 2、准备tensor arena
-/* 3、读取CPU/runtime 下发的mailbox/task descriptor
-/* 4、调用TFLM/operator runtime
-/* 5、在关键阶段写progress marker，例如0x4d4e0300...
-/* 6、写回output\checksum\cycles\operator stats
-/* 7、最后执行halt\m5_exit标记完成
-/*****************************************************************************/
+ * 2、准备tensor arena
+ * 3、读取CPU/runtime 下发的mailbox/task descriptor
+ * 4、调用TFLM/operator runtime
+ * 5、在关键阶段写progress marker，例如0x4d4e0300...
+ * 6、写回output\checksum\cycles\operator stats
+ * 7、最后执行halt\m5_exit标记完成
+ */
 namespace {
 
 using MobilenetOpResolver = tflite::MicroMutableOpResolver<10>;
@@ -57,6 +59,7 @@ void MarkProgress(uint32_t value) {
 
 TfLiteStatus (*convInvoke)(TfLiteContext*, TfLiteNode*) = nullptr;
 TfLiteStatus (*depthwiseInvoke)(TfLiteContext*, TfLiteNode*) = nullptr;
+TfLiteStatus (*padInvoke)(TfLiteContext*, TfLiteNode*) = nullptr;
 
 uint32_t Fnv1a32(const void* data, uint32_t size) {
   const uint8_t* bytes = static_cast<const uint8_t*>(data);
@@ -179,13 +182,26 @@ bool TryHybridConvInvoke(
   if (descriptor->multiplier_address == 0 || descriptor->shift_address == 0) {
     return false;
   }
-  coralnpu_v2::opt::Memcpy(
-      reinterpret_cast<void*>(descriptor->multiplier_address),
-      data.per_channel_output_multiplier,
-      output_channels * sizeof(int32_t));
-  coralnpu_v2::opt::Memcpy(
-      reinterpret_cast<void*>(descriptor->shift_address),
-      data.per_channel_output_shift, output_channels * sizeof(int32_t));
+  // Scalar copies on purpose (same RTL erratum as in AllocateStaging): the
+  // per-channel quantization arrays are only 4-byte aligned in the arena, so
+  // an auto-vectorized copy could cross a 16-byte line on the external bus
+  // and deadlock the core.
+  {
+    volatile uint32_t* multiplier_dst =
+        reinterpret_cast<volatile uint32_t*>(descriptor->multiplier_address);
+    volatile uint32_t* shift_dst =
+        reinterpret_cast<volatile uint32_t*>(descriptor->shift_address);
+    const volatile int32_t* multiplier_src =
+        reinterpret_cast<const volatile int32_t*>(
+            data.per_channel_output_multiplier);
+    const volatile int32_t* shift_src =
+        reinterpret_cast<const volatile int32_t*>(
+            data.per_channel_output_shift);
+    for (uint32_t i = 0; i < output_channels; ++i) {
+      multiplier_dst[i] = static_cast<uint32_t>(multiplier_src[i]);
+      shift_dst[i] = static_cast<uint32_t>(shift_src[i]);
+    }
+  }
   descriptor->quantization_count = output_channels;
   descriptor->output_zero_point = data.output_zero_point;
   descriptor->activation_min = data.output_activation_min;
@@ -315,6 +331,33 @@ TfLiteStatus TracedDepthwiseInvoke(TfLiteContext* context, TfLiteNode* node) {
   return status;
 }
 
+TfLiteStatus TracedPadInvoke(TfLiteContext* context, TfLiteNode* node) {
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_PAD_BEGIN);
+  // RTL erratum workaround: the Coral LSU deadlocks on a vector load/store
+  // from external (EXTMEM) memory whose bytes span a 16-byte line boundary
+  // (observed: vle8.v from OpData::params at offset 4 mod 16 in the
+  // EXTMEM-resident OpData; the first line read completes, the second is
+  // never issued and the core stalls with no outstanding AXI transaction).
+  // PadEval's auto-vectorized PadParams copy triggers it. Run PadEval
+  // against a line-aligned DTCM copy of OpData instead; DTCM accesses do
+  // not take the external bus and are unaffected.
+  static uint8_t aligned_op_data[sizeof(tflite::OpData)]
+      __attribute__((aligned(16)));
+  void* saved_user_data = nullptr;
+  if (node != nullptr && node->user_data != nullptr) {
+    saved_user_data = node->user_data;
+    coralnpu_v2::opt::Memcpy(aligned_op_data, node->user_data,
+                             sizeof(tflite::OpData));
+    node->user_data = aligned_op_data;
+  }
+  TfLiteStatus status = padInvoke(context, node);
+  if (saved_user_data != nullptr) {
+    node->user_data = saved_user_data;
+  }
+  MarkProgress(OPENNPUX_CORAL_MOBILENET_PROGRESS_PAD_END);
+  return status;
+}
+
 TfLiteStatus RegisterOps(MobilenetOpResolver& resolver) {
   TFLMRegistration conv = Register_CONV_2D();
   convInvoke = conv.invoke;
@@ -329,7 +372,10 @@ TfLiteStatus RegisterOps(MobilenetOpResolver& resolver) {
   TF_LITE_ENSURE_STATUS(resolver.AddAveragePool2D());
   TF_LITE_ENSURE_STATUS(resolver.AddSoftmax());
   TF_LITE_ENSURE_STATUS(resolver.AddStridedSlice());
-  TF_LITE_ENSURE_STATUS(resolver.AddPad());
+  TFLMRegistration pad = tflite::Register_PAD();
+  padInvoke = pad.invoke;
+  pad.invoke = TracedPadInvoke;
+  TF_LITE_ENSURE_STATUS(resolver.AddPad(pad));
   TF_LITE_ENSURE_STATUS(resolver.AddMean());
   TF_LITE_ENSURE_STATUS(resolver.AddShape());
   TF_LITE_ENSURE_STATUS(resolver.AddPack());

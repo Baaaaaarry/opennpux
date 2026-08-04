@@ -190,6 +190,14 @@ qwen_logits_checksum=<stable>
 qwen_next_token=<stable>
 ```
 
+Implemented Q0 scripts:
+
+- `tools/models/create_qwen_tiny_model.py`
+- `tools/models/prepare_qwen_tiny.sh`
+- `tools/models/inspect_qwen_model.py`
+- `tools/models/run_qwen_golden.sh`
+- `docs/runbooks/qwen_tiny_golden.md`
+
 ### Phase Q1: Model Package And Runtime Loader
 
 Deliverables:
@@ -370,4 +378,3 @@ CORAL_OPERATOR_MODE=hybrid ./tools/coralnpu/run_rvv_mobilenet_test.sh
 
 If a Qwen PR breaks MobileNet, the PR must either fix it or explicitly update
 the shared ABI with a migration plan and reviewer approval.
-

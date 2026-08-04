@@ -98,10 +98,16 @@ CORAL_MOBILENET_PARTIAL_DEBUG=1 ./tools/coralnpu/run_rvv_mobilenet_partial.sh
 CORAL_OPERATOR_MODE=hybrid ./tools/coralnpu/run_rvv_mobilenet_test.sh
 ```
 
-Qwen target commands to add:
+Qwen Q0 golden commands:
 
 ```bash
 ./tools/models/prepare_qwen_tiny.sh
+./tools/models/run_qwen_golden.sh
+```
+
+Qwen full-system target commands to add in later milestones:
+
+```bash
 ./tools/coralnpu/build_qwen_firmware.sh
 ./tools/coralnpu/prepare_qwen_guest_assets.sh
 CORAL_QWEN_MODE=hybrid ./tools/coralnpu/run_qwen_e2e_test.sh
@@ -143,4 +149,3 @@ If changing ABI/memmap/DMA/UAPI/operator semantics, update docs and stop if no
 reviewed design exists. Preserve MobileNet hybrid/sampled validation. Run the
 Issue validation commands when possible and report exact commands and outputs.
 ```
-

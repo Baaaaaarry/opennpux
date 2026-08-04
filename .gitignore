@@ -31,3 +31,7 @@ thirdparty/gem5/compile_commands.json
 
 # python
 __pycache__/
+
+# local-only analysis notes (not for the repo)
+docs/design/mobilenet_bringup_fixes.md
+docs/design/branch_commits_analysis.md

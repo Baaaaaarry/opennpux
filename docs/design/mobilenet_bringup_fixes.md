@@ -304,7 +304,12 @@ RTL 当场异常死亡。
 | `807c6975393dd7199edc977d8736f6da19e3518d` | build: forward extra bazel flags to cquery; disable TFLM autovectorization | §3、§4 | `build_rvv_mobilenet.sh` |
 | `b87966ef3dc1cbb0c99d7439d36e9f810fc81124` | feat: tee host output to a log file and print timing footer on exit | §6 | `run_rvv_mobilenet_test.sh` |
 | `00359c784ca1d11aec88fd8383e83ddf5ada1e0f` | docs: record watchdog env var, MobileNet e2e analysis, erratum progress | §5 及配套文档 | `AGENTS.md`、`mobilenet_test_e2e_analysis.md`、`current_progress.md` |
-| （见 git log 最新一笔） | docs: add MobileNet bring-up fixes writeup with commit index | 本文档 | `mobilenet_bringup_fixes.md` |
+| `3683d9e` | docs: add MobileNet bring-up fixes writeup with commit index | 本文档 | `mobilenet_bringup_fixes.md` |
+| `d78d43e` | chore: ignore clangd/vscode caches and scons compile_commands.json | 杂项 | `.gitignore` |
+| `241c453` | build: harden busybox build with logging and validation | §6 周边 | `build_busybox_aarch64.sh` |
+| `3e46b3c` | fix: preserve exit codes through busybox build logging | checker 复审 MAJOR-1 | `build_busybox_aarch64.sh` |
+| `03d6ef7` | chore: drop dead .sim_timing write from mobilenet runner | checker 复审 MINOR-1 | `run_rvv_mobilenet_test.sh` |
+| `0dd4199` | docs: correct PASS evidence location and reason-code count | 文档勘误 | `mobilenet_bringup_fixes.md` |
 
 说明：`gem5_axi_master_drivers.h` 的 `DumpState()`/握手历史随 §1 提交
 （watchdog 依赖）；`.gitignore`、`tools/guest_tools/build_busybox_aarch64.sh`

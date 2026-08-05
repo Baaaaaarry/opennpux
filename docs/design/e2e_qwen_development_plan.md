@@ -206,12 +206,21 @@ Deliverables:
 - Host-side model loader with tensors, weights, graph metadata, and tokenizer
   metadata.
 - `coralctl qwen-info` and `coralctl qwen-run` skeleton.
+- Standalone `qwen-inspect` host/guest tool for package validation before NPU
+  execution.
 
 Validation:
 
 ```bash
 ./tools/models/inspect_qwen_model.sh build/models/qwen-tiny.npxm
 ./tools/guest_tools/build_coralctl.sh
+```
+
+Implemented Q1 loader checks:
+
+```bash
+./tools/models/test_qwen_loader.sh
+./tools/guest_tools/build_qwen_inspect.sh
 ```
 
 ### Phase Q2: Hybrid Transformer Kernels

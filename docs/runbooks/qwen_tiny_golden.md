@@ -59,12 +59,41 @@ The exact `qwen_logits_checksum` and `qwen_next_token` values are the acceptance
 contract for subsequent Qwen runtime and full-system work. If they change, the
 PR must explain whether the model definition changed intentionally.
 
+## Host Loader Test
+
+Validate the C model loader and host-side inspect tool:
+
+```bash
+./tools/models/test_qwen_loader.sh
+```
+
+Expected output includes:
+
+```text
+qwen_op_mask=0x000001ff
+PASS: qwen model host unit tests
+qwen_loader=PASS
+```
+
+Build the guest/aarch64 inspect binary:
+
+```bash
+./tools/guest_tools/build_qwen_inspect.sh
+```
+
+Expected output:
+
+```text
+built: build/guest-tools/qwen-inspect-aarch64
+```
+
 ## Follow-Up Integration
 
 This milestone does not execute inside gem5 yet. The next milestones should
 consume `build/models/qwen-tiny.npxm` from:
 
 - host-side runtime loader;
+- `qwen-inspect-aarch64` inside the guest image;
 - `coralctl qwen-info` / `coralctl qwen-run`;
 - firmware operator scheduler;
 - hybrid/sampled operator tests;

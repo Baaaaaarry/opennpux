@@ -1,4 +1,5 @@
 #include "opennpux/coral_runtime.h"
+#include "opennpux/qwen_model.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -17,13 +18,42 @@ usage(const char *prog)
             "  %s vector-add <elements> [base [poll-count]]\n"
             "  %s vector-add-custom <elements> [base [poll-count]]\n"
             "  %s model-run <model.npxm> [base [poll-count]]\n"
+            "  %s qwen-info <qwen-tiny.npxm>\n"
             "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
             "  %s mem-read32 <offset> [base]\n"
             "  %s mem-write32 <offset> <value> [base]\n",
-            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
+            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
             prog);
+}
+
+static int
+print_qwen_info(const char *path)
+{
+    struct opennpux_qwen_model_info info;
+    if (opennpux_qwen_load_model_info(path, &info) != 0) {
+        perror("qwen-info");
+        return 1;
+    }
+    printf("qwen_model=%s\n", info.name);
+    printf("qwen_format=%s\n", info.format);
+    printf("qwen_version=%" PRIu32 "\n", info.version);
+    printf("qwen_layers=%" PRIu32 "\n", info.layer_count);
+    printf("qwen_hidden=%" PRIu32 "\n", info.hidden_size);
+    printf("qwen_intermediate=%" PRIu32 "\n", info.intermediate_size);
+    printf("qwen_heads=%" PRIu32 "\n", info.head_count);
+    printf("qwen_head_dim=%" PRIu32 "\n", info.head_dim);
+    printf("qwen_vocab=%" PRIu32 "\n", info.vocab_size);
+    printf("qwen_prompt_tokens=%" PRIu32 "\n", info.prompt_token_count);
+    printf("qwen_operator_count=%" PRIu32 "\n", info.operator_count);
+    printf("qwen_ops=%s\n", opennpux_qwen_required_ops_string());
+    printf("qwen_op_mask=0x%08" PRIx32 "\n", info.op_mask);
+    printf("qwen_next_token=%" PRIu32 "\n", info.next_token);
+    printf("qwen_logits_checksum=0x%08" PRIx32 "\n", info.logits_checksum);
+    printf("qwen_weight_checksum=0x%08" PRIx32 "\n", info.weight_checksum);
+    printf("qwen_info=PASS\n");
+    return 0;
 }
 
 static void
@@ -256,6 +286,7 @@ main(int argc, char **argv)
     const int command_vector_add_custom =
         strcmp(argv[1], "vector-add-custom") == 0;
     const int command_model_run = strcmp(argv[1], "model-run") == 0;
+    const int command_qwen_info = strcmp(argv[1], "qwen-info") == 0;
     const int command_mobilenet_test =
         strcmp(argv[1], "mobilenet-test") == 0;
     const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
@@ -264,7 +295,7 @@ main(int argc, char **argv)
     const int command_mem_write32 = strcmp(argv[1], "mem-write32") == 0;
     if (!command_info && !command_run && !command_dma_test &&
         !command_vector_add && !command_vector_add_custom &&
-        !command_model_run && !command_mobilenet_test &&
+        !command_model_run && !command_qwen_info && !command_mobilenet_test &&
         !command_mem_info && !command_mem_clear && !command_mem_read32 &&
         !command_mem_write32) {
         usage(argv[0]);
@@ -276,6 +307,7 @@ main(int argc, char **argv)
         ((command_vector_add || command_vector_add_custom) &&
          (argc < 3 || argc > 5)) ||
         (command_model_run && (argc < 3 || argc > 5)) ||
+        (command_qwen_info && argc != 3) ||
         (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
@@ -283,6 +315,10 @@ main(int argc, char **argv)
         (command_mem_write32 && (argc < 4 || argc > 5))) {
         usage(argv[0]);
         return 2;
+    }
+
+    if (command_qwen_info) {
+        return print_qwen_info(argv[2]);
     }
 
     uint64_t base = OPENNPUX_CORAL_DEFAULT_BASE;

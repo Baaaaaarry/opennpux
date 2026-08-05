@@ -221,6 +221,15 @@ Implemented Q1 loader checks:
 ```bash
 ./tools/models/test_qwen_loader.sh
 ./tools/guest_tools/build_qwen_inspect.sh
+./tools/guest_tools/build_coralctl.sh
+```
+
+Implemented Q1/Q2 package visibility path:
+
+```bash
+IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+  ./tools/coralnpu/prepare_qwen_guest_assets.sh
+./tools/coralnpu/run_qwen_info_test.sh
 ```
 
 ### Phase Q2: Hybrid Transformer Kernels

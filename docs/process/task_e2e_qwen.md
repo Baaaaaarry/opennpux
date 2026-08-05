@@ -104,6 +104,8 @@ Qwen Q0 golden commands:
 ./tools/models/prepare_qwen_tiny.sh
 ./tools/models/run_qwen_golden.sh
 ./tools/models/test_qwen_loader.sh
+./tools/coralnpu/prepare_qwen_guest_assets.sh
+./tools/coralnpu/run_qwen_info_test.sh
 ```
 
 Qwen full-system target commands to add in later milestones:

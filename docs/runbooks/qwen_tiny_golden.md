@@ -87,6 +87,71 @@ Expected output:
 built: build/guest-tools/qwen-inspect-aarch64
 ```
 
+## coralctl Qwen Info
+
+Build `coralctl` with Qwen package inspect support:
+
+```bash
+./tools/guest_tools/build_coralctl.sh
+```
+
+Host-side smoke check:
+
+```bash
+cc -O2 -Wall -Wextra -Werror -std=c11 \
+  -Iruntime/host/include \
+  runtime/host/src/coral_runtime.c \
+  runtime/host/src/qwen_model.c \
+  runtime/host/tools/coralctl.c \
+  -o build/local-tests/coralctl-host
+
+build/local-tests/coralctl-host qwen-info build/models/qwen-tiny.npxm
+```
+
+Expected output includes:
+
+```text
+qwen_op_mask=0x000001ff
+qwen_next_token=7
+qwen_logits_checksum=0x829e9f00
+qwen_info=PASS
+```
+
+## Guest Asset Install
+
+Install `coralctl`, `qwen-inspect`, and `qwen-tiny.npxm` into the guest image:
+
+```bash
+IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+  ./tools/coralnpu/prepare_qwen_guest_assets.sh
+```
+
+Rebuild the boot checkpoint once after changing the image:
+
+```bash
+cd thirdparty/gem5
+CORAL_NPU_BACKEND=stage-a \
+CORAL_REBUILD_CKPT=1 \
+CORAL_DISK_IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+./run_multicore.sh
+```
+
+Then validate Qwen package visibility inside the restored guest:
+
+```bash
+cd ../..
+./tools/coralnpu/run_qwen_info_test.sh
+```
+
+Expected guest output:
+
+```text
+[coral-qwen-info-test] started
+qwen_model=qwen-tiny-synthetic
+qwen_info=PASS
+[coral-qwen-info-test] PASS
+```
+
 ## Follow-Up Integration
 
 This milestone does not execute inside gem5 yet. The next milestones should

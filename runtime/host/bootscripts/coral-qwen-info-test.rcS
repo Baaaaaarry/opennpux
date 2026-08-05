@@ -13,7 +13,7 @@ is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 
 CORALCTL=/tmp/coralctl
-QWEN_MODEL=/usr/local/share/opennpux/qwen-tiny.npxm
+QWEN_MODEL=
 
 fail() {
     echo "[coral-qwen-info-test] FAIL: $*"
@@ -26,7 +26,19 @@ fail() {
 echo "[coral-qwen-info-test] started"
 [ -x "${CORALCTL}" ] || CORALCTL=/usr/local/bin/coralctl
 [ -x "${CORALCTL}" ] || fail "coralctl missing"
-[ -r "${QWEN_MODEL}" ] || fail "qwen model missing"
+for candidate in \
+    /tmp/qwen-tiny.npxm \
+    /usr/local/share/opennpux/qwen-tiny.npxm \
+    /data/usr/local/share/opennpux/qwen-tiny.npxm \
+    /root/qwen-tiny.npxm
+do
+    if [ -r "$candidate" ]; then
+        QWEN_MODEL="$candidate"
+        break
+    fi
+done
+[ -n "${QWEN_MODEL}" ] || fail "qwen model missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
+echo "qwen_model_path=${QWEN_MODEL}"
 
 "${CORALCTL}" qwen-info "${QWEN_MODEL}" || fail "qwen-info failed"
 if [ -x /usr/local/bin/qwen-inspect ]; then
@@ -38,4 +50,3 @@ if command -v m5 >/dev/null 2>&1; then
     m5 --inst exit
 fi
 exit 0
-

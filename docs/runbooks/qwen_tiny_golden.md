@@ -136,6 +136,17 @@ CORAL_DISK_IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.i
 ./run_multicore.sh
 ```
 
+The checkpoint boot log should include:
+
+```text
+[coralnpu] preloaded qwen-tiny into checkpoint tmpfs
+```
+
+If the restored test reports `qwen model missing`, the running checkpoint was
+created before `qwen-tiny.npxm` was installed, or it was created from a
+different disk image. Re-run the asset install command against the same image
+used by `CORAL_DISK_IMG`, then rebuild the checkpoint with `CORAL_REBUILD_CKPT=1`.
+
 Then validate Qwen package visibility inside the restored guest:
 
 ```bash
@@ -147,6 +158,7 @@ Expected guest output:
 
 ```text
 [coral-qwen-info-test] started
+qwen_model_path=/tmp/qwen-tiny.npxm
 qwen_model=qwen-tiny-synthetic
 qwen_info=PASS
 [coral-qwen-info-test] PASS

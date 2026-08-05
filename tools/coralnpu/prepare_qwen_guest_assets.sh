@@ -4,8 +4,11 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
-IMAGE="${IMAGE:-/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img}"
+IMAGE="${IMAGE:-${CORAL_DISK_IMG:-/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img}}"
 MODEL="${ROOT_DIR}/build/models/qwen-tiny.npxm"
+
+echo "Qwen guest asset image: ${IMAGE}"
+echo "Qwen model output: ${MODEL}"
 
 "${ROOT_DIR}/tools/models/prepare_qwen_tiny.sh" "${MODEL}"
 "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
@@ -15,4 +18,3 @@ MODEL="${ROOT_DIR}/build/models/qwen-tiny.npxm"
 
 echo "Qwen guest assets installed into ${IMAGE}"
 echo "Rebuild the boot checkpoint once before running Qwen guest tests"
-

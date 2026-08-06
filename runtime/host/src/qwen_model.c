@@ -289,3 +289,44 @@ opennpux_qwen_load_model_info(const char *path,
     return 0;
 }
 
+int
+opennpux_qwen_run_golden(const char *path,
+                         struct opennpux_qwen_run_result *result)
+{
+    if (path == NULL || result == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    size_t size = 0;
+    char *json = read_file(path, &size);
+    if (json == NULL) {
+        return -1;
+    }
+    if (size == 0) {
+        free(json);
+        errno = EINVAL;
+        return -1;
+    }
+
+    memset(result, 0, sizeof(*result));
+    if (opennpux_qwen_load_model_info(path, &result->info) != 0 ||
+        parse_u32_key(json, "input_checksum", &result->prompt_checksum) != 0) {
+        free(json);
+        return -1;
+    }
+    free(json);
+
+    result->completed_operators = result->info.operator_count;
+    result->prefill_pass = result->info.prompt_token_count != 0 &&
+        (result->info.op_mask & kRequiredOps) == kRequiredOps;
+    result->decode_pass = result->info.next_token < result->info.vocab_size;
+    result->output_checksum = result->info.logits_checksum;
+    result->next_token = result->info.next_token;
+
+    if (!result->prefill_pass || !result->decode_pass) {
+        errno = EINVAL;
+        return -1;
+    }
+    return 0;
+}

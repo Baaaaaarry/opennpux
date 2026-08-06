@@ -19,13 +19,14 @@ usage(const char *prog)
             "  %s vector-add-custom <elements> [base [poll-count]]\n"
             "  %s model-run <model.npxm> [base [poll-count]]\n"
             "  %s qwen-info <qwen-tiny.npxm>\n"
+            "  %s qwen-run <qwen-tiny.npxm>\n"
             "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
             "  %s mem-read32 <offset> [base]\n"
             "  %s mem-write32 <offset> <value> [base]\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog);
+            prog, prog);
 }
 
 static int
@@ -53,6 +54,31 @@ print_qwen_info(const char *path)
     printf("qwen_logits_checksum=0x%08" PRIx32 "\n", info.logits_checksum);
     printf("qwen_weight_checksum=0x%08" PRIx32 "\n", info.weight_checksum);
     printf("qwen_info=PASS\n");
+    return 0;
+}
+
+static int
+print_qwen_run(const char *path)
+{
+    struct opennpux_qwen_run_result result;
+    if (opennpux_qwen_run_golden(path, &result) != 0) {
+        perror("qwen-run");
+        return 1;
+    }
+
+    printf("qwen_model=%s\n", result.info.name);
+    printf("qwen_mode=golden-package\n");
+    printf("qwen_prompt_checksum=0x%08" PRIx32 "\n",
+           result.prompt_checksum);
+    printf("qwen_prefill=%s\n", result.prefill_pass ? "PASS" : "FAIL");
+    printf("qwen_decode=%s\n", result.decode_pass ? "PASS" : "FAIL");
+    printf("qwen_completed_operators=%" PRIu32 "\n",
+           result.completed_operators);
+    printf("qwen_operator_summary=%s\n", opennpux_qwen_required_ops_string());
+    printf("qwen_logits_checksum=0x%08" PRIx32 "\n",
+           result.output_checksum);
+    printf("qwen_next_token=%" PRIu32 "\n", result.next_token);
+    printf("qwen_run=PASS\n");
     return 0;
 }
 
@@ -287,6 +313,7 @@ main(int argc, char **argv)
         strcmp(argv[1], "vector-add-custom") == 0;
     const int command_model_run = strcmp(argv[1], "model-run") == 0;
     const int command_qwen_info = strcmp(argv[1], "qwen-info") == 0;
+    const int command_qwen_run = strcmp(argv[1], "qwen-run") == 0;
     const int command_mobilenet_test =
         strcmp(argv[1], "mobilenet-test") == 0;
     const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
@@ -295,9 +322,9 @@ main(int argc, char **argv)
     const int command_mem_write32 = strcmp(argv[1], "mem-write32") == 0;
     if (!command_info && !command_run && !command_dma_test &&
         !command_vector_add && !command_vector_add_custom &&
-        !command_model_run && !command_qwen_info && !command_mobilenet_test &&
-        !command_mem_info && !command_mem_clear && !command_mem_read32 &&
-        !command_mem_write32) {
+        !command_model_run && !command_qwen_info && !command_qwen_run &&
+        !command_mobilenet_test && !command_mem_info && !command_mem_clear &&
+        !command_mem_read32 && !command_mem_write32) {
         usage(argv[0]);
         return 2;
     }
@@ -308,6 +335,7 @@ main(int argc, char **argv)
          (argc < 3 || argc > 5)) ||
         (command_model_run && (argc < 3 || argc > 5)) ||
         (command_qwen_info && argc != 3) ||
+        (command_qwen_run && argc != 3) ||
         (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
@@ -319,6 +347,9 @@ main(int argc, char **argv)
 
     if (command_qwen_info) {
         return print_qwen_info(argv[2]);
+    }
+    if (command_qwen_run) {
+        return print_qwen_run(argv[2]);
     }
 
     uint64_t base = OPENNPUX_CORAL_DEFAULT_BASE;

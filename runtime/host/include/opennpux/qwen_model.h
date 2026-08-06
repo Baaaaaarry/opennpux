@@ -28,6 +28,16 @@ struct opennpux_qwen_model_info {
     uint32_t op_mask;
 };
 
+struct opennpux_qwen_run_result {
+    struct opennpux_qwen_model_info info;
+    uint32_t prompt_checksum;
+    uint32_t completed_operators;
+    uint32_t prefill_pass;
+    uint32_t decode_pass;
+    uint32_t output_checksum;
+    uint32_t next_token;
+};
+
 enum opennpux_qwen_op_bit {
     OPENNPUX_QWEN_OP_EMBED = 1u << 0,
     OPENNPUX_QWEN_OP_MATMUL = 1u << 1,
@@ -42,6 +52,8 @@ enum opennpux_qwen_op_bit {
 
 int opennpux_qwen_load_model_info(const char *path,
                                   struct opennpux_qwen_model_info *info);
+int opennpux_qwen_run_golden(const char *path,
+                             struct opennpux_qwen_run_result *result);
 const char *opennpux_qwen_required_ops_string(void);
 uint32_t opennpux_qwen_required_op_mask(void);
 
@@ -50,4 +62,3 @@ uint32_t opennpux_qwen_required_op_mask(void);
 #endif
 
 #endif
-

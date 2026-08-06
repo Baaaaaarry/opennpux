@@ -164,14 +164,36 @@ qwen_info=PASS
 [coral-qwen-info-test] PASS
 ```
 
+Validate the checkpoint-aware Qwen runtime command path:
+
+```bash
+CORAL_DISK_IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+  ./tools/coralnpu/run_qwen_e2e_test.sh
+```
+
+Expected guest output:
+
+```text
+[coral-qwen-test] started
+qwen_model_path=/tmp/qwen-tiny.npxm
+qwen_model=qwen-tiny-synthetic
+qwen_mode=golden-package
+qwen_prefill=PASS
+qwen_decode=PASS
+qwen_completed_operators=19
+qwen_logits_checksum=0x829e9f00
+qwen_next_token=7
+qwen_run=PASS
+[coral-qwen-test] PASS
+```
+
 ## Follow-Up Integration
 
-This milestone does not execute inside gem5 yet. The next milestones should
-consume `build/models/qwen-tiny.npxm` from:
+This milestone validates the guest command path inside gem5 using the package
+golden result. The next milestones should replace the `golden-package`
+execution mode with real operator dispatch while keeping the same acceptance
+fields:
 
-- host-side runtime loader;
-- `qwen-inspect-aarch64` inside the guest image;
-- `coralctl qwen-info` / `coralctl qwen-run`;
 - firmware operator scheduler;
 - hybrid/sampled operator tests;
 - full-system `run_qwen_e2e_test.sh`.

@@ -44,7 +44,18 @@ main(int argc, char **argv)
               opennpux_qwen_required_op_mask(),
           "missing required qwen op");
 
+    struct opennpux_qwen_run_result result;
+    check(opennpux_qwen_run_golden(argv[1], &result) == 0,
+          "failed to run qwen golden path");
+    check(result.prefill_pass == 1, "qwen prefill did not pass");
+    check(result.decode_pass == 1, "qwen decode did not pass");
+    check(result.completed_operators == 19,
+          "unexpected qwen completed operator count");
+    check(result.next_token == 7, "unexpected qwen run next token");
+    check(result.output_checksum == 0x829e9f00,
+          "unexpected qwen run output checksum");
+
     puts("PASS: qwen model host unit tests");
+    puts("qwen_loader=PASS");
     return 0;
 }
-

@@ -13,6 +13,7 @@ echo "Qwen model output: ${MODEL}"
 "${ROOT_DIR}/tools/models/prepare_qwen_tiny.sh" "${MODEL}"
 "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
 "${ROOT_DIR}/tools/guest_tools/build_qwen_inspect.sh"
+"${ROOT_DIR}/tools/kernel/install_opennpux_init_to_image.sh" "${IMAGE}"
 "${ROOT_DIR}/tools/guest_tools/install_coralctl_to_image.sh" "${IMAGE}"
 "${ROOT_DIR}/tools/guest_tools/install_qwen_assets_to_image.sh" "${IMAGE}" "${MODEL}"
 

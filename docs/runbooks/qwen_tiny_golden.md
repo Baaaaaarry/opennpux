@@ -122,7 +122,7 @@ qwen_info=PASS
 Install `coralctl`, `qwen-inspect`, and `qwen-tiny.npxm` into the guest image:
 
 ```bash
-IMAGE=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+CORAL_DISK_IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
   ./tools/coralnpu/prepare_qwen_guest_assets.sh
 ```
 
@@ -133,6 +133,7 @@ cd thirdparty/gem5
 CORAL_NPU_BACKEND=stage-a \
 CORAL_REBUILD_CKPT=1 \
 CORAL_DISK_IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./run_multicore.sh
 ```
 

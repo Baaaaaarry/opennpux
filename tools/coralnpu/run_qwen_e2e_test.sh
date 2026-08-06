@@ -18,7 +18,7 @@ if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
     fi
 fi
 
-CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/gem5-init.sh}"
+CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/opennpux-init.sh}"
 CORAL_DISK_IMG="${CORAL_DISK_IMG:-${VALIDATED_DISK_DEFAULT}}"
 CORAL_QWEN_MODE="${CORAL_QWEN_MODE:-golden}"
 

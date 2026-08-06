@@ -20,10 +20,10 @@ fi
 
 CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/opennpux-init.sh}"
 CORAL_DISK_IMG="${CORAL_DISK_IMG:-${VALIDATED_DISK_DEFAULT}}"
-CORAL_QWEN_MODE="${CORAL_QWEN_MODE:-golden}"
+CORAL_QWEN_MODE="${CORAL_QWEN_MODE:-hybrid-sim}"
 
-[ "${CORAL_QWEN_MODE}" = "golden" ] || {
-    echo "error: unsupported CORAL_QWEN_MODE=${CORAL_QWEN_MODE}; current milestone supports golden only" >&2
+[ "${CORAL_QWEN_MODE}" = "golden-package" ] || [ "${CORAL_QWEN_MODE}" = "hybrid-sim" ] || {
+    echo "error: unsupported CORAL_QWEN_MODE=${CORAL_QWEN_MODE}; use golden-package or hybrid-sim" >&2
     exit 2
 }
 [ -f "${CORAL_DISK_IMG}" ] || {
@@ -41,5 +41,6 @@ CORAL_NPU_BACKEND=stage-a \
 CORAL_DISK_IMG="${CORAL_DISK_IMG}" \
 CORAL_KERNEL_IMAGE="${CORAL_KERNEL_IMAGE}" \
 CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT}" \
+CORAL_QWEN_MODE="${CORAL_QWEN_MODE}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
 ./run_multicore.sh

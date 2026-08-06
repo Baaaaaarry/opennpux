@@ -16,6 +16,27 @@ static const uint32_t kRequiredOps =
     OPENNPUX_QWEN_OP_SOFTMAX |
     OPENNPUX_QWEN_OP_TOPK;
 
+static const char *const kOpNames[OPENNPUX_QWEN_OP_KIND_COUNT] = {
+    "EMBED",
+    "MATMUL",
+    "ADD",
+    "MUL",
+    "RMS_NORM",
+    "ROPE",
+    "SILU",
+    "SOFTMAX",
+    "TOPK",
+};
+
+const char *
+opennpux_qwen_op_name(uint32_t index)
+{
+    if (index >= OPENNPUX_QWEN_OP_KIND_COUNT) {
+        return "UNKNOWN";
+    }
+    return kOpNames[index];
+}
+
 const char *
 opennpux_qwen_required_ops_string(void)
 {
@@ -207,6 +228,24 @@ count_operators(const char *json)
 }
 
 static uint32_t
+count_operator_name(const char *json, const char *op)
+{
+    char needle[64];
+    const int written = snprintf(needle, sizeof(needle), "\"op\": \"%s\"", op);
+    if (written <= 0 || (size_t)written >= sizeof(needle)) {
+        return 0;
+    }
+
+    uint32_t count = 0;
+    const char *position = json;
+    while ((position = strstr(position, needle)) != NULL) {
+        ++count;
+        position += written;
+    }
+    return count;
+}
+
+static uint32_t
 count_prompt_tokens(const char *json)
 {
     const char *position = find_key(json, "input_ids");
@@ -327,6 +366,82 @@ opennpux_qwen_run_golden(const char *path,
     if (!result->prefill_pass || !result->decode_pass) {
         errno = EINVAL;
         return -1;
+    }
+    return 0;
+}
+
+int
+opennpux_qwen_run_hybrid_sim(const char *path,
+                             struct opennpux_qwen_run_result *result)
+{
+    if (path == NULL || result == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    size_t size = 0;
+    char *json = read_file(path, &size);
+    if (json == NULL) {
+        return -1;
+    }
+    if (size == 0) {
+        free(json);
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (opennpux_qwen_run_golden(path, result) != 0) {
+        free(json);
+        return -1;
+    }
+
+    for (uint32_t index = 0; index < OPENNPUX_QWEN_OP_KIND_COUNT; ++index) {
+        result->op_counts[index] = count_operator_name(json, kOpNames[index]);
+    }
+    free(json);
+
+    const uint64_t seq = result->info.prompt_token_count;
+    const uint64_t hidden = result->info.hidden_size;
+    const uint64_t inter = result->info.intermediate_size;
+    const uint64_t heads = result->info.head_count;
+    const uint64_t head_dim = result->info.head_dim;
+    const uint64_t vocab = result->info.vocab_size;
+
+    const uint64_t qkv_ops = 3 * seq * hidden * hidden;
+    const uint64_t attention_out_ops = seq * hidden * hidden;
+    const uint64_t ffn_ops = 2 * seq * hidden * inter + seq * inter * hidden;
+    const uint64_t lm_head_ops = hidden * vocab;
+    const uint64_t attention_score_ops = heads * seq * (seq + 1) * head_dim / 2;
+    const uint64_t attention_value_ops = attention_score_ops;
+    const uint64_t norm_ops = (2 * seq + 1) * hidden;
+    const uint64_t elementwise_ops = 2 * seq * hidden + 2 * seq * inter;
+    const uint64_t softmax_ops = heads * seq * (seq + 1) / 2;
+    const uint64_t rope_ops = seq * hidden;
+    const uint64_t topk_ops = vocab;
+
+    result->operation_count =
+        qkv_ops + attention_out_ops + ffn_ops + lm_head_ops +
+        attention_score_ops + attention_value_ops + norm_ops +
+        elementwise_ops + softmax_ops + rope_ops + topk_ops;
+
+    result->bytes_read =
+        (seq * hidden + hidden * vocab + hidden * hidden * 4 +
+         hidden * inter * 2 + inter * hidden + seq * hidden * 4) *
+        sizeof(float);
+    result->bytes_written =
+        (seq * hidden * 8 + seq * inter * 3 + vocab) * sizeof(float);
+
+    const uint64_t ops_per_cycle = 16;
+    const uint64_t bytes_per_cycle = 32;
+    const uint64_t compute_cycles =
+        (result->operation_count + ops_per_cycle - 1) / ops_per_cycle;
+    const uint64_t memory_cycles =
+        (result->bytes_read + result->bytes_written + bytes_per_cycle - 1) /
+        bytes_per_cycle;
+    result->modeled_cycles = compute_cycles > memory_cycles ?
+        compute_cycles : memory_cycles;
+    if (result->modeled_cycles == 0) {
+        result->modeled_cycles = 1;
     }
     return 0;
 }

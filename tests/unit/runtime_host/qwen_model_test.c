@@ -55,6 +55,19 @@ main(int argc, char **argv)
     check(result.output_checksum == 0x829e9f00,
           "unexpected qwen run output checksum");
 
+    check(opennpux_qwen_run_hybrid_sim(argv[1], &result) == 0,
+          "failed to run qwen hybrid simulation path");
+    check(result.prefill_pass == 1, "qwen hybrid prefill did not pass");
+    check(result.decode_pass == 1, "qwen hybrid decode did not pass");
+    check(result.operation_count != 0, "qwen hybrid operation count missing");
+    check(result.modeled_cycles != 0, "qwen hybrid modeled cycles missing");
+    check(result.bytes_read != 0, "qwen hybrid read bytes missing");
+    check(result.bytes_written != 0, "qwen hybrid write bytes missing");
+    check(result.op_counts[1] == 8, "qwen hybrid matmul count mismatch");
+    check(result.next_token == 7, "unexpected qwen hybrid next token");
+    check(result.output_checksum == 0x829e9f00,
+          "unexpected qwen hybrid output checksum");
+
     puts("PASS: qwen model host unit tests");
     puts("qwen_loader=PASS");
     return 0;

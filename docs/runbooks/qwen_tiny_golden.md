@@ -178,10 +178,12 @@ Expected guest output:
 [coral-qwen-test] started
 qwen_model_path=/tmp/qwen-tiny.npxm
 qwen_model=qwen-tiny-synthetic
-qwen_mode=golden-package
+qwen_mode=hybrid-sim
 qwen_prefill=PASS
 qwen_decode=PASS
 qwen_completed_operators=19
+qwen_operation_count=<non-zero>
+qwen_modeled_cycles=<non-zero>
 qwen_logits_checksum=0x829e9f00
 qwen_next_token=7
 qwen_run=PASS

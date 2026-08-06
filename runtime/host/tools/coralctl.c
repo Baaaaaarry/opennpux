@@ -19,7 +19,7 @@ usage(const char *prog)
             "  %s vector-add-custom <elements> [base [poll-count]]\n"
             "  %s model-run <model.npxm> [base [poll-count]]\n"
             "  %s qwen-info <qwen-tiny.npxm>\n"
-            "  %s qwen-run <qwen-tiny.npxm>\n"
+            "  %s qwen-run <qwen-tiny.npxm> [golden-package|hybrid-sim]\n"
             "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
@@ -58,16 +58,27 @@ print_qwen_info(const char *path)
 }
 
 static int
-print_qwen_run(const char *path)
+print_qwen_run(const char *path, const char *mode)
 {
     struct opennpux_qwen_run_result result;
-    if (opennpux_qwen_run_golden(path, &result) != 0) {
+    const char *selected_mode = mode == NULL ? "hybrid-sim" : mode;
+    int run_result = -1;
+    if (strcmp(selected_mode, "golden-package") == 0) {
+        run_result = opennpux_qwen_run_golden(path, &result);
+    } else if (strcmp(selected_mode, "hybrid-sim") == 0) {
+        run_result = opennpux_qwen_run_hybrid_sim(path, &result);
+    } else {
+        fprintf(stderr, "unsupported qwen mode: %s\n", selected_mode);
+        errno = EINVAL;
+        return 1;
+    }
+    if (run_result != 0) {
         perror("qwen-run");
         return 1;
     }
 
     printf("qwen_model=%s\n", result.info.name);
-    printf("qwen_mode=golden-package\n");
+    printf("qwen_mode=%s\n", selected_mode);
     printf("qwen_prompt_checksum=0x%08" PRIx32 "\n",
            result.prompt_checksum);
     printf("qwen_prefill=%s\n", result.prefill_pass ? "PASS" : "FAIL");
@@ -75,6 +86,14 @@ print_qwen_run(const char *path)
     printf("qwen_completed_operators=%" PRIu32 "\n",
            result.completed_operators);
     printf("qwen_operator_summary=%s\n", opennpux_qwen_required_ops_string());
+    for (uint32_t index = 0; index < OPENNPUX_QWEN_OP_KIND_COUNT; ++index) {
+        printf("qwen_operator_count_%s=%" PRIu32 "\n",
+               opennpux_qwen_op_name(index), result.op_counts[index]);
+    }
+    printf("qwen_operation_count=%" PRIu64 "\n", result.operation_count);
+    printf("qwen_bytes_read=%" PRIu64 "\n", result.bytes_read);
+    printf("qwen_bytes_written=%" PRIu64 "\n", result.bytes_written);
+    printf("qwen_modeled_cycles=%" PRIu64 "\n", result.modeled_cycles);
     printf("qwen_logits_checksum=0x%08" PRIx32 "\n",
            result.output_checksum);
     printf("qwen_next_token=%" PRIu32 "\n", result.next_token);
@@ -335,7 +354,7 @@ main(int argc, char **argv)
          (argc < 3 || argc > 5)) ||
         (command_model_run && (argc < 3 || argc > 5)) ||
         (command_qwen_info && argc != 3) ||
-        (command_qwen_run && argc != 3) ||
+        (command_qwen_run && (argc < 3 || argc > 4)) ||
         (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
@@ -349,7 +368,7 @@ main(int argc, char **argv)
         return print_qwen_info(argv[2]);
     }
     if (command_qwen_run) {
-        return print_qwen_run(argv[2]);
+        return print_qwen_run(argv[2], argc >= 4 ? argv[3] : NULL);
     }
 
     uint64_t base = OPENNPUX_CORAL_DEFAULT_BASE;

@@ -14,6 +14,7 @@ is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 
 CORALCTL=/tmp/coralctl
 QWEN_MODEL=
+QWEN_MODE="${CORAL_QWEN_MODE:-hybrid-sim}"
 
 fail() {
     echo "[coral-qwen-test] FAIL: $*"
@@ -40,7 +41,7 @@ done
 [ -n "${QWEN_MODEL}" ] || fail "qwen model missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
 echo "qwen_model_path=${QWEN_MODEL}"
 
-"${CORALCTL}" qwen-run "${QWEN_MODEL}" || fail "qwen-run failed"
+"${CORALCTL}" qwen-run "${QWEN_MODEL}" "${QWEN_MODE}" || fail "qwen-run failed"
 
 echo "[coral-qwen-test] PASS"
 if command -v m5 >/dev/null 2>&1; then

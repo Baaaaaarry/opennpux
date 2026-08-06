@@ -9,6 +9,7 @@ extern "C" {
 
 #define OPENNPUX_QWEN_TINY_FORMAT "OPENNPUX_QWEN_TINY_V1"
 #define OPENNPUX_QWEN_MAX_OPS UINT32_C(64)
+#define OPENNPUX_QWEN_OP_KIND_COUNT UINT32_C(9)
 
 struct opennpux_qwen_model_info {
     char format[32];
@@ -36,6 +37,11 @@ struct opennpux_qwen_run_result {
     uint32_t decode_pass;
     uint32_t output_checksum;
     uint32_t next_token;
+    uint64_t modeled_cycles;
+    uint64_t operation_count;
+    uint64_t bytes_read;
+    uint64_t bytes_written;
+    uint32_t op_counts[OPENNPUX_QWEN_OP_KIND_COUNT];
 };
 
 enum opennpux_qwen_op_bit {
@@ -54,8 +60,11 @@ int opennpux_qwen_load_model_info(const char *path,
                                   struct opennpux_qwen_model_info *info);
 int opennpux_qwen_run_golden(const char *path,
                              struct opennpux_qwen_run_result *result);
+int opennpux_qwen_run_hybrid_sim(const char *path,
+                                 struct opennpux_qwen_run_result *result);
 const char *opennpux_qwen_required_ops_string(void);
 uint32_t opennpux_qwen_required_op_mask(void);
+const char *opennpux_qwen_op_name(uint32_t index);
 
 #ifdef __cplusplus
 }

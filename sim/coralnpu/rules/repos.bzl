@@ -320,7 +320,7 @@ def tflite_repos():
 def mpact_repos():
     http_archive(
         name = "com_google_mpact-riscv",
-        build_file_content = "",
+        build_file_content = "# Generated empty BUILD file for Bazel 8 package discovery.\n",
         sha256 = "38faef26745f34a82de0daf3b65a207c8d2ecf825f37484a4a27132512583574",
         strip_prefix = "mpact-riscv-cb68bd4a2cb80dea24d9760dc6397b5854ea41bd",
         url = "https://github.com/google/mpact-riscv/archive/cb68bd4a2cb80dea24d9760dc6397b5854ea41bd.tar.gz",

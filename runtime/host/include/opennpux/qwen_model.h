@@ -10,6 +10,19 @@ extern "C" {
 #define OPENNPUX_QWEN_TINY_FORMAT "OPENNPUX_QWEN_TINY_V1"
 #define OPENNPUX_QWEN_MAX_OPS UINT32_C(64)
 #define OPENNPUX_QWEN_OP_KIND_COUNT UINT32_C(9)
+#define OPENNPUX_QWEN_OP_MAX_DIMS UINT32_C(4)
+
+struct opennpux_qwen_op_entry {
+    uint32_t index;
+    uint32_t kind;
+    uint32_t layer;
+    uint32_t dim_count;
+    uint32_t dims[OPENNPUX_QWEN_OP_MAX_DIMS];
+    uint64_t operations;
+    uint64_t bytes_read;
+    uint64_t bytes_written;
+    uint64_t modeled_cycles;
+};
 
 struct opennpux_qwen_model_info {
     char format[32];
@@ -42,6 +55,7 @@ struct opennpux_qwen_run_result {
     uint64_t bytes_read;
     uint64_t bytes_written;
     uint32_t op_counts[OPENNPUX_QWEN_OP_KIND_COUNT];
+    struct opennpux_qwen_op_entry ops[OPENNPUX_QWEN_MAX_OPS];
 };
 
 enum opennpux_qwen_op_bit {

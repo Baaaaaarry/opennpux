@@ -90,6 +90,27 @@ print_qwen_run(const char *path, const char *mode)
         printf("qwen_operator_count_%s=%" PRIu32 "\n",
                opennpux_qwen_op_name(index), result.op_counts[index]);
     }
+    for (uint32_t index = 0; index < result.completed_operators &&
+                           index < OPENNPUX_QWEN_MAX_OPS; ++index) {
+        const struct opennpux_qwen_op_entry *entry = &result.ops[index];
+        printf("qwen_op_%02" PRIu32 "=%s layer=%s", index,
+               opennpux_qwen_op_name(entry->kind),
+               entry->layer == UINT32_MAX ? "none" : "");
+        if (entry->layer != UINT32_MAX) {
+            printf("%" PRIu32, entry->layer);
+        }
+        printf(" shape=");
+        if (entry->dim_count == 0) {
+            printf("none");
+        }
+        for (uint32_t dim = 0; dim < entry->dim_count; ++dim) {
+            printf("%s%" PRIu32, dim == 0 ? "" : "x", entry->dims[dim]);
+        }
+        printf(" ops=%" PRIu64 " bytes_r=%" PRIu64
+               " bytes_w=%" PRIu64 " cycles=%" PRIu64 "\n",
+               entry->operations, entry->bytes_read, entry->bytes_written,
+               entry->modeled_cycles);
+    }
     printf("qwen_operation_count=%" PRIu64 "\n", result.operation_count);
     printf("qwen_bytes_read=%" PRIu64 "\n", result.bytes_read);
     printf("qwen_bytes_written=%" PRIu64 "\n", result.bytes_written);

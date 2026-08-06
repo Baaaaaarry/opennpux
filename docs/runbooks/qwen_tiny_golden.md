@@ -182,6 +182,8 @@ qwen_mode=hybrid-sim
 qwen_prefill=PASS
 qwen_decode=PASS
 qwen_completed_operators=19
+qwen_op_00=EMBED layer=none shape=none ...
+qwen_op_01=RMS_NORM layer=0 shape=4x8 ...
 qwen_operation_count=<non-zero>
 qwen_modeled_cycles=<non-zero>
 qwen_logits_checksum=0x829e9f00

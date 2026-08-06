@@ -37,6 +37,17 @@ opennpux_qwen_op_name(uint32_t index)
     return kOpNames[index];
 }
 
+static int
+op_index_from_name(const char *name)
+{
+    for (uint32_t index = 0; index < OPENNPUX_QWEN_OP_KIND_COUNT; ++index) {
+        if (strcmp(name, kOpNames[index]) == 0) {
+            return (int)index;
+        }
+    }
+    return -1;
+}
+
 const char *
 opennpux_qwen_required_ops_string(void)
 {
@@ -227,22 +238,206 @@ count_operators(const char *json)
     return count;
 }
 
-static uint32_t
-count_operator_name(const char *json, const char *op)
+static int
+copy_json_object(const char *begin, char *buffer, size_t size)
 {
-    char needle[64];
-    const int written = snprintf(needle, sizeof(needle), "\"op\": \"%s\"", op);
-    if (written <= 0 || (size_t)written >= sizeof(needle)) {
+    const char *end = strchr(begin, '}');
+    if (end == NULL || (size_t)(end - begin + 1) >= size) {
+        errno = EINVAL;
+        return -1;
+    }
+    memcpy(buffer, begin, (size_t)(end - begin + 1));
+    buffer[end - begin + 1] = '\0';
+    return 0;
+}
+
+static uint32_t
+parse_shape_dims(const char *json, uint32_t *dims, uint32_t max_dims)
+{
+    const char *position = find_key(json, "shape");
+    if (position == NULL) {
+        errno = 0;
+        return 0;
+    }
+    const char *begin = strchr(position, '[');
+    const char *end = strchr(position, ']');
+    if (begin == NULL || end == NULL || begin > end) {
+        errno = EINVAL;
         return 0;
     }
 
     uint32_t count = 0;
-    const char *position = json;
-    while ((position = strstr(position, needle)) != NULL) {
-        ++count;
-        position += written;
+    const char *cursor = begin + 1;
+    while (cursor < end && count < max_dims) {
+        while (cursor < end &&
+               (*cursor == ' ' || *cursor == '\n' || *cursor == ',')) {
+            ++cursor;
+        }
+        if (cursor >= end) {
+            break;
+        }
+        char *parsed_end = NULL;
+        const unsigned long value = strtoul(cursor, &parsed_end, 0);
+        if (parsed_end == cursor || value > UINT32_MAX) {
+            errno = EINVAL;
+            return 0;
+        }
+        dims[count++] = (uint32_t)value;
+        cursor = parsed_end;
     }
     return count;
+}
+
+static uint64_t
+product_dims(const struct opennpux_qwen_op_entry *entry)
+{
+    uint64_t product = 1;
+    for (uint32_t index = 0; index < entry->dim_count; ++index) {
+        product *= entry->dims[index] == 0 ? 1 : entry->dims[index];
+    }
+    return product;
+}
+
+static void
+model_qwen_op(struct opennpux_qwen_op_entry *entry,
+              const struct opennpux_qwen_model_info *info)
+{
+    const uint64_t seq = info->prompt_token_count;
+    const uint64_t hidden = info->hidden_size;
+    const uint64_t inter = info->intermediate_size;
+    const uint64_t heads = info->head_count;
+    const uint64_t head_dim = info->head_dim;
+    const uint64_t vocab = info->vocab_size;
+    uint64_t elements = product_dims(entry);
+
+    switch (entry->kind) {
+      case 0: /* EMBED */
+        entry->operations = seq * hidden;
+        entry->bytes_read = seq * hidden * sizeof(float);
+        entry->bytes_written = entry->bytes_read;
+        break;
+      case 1: /* MATMUL */
+        if (entry->dim_count == 3) {
+            entry->operations =
+                (uint64_t)entry->dims[0] * entry->dims[1] * entry->dims[2];
+            entry->bytes_read =
+                ((uint64_t)entry->dims[0] * entry->dims[1] +
+                 (uint64_t)entry->dims[1] * entry->dims[2]) * sizeof(float);
+            entry->bytes_written =
+                (uint64_t)entry->dims[0] * entry->dims[2] * sizeof(float);
+        } else if (entry->dim_count == 2) {
+            entry->operations = (uint64_t)entry->dims[0] * entry->dims[1];
+            entry->bytes_read =
+                ((uint64_t)entry->dims[0] + entry->dims[0] * entry->dims[1]) *
+                sizeof(float);
+            entry->bytes_written = (uint64_t)entry->dims[1] * sizeof(float);
+        }
+        break;
+      case 2: /* ADD */
+      case 3: /* MUL */
+      case 6: /* SILU */
+        entry->operations = elements;
+        entry->bytes_read = elements * 2 * sizeof(float);
+        entry->bytes_written = elements * sizeof(float);
+        break;
+      case 4: /* RMS_NORM */
+        entry->operations = elements * 4;
+        entry->bytes_read = elements * 2 * sizeof(float);
+        entry->bytes_written = elements * sizeof(float);
+        break;
+      case 5: /* ROPE */
+        entry->operations = seq * hidden * 4;
+        entry->bytes_read = seq * hidden * sizeof(float);
+        entry->bytes_written = entry->bytes_read;
+        break;
+      case 7: /* SOFTMAX */
+        entry->operations = heads * seq * (seq + 1) / 2 * 4;
+        entry->bytes_read = heads * seq * seq * sizeof(float);
+        entry->bytes_written = entry->bytes_read;
+        break;
+      case 8: /* TOPK */
+        entry->operations = vocab;
+        entry->bytes_read = vocab * sizeof(float);
+        entry->bytes_written = sizeof(uint32_t);
+        break;
+      default:
+        break;
+    }
+
+    const uint64_t ops_per_cycle = 16;
+    const uint64_t bytes_per_cycle = 32;
+    const uint64_t compute_cycles =
+        (entry->operations + ops_per_cycle - 1) / ops_per_cycle;
+    const uint64_t memory_cycles =
+        (entry->bytes_read + entry->bytes_written + bytes_per_cycle - 1) /
+        bytes_per_cycle;
+    entry->modeled_cycles = compute_cycles > memory_cycles ?
+        compute_cycles : memory_cycles;
+    if (entry->modeled_cycles == 0) {
+        entry->modeled_cycles = 1;
+    }
+    (void)inter;
+    (void)head_dim;
+}
+
+static int
+parse_operator_trace(const char *json, struct opennpux_qwen_run_result *result)
+{
+    const char *trace = find_key(json, "operator_trace");
+    if (trace == NULL) {
+        return -1;
+    }
+    const char *trace_end = strstr(trace, "\n  ]");
+    if (trace_end == NULL) {
+        trace_end = json + strlen(json);
+    }
+
+    uint32_t op_index = 0;
+    const char *cursor = trace;
+    while ((cursor = strstr(cursor, "\"op\":")) != NULL &&
+           cursor < trace_end && op_index < OPENNPUX_QWEN_MAX_OPS) {
+        const char *object_begin = cursor;
+        while (object_begin > json && *object_begin != '{') {
+            --object_begin;
+        }
+        char object[512];
+        if (*object_begin != '{' ||
+            copy_json_object(object_begin, object, sizeof(object)) != 0) {
+            return -1;
+        }
+
+        char op_name[32];
+        if (parse_string_key(object, "op", op_name, sizeof(op_name)) != 0) {
+            return -1;
+        }
+        const int kind = op_index_from_name(op_name);
+        if (kind < 0) {
+            errno = EINVAL;
+            return -1;
+        }
+
+        struct opennpux_qwen_op_entry *entry = &result->ops[op_index];
+        memset(entry, 0, sizeof(*entry));
+        entry->index = op_index;
+        entry->kind = (uint32_t)kind;
+        if (parse_u32_key(object, "layer", &entry->layer) != 0) {
+            entry->layer = UINT32_MAX;
+            errno = 0;
+        }
+        entry->dim_count =
+            parse_shape_dims(object, entry->dims, OPENNPUX_QWEN_OP_MAX_DIMS);
+        result->op_counts[entry->kind]++;
+        model_qwen_op(entry, &result->info);
+        result->operation_count += entry->operations;
+        result->bytes_read += entry->bytes_read;
+        result->bytes_written += entry->bytes_written;
+        result->modeled_cycles += entry->modeled_cycles;
+        ++op_index;
+        cursor += 5;
+    }
+
+    result->completed_operators = op_index;
+    return op_index == result->info.operator_count ? 0 : -1;
 }
 
 static uint32_t
@@ -395,53 +590,10 @@ opennpux_qwen_run_hybrid_sim(const char *path,
         return -1;
     }
 
-    for (uint32_t index = 0; index < OPENNPUX_QWEN_OP_KIND_COUNT; ++index) {
-        result->op_counts[index] = count_operator_name(json, kOpNames[index]);
+    if (parse_operator_trace(json, result) != 0) {
+        free(json);
+        return -1;
     }
     free(json);
-
-    const uint64_t seq = result->info.prompt_token_count;
-    const uint64_t hidden = result->info.hidden_size;
-    const uint64_t inter = result->info.intermediate_size;
-    const uint64_t heads = result->info.head_count;
-    const uint64_t head_dim = result->info.head_dim;
-    const uint64_t vocab = result->info.vocab_size;
-
-    const uint64_t qkv_ops = 3 * seq * hidden * hidden;
-    const uint64_t attention_out_ops = seq * hidden * hidden;
-    const uint64_t ffn_ops = 2 * seq * hidden * inter + seq * inter * hidden;
-    const uint64_t lm_head_ops = hidden * vocab;
-    const uint64_t attention_score_ops = heads * seq * (seq + 1) * head_dim / 2;
-    const uint64_t attention_value_ops = attention_score_ops;
-    const uint64_t norm_ops = (2 * seq + 1) * hidden;
-    const uint64_t elementwise_ops = 2 * seq * hidden + 2 * seq * inter;
-    const uint64_t softmax_ops = heads * seq * (seq + 1) / 2;
-    const uint64_t rope_ops = seq * hidden;
-    const uint64_t topk_ops = vocab;
-
-    result->operation_count =
-        qkv_ops + attention_out_ops + ffn_ops + lm_head_ops +
-        attention_score_ops + attention_value_ops + norm_ops +
-        elementwise_ops + softmax_ops + rope_ops + topk_ops;
-
-    result->bytes_read =
-        (seq * hidden + hidden * vocab + hidden * hidden * 4 +
-         hidden * inter * 2 + inter * hidden + seq * hidden * 4) *
-        sizeof(float);
-    result->bytes_written =
-        (seq * hidden * 8 + seq * inter * 3 + vocab) * sizeof(float);
-
-    const uint64_t ops_per_cycle = 16;
-    const uint64_t bytes_per_cycle = 32;
-    const uint64_t compute_cycles =
-        (result->operation_count + ops_per_cycle - 1) / ops_per_cycle;
-    const uint64_t memory_cycles =
-        (result->bytes_read + result->bytes_written + bytes_per_cycle - 1) /
-        bytes_per_cycle;
-    result->modeled_cycles = compute_cycles > memory_cycles ?
-        compute_cycles : memory_cycles;
-    if (result->modeled_cycles == 0) {
-        result->modeled_cycles = 1;
-    }
     return 0;
 }

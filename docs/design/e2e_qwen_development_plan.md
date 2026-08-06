@@ -137,6 +137,21 @@ Needed fields:
 - KV cache base, stride, and update mode.
 - Operator checksum and debug marker.
 
+Implemented Qwen TCB v1 host/runtime staging:
+
+- Header: `magic/version/total_size/op_count`, model shape, prompt checksum,
+  expected logits checksum, next token, aggregate ops/bytes/cycles, and TCB
+  checksum.
+- Per-op descriptor: op index, kind, layer, rank/shape, input/weight/output
+  offsets, scratch offset, operations, bytes read/written, and modeled cycles.
+- Current builder emits the TCB from parsed `operator_trace` in
+  `opennpux_qwen_build_tcb()` and validates it in host unit tests.
+- `coralctl qwen-stage-tcb` writes the generated TCB into the NPU shared DMA
+  window and validates the staged header through the mapped guest window.
+- The generated tiny Qwen TCB is currently 2088 bytes, so it fits in the
+  default 4 KiB shared DMA window. Larger models will need chunking or a larger
+  `--npu-dma-shared-size`.
+
 Required docs:
 
 - Update `docs/design/coral_operator_abi.md`.

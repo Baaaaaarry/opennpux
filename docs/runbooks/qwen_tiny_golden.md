@@ -186,18 +186,49 @@ qwen_op_00=EMBED layer=none shape=none ...
 qwen_op_01=RMS_NORM layer=0 shape=4x8 ...
 qwen_operation_count=<non-zero>
 qwen_modeled_cycles=<non-zero>
+qwen_tcb_size=<non-zero>
+qwen_tcb_checksum=0x...
 qwen_logits_checksum=0x829e9f00
 qwen_next_token=7
 qwen_run=PASS
 [coral-qwen-test] PASS
 ```
 
+Validate that the runtime can stage the generated Qwen Task Control Block into
+the NPU shared DMA window:
+
+```bash
+CORAL_DISK_IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+  ./tools/coralnpu/run_qwen_stage_tcb_test.sh
+```
+
+Expected guest output:
+
+```text
+[coral-qwen-stage-tcb-test] started
+qwen_model_path=/tmp/qwen-tiny.npxm
+transport=driver
+shared_base=0x8ff00000
+shared_size=0x00001000
+qwen_model=qwen-tiny-synthetic
+qwen_completed_operators=19
+qwen_operation_count=3008
+qwen_modeled_cycles=269
+qwen_tcb_size=2088
+qwen_tcb_checksum=0x62fd2442
+qwen_tcb_magic=0x4e455751
+qwen_tcb_op_count=19
+qwen_tcb_stage=PASS
+[coral-qwen-stage-tcb-test] PASS
+```
+
 ## Follow-Up Integration
 
-This milestone validates the guest command path inside gem5 using the package
-golden result. The next milestones should replace the `golden-package`
-execution mode with real operator dispatch while keeping the same acceptance
-fields:
+This milestone validates the guest command path inside gem5, structured Qwen
+operator trace parsing, host-side hybrid simulation, and descriptor staging into
+the NPU shared DMA window. The next milestone should make NPU firmware consume
+the staged TCB and publish per-op completion records while keeping the same
+acceptance fields:
 
 - firmware operator scheduler;
 - hybrid/sampled operator tests;

@@ -441,6 +441,100 @@ parse_operator_trace(const char *json, struct opennpux_qwen_run_result *result)
 }
 
 static uint32_t
+align_u32(uint32_t value, uint32_t alignment)
+{
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
+static uint32_t
+fnv1a32(const void *data, uint32_t size)
+{
+    const uint8_t *bytes = (const uint8_t *)data;
+    uint32_t checksum = 2166136261u;
+    for (uint32_t index = 0; index < size; ++index) {
+        checksum ^= bytes[index];
+        checksum *= 16777619u;
+    }
+    return checksum;
+}
+
+int
+opennpux_qwen_build_tcb(const struct opennpux_qwen_run_result *result,
+                        void *buffer, uint32_t buffer_size,
+                        uint32_t *tcb_size, uint32_t *tcb_checksum)
+{
+    if (result == NULL || buffer == NULL || tcb_size == NULL ||
+        tcb_checksum == NULL || result->completed_operators == 0 ||
+        result->completed_operators > OPENNPUX_QWEN_MAX_OPS) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const uint32_t required_size =
+        sizeof(struct opennpux_qwen_tcb_header) +
+        result->completed_operators * sizeof(struct opennpux_qwen_tcb_op);
+    if (buffer_size < required_size || required_size > OPENNPUX_QWEN_TCB_MAX_SIZE) {
+        errno = ERANGE;
+        return -1;
+    }
+
+    memset(buffer, 0, buffer_size);
+    struct opennpux_qwen_tcb_header *header =
+        (struct opennpux_qwen_tcb_header *)buffer;
+    struct opennpux_qwen_tcb_op *ops =
+        (struct opennpux_qwen_tcb_op *)((uint8_t *)buffer + sizeof(*header));
+
+    header->magic = OPENNPUX_QWEN_TCB_MAGIC;
+    header->version = OPENNPUX_QWEN_TCB_VERSION;
+    header->header_size = sizeof(*header);
+    header->total_size = required_size;
+    header->op_count = result->completed_operators;
+    header->prompt_tokens = result->info.prompt_token_count;
+    header->hidden_size = result->info.hidden_size;
+    header->vocab_size = result->info.vocab_size;
+    header->prompt_checksum = result->prompt_checksum;
+    header->logits_checksum = result->output_checksum;
+    header->next_token = result->next_token;
+    header->operation_count = result->operation_count;
+    header->bytes_read = result->bytes_read;
+    header->bytes_written = result->bytes_written;
+    header->modeled_cycles = result->modeled_cycles;
+
+    uint32_t cursor = OPENNPUX_QWEN_TCB_TENSOR_BASE;
+    for (uint32_t index = 0; index < result->completed_operators; ++index) {
+        const struct opennpux_qwen_op_entry *entry = &result->ops[index];
+        struct opennpux_qwen_tcb_op *descriptor = &ops[index];
+        descriptor->index = entry->index;
+        descriptor->kind = entry->kind;
+        descriptor->layer = entry->layer;
+        descriptor->rank = entry->dim_count;
+        memcpy(descriptor->dims, entry->dims, sizeof(descriptor->dims));
+        descriptor->operations = entry->operations;
+        descriptor->bytes_read = entry->bytes_read;
+        descriptor->bytes_written = entry->bytes_written;
+        descriptor->modeled_cycles = entry->modeled_cycles;
+
+        descriptor->input_offset = cursor;
+        cursor = align_u32(cursor + (uint32_t)entry->bytes_read,
+                           OPENNPUX_QWEN_TCB_TENSOR_ALIGN);
+        descriptor->weight_offset = cursor;
+        cursor = align_u32(cursor + (uint32_t)(entry->bytes_read / 2),
+                           OPENNPUX_QWEN_TCB_TENSOR_ALIGN);
+        descriptor->output_offset = cursor;
+        cursor = align_u32(cursor + (uint32_t)entry->bytes_written,
+                           OPENNPUX_QWEN_TCB_TENSOR_ALIGN);
+        descriptor->scratch_offset = cursor;
+        cursor = align_u32(cursor + 64, OPENNPUX_QWEN_TCB_TENSOR_ALIGN);
+    }
+
+    header->tcb_checksum = 0;
+    header->tcb_checksum = fnv1a32(buffer, required_size);
+    *tcb_size = required_size;
+    *tcb_checksum = header->tcb_checksum;
+    return 0;
+}
+
+static uint32_t
 count_prompt_tokens(const char *json)
 {
     const char *position = find_key(json, "input_ids");
@@ -595,5 +689,12 @@ opennpux_qwen_run_hybrid_sim(const char *path,
         return -1;
     }
     free(json);
+
+    uint8_t tcb[OPENNPUX_QWEN_TCB_MAX_SIZE];
+    if (opennpux_qwen_build_tcb(result, tcb, sizeof(tcb),
+                                &result->tcb_size,
+                                &result->tcb_checksum) != 0) {
+        return -1;
+    }
     return 0;
 }

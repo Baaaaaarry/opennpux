@@ -20,13 +20,14 @@ usage(const char *prog)
             "  %s model-run <model.npxm> [base [poll-count]]\n"
             "  %s qwen-info <qwen-tiny.npxm>\n"
             "  %s qwen-run <qwen-tiny.npxm> [golden-package|hybrid-sim]\n"
+            "  %s qwen-stage-tcb <qwen-tiny.npxm> [base]\n"
             "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
             "  %s mem-read32 <offset> [base]\n"
             "  %s mem-write32 <offset> <value> [base]\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog, prog);
+            prog, prog, prog);
 }
 
 static int
@@ -115,11 +116,96 @@ print_qwen_run(const char *path, const char *mode)
     printf("qwen_bytes_read=%" PRIu64 "\n", result.bytes_read);
     printf("qwen_bytes_written=%" PRIu64 "\n", result.bytes_written);
     printf("qwen_modeled_cycles=%" PRIu64 "\n", result.modeled_cycles);
+    printf("qwen_tcb_size=%" PRIu32 "\n", result.tcb_size);
+    printf("qwen_tcb_checksum=0x%08" PRIx32 "\n", result.tcb_checksum);
     printf("qwen_logits_checksum=0x%08" PRIx32 "\n",
            result.output_checksum);
     printf("qwen_next_token=%" PRIu32 "\n", result.next_token);
     printf("qwen_run=PASS\n");
     return 0;
+}
+
+static int
+copy_to_shared_window(struct opennpux_coral_shared_window *window,
+                      const uint8_t *source, uint32_t size)
+{
+    if (size > window->size) {
+        errno = ERANGE;
+        return -1;
+    }
+    for (uint32_t index = 0; index < size; ++index) {
+        window->bytes[index] = source[index];
+    }
+    return 0;
+}
+
+static int
+verify_staged_qwen_tcb(const struct opennpux_qwen_run_result *result,
+                       const struct opennpux_coral_shared_window *window)
+{
+    const volatile struct opennpux_qwen_tcb_header *header =
+        (const volatile struct opennpux_qwen_tcb_header *)(const volatile void *)
+            window->bytes;
+    if (header->magic != OPENNPUX_QWEN_TCB_MAGIC ||
+        header->version != OPENNPUX_QWEN_TCB_VERSION ||
+        header->total_size != result->tcb_size ||
+        header->op_count != result->completed_operators ||
+        header->tcb_checksum != result->tcb_checksum ||
+        header->logits_checksum != result->output_checksum ||
+        header->next_token != result->next_token) {
+        errno = EIO;
+        return -1;
+    }
+    return 0;
+}
+
+static int
+print_qwen_stage_tcb(struct opennpux_coral_device *dev, const char *path)
+{
+    struct opennpux_qwen_run_result result;
+    if (opennpux_qwen_run_hybrid_sim(path, &result) != 0) {
+        perror("qwen-stage-tcb");
+        return 1;
+    }
+
+    uint8_t tcb[OPENNPUX_QWEN_TCB_MAX_SIZE];
+    uint32_t tcb_size = 0;
+    uint32_t tcb_checksum = 0;
+    if (opennpux_qwen_build_tcb(&result, tcb, sizeof(tcb),
+                                &tcb_size, &tcb_checksum) != 0) {
+        perror("qwen-stage-tcb");
+        return 1;
+    }
+
+    struct opennpux_coral_shared_window window;
+    if (opennpux_coral_open_shared_window(dev, tcb_size, &window) != 0) {
+        return 1;
+    }
+
+    int rc = 0;
+    if (copy_to_shared_window(&window, tcb, tcb_size) != 0 ||
+        verify_staged_qwen_tcb(&result, &window) != 0) {
+        perror("qwen-stage-tcb");
+        rc = 1;
+    }
+
+    printf("transport=%s\n", opennpux_coral_transport_name(dev->transport));
+    printf("shared_base=0x%08" PRIx32 "\n", window.base);
+    printf("shared_size=0x%08" PRIx32 "\n", window.size);
+    printf("qwen_model=%s\n", result.info.name);
+    printf("qwen_completed_operators=%" PRIu32 "\n",
+           result.completed_operators);
+    printf("qwen_operation_count=%" PRIu64 "\n", result.operation_count);
+    printf("qwen_modeled_cycles=%" PRIu64 "\n", result.modeled_cycles);
+    printf("qwen_tcb_size=%" PRIu32 "\n", tcb_size);
+    printf("qwen_tcb_checksum=0x%08" PRIx32 "\n", tcb_checksum);
+    printf("qwen_tcb_magic=0x%08" PRIx32 "\n", OPENNPUX_QWEN_TCB_MAGIC);
+    printf("qwen_tcb_op_count=%" PRIu32 "\n", result.completed_operators);
+    if (rc == 0) {
+        printf("qwen_tcb_stage=PASS\n");
+    }
+    opennpux_coral_close_shared_window(&window);
+    return rc;
 }
 
 static void
@@ -354,6 +440,7 @@ main(int argc, char **argv)
     const int command_model_run = strcmp(argv[1], "model-run") == 0;
     const int command_qwen_info = strcmp(argv[1], "qwen-info") == 0;
     const int command_qwen_run = strcmp(argv[1], "qwen-run") == 0;
+    const int command_qwen_stage_tcb = strcmp(argv[1], "qwen-stage-tcb") == 0;
     const int command_mobilenet_test =
         strcmp(argv[1], "mobilenet-test") == 0;
     const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
@@ -363,8 +450,9 @@ main(int argc, char **argv)
     if (!command_info && !command_run && !command_dma_test &&
         !command_vector_add && !command_vector_add_custom &&
         !command_model_run && !command_qwen_info && !command_qwen_run &&
-        !command_mobilenet_test && !command_mem_info && !command_mem_clear &&
-        !command_mem_read32 && !command_mem_write32) {
+        !command_qwen_stage_tcb && !command_mobilenet_test &&
+        !command_mem_info && !command_mem_clear && !command_mem_read32 &&
+        !command_mem_write32) {
         usage(argv[0]);
         return 2;
     }
@@ -376,6 +464,7 @@ main(int argc, char **argv)
         (command_model_run && (argc < 3 || argc > 5)) ||
         (command_qwen_info && argc != 3) ||
         (command_qwen_run && (argc < 3 || argc > 4)) ||
+        (command_qwen_stage_tcb && (argc < 3 || argc > 4)) ||
         (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
@@ -415,6 +504,12 @@ main(int argc, char **argv)
             return 2;
         }
     } else if (command_model_run) {
+        model_path = argv[2];
+        if (argc >= 4 && opennpux_coral_parse_u64(argv[3], &base) != 0) {
+            fprintf(stderr, "invalid base address: %s\n", argv[3]);
+            return 2;
+        }
+    } else if (command_qwen_stage_tcb) {
         model_path = argv[2];
         if (argc >= 4 && opennpux_coral_parse_u64(argv[3], &base) != 0) {
             fprintf(stderr, "invalid base address: %s\n", argv[3]);
@@ -480,6 +575,12 @@ main(int argc, char **argv)
         const int result =
             print_write_shared_u32(&dev, shared_offset,
                                    (uint32_t)shared_value);
+        opennpux_coral_close(&dev);
+        return result;
+    }
+
+    if (command_qwen_stage_tcb) {
+        const int result = print_qwen_stage_tcb(&dev, model_path);
         opennpux_coral_close(&dev);
         return result;
     }

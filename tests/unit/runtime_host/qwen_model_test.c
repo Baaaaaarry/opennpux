@@ -67,6 +67,35 @@ main(int argc, char **argv)
     check(result.next_token == 7, "unexpected qwen hybrid next token");
     check(result.output_checksum == 0x829e9f00,
           "unexpected qwen hybrid output checksum");
+    check(result.tcb_size != 0, "qwen tcb size missing");
+    check(result.tcb_checksum != 0, "qwen tcb checksum missing");
+
+    uint8_t tcb[OPENNPUX_QWEN_TCB_MAX_SIZE];
+    uint32_t tcb_size = 0;
+    uint32_t tcb_checksum = 0;
+    check(opennpux_qwen_build_tcb(&result, tcb, sizeof(tcb),
+                                  &tcb_size, &tcb_checksum) == 0,
+          "failed to build qwen tcb");
+    check(tcb_size == result.tcb_size, "qwen tcb size mismatch");
+    check(tcb_checksum == result.tcb_checksum, "qwen tcb checksum mismatch");
+    const struct opennpux_qwen_tcb_header *header =
+        (const struct opennpux_qwen_tcb_header *)tcb;
+    const struct opennpux_qwen_tcb_op *ops =
+        (const struct opennpux_qwen_tcb_op *)(const void *)(
+            tcb + sizeof(*header));
+    check(header->magic == OPENNPUX_QWEN_TCB_MAGIC, "qwen tcb magic mismatch");
+    check(header->version == OPENNPUX_QWEN_TCB_VERSION,
+          "qwen tcb version mismatch");
+    check(header->op_count == 19, "qwen tcb op count mismatch");
+    check(header->logits_checksum == 0x829e9f00,
+          "qwen tcb logits checksum mismatch");
+    check(ops[2].kind == 1, "qwen tcb matmul kind mismatch");
+    check(ops[2].rank == 3, "qwen tcb matmul rank mismatch");
+    check(ops[2].dims[0] == 4 && ops[2].dims[1] == 8 &&
+              ops[2].dims[2] == 8,
+          "qwen tcb matmul dims mismatch");
+    check(ops[2].input_offset >= OPENNPUX_QWEN_TCB_TENSOR_BASE,
+          "qwen tcb tensor offset mismatch");
 
     puts("PASS: qwen model host unit tests");
     puts("qwen_loader=PASS");

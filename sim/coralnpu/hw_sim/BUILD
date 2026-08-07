@@ -229,6 +229,14 @@ coralnpu_v2_binary(
 )
 
 coralnpu_v2_binary(
+    name = "gem5_qwen_tcb_smoke",
+    srcs = [
+        "gem5_bridge/gem5_qwen_tcb_smoke.c",
+        "gem5_bridge/qwen_tcb.h",
+    ],
+)
+
+coralnpu_v2_binary(
     name = "gem5_mobilenet",
     srcs = [
         "gem5_bridge/coral_mobilenet.h",

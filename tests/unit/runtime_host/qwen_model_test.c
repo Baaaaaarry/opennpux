@@ -89,6 +89,12 @@ main(int argc, char **argv)
     check(header->op_count == 19, "qwen tcb op count mismatch");
     check(header->logits_checksum == 0x829e9f00,
           "qwen tcb logits checksum mismatch");
+    check(header->tcb_state == OPENNPUX_QWEN_TCB_STATE_PENDING,
+          "qwen tcb initial state mismatch");
+    check(header->tcb_error == OPENNPUX_QWEN_TCB_ERROR_NONE,
+          "qwen tcb initial error mismatch");
+    check(header->device_completed_ops == 0,
+          "qwen tcb initial device completion mismatch");
     check(ops[2].kind == 1, "qwen tcb matmul kind mismatch");
     check(ops[2].rank == 3, "qwen tcb matmul rank mismatch");
     check(ops[2].dims[0] == 4 && ops[2].dims[1] == 8 &&

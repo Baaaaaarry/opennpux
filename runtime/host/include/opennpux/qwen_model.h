@@ -17,6 +17,17 @@ extern "C" {
 #define OPENNPUX_QWEN_TCB_TENSOR_BASE UINT32_C(0x00001000)
 #define OPENNPUX_QWEN_TCB_TENSOR_ALIGN UINT32_C(64)
 
+#define OPENNPUX_QWEN_TCB_STATE_PENDING UINT32_C(0)
+#define OPENNPUX_QWEN_TCB_STATE_RUNNING UINT32_C(1)
+#define OPENNPUX_QWEN_TCB_STATE_COMPLETE UINT32_C(2)
+#define OPENNPUX_QWEN_TCB_STATE_ERROR UINT32_C(3)
+
+#define OPENNPUX_QWEN_TCB_ERROR_NONE UINT32_C(0)
+#define OPENNPUX_QWEN_TCB_ERROR_ABI UINT32_C(1)
+#define OPENNPUX_QWEN_TCB_ERROR_CHECKSUM UINT32_C(2)
+#define OPENNPUX_QWEN_TCB_ERROR_OPERATOR UINT32_C(3)
+#define OPENNPUX_QWEN_TCB_ERROR_BOUNDS UINT32_C(4)
+
 struct opennpux_qwen_op_entry {
     uint32_t index;
     uint32_t kind;
@@ -46,7 +57,12 @@ struct opennpux_qwen_tcb_header {
     uint64_t bytes_read;
     uint64_t bytes_written;
     uint64_t modeled_cycles;
-    uint32_t reserved[8];
+    uint32_t tcb_state;
+    uint32_t tcb_error;
+    uint32_t device_checksum;
+    uint32_t device_completed_ops;
+    uint64_t device_modeled_cycles;
+    uint32_t reserved[2];
 };
 
 struct opennpux_qwen_tcb_op {

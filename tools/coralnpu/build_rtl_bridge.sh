@@ -9,6 +9,7 @@ TARGET="//hw_sim:libcoralnpu_gem5_bridge.so"
 FIRMWARE_TARGET="//hw_sim:gem5_smoke_halt.elf"
 DMA_FIRMWARE_TARGET="//hw_sim:gem5_dma_smoke.elf"
 COMMAND_FIRMWARE_TARGET="//hw_sim:gem5_command_smoke.elf"
+QWEN_TCB_FIRMWARE_TARGET="//hw_sim:gem5_qwen_tcb_smoke.elf"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${CORAL_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -47,6 +48,7 @@ rm -f \
     "${OUT_DIR}/gem5_smoke_halt.elf" \
     "${OUT_DIR}/gem5_dma_smoke.elf" \
     "${OUT_DIR}/gem5_command_smoke.elf" \
+    "${OUT_DIR}/gem5_qwen_tcb_smoke.elf" \
     "${OUT_DIR}/wfi_slot_0.elf"
 
 cd "${CORAL_REPO}"
@@ -56,7 +58,7 @@ cd "${CORAL_REPO}"
     --repository_cache="${REPO_CACHE}" \
     --distdir="${DISTDIR}" \
     "${TARGET}" "${FIRMWARE_TARGET}" "${DMA_FIRMWARE_TARGET}" \
-    "${COMMAND_FIRMWARE_TARGET}" "$@"
+    "${COMMAND_FIRMWARE_TARGET}" "${QWEN_TCB_FIRMWARE_TARGET}" "$@"
 EXEC_ROOT="$("${BAZEL}" \
     --output_user_root="${BAZEL_OUTPUT_ROOT}" \
     info execution_root)"
@@ -81,6 +83,7 @@ BRIDGE="$(resolve_output "${TARGET}")"
 FIRMWARE="$(resolve_output "${FIRMWARE_TARGET}")"
 DMA_FIRMWARE="$(resolve_output "${DMA_FIRMWARE_TARGET}")"
 COMMAND_FIRMWARE="$(resolve_output "${COMMAND_FIRMWARE_TARGET}")"
+QWEN_TCB_FIRMWARE="$(resolve_output "${QWEN_TCB_FIRMWARE_TARGET}")"
 
 if [ ! -f "${BRIDGE}" ]; then
     echo "error: Bazel completed but bridge was not found: ${BRIDGE}" >&2
@@ -96,6 +99,10 @@ if [ ! -f "${DMA_FIRMWARE}" ]; then
 fi
 if [ ! -f "${COMMAND_FIRMWARE}" ]; then
     echo "error: Bazel completed but command firmware was not found: ${COMMAND_FIRMWARE}" >&2
+    exit 1
+fi
+if [ ! -f "${QWEN_TCB_FIRMWARE}" ]; then
+    echo "error: Bazel completed but Qwen TCB firmware was not found: ${QWEN_TCB_FIRMWARE}" >&2
     exit 1
 fi
 
@@ -127,6 +134,8 @@ install_output "${FIRMWARE}" "${OUT_DIR}/gem5_smoke_halt.elf" 0644
 install_output "${DMA_FIRMWARE}" "${OUT_DIR}/gem5_dma_smoke.elf" 0644
 install_output "${COMMAND_FIRMWARE}" \
     "${OUT_DIR}/gem5_command_smoke.elf" 0644
+install_output "${QWEN_TCB_FIRMWARE}" \
+    "${OUT_DIR}/gem5_qwen_tcb_smoke.elf" 0644
 
 if command -v nm >/dev/null 2>&1 &&
    nm -D --undefined-only \
@@ -148,3 +157,4 @@ echo "built: ${OUT_DIR}/libcoralnpu_gem5_bridge.so"
 echo "built: ${OUT_DIR}/gem5_smoke_halt.elf"
 echo "built: ${OUT_DIR}/gem5_dma_smoke.elf"
 echo "built: ${OUT_DIR}/gem5_command_smoke.elf"
+echo "built: ${OUT_DIR}/gem5_qwen_tcb_smoke.elf"

@@ -222,13 +222,46 @@ qwen_tcb_stage=PASS
 [coral-qwen-stage-tcb-test] PASS
 ```
 
+Validate that a Verilated Coral firmware can consume the staged TCB and write
+back device-side completion fields:
+
+```bash
+./tools/coralnpu/build_rtl_bridge.sh
+
+CORAL_DISK_IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
+CORAL_KERNEL_IMAGE=/home/barry/wlk/gem5_arm_linux_images/vmlinux.arm \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
+  ./tools/coralnpu/run_qwen_tcb_smoke_test.sh
+```
+
+Expected guest output:
+
+```text
+[coral-qwen-tcb-run-test] started
+qwen_model_path=/tmp/qwen-tiny.npxm
+transport=driver
+entry=0x00000000
+qwen_tcb_size=2088
+qwen_tcb_checksum=0x62fd2442
+qwen_device_status=0x00000001
+qwen_tcb_state=2
+qwen_tcb_error=0
+qwen_device_checksum=0x62fd2442
+qwen_device_completed_ops=19
+qwen_device_modeled_cycles=269
+qwen_tcb_run=PASS
+[coral-qwen-tcb-run-test] PASS
+```
+
 ## Follow-Up Integration
 
 This milestone validates the guest command path inside gem5, structured Qwen
 operator trace parsing, host-side hybrid simulation, and descriptor staging into
-the NPU shared DMA window. The next milestone should make NPU firmware consume
-the staged TCB and publish per-op completion records while keeping the same
-acceptance fields:
+the NPU shared DMA window. The Verilated TCB smoke firmware additionally proves
+that NPU-side code can read the TCB from EXTMEM/shared memory and publish
+completion fields back to the CPU. The next milestone should replace the smoke
+consumer with a real firmware operator scheduler and publish per-op completion
+records while keeping the same acceptance fields:
 
 - firmware operator scheduler;
 - hybrid/sampled operator tests;

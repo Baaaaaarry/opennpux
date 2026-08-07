@@ -1,0 +1,62 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp /dev
+[ -r /proc/mounts ] || mount -t proc proc /proc 2>/dev/null || true
+is_mounted() {
+    while read -r _source target _rest; do
+        [ "$target" = "$1" ] && return 0
+    done < /proc/mounts
+    return 1
+}
+is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
+is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+CORALCTL=
+QWEN_MODEL=
+
+fail() {
+    echo "[coral-qwen-tcb-run-test] FAIL: $*"
+    if command -v m5 >/dev/null 2>&1; then
+        m5 --inst exit
+    fi
+    exit 1
+}
+
+echo "[coral-qwen-tcb-run-test] started"
+for candidate in \
+    /tmp/coralctl \
+    /usr/local/bin/coralctl \
+    /data/usr/local/bin/coralctl \
+    /bin/coralctl \
+    /data/bin/coralctl
+do
+    if [ -x "$candidate" ] && "$candidate" 2>&1 | grep -q qwen-run-tcb; then
+        CORALCTL="$candidate"
+        break
+    fi
+done
+[ -n "${CORALCTL}" ] || fail "coralctl with qwen-run-tcb support missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
+echo "[coral-qwen-tcb-run-test] tool=${CORALCTL}"
+
+for candidate in \
+    /tmp/qwen-tiny.npxm \
+    /usr/local/share/opennpux/qwen-tiny.npxm \
+    /data/usr/local/share/opennpux/qwen-tiny.npxm \
+    /root/qwen-tiny.npxm
+do
+    if [ -r "$candidate" ]; then
+        QWEN_MODEL="$candidate"
+        break
+    fi
+done
+[ -n "${QWEN_MODEL}" ] || fail "qwen model missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
+echo "qwen_model_path=${QWEN_MODEL}"
+
+"${CORALCTL}" qwen-run-tcb "${QWEN_MODEL}" || fail "qwen-run-tcb failed"
+
+echo "[coral-qwen-tcb-run-test] PASS"
+if command -v m5 >/dev/null 2>&1; then
+    m5 --inst exit
+fi
+exit 0

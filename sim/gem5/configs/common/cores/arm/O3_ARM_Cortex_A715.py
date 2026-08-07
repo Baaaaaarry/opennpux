@@ -58,6 +58,7 @@ class O3_ARM_Cortex_A715_FUP(FUPool):
         O3_ARM_Cortex_A715_Store(),
         O3_ARM_Cortex_A715_FP(),
         O3_ARM_Cortex_A715_SIMD(),
+        PredALU(),
     ]
 
 class O3_ARM_Cortex_A715_BTB(SimpleBTB):

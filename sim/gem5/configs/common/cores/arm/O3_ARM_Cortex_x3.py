@@ -63,6 +63,7 @@ class O3_ARM_Cortex_x3_FUP(FUPool):
         O3_ARM_Cortex_x3_Store(),
         O3_ARM_Cortex_x3_FP(),
         O3_ARM_Cortex_x3_SIMD(),
+        PredALU(),
     ]
 
 
@@ -192,4 +193,3 @@ class O3_ARM_Cortex_x3L2(Cache):
     prefetcher = StridePrefetcher(degree=4, latency=1, prefetch_on_access=True)
     tags = BaseSetAssoc()
     replacement_policy = LRURP()
-

@@ -12,7 +12,7 @@ is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
 is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 
-CORALCTL=/tmp/coralctl
+CORALCTL=
 QWEN_MODEL=
 
 fail() {
@@ -24,8 +24,20 @@ fail() {
 }
 
 echo "[coral-qwen-stage-tcb-test] started"
-[ -x "${CORALCTL}" ] || CORALCTL=/usr/local/bin/coralctl
-[ -x "${CORALCTL}" ] || fail "coralctl missing"
+for candidate in \
+    /tmp/coralctl \
+    /usr/local/bin/coralctl \
+    /data/usr/local/bin/coralctl \
+    /bin/coralctl \
+    /data/bin/coralctl
+do
+    if [ -x "$candidate" ] && "$candidate" 2>&1 | grep -q qwen-stage-tcb; then
+        CORALCTL="$candidate"
+        break
+    fi
+done
+[ -n "${CORALCTL}" ] || fail "coralctl with qwen-stage-tcb support missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
+echo "[coral-qwen-stage-tcb-test] tool=${CORALCTL}"
 for candidate in \
     /tmp/qwen-tiny.npxm \
     /usr/local/share/opennpux/qwen-tiny.npxm \

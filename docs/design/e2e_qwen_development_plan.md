@@ -159,6 +159,11 @@ Implemented Qwen TCB v1 host/runtime staging:
 - `coralctl qwen-run-tcb` validates device completed-op count, device op mask,
   trace checksum, modeled cycles, and per-descriptor completion markers before
   reporting `qwen_tcb_run=PASS`.
+- The host runtime also computes `qwen_expected_trace_checksum` from the staged
+  TCB descriptors and requires the firmware-reported
+  `qwen_device_trace_checksum` to match exactly. This detects descriptor order,
+  opcode, layer/rank, operation count, or modeled-cycle mismatches even when
+  aggregate completion status is `PASS`.
 
 Required docs:
 

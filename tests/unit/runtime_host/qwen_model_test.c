@@ -108,6 +108,10 @@ main(int argc, char **argv)
           "qwen tcb tensor offset mismatch");
     check(ops[2].reserved[0] == 0 && ops[2].reserved[1] == 0,
           "qwen tcb initial op completion fields mismatch");
+    check(opennpux_qwen_tcb_trace_checksum(ops, header->op_count) != 0,
+          "qwen tcb trace checksum missing");
+    check(opennpux_qwen_tcb_trace_checksum(ops, OPENNPUX_QWEN_MAX_OPS + 1) == 0,
+          "qwen tcb trace checksum bounds mismatch");
 
     puts("PASS: qwen model host unit tests");
     puts("qwen_loader=PASS");

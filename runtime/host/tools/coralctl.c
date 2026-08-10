@@ -227,6 +227,12 @@ print_qwen_run_tcb(struct opennpux_coral_device *dev, const char *path,
         perror("qwen-run-tcb");
         return 1;
     }
+    const struct opennpux_qwen_tcb_op *expected_ops =
+        (const struct opennpux_qwen_tcb_op *)(const void *)(
+            tcb + sizeof(struct opennpux_qwen_tcb_header));
+    const uint32_t expected_trace_checksum =
+        opennpux_qwen_tcb_trace_checksum(expected_ops,
+                                         result.completed_operators);
 
     struct opennpux_coral_shared_window window;
     if (opennpux_coral_open_shared_window(dev, tcb_size, &window) != 0) {
@@ -265,6 +271,8 @@ print_qwen_run_tcb(struct opennpux_coral_device *dev, const char *path,
     printf("qwen_device_modeled_cycles=%" PRIu64 "\n",
            header->device_modeled_cycles);
     printf("qwen_device_op_mask=0x%08" PRIx32 "\n", header->device_op_mask);
+    printf("qwen_expected_trace_checksum=0x%08" PRIx32 "\n",
+           expected_trace_checksum);
     printf("qwen_device_trace_checksum=0x%08" PRIx32 "\n",
            header->device_trace_checksum);
 
@@ -288,7 +296,7 @@ print_qwen_run_tcb(struct opennpux_coral_device *dev, const char *path,
         header->device_completed_ops == result.completed_operators &&
         header->device_modeled_cycles == result.modeled_cycles &&
         header->device_op_mask == result.info.op_mask &&
-        header->device_trace_checksum != 0 &&
+        header->device_trace_checksum == expected_trace_checksum &&
         device_op_completion_count == result.completed_operators &&
         (device_status & 0x1) != 0;
     if (valid) {

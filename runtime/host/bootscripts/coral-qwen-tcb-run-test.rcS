@@ -62,6 +62,8 @@ cat "${QWEN_TCB_OUTPUT}"
 
 grep -q '^qwen_device_op_mask=0x000001ff$' "${QWEN_TCB_OUTPUT}" ||
     fail "missing or invalid qwen_device_op_mask; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
+grep -q '^qwen_expected_trace_checksum=0x[0-9a-fA-F][0-9a-fA-F]*$' "${QWEN_TCB_OUTPUT}" ||
+    fail "missing qwen_expected_trace_checksum; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
 grep -q '^qwen_device_trace_checksum=0x[0-9a-fA-F][0-9a-fA-F]*$' "${QWEN_TCB_OUTPUT}" ||
     fail "missing qwen_device_trace_checksum; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
 grep -q '^qwen_device_op_completion_count=19$' "${QWEN_TCB_OUTPUT}" ||

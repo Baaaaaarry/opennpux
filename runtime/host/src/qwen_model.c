@@ -458,6 +458,37 @@ fnv1a32(const void *data, uint32_t size)
     return checksum;
 }
 
+static uint32_t
+mix32(uint32_t hash, uint32_t value)
+{
+    hash ^= value;
+    hash *= 16777619u;
+    return hash;
+}
+
+uint32_t
+opennpux_qwen_tcb_trace_checksum(const struct opennpux_qwen_tcb_op *ops,
+                                 uint32_t op_count)
+{
+    if (ops == NULL || op_count > OPENNPUX_QWEN_MAX_OPS) {
+        return 0;
+    }
+
+    uint32_t checksum = 2166136261u;
+    for (uint32_t index = 0; index < op_count; ++index) {
+        checksum = mix32(checksum, ops[index].index);
+        checksum = mix32(checksum, ops[index].kind);
+        checksum = mix32(checksum, ops[index].layer);
+        checksum = mix32(checksum, ops[index].rank);
+        checksum = mix32(checksum, (uint32_t)ops[index].operations);
+        checksum = mix32(checksum, (uint32_t)(ops[index].operations >> 32));
+        checksum = mix32(checksum, (uint32_t)ops[index].modeled_cycles);
+        checksum = mix32(checksum,
+                         (uint32_t)(ops[index].modeled_cycles >> 32));
+    }
+    return checksum;
+}
+
 int
 opennpux_qwen_build_tcb(const struct opennpux_qwen_run_result *result,
                         void *buffer, uint32_t buffer_size,

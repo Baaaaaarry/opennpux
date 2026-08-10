@@ -142,6 +142,9 @@ int opennpux_qwen_run_hybrid_sim(const char *path,
 int opennpux_qwen_build_tcb(const struct opennpux_qwen_run_result *result,
                             void *buffer, uint32_t buffer_size,
                             uint32_t *tcb_size, uint32_t *tcb_checksum);
+uint32_t
+opennpux_qwen_tcb_trace_checksum(const struct opennpux_qwen_tcb_op *ops,
+                                 uint32_t op_count);
 const char *opennpux_qwen_required_ops_string(void);
 uint32_t opennpux_qwen_required_op_mask(void);
 const char *opennpux_qwen_op_name(uint32_t index);

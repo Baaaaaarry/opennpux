@@ -25,11 +25,11 @@ fail() {
 
 echo "[coral-qwen-tcb-run-test] started"
 for candidate in \
-    /tmp/coralctl \
     /usr/local/bin/coralctl \
     /data/usr/local/bin/coralctl \
     /bin/coralctl \
-    /data/bin/coralctl
+    /data/bin/coralctl \
+    /tmp/coralctl
 do
     if [ -x "$candidate" ] && "$candidate" 2>&1 | grep -q qwen-run-tcb; then
         CORALCTL="$candidate"

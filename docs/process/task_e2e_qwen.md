@@ -111,25 +111,23 @@ Qwen Q0 golden commands:
 Qwen full-system target commands to add in later milestones:
 
 ```bash
-./tools/coralnpu/build_qwen_firmware.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ./tools/coralnpu/prepare_qwen_guest_assets.sh
-CORAL_QWEN_MODE=hybrid ./tools/coralnpu/run_qwen_e2e_test.sh
-CORAL_QWEN_MODE=sampled CORAL_SAMPLED_RTL_OPS=matmul,fc \
-  ./tools/coralnpu/run_qwen_e2e_test.sh
+./tools/coralnpu/run_qwen_e2e_test.sh
 ```
 
 Expected output:
 
 ```text
-[coral-qwen-test] started
+[coral-qwen-e2e-test] started
 qwen_model=<selected-model>
-qwen_prompt_checksum=...
 qwen_prefill=PASS
 qwen_decode=PASS
-qwen_logits_checksum=...
-qwen_next_token=<id>
-qwen_operator_summary=...
-[coral-qwen-test] PASS
+qwen_logits_checksum=0x829e9f00
+qwen_next_token=7
+qwen_tcb_run=PASS
+qwen_e2e=PASS
+[coral-qwen-e2e-test] PASS
 ```
 
 ## Risks

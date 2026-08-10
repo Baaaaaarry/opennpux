@@ -1,0 +1,100 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp /dev
+[ -r /proc/mounts ] || mount -t proc proc /proc 2>/dev/null || true
+is_mounted() {
+    while read -r _source target _rest; do
+        [ "$target" = "$1" ] && return 0
+    done < /proc/mounts
+    return 1
+}
+is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
+is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+CORALCTL=
+QWEN_MODEL=
+
+fail() {
+    echo "[coral-qwen-e2e-test] FAIL: $*"
+    if command -v m5 >/dev/null 2>&1; then
+        m5 --inst exit
+    fi
+    exit 1
+}
+
+run_and_print() {
+    label="$1"
+    shift
+    output="/tmp/${label}.out"
+    "$@" >"${output}" 2>&1 || {
+        cat "${output}" 2>/dev/null || true
+        fail "${label} failed"
+    }
+    cat "${output}"
+}
+
+echo "[coral-qwen-e2e-test] started"
+for candidate in \
+    /usr/local/bin/coralctl \
+    /data/usr/local/bin/coralctl \
+    /bin/coralctl \
+    /data/bin/coralctl \
+    /tmp/coralctl
+do
+    if [ -x "$candidate" ] && "$candidate" 2>&1 | grep -q qwen-run-tcb; then
+        CORALCTL="$candidate"
+        break
+    fi
+done
+[ -n "${CORALCTL}" ] || fail "coralctl with qwen-run-tcb support missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
+echo "[coral-qwen-e2e-test] tool=${CORALCTL}"
+
+for candidate in \
+    /tmp/qwen-tiny.npxm \
+    /usr/local/share/opennpux/qwen-tiny.npxm \
+    /data/usr/local/share/opennpux/qwen-tiny.npxm \
+    /root/qwen-tiny.npxm
+do
+    if [ -r "$candidate" ]; then
+        QWEN_MODEL="$candidate"
+        break
+    fi
+done
+[ -n "${QWEN_MODEL}" ] || fail "qwen model missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
+echo "qwen_model_path=${QWEN_MODEL}"
+
+run_and_print qwen-info "${CORALCTL}" qwen-info "${QWEN_MODEL}"
+grep -q '^qwen_info=PASS$' /tmp/qwen-info.out ||
+    fail "qwen-info did not report PASS"
+
+run_and_print qwen-run "${CORALCTL}" qwen-run "${QWEN_MODEL}" hybrid-sim
+grep -q '^qwen_prefill=PASS$' /tmp/qwen-run.out ||
+    fail "qwen prefill did not report PASS"
+grep -q '^qwen_decode=PASS$' /tmp/qwen-run.out ||
+    fail "qwen decode did not report PASS"
+grep -q '^qwen_logits_checksum=0x829e9f00$' /tmp/qwen-run.out ||
+    fail "qwen logits checksum mismatch"
+grep -q '^qwen_next_token=7$' /tmp/qwen-run.out ||
+    fail "qwen next token mismatch"
+grep -q '^qwen_run=PASS$' /tmp/qwen-run.out ||
+    fail "qwen-run did not report PASS"
+
+run_and_print qwen-run-tcb "${CORALCTL}" qwen-run-tcb "${QWEN_MODEL}"
+grep -q '^qwen_device_op_mask=0x000001ff$' /tmp/qwen-run-tcb.out ||
+    fail "qwen device op mask mismatch"
+grep -q '^qwen_expected_trace_checksum=0x[0-9a-fA-F][0-9a-fA-F]*$' \
+    /tmp/qwen-run-tcb.out || fail "qwen expected trace checksum missing"
+grep -q '^qwen_device_trace_checksum=0x[0-9a-fA-F][0-9a-fA-F]*$' \
+    /tmp/qwen-run-tcb.out || fail "qwen device trace checksum missing"
+grep -q '^qwen_device_op_completion_count=19$' /tmp/qwen-run-tcb.out ||
+    fail "qwen per-op completion mismatch"
+grep -q '^qwen_tcb_run=PASS$' /tmp/qwen-run-tcb.out ||
+    fail "qwen-run-tcb did not report PASS"
+
+echo "qwen_e2e=PASS"
+echo "[coral-qwen-e2e-test] PASS"
+if command -v m5 >/dev/null 2>&1; then
+    m5 --inst exit
+fi
+exit 0

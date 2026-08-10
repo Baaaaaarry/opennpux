@@ -313,17 +313,20 @@ Validation:
 
 ```bash
 ./tools/coralnpu/prepare_qwen_guest_assets.sh
-CORAL_QWEN_MODE=hybrid ./tools/coralnpu/run_qwen_e2e_test.sh
+./tools/coralnpu/build_rtl_bridge.sh
+./tools/coralnpu/run_qwen_e2e_test.sh
 ```
 
 Acceptance:
 
 ```text
-[coral-qwen-test] PASS
+[coral-qwen-e2e-test] PASS
 qwen_prefill=PASS
 qwen_decode=PASS
 qwen_logits_checksum=<golden>
 qwen_next_token=<golden>
+qwen_tcb_run=PASS
+qwen_e2e=PASS
 ```
 
 ### Phase Q5: Sampled RTL Bring-up

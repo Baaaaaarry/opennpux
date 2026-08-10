@@ -165,9 +165,12 @@ qwen_info=PASS
 [coral-qwen-info-test] PASS
 ```
 
-Validate the checkpoint-aware Qwen runtime command path:
+Validate the checkpoint-aware Qwen end-to-end SoC path. This runs package
+inspection, CPU-side hybrid runtime execution, and Verilated NPU TCB firmware
+descriptor execution in one restored guest run:
 
 ```bash
+./tools/coralnpu/build_rtl_bridge.sh
 CORAL_DISK_IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img \
   ./tools/coralnpu/run_qwen_e2e_test.sh
 ```
@@ -175,7 +178,7 @@ CORAL_DISK_IMG=/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.i
 Expected guest output:
 
 ```text
-[coral-qwen-test] started
+[coral-qwen-e2e-test] started
 qwen_model_path=/tmp/qwen-tiny.npxm
 qwen_model=qwen-tiny-synthetic
 qwen_mode=hybrid-sim
@@ -191,7 +194,9 @@ qwen_tcb_checksum=0x...
 qwen_logits_checksum=0x829e9f00
 qwen_next_token=7
 qwen_run=PASS
-[coral-qwen-test] PASS
+qwen_tcb_run=PASS
+qwen_e2e=PASS
+[coral-qwen-e2e-test] PASS
 ```
 
 Validate that the runtime can stage the generated Qwen Task Control Block into

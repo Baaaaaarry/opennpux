@@ -31,6 +31,14 @@ finish(volatile struct opennpux_qwen_tcb_header *header, uint32_t state,
     header->tcb_state = state;
 }
 
+static uint32_t
+mix32(uint32_t hash, uint32_t value)
+{
+    hash ^= value;
+    hash *= UINT32_C(16777619);
+    return hash;
+}
+
 int
 main(void)
 {
@@ -70,10 +78,12 @@ main(void)
     header->tcb_state = OPENNPUX_QWEN_TCB_STATE_RUNNING;
     header->tcb_error = OPENNPUX_QWEN_TCB_ERROR_NONE;
 
-    volatile const struct opennpux_qwen_tcb_op *ops =
-        (volatile const struct opennpux_qwen_tcb_op *)(
+    volatile struct opennpux_qwen_tcb_op *ops =
+        (volatile struct opennpux_qwen_tcb_op *)(
             shared + sizeof(struct opennpux_qwen_tcb_header));
     uint64_t modeled_cycles = 0;
+    uint32_t op_mask = 0;
+    uint32_t trace_checksum = UINT32_C(2166136261);
     for (uint32_t index = 0; index < header->op_count; ++index) {
         if (ops[index].index != index ||
             ops[index].kind >= OPENNPUX_QWEN_OP_KIND_COUNT ||
@@ -83,12 +93,28 @@ main(void)
                    OPENNPUX_QWEN_TCB_ERROR_OPERATOR);
             return 1;
         }
+        op_mask |= UINT32_C(1) << ops[index].kind;
+        trace_checksum = mix32(trace_checksum, ops[index].index);
+        trace_checksum = mix32(trace_checksum, ops[index].kind);
+        trace_checksum = mix32(trace_checksum, ops[index].layer);
+        trace_checksum = mix32(trace_checksum, ops[index].rank);
+        trace_checksum = mix32(trace_checksum, (uint32_t)ops[index].operations);
+        trace_checksum = mix32(trace_checksum,
+                               (uint32_t)(ops[index].operations >> 32));
+        trace_checksum = mix32(trace_checksum,
+                               (uint32_t)ops[index].modeled_cycles);
+        trace_checksum = mix32(trace_checksum,
+                               (uint32_t)(ops[index].modeled_cycles >> 32));
         modeled_cycles += ops[index].modeled_cycles;
+        ops[index].reserved[0] = OPENNPUX_QWEN_TCB_OP_COMPLETE_MAGIC;
+        ops[index].reserved[1] = ops[index].kind;
         header->device_completed_ops = index + 1;
     }
 
     header->device_checksum = checksum;
     header->device_modeled_cycles = modeled_cycles;
+    header->device_op_mask = op_mask;
+    header->device_trace_checksum = trace_checksum;
     finish(header, OPENNPUX_QWEN_TCB_STATE_COMPLETE,
            OPENNPUX_QWEN_TCB_ERROR_NONE);
     return 0;

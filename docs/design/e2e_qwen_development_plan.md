@@ -151,6 +151,14 @@ Implemented Qwen TCB v1 host/runtime staging:
 - The generated tiny Qwen TCB is currently 2088 bytes, so it fits in the
   default 4 KiB shared DMA window. Larger models will need chunking or a larger
   `--npu-dma-shared-size`.
+- `gem5_qwen_tcb_smoke.elf` walks each descriptor on the NPU side, validates
+  opcode/rank bounds, accumulates modeled cycles, computes a device op mask and
+  trace checksum, and marks every descriptor complete through reserved fields.
+  This keeps the TCB v1 structure size unchanged while adding stronger
+  firmware-side execution observability.
+- `coralctl qwen-run-tcb` validates device completed-op count, device op mask,
+  trace checksum, modeled cycles, and per-descriptor completion markers before
+  reporting `qwen_tcb_run=PASS`.
 
 Required docs:
 

@@ -95,6 +95,10 @@ main(int argc, char **argv)
           "qwen tcb initial error mismatch");
     check(header->device_completed_ops == 0,
           "qwen tcb initial device completion mismatch");
+    check(header->device_op_mask == 0,
+          "qwen tcb initial device op mask mismatch");
+    check(header->device_trace_checksum == 0,
+          "qwen tcb initial device trace checksum mismatch");
     check(ops[2].kind == 1, "qwen tcb matmul kind mismatch");
     check(ops[2].rank == 3, "qwen tcb matmul rank mismatch");
     check(ops[2].dims[0] == 4 && ops[2].dims[1] == 8 &&
@@ -102,6 +106,8 @@ main(int argc, char **argv)
           "qwen tcb matmul dims mismatch");
     check(ops[2].input_offset >= OPENNPUX_QWEN_TCB_TENSOR_BASE,
           "qwen tcb tensor offset mismatch");
+    check(ops[2].reserved[0] == 0 && ops[2].reserved[1] == 0,
+          "qwen tcb initial op completion fields mismatch");
 
     puts("PASS: qwen model host unit tests");
     puts("qwen_loader=PASS");

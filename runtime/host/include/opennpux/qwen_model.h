@@ -27,6 +27,7 @@ extern "C" {
 #define OPENNPUX_QWEN_TCB_ERROR_CHECKSUM UINT32_C(2)
 #define OPENNPUX_QWEN_TCB_ERROR_OPERATOR UINT32_C(3)
 #define OPENNPUX_QWEN_TCB_ERROR_BOUNDS UINT32_C(4)
+#define OPENNPUX_QWEN_TCB_OP_COMPLETE_MAGIC UINT32_C(0x4f50434d)
 
 struct opennpux_qwen_op_entry {
     uint32_t index;
@@ -62,7 +63,8 @@ struct opennpux_qwen_tcb_header {
     uint32_t device_checksum;
     uint32_t device_completed_ops;
     uint64_t device_modeled_cycles;
-    uint32_t reserved[2];
+    uint32_t device_op_mask;
+    uint32_t device_trace_checksum;
 };
 
 struct opennpux_qwen_tcb_op {

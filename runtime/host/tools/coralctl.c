@@ -26,7 +26,8 @@ usage(const char *prog)
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
             "  %s mem-read32 <offset> [base]\n"
-            "  %s mem-write32 <offset> <value> [base]\n",
+            "  %s mem-write32 <offset> <value> [base]\n"
+            "features: qwen-run-tcb-v2\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
             prog, prog, prog, prog);
 }

@@ -159,7 +159,7 @@ VALIDATED_DISK_DEFAULT="${HOME}/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-doc
 CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_mobilenet_ckpt}"
 DMA_SHARED_BASE="${CORAL_MOBILENET_SHARED_BASE:-0x8f000000}"
 DMA_SHARED_BASE_META="${CKPT_ROOT}.shared_base"
-DT_ABI_VERSION=1
+DT_ABI_VERSION=2
 DT_ABI_META="${CKPT_ROOT}.dt_abi"
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then

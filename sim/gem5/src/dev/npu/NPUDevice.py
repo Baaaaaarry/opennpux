@@ -94,7 +94,6 @@ class NPUDevice(DmaVirtDevice):
     )
 
     def generateDeviceTree(self, state):
-        shared_key = f"coralnpu-shared-{int(self.dmaSharedBase):x}"
         root = FdtNode("/")
         reserved = FdtNode("reserved-memory")
         reserved.append(state.addrCellsProperty())
@@ -111,7 +110,10 @@ class NPUDevice(DmaVirtDevice):
             )
         )
         shared.append(FdtProperty("no-map"))
-        shared.appendPhandle(shared_key)
+        # Use the SimObject as the phandle key, matching other gem5 devices.
+        # The global FdtState phandle table then guarantees that the reserved
+        # node and the consumer property resolve to the same handle.
+        shared.appendPhandle(self)
         reserved.append(shared)
         root.append(reserved)
         yield root
@@ -121,7 +123,21 @@ class NPUDevice(DmaVirtDevice):
         )
         node.appendCompatible(["google,coralnpu", "google,coralnpu-stagea"])
         node.append(
-            FdtPropertyWords("memory-region", [state.phandle(shared_key)])
+            FdtPropertyWords("memory-region", [state.phandle(self)])
+        )
+        # Keep explicit 32-bit window properties as a compatibility fallback
+        # for older kernels/device trees with an unresolvable phandle. The
+        # reserved-memory/no-map node above remains authoritative for reserving
+        # the physical range from Linux.
+        node.append(
+            FdtPropertyWords(
+                "google,dma-shared-base", [int(self.dmaSharedBase)]
+            )
+        )
+        node.append(
+            FdtPropertyWords(
+                "google,dma-shared-size", [int(self.dmaSharedSize)]
+            )
         )
         node.append(
             FdtPropertyWords(

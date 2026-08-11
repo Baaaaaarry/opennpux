@@ -114,10 +114,10 @@ export CORAL_CKPT_INIT_META="${CORAL_CKPT_ROOT}/kernel_init_path.txt"
 export CORAL_CKPT_KERNEL_META="${CORAL_CKPT_ROOT}/kernel_image_path.txt"
 export CORAL_CKPT_CMDLINE_META="${CORAL_CKPT_ROOT}/kernel_cmdline.txt"
 export CORAL_CKPT_FORMAT_META="${CORAL_CKPT_ROOT}/format_version.txt"
-# Version 8 requires the Coral DT node to reference its reserved DMA window
+# Version 9 uses a stable SimObject phandle and explicit DMA window fallback
 # through memory-region. Linux parses the DT before the checkpoint is taken,
 # so a checkpoint created with the previous DT cannot be repaired on restore.
-export CORAL_CKPT_FORMAT_VERSION=8
+export CORAL_CKPT_FORMAT_VERSION=9
 
 # ---------------------------------------------------------------------------
 # NPU backend configuration.

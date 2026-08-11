@@ -301,6 +301,8 @@ static int coral_probe(struct platform_device *pdev)
 	struct resource *res;
 	struct resource shared_res;
 	struct device_node *memory_node;
+	u32 dt_shared_base;
+	u32 dt_shared_size;
 	u32 shared_base;
 	u32 shared_size;
 	int ret;
@@ -321,14 +323,29 @@ static int coral_probe(struct platform_device *pdev)
 
 	memory_node = of_parse_phandle(pdev->dev.of_node, "memory-region", 0);
 	if (!memory_node) {
-		dev_err(&pdev->dev, "missing memory-region\n");
-		return -EINVAL;
-	}
-	ret = of_address_to_resource(memory_node, 0, &shared_res);
-	of_node_put(memory_node);
-	if (ret) {
-		dev_err(&pdev->dev, "invalid memory-region: %d\n", ret);
-		return ret;
+		ret = of_property_read_u32(pdev->dev.of_node,
+					   "google,dma-shared-base",
+					   &dt_shared_base);
+		ret |= of_property_read_u32(pdev->dev.of_node,
+					    "google,dma-shared-size",
+					    &dt_shared_size);
+		if (ret || !dt_shared_size) {
+			dev_err(&pdev->dev,
+				"missing or invalid memory-region and DMA window properties\n");
+			return -EINVAL;
+		}
+		shared_res.start = dt_shared_base;
+		shared_res.end = dt_shared_base + dt_shared_size - 1;
+		shared_res.flags = IORESOURCE_MEM;
+		dev_warn(&pdev->dev,
+			 "memory-region phandle unresolved; using explicit DMA window\n");
+	} else {
+		ret = of_address_to_resource(memory_node, 0, &shared_res);
+		of_node_put(memory_node);
+		if (ret) {
+			dev_err(&pdev->dev, "invalid memory-region: %d\n", ret);
+			return ret;
+		}
 	}
 
 	coral->shared_start = shared_res.start;

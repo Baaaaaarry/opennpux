@@ -100,7 +100,8 @@ export CORAL_DISK_IMG="${CORAL_DISK_IMG:-${IMAGE_PATH}/ubuntu-18.04-arm64-docker
 
 # ---------------------------------------------------------------------------
 # Checkpoint paths and metadata.
-#   CORAL_CKPT_FORMAT_VERSION is bumped when the resume mechanism changes
+#   CORAL_CKPT_FORMAT_VERSION is bumped when checkpoint-visible boot state
+#   changes, including the resume mechanism or the generated device tree.
 #   (e.g. a new dynamic-resume trampoline).  Old-format checkpoints are
 #   automatically invalidated.
 # ---------------------------------------------------------------------------
@@ -113,7 +114,10 @@ export CORAL_CKPT_INIT_META="${CORAL_CKPT_ROOT}/kernel_init_path.txt"
 export CORAL_CKPT_KERNEL_META="${CORAL_CKPT_ROOT}/kernel_image_path.txt"
 export CORAL_CKPT_CMDLINE_META="${CORAL_CKPT_ROOT}/kernel_cmdline.txt"
 export CORAL_CKPT_FORMAT_META="${CORAL_CKPT_ROOT}/format_version.txt"
-export CORAL_CKPT_FORMAT_VERSION=6
+# Version 7 requires the Coral DT node to reference its reserved DMA window
+# through memory-region. Linux parses the DT before the checkpoint is taken,
+# so a checkpoint created with the previous DT cannot be repaired on restore.
+export CORAL_CKPT_FORMAT_VERSION=7
 
 # ---------------------------------------------------------------------------
 # NPU backend configuration.

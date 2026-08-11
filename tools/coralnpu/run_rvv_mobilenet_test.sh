@@ -159,6 +159,8 @@ VALIDATED_DISK_DEFAULT="${HOME}/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-doc
 CKPT_ROOT="${CORAL_MOBILENET_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_mobilenet_ckpt}"
 DMA_SHARED_BASE="${CORAL_MOBILENET_SHARED_BASE:-0x8f000000}"
 DMA_SHARED_BASE_META="${CKPT_ROOT}.shared_base"
+DT_ABI_VERSION=1
+DT_ABI_META="${CKPT_ROOT}.dt_abi"
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
     [ -f "${KERNEL_RELEASE_FILE}" ] || {
@@ -239,6 +241,12 @@ if [ -f "${CKPT_ROOT}/booted/m5.cpt" ] &&
     echo "[coral-mobilenet] shared DMA base changed; rebuilding checkpoint"
     rm -rf "${CKPT_ROOT}"
 fi
+if [ -f "${CKPT_ROOT}/booted/m5.cpt" ] &&
+   { [ ! -f "${DT_ABI_META}" ] ||
+     [ "$(cat "${DT_ABI_META}")" != "${DT_ABI_VERSION}" ]; }; then
+    echo "[coral-mobilenet] Coral DT ABI changed; rebuilding checkpoint"
+    rm -rf "${CKPT_ROOT}"
+fi
 mkdir -p "$(dirname "${DMA_SHARED_BASE_META}")"
 printf '%s\n' "${DMA_SHARED_BASE}" > "${DMA_SHARED_BASE_META}"
 
@@ -269,5 +277,6 @@ CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
 CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${DMA_SHARED_BASE} --npu-dma-shared-size=8MiB --npu-operator-mode=${OPERATOR_MODE}${FAST_DMA_OPTION} --npu-fast-dma-event-batch=${FAST_DMA_EVENT_BATCH}" \
 GEM5_OPTIONS="${GEM5_OPTIONS_VALUE}" \
 "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"
+printf '%s\n' "${DT_ABI_VERSION}" > "${DT_ABI_META}"
 # No exec: the script's exit status must propagate run_multicore.sh's status
 # to the tee wrapper at the top of this file.

@@ -14,10 +14,17 @@ preloaded_busybox=0
 preloaded_model=0
 dt_memory_region=0
 
-if [ -e /proc/device-tree/coralnpu@1d000000/memory-region ]; then
-    dt_memory_region=1
-    echo "[coralnpu] device tree memory-region ready"
-else
+for dt_property in \
+    /proc/device-tree/coralnpu@1d000000/memory-region \
+    /sys/firmware/devicetree/base/coralnpu@1d000000/memory-region
+do
+    if [ -e "$dt_property" ]; then
+        dt_memory_region=1
+        echo "[coralnpu] device tree memory-region ready: $dt_property"
+        break
+    fi
+done
+if [ "$dt_memory_region" -ne 1 ]; then
     echo "[coralnpu] ERROR: coralnpu memory-region missing from device tree"
 fi
 

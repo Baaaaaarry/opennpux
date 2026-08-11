@@ -13,6 +13,7 @@
 #include "hw_sim/gem5_bridge/gem5_core_mini_axi_wrapper.h"
 #include "hw_sim/gem5_bridge/coral_mobilenet.h"
 #include "hw_sim/gem5_bridge/coral_operator.h"
+#include "hw_sim/gem5_bridge/gem5_coprocessor_command.h"
 #include "hw_sim/gem5_bridge/gem5_custom_mac.h"
 #include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
 #ifdef CORAL_GEM5_RVV_HIGHMEM
@@ -229,6 +230,7 @@ struct coral_gem5_handle {
   VerilatedContext context;
   Gem5CoreMiniAxiWrapper wrapper;
   Gem5CustomMac custom_mac;
+  Gem5CoprocessorCommandAdapter command_adapter;
   uint32_t firmware_progress;
   uint32_t operator_mode;
   uint32_t sampled_rtl_mask;
@@ -354,6 +356,7 @@ struct coral_gem5_handle {
       : context(),
         wrapper(&context),
         custom_mac(&context),
+        command_adapter(),
         firmware_progress(0),
         operator_mode(0),
         sampled_rtl_mask(ParseSampledRtlMask()),
@@ -526,13 +529,81 @@ struct coral_gem5_handle {
 #ifdef CORAL_GEM5_RVV_HIGHMEM
                 Gem5HybridOperatorResult result = {};
                 bool ok = false;
-                if (local_extmem_enabled) {
-                  ok = DispatchGem5HybridOperator(
+                uint32_t submission_tag = 0;
+                uint32_t command_error = CORAL_OPERATOR_ERROR_NONE;
+                const Gem5CommandSource source =
+                    (descriptor->flags &
+                     CORAL_OPERATOR_FLAG_CUSTOM_INSTRUCTION) != 0
+                        ? Gem5CommandSource::kCustomInstruction
+                        : Gem5CommandSource::kMmioDoorbell;
+                Gem5CoprocessorCommand execute_command = {};
+                bool execute_issued = false;
+                if (!command_adapter.Submit(source, command, *descriptor,
+                                            &submission_tag,
+                                            &command_error)) {
+                  descriptor->state = CORAL_OPERATOR_STATE_ERROR;
+                  descriptor->error = command_error;
+                } else {
+                  Gem5CoprocessorCommand micro_command = {};
+                  while (command_adapter.IssueNext(&micro_command)) {
+                    std::fprintf(stderr,
+                                 "Coral command issue tag=%u id=%u "
+                                 "engine=%u opcode=%u deps=0x%llx source=%u\n",
+                                 submission_tag, micro_command.command_id,
+                                 static_cast<unsigned>(micro_command.engine),
+                                 static_cast<unsigned>(micro_command.opcode),
+                                 static_cast<unsigned long long>(
+                                     micro_command.dependency_mask),
+                                 static_cast<unsigned>(micro_command.source));
+                    if (micro_command.opcode ==
+                        Gem5MicroOpcode::kExecuteOperator) {
+                      execute_command = micro_command;
+                      execute_issued = true;
+                      break;
+                    }
+                    command_adapter.Complete(micro_command.command_id, true);
+                  }
+                  if (!execute_issued) {
+                    descriptor->state = CORAL_OPERATOR_STATE_ERROR;
+                    descriptor->error = CORAL_OPERATOR_ERROR_EXECUTION;
+                  } else if (local_extmem_enabled) {
+                    ok = DispatchGem5HybridOperator(
                         descriptor, local_extmem.data(), kExtmemBase,
                         local_extmem.size(), &result);
-                } else {
-                  descriptor->state = CORAL_OPERATOR_STATE_ERROR;
-                  descriptor->error = CORAL_OPERATOR_ERROR_ADDRESS;
+                  } else {
+                    descriptor->state = CORAL_OPERATOR_STATE_ERROR;
+                    descriptor->error = CORAL_OPERATOR_ERROR_ADDRESS;
+                  }
+                  if (execute_issued) {
+                    command_adapter.Complete(execute_command.command_id, ok);
+                  }
+                  Gem5CoprocessorCommand completion_command = {};
+                  while (ok &&
+                         command_adapter.IssueNext(&completion_command)) {
+                    std::fprintf(stderr,
+                                 "Coral command issue tag=%u id=%u "
+                                 "engine=%u opcode=%u deps=0x%llx source=%u\n",
+                                 submission_tag,
+                                 completion_command.command_id,
+                                 static_cast<unsigned>(
+                                     completion_command.engine),
+                                 static_cast<unsigned>(
+                                     completion_command.opcode),
+                                 static_cast<unsigned long long>(
+                                     completion_command.dependency_mask),
+                                 static_cast<unsigned>(
+                                     completion_command.source));
+                    command_adapter.Complete(
+                        completion_command.command_id, true);
+                  }
+                  ok = ok &&
+                       command_adapter.SubmissionComplete(submission_tag);
+                  std::fprintf(stderr,
+                               "Coral command submission tag=%u state=%s "
+                               "pending=%zu\n",
+                               submission_tag, ok ? "complete" : "error",
+                               command_adapter.PendingCount());
+                  std::fflush(stderr);
                 }
                 hybrid_status = descriptor->state;
                 if (ok) {
@@ -816,6 +887,7 @@ coral_gem5_reset(coral_gem5_handle* handle)
   }
   handle->wrapper.Reset();
   handle->custom_mac.Reset();
+  handle->command_adapter.Reset();
   handle->firmware_progress = 0;
   handle->hybrid_status = 0;
   handle->rtl_cycles = 0;

@@ -97,6 +97,7 @@ fi
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
 "${ROOT_DIR}/tools/coralnpu/phase2_check_overlay_boundary.sh"
 "${ROOT_DIR}/tools/coralnpu/phase2_test_axi_adapter.sh"
+"${ROOT_DIR}/tools/coralnpu/test_coprocessor_command.sh"
 "${ROOT_DIR}/tools/coralnpu/phase5_test_custom_rtl.sh"
 
 # ---------------------------------------------------------------------------

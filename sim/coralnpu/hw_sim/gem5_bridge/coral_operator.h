@@ -60,6 +60,7 @@ enum coral_operator_error {
 
 enum coral_operator_flags {
     CORAL_OPERATOR_FLAG_ALLOW_RTL_FALLBACK = 1u << 0,
+    CORAL_OPERATOR_FLAG_CUSTOM_INSTRUCTION = 1u << 1,
 };
 
 enum coral_operator_element_type {

@@ -121,9 +121,15 @@ inline void InitializeOperatorDescriptor(
 inline bool SubmitHybridOperator(
     coral_operator_descriptor* descriptor, uint32_t descriptor_address) {
   descriptor->state = CORAL_OPERATOR_STATE_SUBMITTED;
+  descriptor->flags |= CORAL_OPERATOR_FLAG_CUSTOM_INSTRUCTION;
   OperatorFence();
-  *reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_DOORBELL_REG) =
-      descriptor_address;
+  const uint32_t operator_base = CORAL_OPERATOR_MMIO_BASE;
+  // CUSTOM_0 funct7=0/funct3=0/rd=x0. Coral Decode lowers this instruction to
+  // an SW of rs2 at rs1+4, which is the existing operator doorbell register.
+  asm volatile(".insn r 0x0b, 0, 0, x0, %0, %1"
+               :
+               : "r"(operator_base), "r"(descriptor_address)
+               : "memory");
   OperatorFence();
   return *reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_STATUS_REG) ==
              CORAL_OPERATOR_STATE_COMPLETE &&

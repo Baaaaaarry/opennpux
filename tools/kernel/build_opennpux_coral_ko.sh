@@ -18,6 +18,7 @@
 #   build/kernel/opennpux_coral-<kernel_release>.ko   driver module for guest
 #
 # Environment:
+#   LINUX_SRC        kernel source tree (default: .cache/linux-src)
 #   LINUX_BUILD      kernel build tree (default: build/linux-arm64)
 #   ARCH             target architecture (default: arm64)
 #   CROSS_COMPILE    cross-compiler prefix (default: aarch64-linux-gnu-)
@@ -37,6 +38,7 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 # ---------------------------------------------------------------------------
 # Build parameters — all overridable via environment.
 # ---------------------------------------------------------------------------
+LINUX_SRC="${LINUX_SRC:-${ROOT_DIR}/.cache/linux-src}"
 LINUX_BUILD="${LINUX_BUILD:-${ROOT_DIR}/build/linux-arm64}"
 ARCH="${ARCH:-arm64}"
 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
@@ -53,6 +55,11 @@ if [ ! -f "${LINUX_BUILD}/include/config/kernel.release" ]; then
     echo "hint: run tools/kernel/build_arm64_kernel.sh first or set LINUX_BUILD" >&2
     exit 1
 fi
+if [ ! -f "${LINUX_SRC}/Makefile" ]; then
+    echo "error: kernel source tree not found: ${LINUX_SRC}" >&2
+    echo "hint: run tools/kernel/build_arm64_kernel.sh first or set LINUX_SRC" >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Step 1: Build the out-of-tree module.
@@ -61,7 +68,8 @@ fi
 #   is passed so the module Makefile can find the UAPI header at
 #   runtime/host/include/opennpux/coral_uapi.h.
 # ---------------------------------------------------------------------------
-make -C "${LINUX_BUILD}" M="${ROOT_DIR}/runtime/kernel" \
+make -C "${LINUX_SRC}" O="${LINUX_BUILD}" \
+    M="${ROOT_DIR}/runtime/kernel" \
     OPENNPUX_ROOT="${ROOT_DIR}" \
     ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" -j"${JOBS}" modules
 

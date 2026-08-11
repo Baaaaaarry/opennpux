@@ -24,6 +24,9 @@
 
 set -eu
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
+
 usage() {
     echo "usage: $0 <disk-image> <kernel-build-dir> [kernel-image] [opennpux-coral.ko]" >&2
 }
@@ -35,6 +38,7 @@ fi
 
 IMAGE="$1"
 LINUX_BUILD="$2"
+LINUX_SRC="${LINUX_SRC:-${ROOT_DIR}/.cache/linux-src}"
 KERNEL_IMAGE="${3:-${LINUX_BUILD}/arch/arm64/boot/Image}"
 KO="${4:-}"
 
@@ -53,6 +57,11 @@ if [ ! -f "${LINUX_BUILD}/include/config/kernel.release" ]; then
     echo "error: kernel release not found in ${LINUX_BUILD}" >&2
     exit 1
 fi
+if [ ! -f "${LINUX_SRC}/Makefile" ]; then
+    echo "error: kernel source tree not found: ${LINUX_SRC}" >&2
+    echo "hint: set LINUX_SRC to the source tree used by this build" >&2
+    exit 1
+fi
 
 kernel_release="$(cat "${LINUX_BUILD}/include/config/kernel.release")"
 
@@ -60,7 +69,7 @@ kernel_release="$(cat "${LINUX_BUILD}/include/config/kernel.release")"
 # Resolve the driver .ko path if not explicitly provided.
 # ---------------------------------------------------------------------------
 if [ -z "${KO}" ]; then
-    candidate="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)/build/kernel/opennpux_coral-${kernel_release}.ko"
+    candidate="${ROOT_DIR}/build/kernel/opennpux_coral-${kernel_release}.ko"
     if [ -f "${candidate}" ]; then
         KO="${candidate}"
     fi
@@ -124,7 +133,8 @@ sudo mount -o loop,offset="${offset}" "${IMAGE}" "${mnt}"
 sudo install -D -m 0644 "${KERNEL_IMAGE}" "${mnt}/boot/Image-${kernel_release}"
 sudo ln -sf "Image-${kernel_release}" "${mnt}/boot/Image"
 
-sudo make -C "${LINUX_BUILD}" INSTALL_MOD_PATH="${mnt}" modules_install
+sudo make -C "${LINUX_SRC}" O="${LINUX_BUILD}" \
+    INSTALL_MOD_PATH="${mnt}" modules_install
 
 if [ -n "${KO}" ]; then
     if [ ! -f "${KO}" ]; then

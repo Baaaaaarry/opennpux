@@ -16,9 +16,7 @@
 #include "hw_sim/gem5_bridge/gem5_coprocessor_command.h"
 #include "hw_sim/gem5_bridge/gem5_custom_mac.h"
 #include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
-#ifdef CORAL_GEM5_RVV_HIGHMEM
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
-#endif
 
 namespace {
 
@@ -226,11 +224,24 @@ void DumpRejectedAxi(const char* direction, const AxiAddr& addr,
   std::fflush(stderr);
 }
 
+struct AsyncOperatorSubmission {
+  bool valid = false;
+  uint32_t tag = 0;
+  coral_operator_descriptor* descriptor = nullptr;
+  Gem5HybridOperatorResult result = {};
+  bool kernel_done = false;
+  bool kernel_success = false;
+  uint32_t final_error = CORAL_OPERATOR_ERROR_NONE;
+};
+
 struct coral_gem5_handle {
   VerilatedContext context;
   Gem5CoreMiniAxiWrapper wrapper;
   Gem5CustomMac custom_mac;
   Gem5CoprocessorCommandAdapter command_adapter;
+  std::array<AsyncOperatorSubmission,
+             Gem5CoprocessorCommandAdapter::kSubmissionCapacity>
+      async_submissions;
   uint32_t firmware_progress;
   uint32_t operator_mode;
   uint32_t sampled_rtl_mask;
@@ -260,6 +271,192 @@ struct coral_gem5_handle {
   // the channel handshake levels to pinpoint the stall.
   uint64_t last_activity_cycles;
   uint64_t watchdog_cycles;
+
+  AsyncOperatorSubmission* FindAsyncSubmission(uint32_t tag) {
+    for (AsyncOperatorSubmission& submission : async_submissions) {
+      if (submission.valid && submission.tag == tag) {
+        return &submission;
+      }
+    }
+    return nullptr;
+  }
+
+  bool AddAsyncSubmission(uint32_t tag,
+                          coral_operator_descriptor* descriptor) {
+    for (AsyncOperatorSubmission& submission : async_submissions) {
+      if (!submission.valid) {
+        submission.valid = true;
+        submission.tag = tag;
+        submission.descriptor = descriptor;
+        submission.result = {};
+        submission.kernel_done = false;
+        submission.kernel_success = false;
+        submission.final_error = CORAL_OPERATOR_ERROR_NONE;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  uint64_t OperatorComputeCycles(
+      const coral_operator_descriptor& descriptor) const {
+    return std::max<uint64_t>(
+        hybrid_fixed_cycles +
+            DivCeil(descriptor.operation_count, hybrid_ops_per_cycle),
+        1);
+  }
+
+  uint64_t OperatorWritebackCycles(
+      const coral_operator_descriptor& descriptor) const {
+    return std::max<uint64_t>(
+        DivCeil(descriptor.bytes_written, hybrid_bytes_per_cycle), 1);
+  }
+
+  void PublishOperatorCompletion(AsyncOperatorSubmission* submission,
+                                 bool success) {
+    if (submission == nullptr || submission->descriptor == nullptr) {
+      hybrid_status = CORAL_OPERATOR_STATE_ERROR;
+      return;
+    }
+    coral_operator_descriptor* descriptor = submission->descriptor;
+    descriptor->state = success ? CORAL_OPERATOR_STATE_COMPLETE :
+                                  CORAL_OPERATOR_STATE_ERROR;
+    descriptor->error = success ? CORAL_OPERATOR_ERROR_NONE :
+                                  submission->final_error;
+    hybrid_status = descriptor->state;
+    if (success) {
+      const uint64_t traffic_bytes =
+          descriptor->bytes_read + descriptor->bytes_written;
+      descriptor->modeled_cycles =
+          hybrid_fixed_cycles +
+          DivCeil(descriptor->operation_count, hybrid_ops_per_cycle) +
+          DivCeil(traffic_bytes, hybrid_bytes_per_cycle);
+      if (static_cast<size_t>(descriptor->opcode) <
+          hybrid_operator_stats.size()) {
+        HybridOperatorStats& stats =
+            hybrid_operator_stats[descriptor->opcode];
+        ++stats.count;
+        stats.host_ns += descriptor->host_elapsed_ns;
+        stats.operations += descriptor->operation_count;
+        stats.modeled_cycles += descriptor->modeled_cycles;
+        stats.bytes += traffic_bytes;
+      }
+      std::fprintf(stderr,
+                   "Coral hybrid operator complete opcode=%u name=%s "
+                   "count=%llu host_ns=%llu operations=%llu "
+                   "modeled_cycles=%llu bytes=%llu tag=%u\n",
+                   descriptor->opcode, OperatorName(descriptor->opcode),
+                   static_cast<size_t>(descriptor->opcode) <
+                           hybrid_operator_stats.size()
+                       ? static_cast<unsigned long long>(
+                             hybrid_operator_stats[descriptor->opcode].count)
+                       : 0ULL,
+                   static_cast<unsigned long long>(
+                       descriptor->host_elapsed_ns),
+                   static_cast<unsigned long long>(
+                       descriptor->operation_count),
+                   static_cast<unsigned long long>(
+                       descriptor->modeled_cycles),
+                   static_cast<unsigned long long>(traffic_bytes),
+                   submission->tag);
+    } else {
+      if (descriptor->error == CORAL_OPERATOR_ERROR_NONE) {
+        descriptor->error = CORAL_OPERATOR_ERROR_EXECUTION;
+      }
+      std::fprintf(stderr,
+                   "Coral hybrid operator failed opcode=%u error=%u "
+                   "tag=%u\n",
+                   descriptor->opcode, descriptor->error, submission->tag);
+    }
+    std::fflush(stderr);
+    *submission = {};
+  }
+
+  void StepCommandPipeline() {
+#ifdef CORAL_GEM5_RVV_HIGHMEM
+    command_adapter.AdvanceCycle();
+    Gem5CoprocessorCommand command = {};
+    while (command_adapter.TakeReadyToComplete(&command)) {
+      AsyncOperatorSubmission* submission =
+          FindAsyncSubmission(command.submission_tag);
+      if (submission == nullptr || submission->descriptor == nullptr) {
+        command_adapter.Complete(command.command_id, false);
+        continue;
+      }
+
+      coral_operator_descriptor* descriptor = submission->descriptor;
+      bool ok = true;
+      if (command.opcode == Gem5MicroOpcode::kExecuteOperator &&
+          !command.work_started) {
+        if (local_extmem_enabled) {
+          ok = DispatchGem5HybridOperator(
+              descriptor, local_extmem.data(), kExtmemBase,
+              local_extmem.size(), &submission->result);
+          submission->kernel_done = true;
+          submission->kernel_success = ok;
+          submission->final_error = descriptor->error;
+          descriptor->state = CORAL_OPERATOR_STATE_RUNNING;
+          descriptor->error = CORAL_OPERATOR_ERROR_NONE;
+          command_adapter.SetPendingLatency(
+              command.submission_tag, Gem5MicroOpcode::kWriteback,
+              OperatorWritebackCycles(*descriptor));
+          const bool rescheduled = command_adapter.Reschedule(
+              command.command_id, OperatorComputeCycles(*descriptor));
+          std::fprintf(stderr,
+                       "Coral command execute tag=%u id=%u source=%s "
+                       "engine=%s micro_op=%s operator_opcode=%u kernel=%s "
+                       "compute_cycles=%llu writeback_cycles=%llu\n",
+                       command.submission_tag, command.command_id,
+                       Gem5CommandSourceName(command.source),
+                       Gem5CommandEngineName(command.engine),
+                       Gem5MicroOpcodeName(command.opcode),
+                       command.operator_opcode, ok ? "done" : "failed",
+                       static_cast<unsigned long long>(
+                           OperatorComputeCycles(*descriptor)),
+                       static_cast<unsigned long long>(
+                           OperatorWritebackCycles(*descriptor)));
+          std::fflush(stderr);
+          if (ok && rescheduled) {
+            continue;
+          }
+          ok = false;
+          submission->kernel_success = false;
+          submission->final_error = CORAL_OPERATOR_ERROR_EXECUTION;
+        } else {
+          descriptor->state = CORAL_OPERATOR_STATE_RUNNING;
+          descriptor->error = CORAL_OPERATOR_ERROR_NONE;
+          submission->kernel_done = true;
+          submission->kernel_success = false;
+          submission->final_error = CORAL_OPERATOR_ERROR_ADDRESS;
+          ok = false;
+        }
+      }
+
+      if (command.opcode == Gem5MicroOpcode::kComplete &&
+          !submission->kernel_success) {
+        ok = false;
+      }
+      command_adapter.Complete(command.command_id, ok);
+      std::fprintf(stderr,
+                   "Coral command complete tag=%u id=%u source=%s "
+                   "engine=%s micro_op=%s ok=%u pending=%zu\n",
+                   command.submission_tag, command.command_id,
+                   Gem5CommandSourceName(command.source),
+                   Gem5CommandEngineName(command.engine),
+                   Gem5MicroOpcodeName(command.opcode), ok ? 1 : 0,
+                   command_adapter.PendingCount());
+      std::fflush(stderr);
+      if (!ok) {
+        PublishOperatorCompletion(submission, false);
+        continue;
+      }
+      if (command.opcode == Gem5MicroOpcode::kComplete &&
+          command_adapter.SubmissionComplete(command.submission_tag)) {
+        PublishOperatorCompletion(submission, true);
+      }
+    }
+#endif
+  }
 
   void TrackOperatorPhase(uint32_t marker,
                           std::chrono::steady_clock::time_point now,
@@ -357,6 +554,7 @@ struct coral_gem5_handle {
         wrapper(&context),
         custom_mac(&context),
         command_adapter(),
+        async_submissions(),
         firmware_progress(0),
         operator_mode(0),
         sampled_rtl_mask(ParseSampledRtlMask()),
@@ -394,6 +592,8 @@ struct coral_gem5_handle {
     std::fprintf(stderr, "Coral sampled RTL operator mask=0x%08x\n",
                  sampled_rtl_mask);
     std::fflush(stderr);
+    command_adapter.ConfigureLatencyModel(
+        hybrid_ops_per_cycle, hybrid_bytes_per_cycle, hybrid_fixed_cycles);
     wrapper.RegisterDeferredReadCallback([this](const AxiAddr& addr) {
       last_activity_cycles = rtl_cycles;
       if (IsHybridWordAccess(addr)) {
@@ -527,8 +727,6 @@ struct coral_gem5_handle {
                     coral_operator_descriptor*>(
                         local_extmem.data() + (command - kExtmemBase));
 #ifdef CORAL_GEM5_RVV_HIGHMEM
-                Gem5HybridOperatorResult result = {};
-                bool ok = false;
                 uint32_t submission_tag = 0;
                 uint32_t command_error = CORAL_OPERATOR_ERROR_NONE;
                 const Gem5CommandSource source =
@@ -536,120 +734,36 @@ struct coral_gem5_handle {
                      CORAL_OPERATOR_FLAG_CUSTOM_INSTRUCTION) != 0
                         ? Gem5CommandSource::kCustomInstruction
                         : Gem5CommandSource::kMmioDoorbell;
-                Gem5CoprocessorCommand execute_command = {};
-                bool execute_issued = false;
                 if (!command_adapter.Submit(source, command, *descriptor,
                                             &submission_tag,
                                             &command_error)) {
                   descriptor->state = CORAL_OPERATOR_STATE_ERROR;
                   descriptor->error = command_error;
-                } else {
-                  Gem5CoprocessorCommand micro_command = {};
-                  while (command_adapter.IssueNext(&micro_command)) {
-                    std::fprintf(stderr,
-                                 "Coral command issue tag=%u id=%u "
-                                 "engine=%u opcode=%u deps=0x%llx source=%u\n",
-                                 submission_tag, micro_command.command_id,
-                                 static_cast<unsigned>(micro_command.engine),
-                                 static_cast<unsigned>(micro_command.opcode),
-                                 static_cast<unsigned long long>(
-                                     micro_command.dependency_mask),
-                                 static_cast<unsigned>(micro_command.source));
-                    if (micro_command.opcode ==
-                        Gem5MicroOpcode::kExecuteOperator) {
-                      execute_command = micro_command;
-                      execute_issued = true;
-                      break;
-                    }
-                    command_adapter.Complete(micro_command.command_id, true);
-                  }
-                  if (!execute_issued) {
-                    descriptor->state = CORAL_OPERATOR_STATE_ERROR;
-                    descriptor->error = CORAL_OPERATOR_ERROR_EXECUTION;
-                  } else if (local_extmem_enabled) {
-                    ok = DispatchGem5HybridOperator(
-                        descriptor, local_extmem.data(), kExtmemBase,
-                        local_extmem.size(), &result);
-                  } else {
-                    descriptor->state = CORAL_OPERATOR_STATE_ERROR;
-                    descriptor->error = CORAL_OPERATOR_ERROR_ADDRESS;
-                  }
-                  if (execute_issued) {
-                    command_adapter.Complete(execute_command.command_id, ok);
-                  }
-                  Gem5CoprocessorCommand completion_command = {};
-                  while (ok &&
-                         command_adapter.IssueNext(&completion_command)) {
-                    std::fprintf(stderr,
-                                 "Coral command issue tag=%u id=%u "
-                                 "engine=%u opcode=%u deps=0x%llx source=%u\n",
-                                 submission_tag,
-                                 completion_command.command_id,
-                                 static_cast<unsigned>(
-                                     completion_command.engine),
-                                 static_cast<unsigned>(
-                                     completion_command.opcode),
-                                 static_cast<unsigned long long>(
-                                     completion_command.dependency_mask),
-                                 static_cast<unsigned>(
-                                     completion_command.source));
-                    command_adapter.Complete(
-                        completion_command.command_id, true);
-                  }
-                  ok = ok &&
-                       command_adapter.SubmissionComplete(submission_tag);
                   std::fprintf(stderr,
-                               "Coral command submission tag=%u state=%s "
-                               "pending=%zu\n",
-                               submission_tag, ok ? "complete" : "error",
+                               "Coral command submission rejected error=%u\n",
+                               command_error);
+                  std::fflush(stderr);
+                  hybrid_status = CORAL_OPERATOR_STATE_ERROR;
+                } else if (!AddAsyncSubmission(submission_tag, descriptor)) {
+                  descriptor->state = CORAL_OPERATOR_STATE_ERROR;
+                  descriptor->error = CORAL_OPERATOR_ERROR_EXECUTION;
+                  command_adapter.FailSubmission(submission_tag);
+                  hybrid_status = CORAL_OPERATOR_STATE_ERROR;
+                  std::fprintf(stderr,
+                               "Coral command submission tag=%u has no "
+                               "async slot\n",
+                               submission_tag);
+                  std::fflush(stderr);
+                } else {
+                  descriptor->state = CORAL_OPERATOR_STATE_RUNNING;
+                  descriptor->error = CORAL_OPERATOR_ERROR_NONE;
+                  hybrid_status = CORAL_OPERATOR_STATE_RUNNING;
+                  std::fprintf(stderr,
+                               "Coral command submission tag=%u "
+                               "operator_opcode=%u source=%s pending=%zu\n",
+                               submission_tag, descriptor->opcode,
+                               Gem5CommandSourceName(source),
                                command_adapter.PendingCount());
-                  std::fflush(stderr);
-                }
-                hybrid_status = descriptor->state;
-                if (ok) {
-                  const uint64_t traffic_bytes =
-                      descriptor->bytes_read + descriptor->bytes_written;
-                  descriptor->modeled_cycles =
-                      hybrid_fixed_cycles +
-                      DivCeil(descriptor->operation_count,
-                              hybrid_ops_per_cycle) +
-                      DivCeil(traffic_bytes, hybrid_bytes_per_cycle);
-                  if (static_cast<size_t>(descriptor->opcode) <
-                      hybrid_operator_stats.size()) {
-                    HybridOperatorStats& stats =
-                        hybrid_operator_stats[descriptor->opcode];
-                    ++stats.count;
-                    stats.host_ns += descriptor->host_elapsed_ns;
-                    stats.operations += descriptor->operation_count;
-                    stats.modeled_cycles += descriptor->modeled_cycles;
-                    stats.bytes += traffic_bytes;
-                  }
-                  std::fprintf(stderr,
-                               "Coral hybrid operator complete opcode=%u "
-                               "name=%s count=%llu host_ns=%llu "
-                               "operations=%llu modeled_cycles=%llu "
-                               "bytes=%llu\n",
-                               descriptor->opcode,
-                               OperatorName(descriptor->opcode),
-                               static_cast<size_t>(descriptor->opcode) <
-                                   hybrid_operator_stats.size() ?
-                                   static_cast<unsigned long long>(
-                                       hybrid_operator_stats[
-                                           descriptor->opcode].count) : 0ULL,
-                               static_cast<unsigned long long>(
-                                   descriptor->host_elapsed_ns),
-                               static_cast<unsigned long long>(
-                                   descriptor->operation_count),
-                               static_cast<unsigned long long>(
-                                   descriptor->modeled_cycles),
-                               static_cast<unsigned long long>(
-                                   traffic_bytes));
-                  std::fflush(stderr);
-                } else {
-                  std::fprintf(stderr,
-                               "Coral hybrid operator failed opcode=%u "
-                               "error=%u\n",
-                               descriptor->opcode, descriptor->error);
                   std::fflush(stderr);
                 }
 #else
@@ -888,6 +1002,7 @@ coral_gem5_reset(coral_gem5_handle* handle)
   handle->wrapper.Reset();
   handle->custom_mac.Reset();
   handle->command_adapter.Reset();
+  handle->async_submissions.fill({});
   handle->firmware_progress = 0;
   handle->hybrid_status = 0;
   handle->rtl_cycles = 0;
@@ -945,6 +1060,7 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
     ++handle->rtl_cycles;
     handle->wrapper.Step();
     handle->custom_mac.StepIfActive();
+    handle->StepCommandPipeline();
     if (handle->rtl_cycles - handle->last_activity_cycles >=
         handle->watchdog_cycles) {
       // No AXI master activity for a full watchdog window: dump the channel

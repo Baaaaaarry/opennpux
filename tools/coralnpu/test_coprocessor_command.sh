@@ -1,4 +1,14 @@
 #!/bin/sh
+#
+# Purpose: validate the OpenNPUX coprocessor command front-end without building
+# the full Coral RTL bridge.
+# Pipeline: sync sim/coralnpu overlay -> compile the host C++ command adapter
+# unit test -> check the Coral scalar custom-0 decode hook exists.
+# Environment:
+#   CORAL_REPO: CoralNPU source tree to validate; defaults to thirdparty/coralnpu.
+#   CXX: host C++ compiler; defaults to c++.
+# Output:
+#   A temporary host executable under TMPDIR and a PASS line on success.
 
 set -eu
 

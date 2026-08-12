@@ -2,6 +2,58 @@
 
 #include <algorithm>
 
+namespace {
+
+uint64_t DivCeil(uint64_t value, uint64_t divisor) {
+  return value == 0 ? 0 : 1 + (value - 1) / divisor;
+}
+
+}  // namespace
+
+const char* Gem5CommandSourceName(Gem5CommandSource source) {
+  switch (source) {
+    case Gem5CommandSource::kMmioDoorbell:
+      return "mmio-doorbell";
+    case Gem5CommandSource::kCustomInstruction:
+      return "custom-instruction";
+  }
+  return "unknown-source";
+}
+
+const char* Gem5CommandEngineName(Gem5CommandEngine engine) {
+  switch (engine) {
+    case Gem5CommandEngine::kFrontend:
+      return "frontend";
+    case Gem5CommandEngine::kTdma:
+      return "tdma";
+    case Gem5CommandEngine::kTensor:
+      return "tensor";
+    case Gem5CommandEngine::kVector:
+      return "vector";
+    case Gem5CommandEngine::kSfu:
+      return "sfu";
+    case Gem5CommandEngine::kCompletion:
+      return "completion";
+  }
+  return "unknown-engine";
+}
+
+const char* Gem5MicroOpcodeName(Gem5MicroOpcode opcode) {
+  switch (opcode) {
+    case Gem5MicroOpcode::kFetchDescriptor:
+      return "fetch-descriptor";
+    case Gem5MicroOpcode::kReadOperands:
+      return "read-operands";
+    case Gem5MicroOpcode::kExecuteOperator:
+      return "execute-operator";
+    case Gem5MicroOpcode::kWriteback:
+      return "writeback";
+    case Gem5MicroOpcode::kComplete:
+      return "complete";
+  }
+  return "unknown-micro-op";
+}
+
 void Gem5DependencyScoreboard::Reset() { completed_mask_ = 0; }
 
 bool Gem5DependencyScoreboard::Ready(uint64_t dependency_mask) const {
@@ -34,6 +86,34 @@ void Gem5CoprocessorCommandAdapter::Reset() {
 size_t Gem5CoprocessorCommandAdapter::EngineIndex(
     Gem5CommandEngine engine) {
   return static_cast<size_t>(engine);
+}
+
+void Gem5CoprocessorCommandAdapter::ConfigureLatencyModel(
+    uint64_t operations_per_cycle, uint64_t bytes_per_cycle,
+    uint64_t fixed_compute_cycles) {
+  operations_per_cycle_ = std::max<uint64_t>(operations_per_cycle, 1);
+  bytes_per_cycle_ = std::max<uint64_t>(bytes_per_cycle, 1);
+  fixed_compute_cycles_ = fixed_compute_cycles;
+}
+
+uint64_t Gem5CoprocessorCommandAdapter::CommandLatency(
+    const coral_operator_descriptor& descriptor,
+    Gem5MicroOpcode opcode) const {
+  switch (opcode) {
+    case Gem5MicroOpcode::kReadOperands:
+      return std::max<uint64_t>(DivCeil(descriptor.bytes_read,
+                                        bytes_per_cycle_), 1);
+    case Gem5MicroOpcode::kExecuteOperator:
+      return std::max<uint64_t>(fixed_compute_cycles_ +
+                                    DivCeil(descriptor.operation_count,
+                                            operations_per_cycle_),
+                                1);
+    case Gem5MicroOpcode::kWriteback:
+      return std::max<uint64_t>(DivCeil(descriptor.bytes_written,
+                                        bytes_per_cycle_), 1);
+    default:
+      return 1;
+  }
 }
 
 bool Gem5CoprocessorCommandAdapter::ValidateDescriptor(
@@ -106,10 +186,13 @@ bool Gem5CoprocessorCommandAdapter::DecodeOperator(
     command.operator_opcode = descriptor.opcode;
     command.dependency_mask =
         i == 0 ? 0 : (UINT64_C(1) << previous_id);
+    command.latency_cycles = CommandLatency(descriptor, opcodes[i]);
+    command.remaining_cycles = 0;
     command.source = source;
     command.engine = engines[i];
     command.opcode = opcodes[i];
     command.state = Gem5CommandState::kPending;
+    command.work_started = false;
     previous_id = command_id;
   }
   Submission* submission = FindSubmission(submission_tag);
@@ -164,6 +247,7 @@ bool Gem5CoprocessorCommandAdapter::IssueNext(
         scoreboard_.Ready(candidate.dependency_mask) &&
         !EngineBusy(candidate.engine)) {
       candidate.state = Gem5CommandState::kIssued;
+      candidate.remaining_cycles = candidate.latency_cycles;
       engine_busy_[EngineIndex(candidate.engine)] = true;
       *command = candidate;
       return true;
@@ -172,12 +256,100 @@ bool Gem5CoprocessorCommandAdapter::IssueNext(
   return false;
 }
 
+void Gem5CoprocessorCommandAdapter::AdvanceCycle() {
+  Gem5CoprocessorCommand issued = {};
+  while (IssueNext(&issued)) {
+  }
+
+  for (size_t i = 0; i < command_count_; ++i) {
+    Gem5CoprocessorCommand& command = commands_[i];
+    if (command.state != Gem5CommandState::kIssued) {
+      continue;
+    }
+    if (command.remaining_cycles > 0) {
+      --command.remaining_cycles;
+    }
+    if (command.remaining_cycles == 0) {
+      command.state = Gem5CommandState::kReadyToComplete;
+    }
+  }
+}
+
+bool Gem5CoprocessorCommandAdapter::TakeReadyToComplete(
+    Gem5CoprocessorCommand* command) const {
+  if (command == nullptr) {
+    return false;
+  }
+  for (size_t i = 0; i < command_count_; ++i) {
+    if (commands_[i].state == Gem5CommandState::kReadyToComplete) {
+      *command = commands_[i];
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Gem5CoprocessorCommandAdapter::Reschedule(
+    uint32_t command_id, uint64_t latency_cycles) {
+  for (size_t i = 0; i < command_count_; ++i) {
+    Gem5CoprocessorCommand& command = commands_[i];
+    if (command.command_id != command_id ||
+        command.state != Gem5CommandState::kReadyToComplete) {
+      continue;
+    }
+    command.work_started = true;
+    command.latency_cycles = std::max<uint64_t>(latency_cycles, 1);
+    command.remaining_cycles = command.latency_cycles;
+    command.state = Gem5CommandState::kIssued;
+    return true;
+  }
+  return false;
+}
+
+bool Gem5CoprocessorCommandAdapter::SetPendingLatency(
+    uint32_t submission_tag, Gem5MicroOpcode opcode,
+    uint64_t latency_cycles) {
+  for (size_t i = 0; i < command_count_; ++i) {
+    Gem5CoprocessorCommand& command = commands_[i];
+    if (command.submission_tag == submission_tag &&
+        command.opcode == opcode &&
+        command.state == Gem5CommandState::kPending) {
+      command.latency_cycles = std::max<uint64_t>(latency_cycles, 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Gem5CoprocessorCommandAdapter::FailSubmission(uint32_t submission_tag) {
+  Submission* submission = FindSubmission(submission_tag);
+  if (submission == nullptr) {
+    return false;
+  }
+  submission->failed = true;
+  for (size_t i = 0; i < command_count_; ++i) {
+    Gem5CoprocessorCommand& command = commands_[i];
+    if (command.submission_tag != submission_tag ||
+        command.state == Gem5CommandState::kComplete ||
+        command.state == Gem5CommandState::kError) {
+      continue;
+    }
+    if (command.state == Gem5CommandState::kIssued ||
+        command.state == Gem5CommandState::kReadyToComplete) {
+      engine_busy_[EngineIndex(command.engine)] = false;
+    }
+    command.state = Gem5CommandState::kError;
+  }
+  return true;
+}
+
 bool Gem5CoprocessorCommandAdapter::Complete(uint32_t command_id,
                                              bool success) {
   for (size_t i = 0; i < command_count_; ++i) {
     Gem5CoprocessorCommand& command = commands_[i];
     if (command.command_id != command_id ||
-        command.state != Gem5CommandState::kIssued) {
+        (command.state != Gem5CommandState::kReadyToComplete &&
+         command.state != Gem5CommandState::kIssued)) {
       continue;
     }
     command.state = success ? Gem5CommandState::kComplete :
@@ -216,7 +388,8 @@ size_t Gem5CoprocessorCommandAdapter::PendingCount() const {
   size_t pending = 0;
   for (size_t i = 0; i < command_count_; ++i) {
     if (commands_[i].state == Gem5CommandState::kPending ||
-        commands_[i].state == Gem5CommandState::kIssued) {
+        commands_[i].state == Gem5CommandState::kIssued ||
+        commands_[i].state == Gem5CommandState::kReadyToComplete) {
       ++pending;
     }
   }

@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <string>
 
 namespace {
 
@@ -54,6 +55,35 @@ void TestTwoLevelDecodeAndDependencies() {
   }
   assert(adapter.SubmissionComplete(tag));
   assert(adapter.PendingCount() == 0);
+}
+
+void TestSourceAndNameObservability() {
+  assert(Gem5CommandSourceName(Gem5CommandSource::kMmioDoorbell) ==
+         std::string("mmio-doorbell"));
+  assert(Gem5CommandSourceName(Gem5CommandSource::kCustomInstruction) ==
+         std::string("custom-instruction"));
+  assert(Gem5CommandEngineName(Gem5CommandEngine::kTensor) ==
+         std::string("tensor"));
+  assert(Gem5MicroOpcodeName(Gem5MicroOpcode::kExecuteOperator) ==
+         std::string("execute-operator"));
+
+  const coral_operator_descriptor descriptor =
+      ValidDescriptor(CORAL_OPERATOR_OP_ADD_INT8);
+  const Gem5CommandSource sources[] = {
+      Gem5CommandSource::kMmioDoorbell,
+      Gem5CommandSource::kCustomInstruction,
+  };
+  for (Gem5CommandSource source : sources) {
+    Gem5CoprocessorCommandAdapter adapter;
+    uint32_t tag = 0;
+    uint32_t error = 0;
+    assert(adapter.Submit(source, 0x20400300, descriptor, &tag, &error));
+    Gem5CoprocessorCommand command = {};
+    assert(adapter.IssueNext(&command));
+    assert(command.submission_tag == tag);
+    assert(command.source == source);
+    assert(command.opcode == Gem5MicroOpcode::kFetchDescriptor);
+  }
 }
 
 void TestBadDescriptorRejected() {
@@ -128,12 +158,80 @@ void TestEngineCreditsAndMultipleSubmissions() {
   assert(adapter.InFlightCount() == 0);
 }
 
+void TestCycleDrivenExecution() {
+  Gem5CoprocessorCommandAdapter adapter;
+  adapter.ConfigureLatencyModel(4, 8, 2);
+  coral_operator_descriptor descriptor =
+      ValidDescriptor(CORAL_OPERATOR_OP_MATMUL_INT8);
+  descriptor.operation_count = 16;
+  descriptor.bytes_read = 16;
+  descriptor.bytes_written = 8;
+  uint32_t tag = 0;
+  uint32_t error = 0;
+  assert(adapter.Submit(Gem5CommandSource::kCustomInstruction, 0x20400300,
+                        descriptor, &tag, &error));
+  assert(!adapter.SubmissionComplete(tag));
+
+  const uint64_t expected_latencies[] = {1, 2, 6, 1, 1};
+  for (uint64_t expected : expected_latencies) {
+    adapter.AdvanceCycle();
+    Gem5CoprocessorCommand command = {};
+    for (uint64_t cycle = 0;
+         !adapter.TakeReadyToComplete(&command); ++cycle) {
+      assert(cycle < expected);
+      adapter.AdvanceCycle();
+    }
+    assert(command.latency_cycles == expected);
+    assert(adapter.Complete(command.command_id, true));
+  }
+  assert(adapter.SubmissionComplete(tag));
+}
+
+void TestDynamicLatencyUpdate() {
+  Gem5CoprocessorCommandAdapter adapter;
+  adapter.ConfigureLatencyModel(1, 8, 0);
+  coral_operator_descriptor descriptor =
+      ValidDescriptor(CORAL_OPERATOR_OP_ADD_INT8);
+  uint32_t tag = 0;
+  uint32_t error = 0;
+  assert(adapter.Submit(Gem5CommandSource::kCustomInstruction, 0x20400300,
+                        descriptor, &tag, &error));
+
+  const Gem5MicroOpcode expected_opcodes[] = {
+      Gem5MicroOpcode::kFetchDescriptor,
+      Gem5MicroOpcode::kReadOperands,
+      Gem5MicroOpcode::kExecuteOperator,
+  };
+  for (Gem5MicroOpcode expected_opcode : expected_opcodes) {
+    adapter.AdvanceCycle();
+    Gem5CoprocessorCommand command = {};
+    assert(adapter.TakeReadyToComplete(&command));
+    assert(command.opcode == expected_opcode);
+    assert(adapter.Complete(command.command_id, true));
+  }
+
+  assert(adapter.SetPendingLatency(tag, Gem5MicroOpcode::kWriteback, 4));
+  adapter.AdvanceCycle();
+  Gem5CoprocessorCommand writeback = {};
+  for (uint64_t cycle = 0;
+       !adapter.TakeReadyToComplete(&writeback); ++cycle) {
+    assert(cycle < 4);
+    adapter.AdvanceCycle();
+  }
+  assert(writeback.opcode == Gem5MicroOpcode::kWriteback);
+  assert(writeback.latency_cycles == 4);
+  assert(adapter.Complete(writeback.command_id, true));
+}
+
 }  // namespace
 
 int main() {
   TestTwoLevelDecodeAndDependencies();
+  TestSourceAndNameObservability();
   TestBadDescriptorRejected();
   TestFailureStopsDependentCommands();
   TestEngineCreditsAndMultipleSubmissions();
+  TestCycleDrivenExecution();
+  TestDynamicLatencyUpdate();
   return 0;
 }

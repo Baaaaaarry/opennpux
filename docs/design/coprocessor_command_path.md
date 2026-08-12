@@ -14,6 +14,8 @@ compute timing models:
 5. The second-level command decoder expands the operator into engine-specific
    micro-commands.
 6. `Gem5DependencyScoreboard` controls issue order.
+7. A cycle-driven modeling front-end advances issued micro-commands using the
+   configured latency model and publishes descriptor completion asynchronously.
 
 ## Instruction Encoding
 
@@ -55,8 +57,30 @@ The execution engine is selected from the operator opcode:
 - SFU: Softmax.
 
 Each command contains a submission tag, command ID, descriptor address,
-engine, opcode, dependency mask, source, and state. A command issues only when
-all bits in its dependency mask have completed.
+engine, micro-op, dependency mask, source, state, latency, and remaining
+cycles. A command issues only when all bits in its dependency mask have
+completed and the selected engine has a free credit.
+
+## Cycle-Driven Modeling
+
+The first modeling increment does not execute the operator immediately at the
+doorbell write. Instead:
+
+1. `CoprocessorCommandAdapter::Submit()` validates the descriptor and allocates
+   a submission tag.
+2. `DecodeOperator()` expands the descriptor into five ordered micro-commands.
+3. `AdvanceCycle()` issues dependency-ready commands, decrements their latency,
+   and moves completed work to `ReadyToComplete`.
+4. The bridge handles the `EXECUTE_OPERATOR` micro-op by invoking the current
+   host functional kernel, then reschedules the command for modeled compute
+   latency.
+5. `WRITEBACK` latency is updated from the descriptor's output byte count.
+6. `COMPLETE` publishes descriptor state, error, modeled cycles, and operator
+   statistics.
+
+This creates a stable seam for later replacing the host functional kernel with
+TDMA, scratchpad, tensor, vector, and SFU timing models or real RTL units while
+keeping the firmware-visible descriptor ABI unchanged.
 
 ## Compatibility
 
@@ -90,13 +114,14 @@ CORAL_OPERATOR_MODE=hybrid ./tools/coralnpu/run_rvv_mobilenet_test.sh
 The host log must contain five ordered command issues and a completion:
 
 ```text
-Coral command issue ... opcode=0 ... source=1
-Coral command issue ... opcode=1 ... source=1
-Coral command issue ... opcode=2 ... source=1
-Coral command issue ... opcode=3 ... source=1
-Coral command issue ... opcode=4 ... source=1
-Coral command submission ... state=complete pending=0
+Coral command submission ... source=custom-instruction ...
+Coral command complete ... micro_op=fetch-descriptor ...
+Coral command complete ... micro_op=read-operands ...
+Coral command execute ... micro_op=execute-operator ...
+Coral command complete ... micro_op=writeback ...
+Coral command complete ... micro_op=complete ...
+Coral hybrid operator complete ...
 ```
 
-`source=1` proves the descriptor was submitted through the custom-instruction
-path. The guest must still report `mobilenet_test=PASS`.
+`source=custom-instruction` proves the descriptor was submitted through the
+custom-instruction path. The guest must still report `mobilenet_test=PASS`.

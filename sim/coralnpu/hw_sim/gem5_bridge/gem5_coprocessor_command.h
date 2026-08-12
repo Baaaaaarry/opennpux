@@ -29,11 +29,16 @@ enum class Gem5MicroOpcode : uint8_t {
   kComplete = 4,
 };
 
+const char* Gem5CommandSourceName(Gem5CommandSource source);
+const char* Gem5CommandEngineName(Gem5CommandEngine engine);
+const char* Gem5MicroOpcodeName(Gem5MicroOpcode opcode);
+
 enum class Gem5CommandState : uint8_t {
   kPending = 0,
   kIssued = 1,
-  kComplete = 2,
-  kError = 3,
+  kReadyToComplete = 2,
+  kComplete = 3,
+  kError = 4,
 };
 
 struct Gem5CoprocessorCommand {
@@ -42,10 +47,13 @@ struct Gem5CoprocessorCommand {
   uint32_t descriptor_address;
   uint32_t operator_opcode;
   uint64_t dependency_mask;
+  uint64_t latency_cycles;
+  uint64_t remaining_cycles;
   Gem5CommandSource source;
   Gem5CommandEngine engine;
   Gem5MicroOpcode opcode;
   Gem5CommandState state;
+  bool work_started;
 };
 
 class Gem5DependencyScoreboard {
@@ -72,12 +80,21 @@ class Gem5CoprocessorCommandAdapter {
               const coral_operator_descriptor& descriptor,
               uint32_t* submission_tag, uint32_t* error);
   bool IssueNext(Gem5CoprocessorCommand* command);
+  void AdvanceCycle();
+  bool TakeReadyToComplete(Gem5CoprocessorCommand* command) const;
+  bool Reschedule(uint32_t command_id, uint64_t latency_cycles);
+  bool SetPendingLatency(uint32_t submission_tag, Gem5MicroOpcode opcode,
+                         uint64_t latency_cycles);
+  bool FailSubmission(uint32_t submission_tag);
   bool Complete(uint32_t command_id, bool success);
   bool SubmissionComplete(uint32_t submission_tag) const;
   bool SubmissionFailed(uint32_t submission_tag) const;
   size_t PendingCount() const;
   size_t InFlightCount() const;
   bool EngineBusy(Gem5CommandEngine engine) const;
+  void ConfigureLatencyModel(uint64_t operations_per_cycle,
+                             uint64_t bytes_per_cycle,
+                             uint64_t fixed_compute_cycles);
 
  private:
   struct Submission {
@@ -96,6 +113,8 @@ class Gem5CoprocessorCommandAdapter {
   Submission* FindSubmission(uint32_t tag);
   const Submission* FindSubmission(uint32_t tag) const;
   static size_t EngineIndex(Gem5CommandEngine engine);
+  uint64_t CommandLatency(const coral_operator_descriptor& descriptor,
+                          Gem5MicroOpcode opcode) const;
 
   std::array<Gem5CoprocessorCommand, kCommandCapacity> commands_{};
   std::array<Submission, kSubmissionCapacity> submissions_{};
@@ -104,6 +123,9 @@ class Gem5CoprocessorCommandAdapter {
   uint32_t next_command_id_ = 0;
   uint32_t next_submission_tag_ = 1;
   size_t command_count_ = 0;
+  uint64_t operations_per_cycle_ = 1;
+  uint64_t bytes_per_cycle_ = 16;
+  uint64_t fixed_compute_cycles_ = 0;
 };
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_COPROCESSOR_COMMAND_H_

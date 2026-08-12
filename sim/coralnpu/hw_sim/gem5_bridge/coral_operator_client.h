@@ -131,8 +131,12 @@ inline bool SubmitHybridOperator(
                : "r"(operator_base), "r"(descriptor_address)
                : "memory");
   OperatorFence();
-  return *reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_STATUS_REG) ==
-             CORAL_OPERATOR_STATE_COMPLETE &&
+  volatile uint32_t* status =
+      reinterpret_cast<volatile uint32_t*>(CORAL_OPERATOR_STATUS_REG);
+  while (*status == CORAL_OPERATOR_STATE_RUNNING) {
+    asm volatile("nop");
+  }
+  return *status == CORAL_OPERATOR_STATE_COMPLETE &&
          descriptor->state == CORAL_OPERATOR_STATE_COMPLETE &&
          descriptor->error == CORAL_OPERATOR_ERROR_NONE;
 }

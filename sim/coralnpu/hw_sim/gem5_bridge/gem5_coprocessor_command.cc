@@ -24,10 +24,16 @@ Gem5CoprocessorCommandAdapter::Gem5CoprocessorCommandAdapter() { Reset(); }
 void Gem5CoprocessorCommandAdapter::Reset() {
   commands_.fill({});
   submissions_.fill({});
+  engine_busy_.fill(false);
   scoreboard_.Reset();
   next_command_id_ = 0;
   next_submission_tag_ = 1;
   command_count_ = 0;
+}
+
+size_t Gem5CoprocessorCommandAdapter::EngineIndex(
+    Gem5CommandEngine engine) {
+  return static_cast<size_t>(engine);
 }
 
 bool Gem5CoprocessorCommandAdapter::ValidateDescriptor(
@@ -155,8 +161,10 @@ bool Gem5CoprocessorCommandAdapter::IssueNext(
   for (size_t i = 0; i < command_count_; ++i) {
     Gem5CoprocessorCommand& candidate = commands_[i];
     if (candidate.state == Gem5CommandState::kPending &&
-        scoreboard_.Ready(candidate.dependency_mask)) {
+        scoreboard_.Ready(candidate.dependency_mask) &&
+        !EngineBusy(candidate.engine)) {
       candidate.state = Gem5CommandState::kIssued;
+      engine_busy_[EngineIndex(candidate.engine)] = true;
       *command = candidate;
       return true;
     }
@@ -174,6 +182,7 @@ bool Gem5CoprocessorCommandAdapter::Complete(uint32_t command_id,
     }
     command.state = success ? Gem5CommandState::kComplete :
                               Gem5CommandState::kError;
+    engine_busy_[EngineIndex(command.engine)] = false;
     Submission* submission = FindSubmission(command.submission_tag);
     if (!success && submission != nullptr) {
       submission->failed = true;
@@ -212,6 +221,20 @@ size_t Gem5CoprocessorCommandAdapter::PendingCount() const {
     }
   }
   return pending;
+}
+
+size_t Gem5CoprocessorCommandAdapter::InFlightCount() const {
+  size_t in_flight = 0;
+  for (bool busy : engine_busy_) {
+    in_flight += busy ? 1 : 0;
+  }
+  return in_flight;
+}
+
+bool Gem5CoprocessorCommandAdapter::EngineBusy(
+    Gem5CommandEngine engine) const {
+  const size_t index = EngineIndex(engine);
+  return index < engine_busy_.size() && engine_busy_[index];
 }
 
 Gem5CoprocessorCommandAdapter::Submission*

@@ -63,6 +63,7 @@ class Gem5CoprocessorCommandAdapter {
  public:
   static constexpr size_t kCommandCapacity = 64;
   static constexpr size_t kSubmissionCapacity = 8;
+  static constexpr size_t kEngineCount = 6;
 
   Gem5CoprocessorCommandAdapter();
 
@@ -75,6 +76,8 @@ class Gem5CoprocessorCommandAdapter {
   bool SubmissionComplete(uint32_t submission_tag) const;
   bool SubmissionFailed(uint32_t submission_tag) const;
   size_t PendingCount() const;
+  size_t InFlightCount() const;
+  bool EngineBusy(Gem5CommandEngine engine) const;
 
  private:
   struct Submission {
@@ -92,9 +95,11 @@ class Gem5CoprocessorCommandAdapter {
   Gem5CommandEngine OperatorEngine(uint32_t opcode) const;
   Submission* FindSubmission(uint32_t tag);
   const Submission* FindSubmission(uint32_t tag) const;
+  static size_t EngineIndex(Gem5CommandEngine engine);
 
   std::array<Gem5CoprocessorCommand, kCommandCapacity> commands_{};
   std::array<Submission, kSubmissionCapacity> submissions_{};
+  std::array<bool, kEngineCount> engine_busy_{};
   Gem5DependencyScoreboard scoreboard_;
   uint32_t next_command_id_ = 0;
   uint32_t next_submission_tag_ = 1;

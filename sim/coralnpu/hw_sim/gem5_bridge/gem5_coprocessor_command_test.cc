@@ -83,11 +83,57 @@ void TestFailureStopsDependentCommands() {
   assert(!adapter.IssueNext(&command));
 }
 
+void TestEngineCreditsAndMultipleSubmissions() {
+  Gem5CoprocessorCommandAdapter adapter;
+  const coral_operator_descriptor tensor_descriptor =
+      ValidDescriptor(CORAL_OPERATOR_OP_MATMUL_INT8);
+  const coral_operator_descriptor vector_descriptor =
+      ValidDescriptor(CORAL_OPERATOR_OP_ADD_INT8);
+  uint32_t tensor_tag = 0;
+  uint32_t vector_tag = 0;
+  uint32_t error = 0;
+  assert(adapter.Submit(Gem5CommandSource::kCustomInstruction, 0x20400300,
+                        tensor_descriptor, &tensor_tag, &error));
+  assert(adapter.Submit(Gem5CommandSource::kCustomInstruction, 0x20400600,
+                        vector_descriptor, &vector_tag, &error));
+  assert(tensor_tag != vector_tag);
+  assert(adapter.PendingCount() == 10);
+
+  Gem5CoprocessorCommand tensor_fetch = {};
+  assert(adapter.IssueNext(&tensor_fetch));
+  assert(tensor_fetch.submission_tag == tensor_tag);
+  assert(tensor_fetch.engine == Gem5CommandEngine::kFrontend);
+  assert(adapter.EngineBusy(Gem5CommandEngine::kFrontend));
+  assert(adapter.InFlightCount() == 1);
+
+  // The second submission's fetch is dependency-ready but must wait for the
+  // single frontend credit.
+  Gem5CoprocessorCommand blocked = {};
+  assert(!adapter.IssueNext(&blocked));
+  assert(adapter.Complete(tensor_fetch.command_id, true));
+
+  Gem5CoprocessorCommand tensor_read = {};
+  assert(adapter.IssueNext(&tensor_read));
+  assert(tensor_read.submission_tag == tensor_tag);
+  assert(tensor_read.engine == Gem5CommandEngine::kTdma);
+
+  // A different engine can issue concurrently while TDMA remains occupied.
+  Gem5CoprocessorCommand vector_fetch = {};
+  assert(adapter.IssueNext(&vector_fetch));
+  assert(vector_fetch.submission_tag == vector_tag);
+  assert(vector_fetch.engine == Gem5CommandEngine::kFrontend);
+  assert(adapter.InFlightCount() == 2);
+  assert(adapter.Complete(tensor_read.command_id, true));
+  assert(adapter.Complete(vector_fetch.command_id, true));
+  assert(adapter.InFlightCount() == 0);
+}
+
 }  // namespace
 
 int main() {
   TestTwoLevelDecodeAndDependencies();
   TestBadDescriptorRejected();
   TestFailureStopsDependentCommands();
+  TestEngineCreditsAndMultipleSubmissions();
   return 0;
 }

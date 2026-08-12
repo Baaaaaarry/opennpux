@@ -292,7 +292,9 @@ struct coral_gem5_handle {
         submission.valid = true;
         submission.tag = tag;
         submission.descriptor = descriptor;
+#ifdef CORAL_GEM5_RVV_HIGHMEM
         submission.result = {};
+#endif
         submission.kernel_done = false;
         submission.kernel_success = false;
         submission.final_error = CORAL_OPERATOR_ERROR_NONE;

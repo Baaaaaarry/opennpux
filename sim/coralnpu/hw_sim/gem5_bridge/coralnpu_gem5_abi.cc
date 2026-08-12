@@ -16,7 +16,9 @@
 #include "hw_sim/gem5_bridge/gem5_coprocessor_command.h"
 #include "hw_sim/gem5_bridge/gem5_custom_mac.h"
 #include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
+#ifdef CORAL_GEM5_RVV_HIGHMEM
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
+#endif
 
 namespace {
 
@@ -228,7 +230,9 @@ struct AsyncOperatorSubmission {
   bool valid = false;
   uint32_t tag = 0;
   coral_operator_descriptor* descriptor = nullptr;
+#ifdef CORAL_GEM5_RVV_HIGHMEM
   Gem5HybridOperatorResult result = {};
+#endif
   bool kernel_done = false;
   bool kernel_success = false;
   uint32_t final_error = CORAL_OPERATOR_ERROR_NONE;

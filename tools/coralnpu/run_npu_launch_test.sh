@@ -71,13 +71,6 @@ RUN_STATUS="${PIPE_STATUS}"
 [ ! -s "${STATUS_FILE}" ] || RUN_STATUS="$(cat "${STATUS_FILE}")"
 [ "${RUN_STATUS}" -eq 0 ] || exit "${RUN_STATUS}"
 
-TERMINAL="${ROOT_DIR}/logs/sim/m5out/system.terminal"
-[ -f "${TERMINAL}" ] || TERMINAL="${ROOT_DIR}/m5out/system.terminal"
-[ -f "${TERMINAL}" ] || {
-    echo "error: guest terminal log not found" >&2
-    exit 1
-}
-
 grep -q 'source=custom-instruction' "${HOST_LOG}" || {
     echo "error: no custom-instruction submission observed" >&2
     exit 1
@@ -92,9 +85,36 @@ grep -q 'kernel=done' "${HOST_LOG}" || {
     echo "error: hybrid ADD kernel did not complete" >&2
     exit 1
 }
-grep -q '^npu_launch_test=PASS$' "${TERMINAL}" || {
+
+# gem5term records CRLF on some hosts. Also tolerate the legacy output
+# locations used before run_multicore.sh standardized logs/sim/m5out.
+TERMINAL=""
+for candidate in \
+    "${ROOT_DIR}/logs/sim/m5out/system.terminal" \
+    "${ROOT_DIR}/m5out/system.terminal" \
+    "${ROOT_DIR}/thirdparty/gem5/m5out/system.terminal"; do
+    if [ -f "${candidate}" ] && awk '
+        { sub(/\r$/, "") }
+        $0 == "npu_launch_test=PASS" { found = 1 }
+        END { exit found ? 0 : 1 }
+    ' "${candidate}"; then
+        TERMINAL="${candidate}"
+        break
+    fi
+done
+[ -n "${TERMINAL}" ] || {
     echo "error: guest NPU_LAUNCH verdict missing" >&2
+    echo "checked guest terminal logs:" >&2
+    for candidate in \
+        "${ROOT_DIR}/logs/sim/m5out/system.terminal" \
+        "${ROOT_DIR}/m5out/system.terminal" \
+        "${ROOT_DIR}/thirdparty/gem5/m5out/system.terminal"; do
+        [ -f "${candidate}" ] || continue
+        echo "--- ${candidate}" >&2
+        tail -n 30 "${candidate}" | tr -d '\r' >&2
+    done
     exit 1
 }
 
+echo "guest verdict: ${TERMINAL}"
 echo "NPU_LAUNCH end-to-end test: PASS"

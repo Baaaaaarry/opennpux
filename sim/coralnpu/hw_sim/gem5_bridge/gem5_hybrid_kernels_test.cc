@@ -81,6 +81,35 @@ void TestConv2D() {
   assert(descriptor.modeled_cycles == 1);
 }
 
+void TestAsyncRunningDescriptor() {
+  std::vector<uint8_t> memory(256, 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_CONV_2D_INT8);
+  descriptor.state = CORAL_OPERATOR_STATE_RUNNING;
+  SetTensor(&descriptor.tensors[0], kBase, 1, 4, 1, 1, 1, 1,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  SetTensor(&descriptor.tensors[1], kBase + 16, 1, 4, 1, 1, 1, 1,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  SetTensor(&descriptor.tensors[2], kBase + 32, 4, 1, 1, 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT32);
+  SetTensor(&descriptor.tensors[3], kBase + 48, 1, 4, 1, 1, 1, 1,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  memory[0] = 3;
+  memory[16] = 2;
+  Write32(&memory, 32, 1);
+  Write32(&memory, 64, 1073741824);
+  Write32(&memory, 68, 1);
+  descriptor.multiplier_address = kBase + 64;
+  descriptor.shift_address = kBase + 68;
+  descriptor.quantization_count = 1;
+
+  Gem5HybridOperatorResult result = {};
+  assert(DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result));
+  assert(descriptor.state == CORAL_OPERATOR_STATE_COMPLETE);
+  assert(descriptor.error == CORAL_OPERATOR_ERROR_NONE);
+  assert(static_cast<int8_t>(memory[48]) == 7);
+}
+
 void TestDepthwiseConv2D() {
   std::vector<uint8_t> memory(256, 0);
   auto descriptor = Descriptor(CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8);
@@ -250,6 +279,7 @@ void TestLayerNormFloat() {
 
 int main() {
   TestConv2D();
+  TestAsyncRunningDescriptor();
   TestDepthwiseConv2D();
   TestMatMulInt8();
   TestFullyConnectedInt8();

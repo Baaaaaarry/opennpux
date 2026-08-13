@@ -25,7 +25,8 @@ bool ValidateGem5HybridDescriptor(
       descriptor.version != CORAL_OPERATOR_ABI_VERSION ||
       descriptor.descriptor_size != sizeof(descriptor) ||
       descriptor.execution_mode != CORAL_OPERATOR_MODE_HYBRID ||
-      descriptor.state != CORAL_OPERATOR_STATE_SUBMITTED ||
+      (descriptor.state != CORAL_OPERATOR_STATE_SUBMITTED &&
+       descriptor.state != CORAL_OPERATOR_STATE_RUNNING) ||
       descriptor.tensor_count > CORAL_OPERATOR_MAX_TENSORS) {
     *error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
     return false;

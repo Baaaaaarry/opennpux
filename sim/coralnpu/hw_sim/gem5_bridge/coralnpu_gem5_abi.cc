@@ -427,7 +427,9 @@ struct coral_gem5_handle {
           }
           ok = false;
           submission->kernel_success = false;
-          submission->final_error = CORAL_OPERATOR_ERROR_EXECUTION;
+          if (submission->final_error == CORAL_OPERATOR_ERROR_NONE) {
+            submission->final_error = CORAL_OPERATOR_ERROR_EXECUTION;
+          }
         } else {
           descriptor->state = CORAL_OPERATOR_STATE_RUNNING;
           descriptor->error = CORAL_OPERATOR_ERROR_NONE;

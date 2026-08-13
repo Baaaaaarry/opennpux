@@ -168,7 +168,6 @@ guest tool. The first run must create a checkpoint whose device tree reserves a
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh
-./tools/guest_tools/install_coralctl_to_image.sh "$CORAL_DISK_IMG"
 
 CORAL_NPU_EXECUTABLE=/data/models/Qwen3.5-35B/model.npxc \
 CORAL_REBUILD_CKPT=1 \
@@ -179,8 +178,10 @@ CORAL_NPU_EXECUTABLE=/data/models/Qwen3.5-35B/model.npxc \
 ```
 
 The first command only boots Linux and saves the new checkpoint. The second
-command restores it and runs the smoke test. Later runs need only the second
-command. Expected guest verdict:
+command restores it and runs the smoke test. The run script injects the current
+host-built `coralctl` into `/tmp`, so later runtime-only changes do not require
+editing the disk image or rebuilding the checkpoint. Later runs need only the
+second command. Expected guest verdict:
 
 ```text
 submitted_commands=520

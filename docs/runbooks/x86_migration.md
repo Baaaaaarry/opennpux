@@ -13,7 +13,7 @@ Move the active Coral + gem5 system simulation flow to an x86 Linux host.
 4. Run `sim/gem5/apply_patchset.sh` and `sim/coralnpu/apply_patchset.sh` to
    merge those local source deltas into `thirdparty/gem5` and
    `thirdparty/coralnpu`.
-5. Run the Coral phase-1 tooling from `tools/coralnpu/`.
+5. Run the Coral Coral standalone tooling from `tools/coralnpu/`.
 6. Continue RTL bridge and runtime work from this repository, not directly in
    the submodules.
 

@@ -27,7 +27,7 @@ The gem5 run script (`run_multicore.sh`) also respects `IMAGE_PATH`, and most te
 - `runtime/npu`: NPU-side program placeholders and notes
 - `rtl/wrappers`: wrapper code and integration shims for RTL co-simulation
 - `docs`: ADRs, design notes, and runbooks
-- `tools/coralnpu`: phase-1 Coral validation helpers
+- `tools/coralnpu`: Coral standalone validation helpers
 
 ## Workflow
 
@@ -37,8 +37,7 @@ The gem5 run script (`run_multicore.sh`) also respects `IMAGE_PATH`, and most te
    `sim/coralnpu/` using the same relative paths as their upstream trees.
 3. Merge `sim/gem5` into `thirdparty/gem5` and `sim/coralnpu` into
    `thirdparty/coralnpu` before compilation.
-4. Use the runbooks under `docs/runbooks` to validate phase-1 and later system
-   flows on an x86 Linux host.
+4. Use the runbooks under `docs/runbooks` to validate baseline system flows on an x86 Linux host.
 
 ## Team Collaboration
 
@@ -89,15 +88,15 @@ the staged firmware and wait for completion.
 Use `coralctl dma-test` with the DMA smoke firmware to verify coherent
 shared-memory reads and writes.
 
-## Phase 2: Coral RTL bridge
+## Coral RTL Bridge
 
 On the supported x86 Linux host, build the official `CoreMiniAxi` Verilator
 model and the OpenNPUX C ABI adapter:
 
 ```sh
-./tools/coralnpu/phase2_prepare_bazel.sh
-./tools/coralnpu/phase2_check_abi.sh
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/prepare_coral_bazel.sh
+./tools/coralnpu/check_rtl_bridge_abi.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ```
 
 If the x86 host cannot resolve `releases.bazel.build`, download
@@ -105,10 +104,10 @@ If the x86 host cannot resolve `releases.bazel.build`, download
 
 ```sh
 BAZEL_BINARY=/path/to/bazel-8.6.0-linux-x86_64 \
-  ./tools/coralnpu/phase2_prepare_bazel.sh
+  ./tools/coralnpu/prepare_coral_bazel.sh
 ```
 
-The staged Phase-2 artifacts are:
+The staged RTL bridge artifacts are:
 
 ```sh
 build/coralnpu/libcoralnpu_gem5_bridge.so
@@ -133,13 +132,13 @@ superproject root. Pulling code or changing the injected resume script does
 not rebuild it. Use `CORAL_REBUILD_CKPT=1` only when the booted guest state
 must be recreated.
 
-## Phase 4: Command submission
+## Command Submission Runtime
 
 Build the bridge and command firmware, rebuild/install `coralctl`, and run the
 driver-backed multi-buffer command test:
 
 ```sh
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh
 sudo ./tools/guest_tools/install_coralctl_to_image.sh \
   $IMAGE_PATH/ubuntu-18.04-arm64-docker.img
@@ -159,15 +158,15 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 The acceptance result is `vector_add=PASS`, `completed_elements=16`, and
 `output_checksum=0x00000198`.
 
-## Phase 4/5: Heterogeneous platform
+## Heterogeneous Platform
 
 The generic model runtime and custom RTL accelerator use the same driver and
 command ABI as the official Coral path. Build and install the sample assets:
 
 ```sh
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/build_rtl_bridge.sh
 IMAGE=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
-  ./tools/coralnpu/phase45_prepare_guest_assets.sh
+  ./tools/coralnpu/prepare_guest_assets.sh
 ```
 
 After rebuilding the boot checkpoint once, run:
@@ -178,7 +177,7 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_model_test.sh
 ```
 
-See `docs/runbooks/phase45_platform_acceptance.md` for the model and explicit
+See `docs/runbooks/heterogeneous_platform_acceptance.md` for the model and explicit
 official/custom RTL acceptance criteria.
 
 
@@ -235,7 +234,7 @@ The optional highmem path retains the standard bridge and adds the official
 ```sh
 ./tools/coralnpu/build_rvv_mobilenet.sh
 IMAGE=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
-./tools/coralnpu/phase45_prepare_guest_assets.sh
+./tools/coralnpu/prepare_guest_assets.sh
 CORAL_KERNEL_IMAGE=./build/kernel/vmlinux-4.19.325-opennpux \
 CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 ./tools/coralnpu/run_rvv_mobilenet_test.sh

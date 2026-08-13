@@ -25,7 +25,7 @@ fail() {
 }
 
 echo "[coral-mobilenet-test] started"
-[ -f /tmp/coralnpu-phase3-preload.ready ] || fail "stale checkpoint"
+[ -f /tmp/coralnpu-baseline-preload.ready ] || fail "stale checkpoint"
 [ -x "${CORALCTL}" ] || fail "coralctl missing"
 [ -f "${MODULE}" ] || fail "kernel module missing"
 [ -x /tmp/busybox ] || fail "BusyBox missing"

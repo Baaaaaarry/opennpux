@@ -25,7 +25,7 @@ fail() {
 }
 
 echo "[coral-custom-rtl-test] started"
-[ -f /tmp/coralnpu-phase3-preload.ready ] ||
+[ -f /tmp/coralnpu-baseline-preload.ready ] ||
     fail "stale or incomplete checkpoint"
 [ -x "${CORALCTL}" ] || fail "preloaded coralctl is missing"
 [ -f "${MODULE}" ] || fail "preloaded kernel module is missing"

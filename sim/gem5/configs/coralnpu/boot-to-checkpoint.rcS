@@ -13,6 +13,7 @@ preloaded_module=0
 preloaded_busybox=0
 preloaded_model=0
 dt_memory_region=0
+preloaded_qwen=0
 
 for dt_property in \
     /proc/device-tree/coralnpu@1d000000/memory-region \
@@ -77,14 +78,29 @@ do
 done
 [ "$preloaded_model" -ne 1 ] || : > /tmp/opennpux-model.ready
 
+for candidate in \
+    /usr/local/share/opennpux/qwen-tiny.npxm \
+    /data/usr/local/share/opennpux/qwen-tiny.npxm \
+    /root/qwen-tiny.npxm
+do
+    if [ -r "$candidate" ]; then
+        cp "$candidate" /tmp/qwen-tiny.npxm
+        chmod 0600 /tmp/qwen-tiny.npxm
+        preloaded_qwen=1
+        echo "[coralnpu] preloaded qwen-tiny into checkpoint tmpfs"
+        break
+    fi
+done
+[ "$preloaded_qwen" -ne 1 ] || : > /tmp/qwen-tiny.ready
+
 if [ "$preloaded_coralctl" -eq 1 ] && \
    [ "$preloaded_module" -eq 1 ] && \
    [ "$preloaded_busybox" -eq 1 ] && \
    [ "$dt_memory_region" -eq 1 ]; then
-    : > /tmp/coralnpu-phase3-preload.ready
-    echo "[coralnpu] phase3 checkpoint preload ready"
+    : > /tmp/coralnpu-baseline-preload.ready
+    echo "[coralnpu] baseline checkpoint preload ready"
 else
-    echo "[coralnpu] WARNING: phase3 checkpoint preload incomplete"
+    echo "[coralnpu] WARNING: baseline checkpoint preload incomplete"
 fi
 
 sync

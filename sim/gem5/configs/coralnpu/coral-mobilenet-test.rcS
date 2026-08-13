@@ -25,7 +25,7 @@ fail() {
 }
 
 echo "[coral-mobilenet-test] started"
-[ -f /tmp/coralnpu-phase3-preload.ready ] || fail "stale checkpoint"
+[ -f /tmp/coralnpu-baseline-preload.ready ] || fail "stale checkpoint"
 dt_memory_region=0
 for dt_property in \
     /proc/device-tree/coralnpu@1d000000/memory-region \

@@ -44,9 +44,9 @@ BRIDGE_TARGET="//hw_sim:libcoralnpu_gem5_rvv_highmem_bridge.so"
 FIRMWARE_TARGET="//hw_sim:gem5_mobilenet.elf"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
-BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
-REPO_CACHE="${PHASE2_REPO_CACHE:-${ROOT_DIR}/.cache/coralnpu/repository}"
-DISTDIR="${PHASE2_DISTDIR:-${CORAL_REPO}/distdir}"
+BAZEL_OUTPUT_ROOT="${CORAL_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
+REPO_CACHE="${CORAL_REPO_CACHE:-${ROOT_DIR}/.cache/coralnpu/repository}"
+DISTDIR="${CORAL_DISTDIR:-${CORAL_REPO}/distdir}"
 
 # Default to an optimized build. The bridge contains the Verilated RTL model,
 # and a default fastbuild (-O0) runs it ~14x slower; pass an explicit mode to
@@ -68,7 +68,7 @@ elif command -v bazel >/dev/null 2>&1; then
 elif [ -x "${LOCAL_BAZEL}" ]; then
     BAZEL="${LOCAL_BAZEL}"
 else
-    echo "error: bazel not found; run phase2_prepare_bazel.sh" >&2
+    echo "error: bazel not found; run prepare_coral_bazel.sh" >&2
     exit 1
 fi
 

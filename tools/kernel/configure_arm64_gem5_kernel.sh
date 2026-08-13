@@ -172,4 +172,13 @@ unset_config CONFIG_SOUND
 unset_config CONFIG_WLAN
 unset_config CONFIG_BT
 unset_config CONFIG_USB
+unset_config CONFIG_USB_DWC2
+unset_config CONFIG_USB_DWC2_HOST
+unset_config CONFIG_USB_DWC2_PERIPHERAL
+unset_config CONFIG_USB_DWC2_DUAL_ROLE
+unset_config CONFIG_USB_GADGET
+unset_config CONFIG_USB_SUPPORT
+unset_config CONFIG_USB_COMMON
+unset_config CONFIG_USB_PHY
+unset_config CONFIG_NOP_USB_XCEIV
 unset_config CONFIG_KVM

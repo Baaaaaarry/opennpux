@@ -193,4 +193,3 @@ class O3_ARM_Cortex_x3L2(Cache):
     prefetcher = StridePrefetcher(degree=4, latency=1, prefetch_on_access=True)
     tags = BaseSetAssoc()
     replacement_policy = LRURP()
-

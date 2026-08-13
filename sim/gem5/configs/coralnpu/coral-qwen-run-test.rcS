@@ -1,0 +1,50 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp /dev
+[ -r /proc/mounts ] || mount -t proc proc /proc 2>/dev/null || true
+is_mounted() {
+    while read -r _source target _rest; do
+        [ "$target" = "$1" ] && return 0
+    done < /proc/mounts
+    return 1
+}
+is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
+is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+CORALCTL=/tmp/coralctl
+QWEN_MODEL=
+QWEN_MODE="${CORAL_QWEN_MODE:-hybrid-sim}"
+
+fail() {
+    echo "[coral-qwen-test] FAIL: $*"
+    if command -v m5 >/dev/null 2>&1; then
+        m5 --inst exit
+    fi
+    exit 1
+}
+
+echo "[coral-qwen-test] started"
+[ -x "${CORALCTL}" ] || CORALCTL=/usr/local/bin/coralctl
+[ -x "${CORALCTL}" ] || fail "coralctl missing"
+for candidate in \
+    /tmp/qwen-tiny.npxm \
+    /usr/local/share/opennpux/qwen-tiny.npxm \
+    /data/usr/local/share/opennpux/qwen-tiny.npxm \
+    /root/qwen-tiny.npxm
+do
+    if [ -r "$candidate" ]; then
+        QWEN_MODEL="$candidate"
+        break
+    fi
+done
+[ -n "${QWEN_MODEL}" ] || fail "qwen model missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
+echo "qwen_model_path=${QWEN_MODEL}"
+
+"${CORALCTL}" qwen-run "${QWEN_MODEL}" "${QWEN_MODE}" || fail "qwen-run failed"
+
+echo "[coral-qwen-test] PASS"
+if command -v m5 >/dev/null 2>&1; then
+    m5 --inst exit
+fi
+exit 0

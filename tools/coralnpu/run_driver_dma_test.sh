@@ -19,7 +19,7 @@ TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-driver-dma-test.
 
 if [ ! -f "${FIRMWARE}" ]; then
     echo "error: DMA smoke firmware not found: ${FIRMWARE}" >&2
-    echo "run ./tools/coralnpu/phase2_build_bridge.sh first" >&2
+    echo "run ./tools/coralnpu/build_rtl_bridge.sh first" >&2
     exit 1
 fi
 

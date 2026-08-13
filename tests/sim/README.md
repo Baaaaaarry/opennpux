@@ -2,12 +2,12 @@
 
 Add smoke and end-to-end simulation tests here.
 
-Phase-2 smoke sequence:
+RTL bridge smoke sequence:
 
 ```bash
-./tools/coralnpu/phase2_prepare_bazel.sh
-./tools/coralnpu/phase2_check_abi.sh
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/prepare_coral_bazel.sh
+./tools/coralnpu/check_rtl_bridge_abi.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ./sim/gem5/apply_patchset.sh
 CORAL_NPU_BACKEND=verilated-coral ./thirdparty/gem5/run_multicore.sh
 ```
@@ -42,12 +42,12 @@ The checkpoint script copies `coralctl` into tmpfs and waits for the virtio
 block queue to become idle before checkpointing. This avoids post-restore disk
 reads for the test binary and stale virtqueue descriptors.
 
-The Phase-2 bridge ABI is now version 2 and carries deferred external AXI
+The RTL bridge ABI is now version 2 and carries deferred external AXI
 requests into gem5 coherent DMA. Rebuild both the bridge and gem5 after pulling
 this change:
 
 ```bash
-./tools/coralnpu/phase2_build_bridge.sh
+./tools/coralnpu/build_rtl_bridge.sh
 ./sim/gem5/apply_patchset.sh
 cd thirdparty/gem5
 scons build/ARM/gem5.opt -j"$(nproc)"

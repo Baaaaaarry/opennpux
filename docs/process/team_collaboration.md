@@ -33,7 +33,7 @@ main
 
 ## Issue Lifecycle
 
-1. Create an Epic for a large phase, for example `Phase 5: Transformer operator
+1. Create an Epic for a large capability area, for example `Custom RTL baseline: Transformer operator
    support`.
 2. Split the Epic into implementation Issues with a clear owner and boundary.
 3. Add labels for subsystem and risk:

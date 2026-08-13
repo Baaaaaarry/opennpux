@@ -1,12 +1,18 @@
 #include "opennpux/coral_runtime.h"
 #include "opennpux/model_package.h"
+#include "opennpux/npu_executable.h"
 #include "opennpux/qwen_model.h"
 
 #include <errno.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+static int copy_to_shared_window(
+    struct opennpux_coral_shared_window *window, const uint8_t *source,
+    uint32_t size);
 
 static void
 usage(const char *prog)
@@ -20,6 +26,7 @@ usage(const char *prog)
             "  %s vector-add-custom <elements> [base [poll-count]]\n"
             "  %s model-run <model.npxm> [base [poll-count]]\n"
             "  %s model-info-v2 <model.npxm>\n"
+            "  %s executable-run <model.npxc> [prefill|decode [base [poll-count]]]\n"
             "  %s qwen-info <qwen-tiny.npxm>\n"
             "  %s qwen-run <qwen-tiny.npxm> [golden-package|hybrid-sim]\n"
             "  %s qwen-stage-tcb <qwen-tiny.npxm> [base]\n"
@@ -31,7 +38,108 @@ usage(const char *prog)
             "  %s mem-write32 <offset> <value> [base]\n"
             "features: qwen-run-tcb-v2\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog);
+}
+
+static int
+print_executable_run(struct opennpux_coral_device *dev, const char *path,
+                     uint32_t entry_point, uint32_t firmware_entry,
+                     uint64_t polls)
+{
+    struct opennpux_npu_executable executable;
+    if (opennpux_npu_executable_load(path, &executable) != 0) {
+        perror("executable-run load");
+        return 1;
+    }
+    struct opennpux_coral_shared_window window;
+    if (opennpux_coral_open_shared_window(dev, 65536, &window) != 0) {
+        opennpux_npu_executable_unload(&executable);
+        return 1;
+    }
+    struct opennpux_npu_tensor_binding bindings[5];
+    memset(bindings, 0, sizeof(bindings));
+    for (uint32_t index = 0; index < 5; ++index) {
+        bindings[index].tensor_id = index;
+        bindings[index].flags = index == 1 ? OPENNPUX_NPU_BIND_WRITE :
+                                             OPENNPUX_NPU_BIND_READ;
+        bindings[index].data_type = OPENNPUX_NPU_DTYPE_BFLOAT16;
+        bindings[index].rank = 1;
+        bindings[index].byte_size = 64;
+        bindings[index].dimensions[0] = 32;
+        bindings[index].memory_object = index + 1;
+    }
+    bindings[2].flags |= OPENNPUX_NPU_BIND_WEIGHT;
+    bindings[3].flags |= OPENNPUX_NPU_BIND_PERSISTENT |
+                         OPENNPUX_NPU_BIND_WRITE;
+    bindings[4].flags |= OPENNPUX_NPU_BIND_WRITE;
+
+    uint8_t *submission = malloc(window.size);
+    size_t submission_size = 0;
+    int rc = 1;
+    if (submission == NULL || opennpux_npu_executable_instantiate(
+            &executable, entry_point, 1, 1, bindings, 5, submission,
+            window.size, &submission_size) != 0) {
+        perror("executable-run instantiate");
+        goto out;
+    }
+    const size_t completion_offset =
+        (submission_size + OPENNPUX_NPU_RECORD_ALIGNMENT - 1) &
+        ~(size_t)(OPENNPUX_NPU_RECORD_ALIGNMENT - 1);
+    if (completion_offset > window.size ||
+        sizeof(struct opennpux_npu_completion) > window.size - completion_offset) {
+        errno = ENOSPC;
+        perror("executable-run completion");
+        goto out;
+    }
+    struct opennpux_npu_invocation_header *header =
+        (struct opennpux_npu_invocation_header *)(void *)submission;
+    header->completion_address = UINT64_C(0x20000000) + completion_offset;
+    header->checksum = 0;
+    header->checksum = opennpux_npu_submission_checksum(
+        submission, submission_size);
+    if (opennpux_npu_submission_validate(submission, submission_size) != 0 ||
+        copy_to_shared_window(&window, submission, (uint32_t)submission_size) != 0) {
+        perror("executable-run stage");
+        goto out;
+    }
+    volatile struct opennpux_npu_completion *completion =
+        (volatile struct opennpux_npu_completion *)(volatile void *)(
+            window.bytes + completion_offset);
+    memset((void *)(uintptr_t)completion, 0, sizeof(*completion));
+    __sync_synchronize();
+    uint32_t device_status = 0;
+    if (opennpux_coral_run(dev, firmware_entry, polls, &device_status) != 0) {
+        perror("executable-run device");
+        goto out;
+    }
+    __sync_synchronize();
+    printf("transport=%s\n", opennpux_coral_transport_name(dev->transport));
+    printf("executable_id=0x%016" PRIx64 "\n", header->executable_id);
+    printf("entry_point=%" PRIu32 "\n", entry_point);
+    printf("submission_bytes=%zu\n", submission_size);
+    printf("completion_offset=0x%zx\n", completion_offset);
+    printf("submitted_commands=%" PRIu32 "\n", header->command_count);
+    printf("device_status=0x%08" PRIx32 "\n", device_status);
+    printf("completion_state=%" PRIu32 "\n", completion->state);
+    printf("completion_error=%" PRIu32 "\n", completion->error_code);
+    printf("completed_commands=%" PRIu32 "\n", completion->completed_commands);
+    if (completion->magic != OPENNPUX_NPU_COMPLETION_MAGIC ||
+        completion->version != OPENNPUX_NPU_COMPLETION_VERSION ||
+        completion->sequence != header->sequence ||
+        completion->state != OPENNPUX_NPU_COMPLETION_SUCCESS ||
+        completion->error_code != 0 ||
+        completion->completed_commands != header->command_count) {
+        errno = EIO;
+        perror("executable-run completion validation");
+        goto out;
+    }
+    puts("executable_run=PASS");
+    rc = 0;
+out:
+    free(submission);
+    opennpux_coral_close_shared_window(&window);
+    opennpux_npu_executable_unload(&executable);
+    return rc;
 }
 
 static int
@@ -587,6 +695,7 @@ main(int argc, char **argv)
         strcmp(argv[1], "vector-add-custom") == 0;
     const int command_model_run = strcmp(argv[1], "model-run") == 0;
     const int command_model_info_v2 = strcmp(argv[1], "model-info-v2") == 0;
+    const int command_executable_run = strcmp(argv[1], "executable-run") == 0;
     const int command_qwen_info = strcmp(argv[1], "qwen-info") == 0;
     const int command_qwen_run = strcmp(argv[1], "qwen-run") == 0;
     const int command_qwen_stage_tcb = strcmp(argv[1], "qwen-stage-tcb") == 0;
@@ -599,7 +708,7 @@ main(int argc, char **argv)
     const int command_mem_write32 = strcmp(argv[1], "mem-write32") == 0;
     if (!command_info && !command_run && !command_dma_test &&
         !command_vector_add && !command_vector_add_custom &&
-        !command_model_run && !command_model_info_v2 &&
+        !command_model_run && !command_model_info_v2 && !command_executable_run &&
         !command_qwen_info && !command_qwen_run &&
         !command_qwen_stage_tcb && !command_qwen_run_tcb &&
         !command_mobilenet_test &&
@@ -615,6 +724,7 @@ main(int argc, char **argv)
          (argc < 3 || argc > 5)) ||
         (command_model_run && (argc < 3 || argc > 5)) ||
         (command_model_info_v2 && argc != 3) ||
+        (command_executable_run && (argc < 3 || argc > 6)) ||
         (command_qwen_info && argc != 3) ||
         (command_qwen_run && (argc < 3 || argc > 4)) ||
         (command_qwen_stage_tcb && (argc < 3 || argc > 4)) ||
@@ -643,6 +753,7 @@ main(int argc, char **argv)
     uint64_t shared_value = 0;
     uint64_t vector_elements = 0;
     const char *model_path = NULL;
+    uint32_t executable_entry = OPENNPUX_NPU_ENTRY_DECODE;
     if (command_mem_read32 || command_mem_write32) {
         const int base_arg = command_mem_read32 ? 3 : 4;
         if (opennpux_coral_parse_u64(argv[2], &shared_offset) != 0) {
@@ -658,6 +769,20 @@ main(int argc, char **argv)
         if (argc > base_arg &&
             opennpux_coral_parse_u64(argv[base_arg], &base) != 0) {
             fprintf(stderr, "invalid base address: %s\n", argv[base_arg]);
+            return 2;
+        }
+    } else if (command_executable_run) {
+        model_path = argv[2];
+        if (argc >= 4) {
+            if (strcmp(argv[3], "prefill") == 0) {
+                executable_entry = OPENNPUX_NPU_ENTRY_PREFILL;
+            } else if (strcmp(argv[3], "decode") != 0) {
+                fprintf(stderr, "invalid executable entry: %s\n", argv[3]);
+                return 2;
+            }
+        }
+        if (argc >= 5 && opennpux_coral_parse_u64(argv[4], &base) != 0) {
+            fprintf(stderr, "invalid base address: %s\n", argv[4]);
             return 2;
         }
     } else if (command_model_run) {
@@ -747,7 +872,8 @@ main(int argc, char **argv)
     uint64_t entry = info.firmware_entry;
     uint64_t polls =
         (command_dma_test || command_vector_add || command_vector_add_custom ||
-         command_model_run || command_mobilenet_test || command_qwen_run_tcb) ?
+         command_model_run || command_mobilenet_test || command_qwen_run_tcb ||
+         command_executable_run) ?
             100000 : 1000;
     if (command_run && argc >= 4 &&
         opennpux_coral_parse_u64(argv[3], &entry) != 0) {
@@ -756,6 +882,7 @@ main(int argc, char **argv)
         return 2;
     }
     const int poll_arg =
+        command_executable_run ? 5 :
         command_mobilenet_test ? 3 :
         command_qwen_run_tcb ? 4 :
         (command_model_run || command_vector_add ||
@@ -771,6 +898,9 @@ main(int argc, char **argv)
     int result;
     if (command_run) {
         result = print_run(&dev, (uint32_t)entry, polls);
+    } else if (command_executable_run) {
+        result = print_executable_run(&dev, model_path, executable_entry,
+                                      (uint32_t)entry, polls);
     } else if (command_model_run) {
         result = print_model_run(&dev, (uint32_t)entry, model_path, polls);
     } else if (command_qwen_run_tcb) {

@@ -260,6 +260,14 @@ coralnpu_v2_binary(
 )
 
 coralnpu_v2_binary(
+    name = "gem5_npu_command_processor_smoke",
+    srcs = [
+        "gem5_bridge/gem5_npu_command_processor_smoke.c",
+        "gem5_bridge/npu_submission.h",
+    ],
+)
+
+coralnpu_v2_binary(
     name = "gem5_mobilenet",
     srcs = [
         "gem5_bridge/coral_mobilenet.h",

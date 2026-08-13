@@ -167,3 +167,12 @@ hold a fully expanded 40-layer command buffer. The real-model compiler reports
 `npu_command_template_bytes` and `npu_invocation_bytes_upper_bound`; those
 measurements select either a larger queue memory object or paged command-buffer
 fetch for the command-processor increment.
+
+The first command-processor smoke implementation uses a 64KiB contiguous
+shared command buffer. The CPU stages one invocation containing all command
+records, rings the existing START path once, and receives one completion
+record. Firmware validates ABI/checksum/ranges and walks the complete command
+stream. This proves online CPU submission and NPU-side scheduling control; it
+does not yet execute command kernels or real model tensors. Because the shared
+window size is represented in the device tree, switching an existing 4KiB
+setup to 64KiB requires one new boot checkpoint.

@@ -158,3 +158,40 @@ legal graph-level constants may not belong to a decoder layer. A nonzero
 hard executable-compilation failure. The scheduler uses paged range reads and
 router-TopK active experts only; it never schedules all 256 experts as resident
 state.
+
+## Generic Command Processor Smoke
+
+After the real model produces `model.npxc`, build the command processor and
+guest tool. The first run must create a checkpoint whose device tree reserves a
+64KiB NPU shared window:
+
+```sh
+./tools/coralnpu/build_rtl_bridge.sh
+./tools/guest_tools/build_coralctl.sh
+./tools/guest_tools/install_coralctl_to_image.sh "$CORAL_DISK_IMG"
+
+CORAL_NPU_EXECUTABLE=/data/models/Qwen3.5-35B/model.npxc \
+CORAL_REBUILD_CKPT=1 \
+  ./tools/coralnpu/run_generic_executable_test.sh
+
+CORAL_NPU_EXECUTABLE=/data/models/Qwen3.5-35B/model.npxc \
+  ./tools/coralnpu/run_generic_executable_test.sh
+```
+
+The first command only boots Linux and saves the new checkpoint. The second
+command restores it and runs the smoke test. Later runs need only the second
+command. Expected guest verdict:
+
+```text
+submitted_commands=520
+completion_state=2
+completion_error=0
+completed_commands=520
+executable_run=PASS
+[coral-executable-run-test] PASS
+```
+
+This is a control-path milestone: CPU runtime submission, NPU command fetch,
+validation, traversal and completion are real. Numerical Qwen inference still
+requires parameter relocation, paged GPTQ weight DMA, operator execution and
+prefill/decode state management.

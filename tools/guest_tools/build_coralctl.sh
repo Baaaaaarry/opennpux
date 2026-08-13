@@ -57,6 +57,8 @@ mkdir -p "${OUT_DIR}"
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/coral_runtime.c" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_submission.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_executable.c" \
     "${ROOT_DIR}/runtime/host/src/qwen_model.c" \
     "${ROOT_DIR}/runtime/host/tools/coralctl.c" \
     -o "${OUT}"

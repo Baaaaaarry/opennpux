@@ -53,6 +53,7 @@ FIRMWARE_TARGET="//hw_sim:gem5_smoke_halt.elf"
 DMA_FIRMWARE_TARGET="//hw_sim:gem5_dma_smoke.elf"
 COMMAND_FIRMWARE_TARGET="//hw_sim:gem5_command_smoke.elf"
 QWEN_TCB_FIRMWARE_TARGET="//hw_sim:gem5_qwen_tcb_smoke.elf"
+COMMAND_PROCESSOR_FIRMWARE_TARGET="//hw_sim:gem5_npu_command_processor_smoke.elf"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${CORAL_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -95,6 +96,7 @@ fi
 # ---------------------------------------------------------------------------
 "${ROOT_DIR}/tools/coralnpu/check_rtl_bridge_abi.sh"
 "${ROOT_DIR}/tools/coralnpu/check_command_abi.sh"
+"${ROOT_DIR}/tools/coralnpu/check_npu_submission_abi.sh"
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
 "${ROOT_DIR}/tools/coralnpu/check_overlay_boundary.sh"
 "${ROOT_DIR}/tools/coralnpu/test_axi_adapter.sh"
@@ -113,6 +115,7 @@ rm -f \
     "${OUT_DIR}/gem5_dma_smoke.elf" \
     "${OUT_DIR}/gem5_command_smoke.elf" \
     "${OUT_DIR}/gem5_qwen_tcb_smoke.elf" \
+    "${OUT_DIR}/gem5_npu_command_processor_smoke.elf" \
     "${OUT_DIR}/wfi_slot_0.elf"
 
 # ---------------------------------------------------------------------------
@@ -152,7 +155,8 @@ if _capture "${BUILD_LOG}" \
        --repository_cache="${REPO_CACHE}" \
        --distdir="${DISTDIR}" \
        "${TARGET}" "${FIRMWARE_TARGET}" "${DMA_FIRMWARE_TARGET}" \
-       "${COMMAND_FIRMWARE_TARGET}" "${QWEN_TCB_FIRMWARE_TARGET}" "$@"; then
+       "${COMMAND_FIRMWARE_TARGET}" "${QWEN_TCB_FIRMWARE_TARGET}" \
+       "${COMMAND_PROCESSOR_FIRMWARE_TARGET}" "$@"; then
     bazel_ok=1
 fi
 
@@ -198,6 +202,7 @@ FIRMWARE="$(resolve_output "${FIRMWARE_TARGET}")"
 DMA_FIRMWARE="$(resolve_output "${DMA_FIRMWARE_TARGET}")"
 COMMAND_FIRMWARE="$(resolve_output "${COMMAND_FIRMWARE_TARGET}")"
 QWEN_TCB_FIRMWARE="$(resolve_output "${QWEN_TCB_FIRMWARE_TARGET}")"
+COMMAND_PROCESSOR_FIRMWARE="$(resolve_output "${COMMAND_PROCESSOR_FIRMWARE_TARGET}")"
 
 # ---------------------------------------------------------------------------
 # Verify Bazel produced all four artifacts.
@@ -220,6 +225,10 @@ if [ ! -f "${COMMAND_FIRMWARE}" ]; then
 fi
 if [ ! -f "${QWEN_TCB_FIRMWARE}" ]; then
     echo "error: Bazel completed but Qwen TCB firmware was not found: ${QWEN_TCB_FIRMWARE}" >&2
+    exit 1
+fi
+if [ ! -f "${COMMAND_PROCESSOR_FIRMWARE}" ]; then
+    echo "error: Bazel completed but command processor firmware was not found: ${COMMAND_PROCESSOR_FIRMWARE}" >&2
     exit 1
 fi
 
@@ -258,6 +267,8 @@ install_output "${COMMAND_FIRMWARE}" \
     "${OUT_DIR}/gem5_command_smoke.elf" 0644
 install_output "${QWEN_TCB_FIRMWARE}" \
     "${OUT_DIR}/gem5_qwen_tcb_smoke.elf" 0644
+install_output "${COMMAND_PROCESSOR_FIRMWARE}" \
+    "${OUT_DIR}/gem5_npu_command_processor_smoke.elf" 0644
 
 # ---------------------------------------------------------------------------
 # Post-build sanity checks.
@@ -288,3 +299,4 @@ echo "built: ${OUT_DIR}/gem5_smoke_halt.elf" | tee -a "${BUILD_LOG}"
 echo "built: ${OUT_DIR}/gem5_dma_smoke.elf" | tee -a "${BUILD_LOG}"
 echo "built: ${OUT_DIR}/gem5_command_smoke.elf" | tee -a "${BUILD_LOG}"
 echo "built: ${OUT_DIR}/gem5_qwen_tcb_smoke.elf" | tee -a "${BUILD_LOG}"
+echo "built: ${OUT_DIR}/gem5_npu_command_processor_smoke.elf" | tee -a "${BUILD_LOG}"

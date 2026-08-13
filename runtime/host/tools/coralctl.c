@@ -123,12 +123,41 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     printf("completion_state=%" PRIu32 "\n", completion->state);
     printf("completion_error=%" PRIu32 "\n", completion->error_code);
     printf("completed_commands=%" PRIu32 "\n", completion->completed_commands);
+    const struct opennpux_npu_command *commands =
+        (const struct opennpux_npu_command *)(const void *)(
+            submission + header->command_offset);
+    const uint64_t runtime_shape = commands[0].runtime_shape;
+    const uint64_t resource_bindings = commands[0].resource_bindings;
+    printf("runtime_batch=%" PRIu64 "\n",
+           runtime_shape & OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    printf("runtime_sequence=%" PRIu64 "\n",
+           (runtime_shape >> OPENNPUX_NPU_RUNTIME_SEQUENCE_SHIFT) &
+               OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    printf("runtime_kv=%" PRIu64 "\n",
+           (runtime_shape >> OPENNPUX_NPU_RUNTIME_KV_SHIFT) &
+               OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    printf("runtime_active_experts=%" PRIu64 "\n",
+           (runtime_shape >> OPENNPUX_NPU_RUNTIME_EXPERT_SHIFT) &
+               OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    printf("weight_binding=%" PRIu64 "\n",
+           resource_bindings & OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    printf("state_binding=%" PRIu64 "\n",
+           (resource_bindings >> OPENNPUX_NPU_RESOURCE_STATE_SHIFT) &
+               OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    printf("scratch_binding=%" PRIu64 "\n",
+           (resource_bindings >> OPENNPUX_NPU_RESOURCE_SCRATCH_SHIFT) &
+               OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    printf("relocated_commands=%" PRIu64 "\n", completion->reserved[0]);
+    printf("parameter_checksum=0x%08" PRIx64 "\n",
+           completion->reserved[1]);
     if (completion->magic != OPENNPUX_NPU_COMPLETION_MAGIC ||
         completion->version != OPENNPUX_NPU_COMPLETION_VERSION ||
         completion->sequence != header->sequence ||
         completion->state != OPENNPUX_NPU_COMPLETION_SUCCESS ||
         completion->error_code != 0 ||
-        completion->completed_commands != header->command_count) {
+        completion->completed_commands != header->command_count ||
+        completion->reserved[0] != header->command_count ||
+        completion->reserved[1] == 0) {
         errno = EIO;
         perror("executable-run completion validation");
         goto out;

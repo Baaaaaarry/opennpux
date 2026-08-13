@@ -55,9 +55,16 @@ main(int argc, char **argv)
             ~(size_t)(OPENNPUX_NPU_RECORD_ALIGNMENT - 1));
     check(submission != NULL, "submission allocation failed");
     size_t submission_size = 0;
-    check(opennpux_npu_executable_instantiate(
-              &executable, OPENNPUX_NPU_ENTRY_DECODE, 11, 22, bindings, 5,
-              submission, submission_capacity, &submission_size) == 0,
+    const struct opennpux_npu_invocation_parameters parameters = {
+        .batch_size = 1,
+        .sequence_length = 1,
+        .kv_length = 17,
+        .active_experts = 2,
+    };
+    check(opennpux_npu_executable_instantiate_with_parameters(
+              &executable, OPENNPUX_NPU_ENTRY_DECODE, 11, 22, &parameters,
+              bindings, 5, submission, submission_capacity,
+              &submission_size) == 0,
           "decode invocation instantiate failed");
     check(opennpux_npu_submission_validate(submission, submission_size) == 0,
           "instantiated invocation rejected");
@@ -71,6 +78,21 @@ main(int argc, char **argv)
           "persistent state was not bound at runtime");
     check(header->command_count == executable.header->command_count,
           "command template was not instantiated");
+    const struct opennpux_npu_command *commands =
+        (const struct opennpux_npu_command *)((const uint8_t *)submission +
+                                               header->command_offset);
+    check(commands[0].parameter_symbol != 0,
+          "command parameter symbol was not relocated");
+    check((commands[0].runtime_shape & OPENNPUX_NPU_RUNTIME_FIELD_MASK) == 1,
+          "runtime batch was not instantiated");
+    check(((commands[0].runtime_shape >> OPENNPUX_NPU_RUNTIME_KV_SHIFT) &
+           OPENNPUX_NPU_RUNTIME_FIELD_MASK) == parameters.kv_length,
+          "KV length was not instantiated");
+    check(((commands[0].runtime_shape >> OPENNPUX_NPU_RUNTIME_EXPERT_SHIFT) &
+           OPENNPUX_NPU_RUNTIME_FIELD_MASK) == parameters.active_experts,
+          "active expert count was not instantiated");
+    check((commands[0].resource_bindings & OPENNPUX_NPU_RUNTIME_FIELD_MASK) == 2,
+          "weight binding was not relocated");
 
     free(submission);
     opennpux_npu_executable_unload(&executable);

@@ -187,11 +187,21 @@ submitted_commands=520
 completion_state=2
 completion_error=0
 completed_commands=520
+runtime_batch=1
+runtime_sequence=1
+runtime_kv=1
+runtime_active_experts=8
+weight_binding=2
+state_binding=3
+scratch_binding=4
+relocated_commands=520
+parameter_checksum=0x...
 executable_run=PASS
 [coral-executable-run-test] PASS
 ```
 
 This is a control-path milestone: CPU runtime submission, NPU command fetch,
-validation, traversal and completion are real. Numerical Qwen inference still
-requires parameter relocation, paged GPTQ weight DMA, operator execution and
-prefill/decode state management.
+validation, compact dynamic-parameter relocation, resource-binding resolution,
+traversal and completion are real. Numerical Qwen inference still requires
+variable-size operator parameter blocks, paged GPTQ weight DMA, operator
+execution and prefill/decode state management.

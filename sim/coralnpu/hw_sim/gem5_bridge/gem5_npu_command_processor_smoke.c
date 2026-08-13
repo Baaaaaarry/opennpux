@@ -9,6 +9,7 @@
 #define ERROR_BOUNDS UINT32_C(2)
 #define ERROR_CHECKSUM UINT32_C(3)
 #define ERROR_COMMAND UINT32_C(4)
+#define ERROR_RELOCATION UINT32_C(5)
 
 static uint32_t
 checksum(const volatile uint8_t *bytes, uint32_t size)
@@ -83,8 +84,13 @@ main(void)
 
     volatile struct opennpux_npu_command *commands =
         (volatile struct opennpux_npu_command *)(base + header->command_offset);
+    volatile struct opennpux_npu_tensor_binding *bindings =
+        (volatile struct opennpux_npu_tensor_binding *)(base +
+                                                        header->binding_offset);
     uint64_t cycles = 0;
     uint64_t bytes = 0;
+    uint32_t relocated = 0;
+    uint32_t parameter_checksum = UINT32_C(2166136261);
     for (uint32_t index = 0; index < header->command_count; ++index) {
         if (commands[index].opcode == 0 ||
             commands[index].first_binding > header->binding_count ||
@@ -94,12 +100,46 @@ main(void)
                    ERROR_COMMAND, index);
             return 1;
         }
+        const uint32_t batch_size =
+            commands[index].runtime_shape & OPENNPUX_NPU_RUNTIME_FIELD_MASK;
+        const uint32_t sequence_length =
+            (commands[index].runtime_shape >>
+             OPENNPUX_NPU_RUNTIME_SEQUENCE_SHIFT) &
+            OPENNPUX_NPU_RUNTIME_FIELD_MASK;
+        const uint32_t weight_binding =
+            commands[index].resource_bindings & OPENNPUX_NPU_RUNTIME_FIELD_MASK;
+        const uint32_t state_binding =
+            (commands[index].resource_bindings >>
+             OPENNPUX_NPU_RESOURCE_STATE_SHIFT) &
+            OPENNPUX_NPU_RUNTIME_FIELD_MASK;
+        const uint32_t scratch_binding =
+            (commands[index].resource_bindings >>
+             OPENNPUX_NPU_RESOURCE_SCRATCH_SHIFT) &
+            OPENNPUX_NPU_RUNTIME_FIELD_MASK;
+        if (commands[index].parameter_symbol == 0 || batch_size == 0 ||
+            sequence_length == 0 || weight_binding >= header->binding_count ||
+            state_binding >= header->binding_count ||
+            scratch_binding >= header->binding_count ||
+            (bindings[weight_binding].flags &
+             (OPENNPUX_NPU_BIND_READ | OPENNPUX_NPU_BIND_WEIGHT)) !=
+                (OPENNPUX_NPU_BIND_READ | OPENNPUX_NPU_BIND_WEIGHT) ||
+            (bindings[state_binding].flags & OPENNPUX_NPU_BIND_PERSISTENT) == 0 ||
+            (bindings[scratch_binding].flags & OPENNPUX_NPU_BIND_WRITE) == 0) {
+            finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                   ERROR_RELOCATION, index);
+            return 1;
+        }
+        parameter_checksum ^= (uint32_t)commands[index].parameter_symbol;
+        parameter_checksum *= UINT32_C(16777619);
+        ++relocated;
         cycles += commands[index].estimated_operations;
         bytes += commands[index].estimated_bytes;
         completion->completed_commands = index + 1;
     }
     completion->npu_cycles = cycles;
     completion->dma_bytes_read = bytes;
+    completion->reserved[0] = relocated;
+    completion->reserved[1] = parameter_checksum;
     finish(completion, OPENNPUX_NPU_COMPLETION_SUCCESS, 0, UINT32_MAX);
     return 0;
 }

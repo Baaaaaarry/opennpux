@@ -126,6 +126,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 1,
+        "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
             "model_manifest": plan["model_manifest"],
@@ -187,7 +188,7 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
     header = HEADER.pack(
         MAGIC, 1, HEADER.size, total_size, len(entries), len(commands),
         ENTRY.size, COMMAND.size, entry_offset, command_offset, executable_id,
-        0, 0, 0, 0, 0,
+        0, int(executable["default_active_experts"]), 0, 0, 0,
     )
     entry_data = b"".join(
         ENTRY.pack(
@@ -202,7 +203,9 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
             hash64(command["capability"]) & 0xFFFFFFFF, 0, 5,
             int(command["dependency_token"]), int(command["completion_token"]),
             hash64(command["parameter_symbol"]), 0, 0,
-            int(command["profiling_tag"]), 0, 0,
+            int(command["profiling_tag"]),
+            0,
+            2 | (3 << 16) | (4 << 32),
         )
         for command in commands
     )

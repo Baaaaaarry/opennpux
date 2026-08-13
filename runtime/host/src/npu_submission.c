@@ -24,6 +24,38 @@ array_size(uint32_t count, size_t element_size, size_t *result)
     return 0;
 }
 
+uint64_t
+opennpux_npu_pack_runtime_shape(
+    uint32_t batch_size, uint32_t sequence_length, uint32_t kv_length,
+    uint32_t active_experts)
+{
+    if (batch_size > OPENNPUX_NPU_RUNTIME_FIELD_MASK ||
+        sequence_length > OPENNPUX_NPU_RUNTIME_FIELD_MASK ||
+        kv_length > OPENNPUX_NPU_RUNTIME_FIELD_MASK ||
+        active_experts > OPENNPUX_NPU_RUNTIME_FIELD_MASK) {
+        errno = ERANGE;
+        return 0;
+    }
+    return (uint64_t)batch_size |
+        ((uint64_t)sequence_length << OPENNPUX_NPU_RUNTIME_SEQUENCE_SHIFT) |
+        ((uint64_t)kv_length << OPENNPUX_NPU_RUNTIME_KV_SHIFT) |
+        ((uint64_t)active_experts << OPENNPUX_NPU_RUNTIME_EXPERT_SHIFT);
+}
+
+uint64_t
+opennpux_npu_pack_resource_bindings(
+    uint32_t weight_binding, uint32_t state_binding, uint32_t scratch_binding)
+{
+    if (weight_binding > UINT16_MAX || state_binding > UINT16_MAX ||
+        scratch_binding > UINT16_MAX) {
+        errno = ERANGE;
+        return UINT64_MAX;
+    }
+    return (uint64_t)weight_binding |
+        ((uint64_t)state_binding << OPENNPUX_NPU_RESOURCE_STATE_SHIFT) |
+        ((uint64_t)scratch_binding << OPENNPUX_NPU_RESOURCE_SCRATCH_SHIFT);
+}
+
 uint32_t
 opennpux_npu_submission_checksum(const void *buffer, size_t size)
 {
@@ -173,10 +205,33 @@ opennpux_npu_submission_validate(const void *buffer, size_t size)
     const struct opennpux_npu_command *commands =
         (const struct opennpux_npu_command *)(bytes + header->command_offset);
     for (uint32_t index = 0; index < header->command_count; ++index) {
+        const uint32_t weight_binding =
+            commands[index].resource_bindings & OPENNPUX_NPU_RUNTIME_FIELD_MASK;
+        const uint32_t state_binding =
+            (commands[index].resource_bindings >>
+             OPENNPUX_NPU_RESOURCE_STATE_SHIFT) &
+            OPENNPUX_NPU_RUNTIME_FIELD_MASK;
+        const uint32_t scratch_binding =
+            (commands[index].resource_bindings >>
+             OPENNPUX_NPU_RESOURCE_SCRATCH_SHIFT) &
+            OPENNPUX_NPU_RUNTIME_FIELD_MASK;
         if (commands[index].opcode == OPENNPUX_NPU_OP_INVALID ||
-        commands[index].first_binding > header->binding_count ||
+            commands[index].first_binding > header->binding_count ||
             commands[index].binding_count >
                 header->binding_count - commands[index].first_binding ||
+            commands[index].parameter_symbol == 0 ||
+            (commands[index].runtime_shape &
+             OPENNPUX_NPU_RUNTIME_FIELD_MASK) == 0 ||
+            weight_binding >= header->binding_count ||
+            state_binding >= header->binding_count ||
+            scratch_binding >= header->binding_count ||
+            (bindings[weight_binding].flags &
+             (OPENNPUX_NPU_BIND_READ | OPENNPUX_NPU_BIND_WEIGHT)) !=
+                (OPENNPUX_NPU_BIND_READ | OPENNPUX_NPU_BIND_WEIGHT) ||
+            (bindings[state_binding].flags &
+             OPENNPUX_NPU_BIND_PERSISTENT) == 0 ||
+            (bindings[scratch_binding].flags &
+             OPENNPUX_NPU_BIND_WRITE) == 0 ||
             (header->parameter_size != 0 &&
              commands[index].parameter_offset > header->parameter_size) ||
             (header->parameter_size != 0 && commands[index].parameter_size >

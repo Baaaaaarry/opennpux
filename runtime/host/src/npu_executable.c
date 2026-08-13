@@ -73,6 +73,7 @@ opennpux_npu_executable_load(
         header->version != OPENNPUX_NPU_EXECUTABLE_VERSION ||
         header->header_size != sizeof(*header) ||
         header->total_size != (uint32_t)length || header->executable_id == 0 ||
+        header->default_active_experts > OPENNPUX_NPU_RUNTIME_FIELD_MASK ||
         header->entry_count == 0 ||
         header->entry_count > OPENNPUX_NPU_MAX_ENTRY_POINTS ||
         header->command_count == 0 ||
@@ -116,6 +117,7 @@ opennpux_npu_executable_load(
         const struct opennpux_npu_command_template *command =
             &executable->commands[index];
         if (command->opcode == OPENNPUX_NPU_OP_INVALID ||
+            command->parameter_symbol == 0 ||
             command->binding_count > OPENNPUX_NPU_MAX_BINDINGS ||
             command->first_binding > OPENNPUX_NPU_MAX_BINDINGS -
                 command->binding_count) {
@@ -160,9 +162,38 @@ opennpux_npu_executable_instantiate(
     const struct opennpux_npu_tensor_binding *bindings, uint32_t binding_count,
     void *submission, size_t submission_capacity, size_t *submission_size)
 {
+    const struct opennpux_npu_invocation_parameters parameters = {
+        .batch_size = 1,
+        .sequence_length = 1,
+        .kv_length = entry_point == OPENNPUX_NPU_ENTRY_DECODE ? 1 : 0,
+        .active_experts = executable != NULL && executable->header != NULL &&
+                executable->header->default_active_experts != 0 ?
+            executable->header->default_active_experts : 1,
+    };
+    return opennpux_npu_executable_instantiate_with_parameters(
+        executable, entry_point, sequence, context_id, &parameters, bindings,
+        binding_count, submission, submission_capacity, submission_size);
+}
+
+int
+opennpux_npu_executable_instantiate_with_parameters(
+    const struct opennpux_npu_executable *executable, uint32_t entry_point,
+    uint64_t sequence, uint64_t context_id,
+    const struct opennpux_npu_invocation_parameters *parameters,
+    const struct opennpux_npu_tensor_binding *bindings, uint32_t binding_count,
+    void *submission, size_t submission_capacity, size_t *submission_size)
+{
     if (executable == NULL || executable->header == NULL || bindings == NULL ||
-        binding_count == 0 || submission == NULL || submission_size == NULL) {
+        binding_count == 0 || parameters == NULL || parameters->batch_size == 0 ||
+        parameters->sequence_length == 0 || submission == NULL ||
+        submission_size == NULL) {
         errno = EINVAL;
+        return -1;
+    }
+    const uint64_t runtime_shape = opennpux_npu_pack_runtime_shape(
+        parameters->batch_size, parameters->sequence_length,
+        parameters->kv_length, parameters->active_experts);
+    if (runtime_shape == 0) {
         return -1;
     }
     const struct opennpux_npu_executable_entry *entry =
@@ -194,6 +225,9 @@ opennpux_npu_executable_instantiate(
         destination->estimated_operations = source->estimated_operations;
         destination->estimated_bytes = source->estimated_bytes;
         destination->profiling_tag = source->profiling_tag;
+        destination->parameter_symbol = source->parameter_symbol;
+        destination->runtime_shape = runtime_shape;
+        destination->resource_bindings = source->resource_bindings;
     }
     for (uint32_t index = 0; index < binding_count; ++index) {
         if ((bindings[index].flags & OPENNPUX_NPU_BIND_PERSISTENT) != 0) {

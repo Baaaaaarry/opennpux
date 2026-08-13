@@ -21,6 +21,14 @@ extern "C" {
 #define OPENNPUX_NPU_COMMAND_SIZE UINT32_C(112)
 #define OPENNPUX_NPU_COMPLETION_SIZE UINT32_C(112)
 
+#define OPENNPUX_NPU_RESOURCE_BINDING_NONE UINT16_C(0xffff)
+#define OPENNPUX_NPU_RUNTIME_FIELD_MASK UINT64_C(0xffff)
+#define OPENNPUX_NPU_RUNTIME_SEQUENCE_SHIFT UINT32_C(16)
+#define OPENNPUX_NPU_RUNTIME_KV_SHIFT UINT32_C(32)
+#define OPENNPUX_NPU_RUNTIME_EXPERT_SHIFT UINT32_C(48)
+#define OPENNPUX_NPU_RESOURCE_STATE_SHIFT UINT32_C(16)
+#define OPENNPUX_NPU_RESOURCE_SCRATCH_SHIFT UINT32_C(32)
+
 enum opennpux_npu_entry_point {
     OPENNPUX_NPU_ENTRY_DEFAULT = 0,
     OPENNPUX_NPU_ENTRY_PREFILL = 1,
@@ -131,7 +139,9 @@ struct opennpux_npu_command {
     uint64_t estimated_operations;
     uint64_t estimated_bytes;
     uint64_t profiling_tag;
-    uint64_t reserved[3];
+    uint64_t parameter_symbol;
+    uint64_t runtime_shape;
+    uint64_t resource_bindings;
 };
 
 struct opennpux_npu_completion {
@@ -199,6 +209,12 @@ int opennpux_npu_submission_finalize(
     struct opennpux_npu_submission_builder *builder);
 int opennpux_npu_submission_validate(const void *buffer, size_t size);
 uint32_t opennpux_npu_submission_checksum(const void *buffer, size_t size);
+uint64_t opennpux_npu_pack_runtime_shape(
+    uint32_t batch_size, uint32_t sequence_length, uint32_t kv_length,
+    uint32_t active_experts);
+uint64_t opennpux_npu_pack_resource_bindings(
+    uint32_t weight_binding, uint32_t state_binding,
+    uint32_t scratch_binding);
 
 #ifdef __cplusplus
 }

@@ -38,6 +38,8 @@ main(void)
         binding->dimensions[0] = 1;
         binding->dimensions[1] = 2048;
     }
+    builder.bindings[0].flags |= OPENNPUX_NPU_BIND_WEIGHT;
+    builder.bindings[1].flags |= OPENNPUX_NPU_BIND_PERSISTENT;
 
     struct opennpux_npu_command *matmul =
         opennpux_npu_submission_command(&builder, 0);
@@ -50,12 +52,19 @@ main(void)
     matmul->binding_count = 3;
     matmul->completion_token = 1;
     matmul->estimated_operations = 8192;
+    matmul->parameter_symbol = 0x1234;
+    matmul->runtime_shape = opennpux_npu_pack_runtime_shape(1, 1, 1, 8);
+    matmul->resource_bindings =
+        opennpux_npu_pack_resource_bindings(0, 1, 2);
     add->command_id = 11;
     add->opcode = OPENNPUX_NPU_OP_ADD;
     add->first_binding = 0;
     add->binding_count = 3;
     add->dependency_token = 1;
     add->completion_token = 2;
+    add->parameter_symbol = 0x5678;
+    add->runtime_shape = matmul->runtime_shape;
+    add->resource_bindings = matmul->resource_bindings;
 
     builder.header->flags = OPENNPUX_NPU_INVOKE_PROFILE;
     builder.header->persistent_state_handle = 0x3003;

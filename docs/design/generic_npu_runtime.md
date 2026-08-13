@@ -150,29 +150,25 @@ submission ABI while adding only model rewrites, kernels, or RTL capabilities.
 
 ## Implemented Compiler/Runtime Boundary
 
-The first generic-ABI increment adds:
+The generic-ABI implementation now adds:
 
 - `model.npxe`: inspectable generic executable metadata;
 - `model.npxc`: compact binary entry-point and command-template image;
 - prefill and decode entry points over the same immutable templates;
 - CPU-side runtime instantiation with live sequence/context IDs, tensor device
   addresses, memory objects and persistent-state binding;
+- per-command parameter-symbol relocation, compact runtime batch/sequence/KV/
+  active-expert fields, and logical weight/state/scratch binding resolution;
 - size, offset, record-count and checksum validation in the C loader;
 - a host test that loads `.npxc`, creates a decode invocation and validates the
   resulting submission record.
 
-This increment intentionally stops before device submission. The default 4KiB
-shared window can validate small command-processor smoke workloads but cannot
-hold a fully expanded 40-layer command buffer. The real-model compiler reports
-`npu_command_template_bytes` and `npu_invocation_bytes_upper_bound`; those
-measurements select either a larger queue memory object or paged command-buffer
-fetch for the command-processor increment.
-
 The first command-processor smoke implementation uses a 64KiB contiguous
 shared command buffer. The CPU stages one invocation containing all command
 records, rings the existing START path once, and receives one completion
-record. Firmware validates ABI/checksum/ranges and walks the complete command
-stream. This proves online CPU submission and NPU-side scheduling control; it
-does not yet execute command kernels or real model tensors. Because the shared
-window size is represented in the device tree, switching an existing 4KiB
-setup to 64KiB requires one new boot checkpoint.
+record. Firmware validates ABI/checksum/ranges, resolves every command's
+parameter symbol and weight/state/scratch bindings, then walks the complete
+command stream. This proves online CPU submission and NPU-side relocation and
+scheduling control; it does not yet execute command kernels or real model
+tensors. Because the shared window size is represented in the device tree,
+switching an existing 4KiB setup to 64KiB requires one new boot checkpoint.

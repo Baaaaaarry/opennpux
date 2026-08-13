@@ -30,7 +30,7 @@ struct opennpux_npu_executable_header {
     uint64_t command_offset;
     uint64_t executable_id;
     uint32_t checksum;
-    uint32_t reserved0;
+    uint32_t default_active_experts;
     uint64_t reserved[3];
 };
 
@@ -57,7 +57,15 @@ struct opennpux_npu_command_template {
     uint64_t estimated_operations;
     uint64_t estimated_bytes;
     uint64_t profiling_tag;
-    uint64_t reserved[2];
+    uint64_t reserved0;
+    uint64_t resource_bindings;
+};
+
+struct opennpux_npu_invocation_parameters {
+    uint32_t batch_size;
+    uint32_t sequence_length;
+    uint32_t kv_length;
+    uint32_t active_experts;
 };
 
 struct opennpux_npu_executable {
@@ -96,6 +104,12 @@ const struct opennpux_npu_executable_entry *opennpux_npu_executable_find_entry(
 int opennpux_npu_executable_instantiate(
     const struct opennpux_npu_executable *executable, uint32_t entry_point,
     uint64_t sequence, uint64_t context_id,
+    const struct opennpux_npu_tensor_binding *bindings, uint32_t binding_count,
+    void *submission, size_t submission_capacity, size_t *submission_size);
+int opennpux_npu_executable_instantiate_with_parameters(
+    const struct opennpux_npu_executable *executable, uint32_t entry_point,
+    uint64_t sequence, uint64_t context_id,
+    const struct opennpux_npu_invocation_parameters *parameters,
     const struct opennpux_npu_tensor_binding *bindings, uint32_t binding_count,
     void *submission, size_t submission_capacity, size_t *submission_size);
 

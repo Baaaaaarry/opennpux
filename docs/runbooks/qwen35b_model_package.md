@@ -1,7 +1,9 @@
 # Qwen 35B General Model Package
 
 This gate validates real Hugging Face model assets before graph lowering or
-gem5 execution. It does not copy weight shards and does not load them into RAM.
+gem5 execution. Qwen3.5 is the first frontend and acceptance model for the
+generic NPU platform; it is not the driver, queue, or device ABI. This step
+does not copy weight shards, load them into RAM, or submit an NPU task.
 
 ## GB10 Validation
 
@@ -91,21 +93,23 @@ model_quantization_bits=...
 model_quantization_group_size=...
 ```
 
-The generated files are small metadata artifacts:
+The generated files are small offline compiler metadata artifacts:
 
 - `model.npxm`: versioned architecture and shard manifest.
 - `tensor-index.npxi`: tensor name to shard/offset/shape index.
-- `execution-plan.npxp`: compact tensor-role and decoder scheduling inventory.
+- `execution-plan.npxp`: Qwen frontend tensor-role and decoder-lowering
+  inventory. It contains no live invocation or device addresses.
 - Original `*.safetensors`: unchanged external weight payloads.
 
 ## Current Boundary
 
-Passing this gate proves that the platform can ingest and range-address the
-real 35B model without whole-model memory allocation. The next implementation
-uses the observed tensor names to lower each Transformer layer into TCBs and
-adds paged weight DMA, quantized MatMul, KV-cache allocation, tokenizer input,
-and iterative decode. The existing tiny Qwen golden/TCB path remains the
-functional control-flow reference.
+Passing this gate proves that the deployment toolchain can ingest and
+range-address the real 35B model without whole-model memory allocation. The
+next implementation lowers the observed graph into a generic NPU executable.
+For every prefill/decode request, the CPU runtime must still bind live tensors,
+dynamic dimensions, KV/recurrent state and synchronization, then submit a
+command-buffer job to the NPU. The existing Qwen tiny TCB remains a bring-up
+regression fixture and must not be extended into the stable platform ABI.
 
 ## Execution Plan Inventory
 

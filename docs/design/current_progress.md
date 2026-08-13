@@ -88,6 +88,28 @@ dma_test=PASS
 
 ## Remaining Work
 
+### Generic submission architecture
+
+The Qwen tiny TCB and offline Qwen execution plan are validation fixtures, not
+the final SoC contract. The platform now follows
+`docs/adr/0002-generic-npu-submission-architecture.md`: an offline frontend
+emits a generic NPU executable, while the CPU runtime submits every live
+inference request with current tensor bindings, dynamic dimensions, persistent
+state and synchronization.
+
+The next platform increments are:
+
+- versioned submission and completion rings;
+- generic executable, invocation, binding and command records;
+- CPU runtime load/bind/submit/wait APIs;
+- driver memory-object, fence and IRQ transport;
+- NPU command processor, dependency scheduler and modeled resource queues;
+- operator capability IDs shared by RTL, RVV, hybrid and sampled backends.
+
+Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
+first workload adapter on this architecture. Future model families must not
+require changes to the queue or driver ABI.
+
 ### RTL bridge baseline
 
 - The single-outstanding asynchronous AXI-to-gem5 DMA transport is verified.

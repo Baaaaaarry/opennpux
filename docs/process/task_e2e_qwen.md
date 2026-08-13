@@ -23,6 +23,11 @@ gem5+CoralNPU heterogeneous SoC platform:
 The first target is functional correctness and platform completeness, not final
 NPU performance.
 
+Qwen is the first compiler frontend and acceptance workload. The deliverable
+must remain usable by other Transformer families: Qwen tensor names, block
+types, and fixed traces must not enter the stable driver, queue, command
+processor, or operator ABI.
+
 ## Scope
 
 In scope:
@@ -51,8 +56,9 @@ Out of scope for the first milestone:
   exceed current shared/EXTMEM window.
 - NPU CSR/MMIO: no change expected.
 - Shared DMA window: may need larger configurable size and chunked staging.
-- TCB/operator descriptor: yes, extend for batched MatMul, broadcast,
-  normalization, RoPE, KV cache, and TopK metadata.
+- TCB/operator descriptor: replace model-specific TCB growth with the reviewed
+  generic executable/invocation/command-buffer ABI. Qwen lowers batched MatMul,
+  broadcast, normalization, RoPE, KV cache and TopK into generic commands.
 - Kernel UAPI: no new ioctl expected initially; may add model-buffer pinning or
   larger shared mapping later.
 - Verilated bridge C ABI: may need capability bits and operator mode reporting
@@ -61,6 +67,11 @@ Out of scope for the first milestone:
   assets and model files; checkpoint rebuild required after image updates.
 - Operator semantics: yes, must define quantization, shape, axis, broadcast,
   cache layout, and numerical tolerance.
+
+Architecture references:
+
+- `docs/adr/0002-generic-npu-submission-architecture.md`
+- `docs/design/generic_npu_runtime.md`
 
 ## Expected Files
 

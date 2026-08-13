@@ -140,6 +140,13 @@ main NPU acceleration target.
 
 ## 6. TCB And ABI Extensions
 
+> Architecture boundary: the Qwen TCB below is a bring-up compatibility format,
+> not the general SoC submission ABI. New model support must target the generic
+> executable, invocation, command-buffer and completion contracts described in
+> `docs/adr/0002-generic-npu-submission-architecture.md` and
+> `docs/design/generic_npu_runtime.md`. Qwen graph analysis belongs to the
+> compiler frontend; the CPU still submits every live inference request.
+
 The current `coral_operator_descriptor` should be extended only through a
 reviewed ABI version bump or reserved fields with documented semantics.
 

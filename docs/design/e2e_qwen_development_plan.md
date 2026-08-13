@@ -65,6 +65,24 @@ host reference, with one or two layers, small hidden size, fixed sequence
 length, and int8 or float32 bring-up tensors. This prevents multi-hour
 simulation while preserving the Qwen execution pattern.
 
+### General Model Package
+
+`OPENNPUX_MODEL_PACKAGE_V2` is the scale-out package boundary for real models:
+
+- `tools/models/import_hf_model.py` imports Hugging Face `config.json` and
+  safetensors metadata without copying or loading weight payloads.
+- The `.npxm` manifest records architecture, dimensions, dtype, required
+  operators, tensor count, external shards, and total weight bytes.
+- `tensor-index.npxi` maps a tensor name to shard, payload offset, dtype, and
+  shape. `runtime/host/src/model_package.c` performs bounded tensor range reads.
+- Existing `OPENNPUX_QWEN_TINY_V1` remains the deterministic golden/TCB package;
+  it is not presented as a real pretrained model.
+
+This makes 35B-class assets loadable with bounded host memory. It does not yet
+make them executable: layer graph lowering, quantized kernels, paged weight
+DMA, KV-cache management, tokenizer integration, and multi-token validation
+remain subsequent milestones.
+
 ## 4. Execution Modes
 
 ### Hybrid Mode

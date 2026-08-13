@@ -56,6 +56,7 @@ mkdir -p "${OUT_DIR}"
 "${CC}" -O2 -static -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/coral_runtime.c" \
+    "${ROOT_DIR}/runtime/host/src/model_package.c" \
     "${ROOT_DIR}/runtime/host/src/qwen_model.c" \
     "${ROOT_DIR}/runtime/host/tools/coralctl.c" \
     -o "${OUT}"

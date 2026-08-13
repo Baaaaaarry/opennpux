@@ -1,4 +1,5 @@
 #include "opennpux/coral_runtime.h"
+#include "opennpux/model_package.h"
 #include "opennpux/qwen_model.h"
 
 #include <errno.h>
@@ -18,6 +19,7 @@ usage(const char *prog)
             "  %s vector-add <elements> [base [poll-count]]\n"
             "  %s vector-add-custom <elements> [base [poll-count]]\n"
             "  %s model-run <model.npxm> [base [poll-count]]\n"
+            "  %s model-info-v2 <model.npxm>\n"
             "  %s qwen-info <qwen-tiny.npxm>\n"
             "  %s qwen-run <qwen-tiny.npxm> [golden-package|hybrid-sim]\n"
             "  %s qwen-stage-tcb <qwen-tiny.npxm> [base]\n"
@@ -29,7 +31,39 @@ usage(const char *prog)
             "  %s mem-write32 <offset> <value> [base]\n"
             "features: qwen-run-tcb-v2\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog, prog, prog, prog);
+            prog, prog, prog, prog, prog);
+}
+
+static int
+print_model_info_v2(const char *path)
+{
+    struct opennpux_model_package_info info;
+    if (opennpux_model_package_load(path, &info) != 0) {
+        perror("model-info-v2");
+        return 1;
+    }
+    printf("model_format=%s\n", info.format);
+    printf("model_name=%s\n", info.name);
+    printf("model_architecture=%s\n", info.architecture_name);
+    printf("model_dtype=%s\n", info.dtype);
+    printf("model_layers=%" PRIu32 "\n", info.layer_count);
+    printf("model_hidden=%" PRIu32 "\n", info.hidden_size);
+    printf("model_intermediate=%" PRIu32 "\n", info.intermediate_size);
+    printf("model_heads=%" PRIu32 "\n", info.head_count);
+    printf("model_kv_heads=%" PRIu32 "\n", info.kv_head_count);
+    printf("model_head_dim=%" PRIu32 "\n", info.head_dim);
+    printf("model_max_sequence=%" PRIu32 "\n", info.max_sequence_length);
+    printf("model_tensors=%" PRIu32 "\n", info.tensor_count);
+    printf("model_shards=%" PRIu32 "\n", info.shard_count);
+    printf("model_weight_bytes=%" PRIu64 "\n", info.total_weight_bytes);
+    printf("model_required_op_mask=0x%08" PRIx32 "\n",
+           info.required_op_mask);
+    if (opennpux_model_package_validate_shards(path, &info) != 0) {
+        perror("model-info-v2 shards");
+        return 1;
+    }
+    puts("model_info_v2=PASS");
+    return 0;
 }
 
 static int
@@ -540,6 +574,7 @@ main(int argc, char **argv)
     const int command_vector_add_custom =
         strcmp(argv[1], "vector-add-custom") == 0;
     const int command_model_run = strcmp(argv[1], "model-run") == 0;
+    const int command_model_info_v2 = strcmp(argv[1], "model-info-v2") == 0;
     const int command_qwen_info = strcmp(argv[1], "qwen-info") == 0;
     const int command_qwen_run = strcmp(argv[1], "qwen-run") == 0;
     const int command_qwen_stage_tcb = strcmp(argv[1], "qwen-stage-tcb") == 0;
@@ -552,7 +587,8 @@ main(int argc, char **argv)
     const int command_mem_write32 = strcmp(argv[1], "mem-write32") == 0;
     if (!command_info && !command_run && !command_dma_test &&
         !command_vector_add && !command_vector_add_custom &&
-        !command_model_run && !command_qwen_info && !command_qwen_run &&
+        !command_model_run && !command_model_info_v2 &&
+        !command_qwen_info && !command_qwen_run &&
         !command_qwen_stage_tcb && !command_qwen_run_tcb &&
         !command_mobilenet_test &&
         !command_mem_info && !command_mem_clear && !command_mem_read32 &&
@@ -566,6 +602,7 @@ main(int argc, char **argv)
         ((command_vector_add || command_vector_add_custom) &&
          (argc < 3 || argc > 5)) ||
         (command_model_run && (argc < 3 || argc > 5)) ||
+        (command_model_info_v2 && argc != 3) ||
         (command_qwen_info && argc != 3) ||
         (command_qwen_run && (argc < 3 || argc > 4)) ||
         (command_qwen_stage_tcb && (argc < 3 || argc > 4)) ||
@@ -581,6 +618,9 @@ main(int argc, char **argv)
 
     if (command_qwen_info) {
         return print_qwen_info(argv[2]);
+    }
+    if (command_model_info_v2) {
+        return print_model_info_v2(argv[2]);
     }
     if (command_qwen_run) {
         return print_qwen_run(argv[2], argc >= 4 ? argv[3] : NULL);

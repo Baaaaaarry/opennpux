@@ -11,7 +11,7 @@ CC="${CC:-cc}"
 
 rm -rf "${WORK_DIR}"
 mkdir -p "${MODEL_DIR}"
-printf '%s\n' '{"architectures":["Qwen3ForCausalLM"],"name_or_path":"qwen-test","torch_dtype":"bfloat16","num_hidden_layers":2,"vocab_size":32,"hidden_size":16,"intermediate_size":48,"num_attention_heads":4,"num_key_value_heads":2,"head_dim":4,"max_position_embeddings":4096}' > "${MODEL_DIR}/config.json"
+printf '%s\n' '{"architectures":["Qwen3_5MoeForCausalLM"],"model_type":"qwen3_5_moe","name_or_path":"qwen-test","text_config":{"dtype":"bfloat16","num_hidden_layers":2,"vocab_size":32,"hidden_size":18,"intermediate_size":48,"num_attention_heads":4,"num_key_value_heads":2,"head_dim":6,"max_position_embeddings":4096,"num_experts":8,"num_experts_per_tok":2,"moe_intermediate_size":24,"shared_expert_intermediate_size":32}}' > "${MODEL_DIR}/config.json"
 python3 - "${MODEL_DIR}" <<'PY'
 import json
 import struct

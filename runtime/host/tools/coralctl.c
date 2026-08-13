@@ -53,6 +53,13 @@ print_model_info_v2(const char *path)
     printf("model_kv_heads=%" PRIu32 "\n", info.kv_head_count);
     printf("model_head_dim=%" PRIu32 "\n", info.head_dim);
     printf("model_max_sequence=%" PRIu32 "\n", info.max_sequence_length);
+    printf("model_experts=%" PRIu32 "\n", info.expert_count);
+    printf("model_experts_per_token=%" PRIu32 "\n",
+           info.experts_per_token);
+    printf("model_moe_intermediate=%" PRIu32 "\n",
+           info.moe_intermediate_size);
+    printf("model_shared_expert_intermediate=%" PRIu32 "\n",
+           info.shared_expert_intermediate_size);
     printf("model_tensors=%" PRIu32 "\n", info.tensor_count);
     printf("model_shards=%" PRIu32 "\n", info.shard_count);
     printf("model_weight_bytes=%" PRIu64 "\n", info.total_weight_bytes);

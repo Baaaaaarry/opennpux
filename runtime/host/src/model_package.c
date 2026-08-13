@@ -176,6 +176,12 @@ opennpux_model_package_load(
         parse_u32(json, "kv_head_count", &info->kv_head_count) ||
         parse_u32(json, "head_dim", &info->head_dim) ||
         parse_u32(json, "max_sequence_length", &info->max_sequence_length) ||
+        parse_u32(json, "expert_count", &info->expert_count) ||
+        parse_u32(json, "experts_per_token", &info->experts_per_token) ||
+        parse_u32(json, "moe_intermediate_size",
+                  &info->moe_intermediate_size) ||
+        parse_u32(json, "shared_expert_intermediate_size",
+                  &info->shared_expert_intermediate_size) ||
         parse_u32(json, "tensor_count", &info->tensor_count) ||
         parse_u32(json, "shard_count", &declared_shards) ||
         parse_u64(json, "total_weight_bytes", &info->total_weight_bytes) ||
@@ -196,6 +202,11 @@ opennpux_model_package_load(
         info->shard_count > OPENNPUX_MODEL_MAX_SHARDS ||
         info->tensor_index_path[0] == '/' ||
         strstr(info->tensor_index_path, "..") != NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if ((info->expert_count == 0) != (info->experts_per_token == 0) ||
+        info->experts_per_token > info->expert_count) {
         errno = EINVAL;
         return -1;
     }

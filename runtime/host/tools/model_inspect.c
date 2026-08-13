@@ -22,6 +22,12 @@ main(int argc, char **argv)
     printf("model_hidden=%u\n", info.hidden_size);
     printf("model_heads=%u\n", info.head_count);
     printf("model_kv_heads=%u\n", info.kv_head_count);
+    printf("model_head_dim=%u\n", info.head_dim);
+    printf("model_experts=%u\n", info.expert_count);
+    printf("model_experts_per_token=%u\n", info.experts_per_token);
+    printf("model_moe_intermediate=%u\n", info.moe_intermediate_size);
+    printf("model_shared_expert_intermediate=%u\n",
+           info.shared_expert_intermediate_size);
     printf("model_tensors=%u\n", info.tensor_count);
     printf("model_shards=%u\n", info.shard_count);
     printf("model_weight_bytes=%llu\n",

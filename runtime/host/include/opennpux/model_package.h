@@ -48,6 +48,10 @@ struct opennpux_model_package_info {
     uint32_t kv_head_count;
     uint32_t head_dim;
     uint32_t max_sequence_length;
+    uint32_t expert_count;
+    uint32_t experts_per_token;
+    uint32_t moe_intermediate_size;
+    uint32_t shared_expert_intermediate_size;
     uint32_t tensor_count;
     uint32_t shard_count;
     uint64_t total_weight_bytes;

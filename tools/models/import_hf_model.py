@@ -139,10 +139,20 @@ def config_u32(config: dict[str, Any], key: str, fallback: int = 0) -> int:
     return value
 
 
+def text_model_config(config: dict[str, Any]) -> dict[str, Any]:
+    nested = config.get("text_config")
+    if nested is None:
+        return config
+    if not isinstance(nested, dict):
+        raise ValueError("config field text_config must be an object")
+    return nested
+
+
 def build_manifest(
     model_dir: Path, name: str | None, tensor_index_name: str
 ) -> dict[str, Any]:
     config = read_json(model_dir / "config.json")
+    model_config = text_model_config(config)
     shards, declared_tensor_count = discover_shards(model_dir)
     tensor_count = build_tensor_index(shards, model_dir / tensor_index_name)
     if tensor_count != declared_tensor_count:
@@ -156,17 +166,34 @@ def build_manifest(
         total_size += size
         shard_entries.append({"path": shard.name, "size": size})
 
-    architectures = config.get("architectures", [])
+    architectures = config.get(
+        "architectures", model_config.get("architectures", [])
+    )
     architecture = (
         str(architectures[0])
         if isinstance(architectures, list) and architectures
-        else str(config.get("model_type", "unknown"))
+        else str(model_config.get("model_type", config.get("model_type", "unknown")))
     )
-    hidden = config_u32(config, "hidden_size")
-    heads = config_u32(config, "num_attention_heads")
-    if hidden == 0 or heads == 0 or hidden % heads != 0:
-        raise ValueError("hidden_size must be divisible by num_attention_heads")
-    dtype = str(config.get("torch_dtype", config.get("dtype", "unknown")))
+    hidden = config_u32(model_config, "hidden_size")
+    heads = config_u32(model_config, "num_attention_heads")
+    explicit_head_dim = config_u32(model_config, "head_dim")
+    if hidden == 0 or heads == 0:
+        raise ValueError("hidden_size and num_attention_heads must be non-zero")
+    if explicit_head_dim == 0:
+        if hidden % heads != 0:
+            raise ValueError(
+                "head_dim is absent and hidden_size is not divisible by "
+                "num_attention_heads"
+            )
+        explicit_head_dim = hidden // heads
+    dtype = str(
+        model_config.get(
+            "torch_dtype",
+            model_config.get(
+                "dtype", config.get("torch_dtype", config.get("dtype", "unknown"))
+            ),
+        )
+    )
 
     return {
         "format": FORMAT,
@@ -174,15 +201,23 @@ def build_manifest(
         "name": name or str(config.get("name_or_path", model_dir.name)),
         "architecture": architecture,
         "dtype": dtype,
-        "layer_count": config_u32(config, "num_hidden_layers"),
-        "vocab_size": config_u32(config, "vocab_size"),
+        "layer_count": config_u32(model_config, "num_hidden_layers"),
+        "vocab_size": config_u32(model_config, "vocab_size"),
         "hidden_size": hidden,
-        "intermediate_size": config_u32(config, "intermediate_size"),
+        "intermediate_size": config_u32(model_config, "intermediate_size"),
         "head_count": heads,
-        "kv_head_count": config_u32(config, "num_key_value_heads", heads),
-        "head_dim": config_u32(config, "head_dim", hidden // heads),
+        "kv_head_count": config_u32(model_config, "num_key_value_heads", heads),
+        "head_dim": explicit_head_dim,
         "max_sequence_length": config_u32(
-            config, "max_position_embeddings", 32768
+            model_config, "max_position_embeddings", 32768
+        ),
+        "expert_count": config_u32(model_config, "num_experts"),
+        "experts_per_token": config_u32(model_config, "num_experts_per_tok"),
+        "moe_intermediate_size": config_u32(
+            model_config, "moe_intermediate_size"
+        ),
+        "shared_expert_intermediate_size": config_u32(
+            model_config, "shared_expert_intermediate_size"
         ),
         "weight_format": "safetensors",
         "tensor_index": tensor_index_name,
@@ -214,6 +249,8 @@ def main() -> None:
     print(f"model_tensors={manifest['tensor_count']}")
     print(f"model_shards={manifest['shard_count']}")
     print(f"model_weight_bytes={manifest['total_weight_bytes']}")
+    print(f"model_experts={manifest['expert_count']}")
+    print(f"model_experts_per_token={manifest['experts_per_token']}")
 
 
 if __name__ == "__main__":

@@ -32,13 +32,19 @@ main(int argc, char **argv)
     check(info.head_dim == 6, "explicit head dimension mismatch");
     check(info.expert_count == 8 && info.experts_per_token == 2,
           "MoE topology mismatch");
-    check(info.tensor_count == 3 && info.shard_count == 2,
+    check(strcmp(info.quantization_method, "gptq") == 0 &&
+              info.quantization_bits == 4 &&
+              info.quantization_group_size == 128,
+          "GPTQ configuration mismatch");
+    check(info.tensor_count == 4 && info.shard_count == 2,
           "tensor/shard count mismatch");
     check(info.total_weight_bytes > 48, "weight byte count missing");
     check(opennpux_model_package_validate_shards(argv[1], &info) == 0,
           "shard validation failed");
     struct opennpux_model_tensor_record tensor;
-    check(opennpux_model_package_find_tensor(argv[1], &info, "tensor.c",
+    check(opennpux_model_package_find_tensor(
+              argv[1], &info,
+              "model.language_model.layers.1.mlp.router.weight",
                                              &tensor) == 0,
           "tensor lookup failed");
     check(tensor.shard_index == 1 && tensor.rank == 1 && tensor.dims[0] == 8,

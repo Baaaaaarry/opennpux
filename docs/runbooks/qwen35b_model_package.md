@@ -86,12 +86,16 @@ model_shared_expert_intermediate=...
 model_tensors=...
 model_shards=...
 model_weight_bytes=...
+model_quantization=...
+model_quantization_bits=...
+model_quantization_group_size=...
 ```
 
 The generated files are small metadata artifacts:
 
 - `model.npxm`: versioned architecture and shard manifest.
 - `tensor-index.npxi`: tensor name to shard/offset/shape index.
+- `execution-plan.npxp`: compact tensor-role and decoder scheduling inventory.
 - Original `*.safetensors`: unchanged external weight payloads.
 
 ## Current Boundary
@@ -102,3 +106,29 @@ uses the observed tensor names to lower each Transformer layer into TCBs and
 adds paged weight DMA, quantized MatMul, KV-cache allocation, tokenizer input,
 and iterative decode. The existing tiny Qwen golden/TCB path remains the
 functional control-flow reference.
+
+## Execution Plan Inventory
+
+After updating the repository, regenerate only metadata; downloaded shards are
+reused:
+
+```sh
+./tools/models/prepare_hf_model_package.sh \
+  /data/models/Qwen3.5-35B \
+  /data/models/Qwen3.5-35B/model.npxm
+
+cat /data/models/Qwen3.5-35B/execution-plan.npxp
+```
+
+Expected terminal verdict:
+
+```text
+qwen_plan_layers=40/40
+qwen_plan_experts=256/256
+qwen_execution_plan=PASS
+```
+
+The exact `qwen_plan_tensor_roles` and `top_level_prefixes` output is required
+for the next graph-lowering increment. The plan uses paged range reads,
+router-TopK active experts only, per-layer KV pages, and decoder-layer-phase
+TCBs; it never schedules all 256 experts as resident state.

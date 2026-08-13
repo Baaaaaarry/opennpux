@@ -11,7 +11,7 @@ CC="${CC:-cc}"
 
 rm -rf "${WORK_DIR}"
 mkdir -p "${MODEL_DIR}"
-printf '%s\n' '{"architectures":["Qwen3_5MoeForCausalLM"],"model_type":"qwen3_5_moe","name_or_path":"qwen-test","text_config":{"dtype":"bfloat16","num_hidden_layers":2,"vocab_size":32,"hidden_size":18,"intermediate_size":48,"num_attention_heads":4,"num_key_value_heads":2,"head_dim":6,"max_position_embeddings":4096,"num_experts":8,"num_experts_per_tok":2,"moe_intermediate_size":24,"shared_expert_intermediate_size":32}}' > "${MODEL_DIR}/config.json"
+printf '%s\n' '{"architectures":["Qwen3_5MoeForConditionalGeneration"],"model_type":"qwen3_5_moe","name_or_path":"qwen-test","quantization_config":{"quant_method":"gptq","bits":4,"group_size":128,"desc_act":false,"sym":true},"text_config":{"dtype":"bfloat16","num_hidden_layers":2,"vocab_size":32,"hidden_size":18,"intermediate_size":48,"num_attention_heads":4,"num_key_value_heads":2,"head_dim":6,"max_position_embeddings":4096,"num_experts":8,"num_experts_per_tok":2,"moe_intermediate_size":24,"shared_expert_intermediate_size":32}}' > "${MODEL_DIR}/config.json"
 python3 - "${MODEL_DIR}" <<'PY'
 import json
 import struct
@@ -20,9 +20,13 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 for name, tensors in (
-    ("model-00001-of-00002.safetensors", {"tensor.a": bytes(range(8))}),
+    ("model-00001-of-00002.safetensors", {
+        "model.language_model.embed_tokens.weight": bytes(range(8)),
+        "model.language_model.layers.0.self_attn.q_proj.qweight": bytes(range(8)),
+    }),
     ("model-00002-of-00002.safetensors", {
-        "tensor.b": bytes(range(10, 18)), "tensor.c": bytes(range(20, 28))
+        "model.language_model.layers.1.mlp.experts.7.down_proj.qweight": bytes(range(10, 18)),
+        "model.language_model.layers.1.mlp.router.weight": bytes(range(20, 28))
     }),
 ):
     offset = 0
@@ -38,9 +42,10 @@ for name, tensors in (
     encoded = json.dumps(header, separators=(",", ":")).encode()
     (root / name).write_bytes(struct.pack("<Q", len(encoded)) + encoded + payload)
 PY
-printf '%s\n' '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-00002-of-00002.safetensors","c":"model-00002-of-00002.safetensors"}}' > "${MODEL_DIR}/model.safetensors.index.json"
+printf '%s\n' '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-00001-of-00002.safetensors","c":"model-00002-of-00002.safetensors","d":"model-00002-of-00002.safetensors"}}' > "${MODEL_DIR}/model.safetensors.index.json"
 
 "${SCRIPT_DIR}/import_hf_model.py" "${MODEL_DIR}" "${MANIFEST}"
+"${SCRIPT_DIR}/build_qwen_execution_plan.py" "${MANIFEST}"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \

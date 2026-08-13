@@ -18,6 +18,10 @@ main(int argc, char **argv)
     printf("model_name=%s\n", info.name);
     printf("model_architecture=%s\n", info.architecture_name);
     printf("model_dtype=%s\n", info.dtype);
+    printf("model_quantization=%s\n", info.quantization_method);
+    printf("model_quantization_bits=%u\n", info.quantization_bits);
+    printf("model_quantization_group_size=%u\n",
+           info.quantization_group_size);
     printf("model_layers=%u\n", info.layer_count);
     printf("model_hidden=%u\n", info.hidden_size);
     printf("model_heads=%u\n", info.head_count);

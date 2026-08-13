@@ -46,6 +46,11 @@ print_model_info_v2(const char *path)
     printf("model_name=%s\n", info.name);
     printf("model_architecture=%s\n", info.architecture_name);
     printf("model_dtype=%s\n", info.dtype);
+    printf("model_quantization=%s\n", info.quantization_method);
+    printf("model_quantization_bits=%" PRIu32 "\n",
+           info.quantization_bits);
+    printf("model_quantization_group_size=%" PRIu32 "\n",
+           info.quantization_group_size);
     printf("model_layers=%" PRIu32 "\n", info.layer_count);
     printf("model_hidden=%" PRIu32 "\n", info.hidden_size);
     printf("model_intermediate=%" PRIu32 "\n", info.intermediate_size);

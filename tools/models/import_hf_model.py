@@ -148,6 +148,22 @@ def text_model_config(config: dict[str, Any]) -> dict[str, Any]:
     return nested
 
 
+def quantization_info(config: dict[str, Any]) -> dict[str, Any]:
+    quant = config.get("quantization_config", {})
+    if not isinstance(quant, dict):
+        raise ValueError("config field quantization_config must be an object")
+    method = str(quant.get("quant_method", "none"))
+    bits = config_u32(quant, "bits")
+    group_size = config_u32(quant, "group_size")
+    return {
+        "quantization_method": method,
+        "quantization_bits": bits,
+        "quantization_group_size": group_size,
+        "quantization_desc_act": int(bool(quant.get("desc_act", False))),
+        "quantization_sym": int(bool(quant.get("sym", False))),
+    }
+
+
 def build_manifest(
     model_dir: Path, name: str | None, tensor_index_name: str
 ) -> dict[str, Any]:
@@ -195,7 +211,7 @@ def build_manifest(
         )
     )
 
-    return {
+    manifest = {
         "format": FORMAT,
         "version": 2,
         "name": name or str(config.get("name_or_path", model_dir.name)),
@@ -227,6 +243,8 @@ def build_manifest(
         "required_op_mask": REQUIRED_QWEN_OP_MASK,
         "shards": shard_entries,
     }
+    manifest.update(quantization_info(config))
+    return manifest
 
 
 def main() -> None:
@@ -251,6 +269,8 @@ def main() -> None:
     print(f"model_weight_bytes={manifest['total_weight_bytes']}")
     print(f"model_experts={manifest['expert_count']}")
     print(f"model_experts_per_token={manifest['experts_per_token']}")
+    print(f"model_quantization={manifest['quantization_method']}")
+    print(f"model_quantization_bits={manifest['quantization_bits']}")
 
 
 if __name__ == "__main__":

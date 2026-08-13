@@ -36,6 +36,7 @@ struct opennpux_model_package_info {
     char name[96];
     char architecture_name[64];
     char dtype[24];
+    char quantization_method[24];
     char tensor_index_path[OPENNPUX_MODEL_PATH_SIZE];
     uint32_t version;
     uint32_t architecture;
@@ -52,6 +53,10 @@ struct opennpux_model_package_info {
     uint32_t experts_per_token;
     uint32_t moe_intermediate_size;
     uint32_t shared_expert_intermediate_size;
+    uint32_t quantization_bits;
+    uint32_t quantization_group_size;
+    uint32_t quantization_desc_act;
+    uint32_t quantization_sym;
     uint32_t tensor_count;
     uint32_t shard_count;
     uint64_t total_weight_bytes;

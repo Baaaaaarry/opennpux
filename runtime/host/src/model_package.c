@@ -166,6 +166,8 @@ opennpux_model_package_load(
         parse_string(json, "architecture", info->architecture_name,
                      sizeof(info->architecture_name)) ||
         parse_string(json, "dtype", info->dtype, sizeof(info->dtype)) ||
+        parse_string(json, "quantization_method", info->quantization_method,
+                     sizeof(info->quantization_method)) ||
         parse_string(json, "tensor_index", info->tensor_index_path,
                      sizeof(info->tensor_index_path)) ||
         parse_u32(json, "layer_count", &info->layer_count) ||
@@ -182,6 +184,12 @@ opennpux_model_package_load(
                   &info->moe_intermediate_size) ||
         parse_u32(json, "shared_expert_intermediate_size",
                   &info->shared_expert_intermediate_size) ||
+        parse_u32(json, "quantization_bits", &info->quantization_bits) ||
+        parse_u32(json, "quantization_group_size",
+                  &info->quantization_group_size) ||
+        parse_u32(json, "quantization_desc_act",
+                  &info->quantization_desc_act) ||
+        parse_u32(json, "quantization_sym", &info->quantization_sym) ||
         parse_u32(json, "tensor_count", &info->tensor_count) ||
         parse_u32(json, "shard_count", &declared_shards) ||
         parse_u64(json, "total_weight_bytes", &info->total_weight_bytes) ||
@@ -206,7 +214,8 @@ opennpux_model_package_load(
         return -1;
     }
     if ((info->expert_count == 0) != (info->experts_per_token == 0) ||
-        info->experts_per_token > info->expert_count) {
+        info->experts_per_token > info->expert_count ||
+        info->quantization_desc_act > 1 || info->quantization_sym > 1) {
         errno = EINVAL;
         return -1;
     }

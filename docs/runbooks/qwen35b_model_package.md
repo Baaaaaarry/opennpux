@@ -125,10 +125,22 @@ Expected terminal verdict:
 ```text
 qwen_plan_layers=40/40
 qwen_plan_experts=256/256
+qwen_plan_layer_types=...
+qwen_plan_domains=...
+qwen_plan_unknown_patterns=...
 qwen_execution_plan=PASS
 ```
 
-The exact `qwen_plan_tensor_roles` and `top_level_prefixes` output is required
-for the next graph-lowering increment. The plan uses paged range reads,
-router-TopK active experts only, per-layer KV pages, and decoder-layer-phase
-TCBs; it never schedules all 256 experts as resident state.
+The plan classifies the text decoder independently from vision and MTP tensors,
+so similarly numbered auxiliary layers cannot contaminate the 40 decoder-layer
+templates. Each text layer is currently classified as `full_attention_moe`,
+`linear_attention_moe`, or `unclassified_moe`. Full-attention layers receive
+paged KV-cache phases; linear-attention layers receive causal-convolution and
+recurrent-state phases.
+
+The exact `qwen_plan_tensor_roles`, `qwen_plan_layer_types`, and
+`qwen_plan_unknown_patterns` output is required for the graph-lowering
+increment. Any nonzero text-domain unknown count must be reviewed before it is
+treated as executable coverage. The scheduler uses paged range reads and
+router-TopK active experts only; it never schedules all 256 experts as resident
+state.

@@ -15,6 +15,7 @@ RECORD = struct.Struct("<160s4I8Q2Q")
 MAGIC = 0x5458504E
 LAYER_RE = re.compile(r"(?:^|\.)layers\.(\d+)(?:\.|$)")
 EXPERT_RE = re.compile(r"(?:^|\.)experts\.(\d+)(?:\.|$)")
+NUMBER_RE = re.compile(r"(?<=\.)\d+(?=\.)")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -60,6 +61,24 @@ def tensor_role(name: str) -> str:
     for projection in ("q_proj", "k_proj", "v_proj", "o_proj"):
         if projection in name:
             return f"attention_{projection}"
+    linear_attention_roles = {
+        "in_proj_qkv": "linear_attention_qkv",
+        "in_proj_z": "linear_attention_gate",
+        "in_proj_b": "linear_attention_beta",
+        "in_proj_a": "linear_attention_alpha",
+        "conv1d": "linear_attention_conv",
+        "dt_bias": "linear_attention_decay",
+        "a_log": "linear_attention_decay",
+        "out_proj": "linear_attention_output",
+    }
+    lowered = name.lower()
+    if "linear_attn" in lowered or "linear_attention" in lowered:
+        for token, role in linear_attention_roles.items():
+            if token in lowered:
+                return role
+        if ".norm." in lowered or lowered.endswith(".norm.weight"):
+            return "linear_attention_norm"
+        return "linear_attention_other"
     if "shared_expert" in name:
         return "shared_expert"
     if EXPERT_RE.search(name):
@@ -71,6 +90,57 @@ def tensor_role(name: str) -> str:
     if "vision" in name or "visual" in name:
         return "vision"
     return "other"
+
+
+def tensor_domain(name: str) -> str:
+    if name.startswith("mtp.") or ".mtp." in name:
+        return "mtp"
+    if "vision" in name or "visual" in name:
+        return "vision"
+    return "text"
+
+
+def normalized_pattern(name: str) -> str:
+    return NUMBER_RE.sub("{index}", name)
+
+
+def layer_type(roles: Counter[str]) -> str:
+    if roles["attention_q_proj"]:
+        return "full_attention_moe"
+    if any(role.startswith("linear_attention_") for role in roles):
+        return "linear_attention_moe"
+    return "unclassified_moe"
+
+
+def layer_phases(kind: str) -> list[str]:
+    common_tail = [
+        "residual_add",
+        "ffn_norm",
+        "router_topk",
+        "routed_experts_active_only",
+        "shared_expert",
+        "moe_combine",
+        "residual_add",
+    ]
+    if kind == "full_attention_moe":
+        return [
+            "attention_norm",
+            "qkv_projection",
+            "rope",
+            "paged_kv_cache_update",
+            "scaled_dot_product_attention",
+            "attention_output_projection",
+        ] + common_tail
+    if kind == "linear_attention_moe":
+        return [
+            "attention_norm",
+            "linear_attention_projection",
+            "causal_depthwise_conv",
+            "recurrent_state_update",
+            "linear_attention_gate_norm",
+            "linear_attention_output_projection",
+        ] + common_tail
+    return ["unclassified_attention"] + common_tail
 
 
 def tensor_component(name: str) -> str:
@@ -89,26 +159,50 @@ def build_plan(manifest_path: Path) -> dict[str, Any]:
     layer_roles: dict[int, Counter[str]] = defaultdict(Counter)
     experts: set[int] = set()
     prefixes: Counter[str] = Counter()
+    domains: Counter[str] = Counter()
+    domain_roles: dict[str, Counter[str]] = defaultdict(Counter)
+    unknown_patterns: dict[str, Counter[str]] = defaultdict(Counter)
+    unknown_samples: dict[str, list[str]] = defaultdict(list)
 
     for name in names:
         role = tensor_role(name)
         roles[role] += 1
+        domain = tensor_domain(name)
+        domains[domain] += 1
+        domain_roles[domain][role] += 1
         components[tensor_component(name)] += 1
         prefixes[name.split(".", 1)[0]] += 1
         layer_match = LAYER_RE.search(name)
-        if layer_match:
+        if layer_match and domain == "text":
             layer = int(layer_match.group(1))
             if layer >= int(manifest["layer_count"]):
                 raise ValueError(f"tensor layer {layer} exceeds model layer count")
             layer_roles[layer][role] += 1
+        if role in {"other", "linear_attention_other"}:
+            unknown_patterns[domain][normalized_pattern(name)] += 1
+            if len(unknown_samples[domain]) < 16:
+                unknown_samples[domain].append(name)
         expert_match = EXPERT_RE.search(name)
-        if expert_match:
+        if expert_match and domain == "text":
             expert = int(expert_match.group(1))
             if expert >= int(manifest["expert_count"]):
                 raise ValueError(f"tensor expert {expert} exceeds expert count")
             experts.add(expert)
 
     observed_layers = sorted(layer_roles)
+    layers = []
+    layer_type_counts: Counter[str] = Counter()
+    for layer in observed_layers:
+        kind = layer_type(layer_roles[layer])
+        layer_type_counts[kind] += 1
+        layers.append(
+            {
+                "index": layer,
+                "type": kind,
+                "tensor_roles": dict(sorted(layer_roles[layer].items())),
+                "phases": layer_phases(kind),
+            }
+        )
     plan = {
         "format": "OPENNPUX_QWEN_EXECUTION_PLAN_V1",
         "model_manifest": manifest_path.name,
@@ -128,13 +222,28 @@ def build_plan(manifest_path: Path) -> dict[str, Any]:
         "tensor_count": len(names),
         "tensor_roles": dict(sorted(roles.items())),
         "tensor_components": dict(sorted(components.items())),
+        "tensor_domains": dict(sorted(domains.items())),
+        "domain_tensor_roles": {
+            domain: dict(sorted(domain_roles[domain].items()))
+            for domain in sorted(domain_roles)
+        },
         "top_level_prefixes": dict(prefixes.most_common(16)),
         "layer_zero_template": dict(sorted(layer_roles.get(0, {}).items())),
+        "layer_type_counts": dict(sorted(layer_type_counts.items())),
+        "layers": layers,
+        "unknown_tensor_patterns": {
+            domain: dict(unknown_patterns[domain].most_common(32))
+            for domain in sorted(unknown_patterns)
+        },
+        "unknown_tensor_samples": {
+            domain: unknown_samples[domain] for domain in sorted(unknown_samples)
+        },
         "scheduler": {
             "weight_policy": "paged-range-read",
             "expert_policy": "router-topk-active-only",
             "active_experts_per_token": manifest["experts_per_token"],
-            "kv_cache_policy": "paged-per-layer-kv-head",
+            "full_attention_state": "paged-per-layer-kv-head",
+            "linear_attention_state": "paged-recurrent-state",
             "tcb_granularity": "decoder-layer-phase",
         },
     }
@@ -157,6 +266,25 @@ def main() -> None:
         f"{plan['expert_count']}"
     )
     print(f"qwen_plan_tensor_roles={','.join(plan['tensor_roles'])}")
+    print(
+        "qwen_plan_layer_types="
+        + ",".join(
+            f"{name}:{count}" for name, count in plan["layer_type_counts"].items()
+        )
+    )
+    print(
+        "qwen_plan_domains="
+        + ",".join(
+            f"{name}:{count}" for name, count in plan["tensor_domains"].items()
+        )
+    )
+    print(
+        "qwen_plan_unknown_patterns="
+        + ",".join(
+            f"{domain}:{len(patterns)}"
+            for domain, patterns in plan["unknown_tensor_patterns"].items()
+        )
+    )
     print("qwen_execution_plan=PASS")
 
 

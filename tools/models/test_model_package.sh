@@ -23,10 +23,12 @@ for name, tensors in (
     ("model-00001-of-00002.safetensors", {
         "model.language_model.embed_tokens.weight": bytes(range(8)),
         "model.language_model.layers.0.self_attn.q_proj.qweight": bytes(range(8)),
+        "model.language_model.layers.0.self_attn.k_proj.qweight": bytes(range(8)),
     }),
     ("model-00002-of-00002.safetensors", {
         "model.language_model.layers.1.mlp.experts.7.down_proj.qweight": bytes(range(10, 18)),
-        "model.language_model.layers.1.mlp.router.weight": bytes(range(20, 28))
+        "model.language_model.layers.1.mlp.router.weight": bytes(range(20, 28)),
+        "model.language_model.layers.1.linear_attn.in_proj_qkv.qweight": bytes(range(30, 38)),
     }),
 ):
     offset = 0
@@ -42,7 +44,7 @@ for name, tensors in (
     encoded = json.dumps(header, separators=(",", ":")).encode()
     (root / name).write_bytes(struct.pack("<Q", len(encoded)) + encoded + payload)
 PY
-printf '%s\n' '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-00001-of-00002.safetensors","c":"model-00002-of-00002.safetensors","d":"model-00002-of-00002.safetensors"}}' > "${MODEL_DIR}/model.safetensors.index.json"
+printf '%s\n' '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-00001-of-00002.safetensors","c":"model-00001-of-00002.safetensors","d":"model-00002-of-00002.safetensors","e":"model-00002-of-00002.safetensors","f":"model-00002-of-00002.safetensors"}}' > "${MODEL_DIR}/model.safetensors.index.json"
 
 "${SCRIPT_DIR}/import_hf_model.py" "${MODEL_DIR}" "${MANIFEST}"
 "${SCRIPT_DIR}/build_qwen_execution_plan.py" "${MANIFEST}"

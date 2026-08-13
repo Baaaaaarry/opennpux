@@ -16,6 +16,43 @@ cd /home/barry/code/opennpux
   /data/models/Qwen3.5-35B/model.npxm
 ```
 
+`/data/models/Qwen3.5-35B` is an example only. Replace it with the actual
+download location. To find an existing Hugging Face cache snapshot:
+
+```sh
+find "${HF_HOME:-$HOME/.cache/huggingface}/hub" \
+  -path '*/snapshots/*/config.json' -print
+```
+
+The preparation script also accepts a Hugging Face repository id and resolves
+it from the local cache without network access:
+
+```sh
+./tools/models/prepare_hf_model_package.sh ORGANIZATION/MODEL_NAME
+```
+
+For an explicit directory that does not yet contain assets, the preparation
+script downloads `Qwen/Qwen3.5-35B-A3B-GPTQ-Int4` from `hf-mirror.com` by
+default. Downloads use `.part` files, resume with HTTP ranges, and are renamed
+atomically after completion:
+
+```sh
+./tools/models/prepare_hf_model_package.sh /data/models/Qwen3.5-35B
+```
+
+Configuration:
+
+```text
+OPENNPUX_HF_AUTO_DOWNLOAD=0     disable automatic download
+OPENNPUX_HF_MODEL_REPO=...     override repository id
+OPENNPUX_HF_REVISION=...       override revision (default: main)
+HF_ENDPOINT=...                 override endpoint
+```
+
+The downloader checks index-declared weight size against available disk space
+and fetches only config, tokenizer files, the safetensors index, and referenced
+weight shards.
+
 Expected final lines:
 
 ```text

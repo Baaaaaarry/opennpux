@@ -158,6 +158,20 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 The acceptance result is `vector_add=PASS`, `completed_elements=16`, and
 `output_checksum=0x00000198`.
 
+## General Model Packages
+
+Real Hugging Face safetensors models use the versioned, externally sharded
+`OPENNPUX_MODEL_PACKAGE_V2` format. Import validates metadata without copying
+or loading weight payloads:
+
+```sh
+./tools/models/prepare_hf_model_package.sh /data/models/Qwen3.5-35B
+```
+
+See `docs/runbooks/qwen35b_model_package.md`. The deterministic
+`qwen-tiny.npxm` remains the golden control/TCB test and is not a pretrained
+model.
+
 ## Heterogeneous Platform
 
 The generic model runtime and custom RTL accelerator use the same driver and

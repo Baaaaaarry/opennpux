@@ -82,6 +82,10 @@ CC="${CC:-cc}"
 mkdir -p "${OUT_DIR}"
 "${SCRIPT_DIR}/import_hf_model.py" "${MODEL_DIR}" "${OUTPUT}"
 "${SCRIPT_DIR}/build_qwen_execution_plan.py" "${OUTPUT}"
+"${SCRIPT_DIR}/compile_npu_executable.py" \
+    "${OUTPUT}" \
+    "$(dirname -- "${OUTPUT}")/execution-plan.npxp" \
+    "$(dirname -- "${OUTPUT}")/model.npxe"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \

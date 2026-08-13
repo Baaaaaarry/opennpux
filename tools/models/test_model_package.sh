@@ -48,6 +48,16 @@ printf '%s\n' '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-
 
 "${SCRIPT_DIR}/import_hf_model.py" "${MODEL_DIR}" "${MANIFEST}"
 "${SCRIPT_DIR}/build_qwen_execution_plan.py" "${MANIFEST}"
+"${SCRIPT_DIR}/compile_npu_executable.py" \
+    "${MANIFEST}" "${MODEL_DIR}/execution-plan.npxp" \
+    "${MODEL_DIR}/model.npxe"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/npu_submission.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_executable.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_executable_test.c" \
+    -o "${WORK_DIR}/npu_executable_test"
+"${WORK_DIR}/npu_executable_test" "${MODEL_DIR}/model.npxc"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \

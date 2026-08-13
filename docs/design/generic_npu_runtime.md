@@ -148,3 +148,22 @@ submission ABI while adding only model rewrites, kernels, or RTL capabilities.
 7. Add a second Transformer family as an ABI-generality gate before freezing
    version 1.
 
+## Implemented Compiler/Runtime Boundary
+
+The first generic-ABI increment adds:
+
+- `model.npxe`: inspectable generic executable metadata;
+- `model.npxc`: compact binary entry-point and command-template image;
+- prefill and decode entry points over the same immutable templates;
+- CPU-side runtime instantiation with live sequence/context IDs, tensor device
+  addresses, memory objects and persistent-state binding;
+- size, offset, record-count and checksum validation in the C loader;
+- a host test that loads `.npxc`, creates a decode invocation and validates the
+  resulting submission record.
+
+This increment intentionally stops before device submission. The default 4KiB
+shared window can validate small command-processor smoke workloads but cannot
+hold a fully expanded 40-layer command buffer. The real-model compiler reports
+`npu_command_template_bytes` and `npu_invocation_bytes_upper_bound`; those
+measurements select either a larger queue memory object or paged command-buffer
+fetch for the command-processor increment.

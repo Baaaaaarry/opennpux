@@ -99,6 +99,9 @@ The generated files are small offline compiler metadata artifacts:
 - `tensor-index.npxi`: tensor name to shard/offset/shape index.
 - `execution-plan.npxp`: Qwen frontend tensor-role and decoder-lowering
   inventory. It contains no live invocation or device addresses.
+- `model.npxe`: inspectable generic NPU executable metadata.
+- `model.npxc`: binary prefill/decode command templates loaded by the CPU
+  runtime. Runtime tensor addresses and state are deliberately unresolved.
 - Original `*.safetensors`: unchanged external weight payloads.
 
 ## Current Boundary
@@ -132,6 +135,10 @@ qwen_plan_experts=256/256
 qwen_plan_layer_types=...
 qwen_plan_domains=...
 qwen_plan_unknown_patterns=...
+npu_executable_commands=...
+npu_command_template_bytes=...
+npu_invocation_bytes_upper_bound=...
+npu_executable=PASS
 qwen_execution_plan=PASS
 ```
 

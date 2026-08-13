@@ -50,14 +50,24 @@ def tensor_names(index_path: Path, expected_count: int) -> list[str]:
 
 
 def tensor_role(name: str) -> str:
+    lowered = name.lower()
     if "embed_tokens" in name or "token_embedding" in name:
         return "embedding"
     if "lm_head" in name:
         return "lm_head"
+    if "rotary_emb" in lowered:
+        return "rotary_embedding"
+    if ".q_norm." in lowered or lowered.endswith(".q_norm.weight"):
+        return "attention_q_norm"
+    if ".k_norm." in lowered or lowered.endswith(".k_norm.weight"):
+        return "attention_k_norm"
     if "input_layernorm" in name:
         return "attention_norm"
     if "post_attention_layernorm" in name:
         return "ffn_norm"
+    if ("language_model.norm." in lowered or "model.norm." in lowered or
+            lowered.endswith(".final_layernorm.weight")):
+        return "final_norm"
     for projection in ("q_proj", "k_proj", "v_proj", "o_proj"):
         if projection in name:
             return f"attention_{projection}"
@@ -71,7 +81,6 @@ def tensor_role(name: str) -> str:
         "a_log": "linear_attention_decay",
         "out_proj": "linear_attention_output",
     }
-    lowered = name.lower()
     if "linear_attn" in lowered or "linear_attention" in lowered:
         for token, role in linear_attention_roles.items():
             if token in lowered:
@@ -163,6 +172,8 @@ def build_plan(manifest_path: Path) -> dict[str, Any]:
     domain_roles: dict[str, Counter[str]] = defaultdict(Counter)
     unknown_patterns: dict[str, Counter[str]] = defaultdict(Counter)
     unknown_samples: dict[str, list[str]] = defaultdict(list)
+    unknown_decoder_patterns: Counter[str] = Counter()
+    unknown_decoder_samples: list[str] = []
 
     for name in names:
         role = tensor_role(name)
@@ -182,6 +193,10 @@ def build_plan(manifest_path: Path) -> dict[str, Any]:
             unknown_patterns[domain][normalized_pattern(name)] += 1
             if len(unknown_samples[domain]) < 16:
                 unknown_samples[domain].append(name)
+            if layer_match and domain == "text":
+                unknown_decoder_patterns[normalized_pattern(name)] += 1
+                if len(unknown_decoder_samples) < 32:
+                    unknown_decoder_samples.append(name)
         expert_match = EXPERT_RE.search(name)
         if expert_match and domain == "text":
             expert = int(expert_match.group(1))
@@ -238,6 +253,10 @@ def build_plan(manifest_path: Path) -> dict[str, Any]:
         "unknown_tensor_samples": {
             domain: unknown_samples[domain] for domain in sorted(unknown_samples)
         },
+        "unknown_decoder_tensor_patterns": dict(
+            unknown_decoder_patterns.most_common(64)
+        ),
+        "unknown_decoder_tensor_samples": unknown_decoder_samples,
         "scheduler": {
             "weight_policy": "paged-range-read",
             "expert_policy": "router-topk-active-only",
@@ -284,6 +303,10 @@ def main() -> None:
             f"{domain}:{len(patterns)}"
             for domain, patterns in plan["unknown_tensor_patterns"].items()
         )
+    )
+    print(
+        "qwen_plan_unknown_decoder_patterns="
+        f"{len(plan['unknown_decoder_tensor_patterns'])}"
     )
     print("qwen_execution_plan=PASS")
 

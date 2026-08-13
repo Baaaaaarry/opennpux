@@ -104,10 +104,22 @@ def build_executable(
         manifest.get("layer_count", -1)
     ):
         raise ValueError("execution plan does not cover every decoder layer")
-    unknown_text = plan.get("unknown_tensor_patterns", {}).get("text", {})
-    if unknown_text:
+    unclassified_layers = [
+        int(layer["index"])
+        for layer in plan.get("layers", [])
+        if layer.get("type") == "unclassified_moe"
+    ]
+    if unclassified_layers:
         raise ValueError(
-            f"text decoder has {len(unknown_text)} unclassified tensor patterns"
+            "unclassified decoder layers: "
+            + ",".join(str(layer) for layer in unclassified_layers)
+        )
+    unknown_decoder = plan.get("unknown_decoder_tensor_patterns", {})
+    if unknown_decoder:
+        patterns = ", ".join(list(unknown_decoder)[:8])
+        raise ValueError(
+            f"decoder has {len(unknown_decoder)} unclassified tensor patterns: "
+            f"{patterns}"
         )
     commands = lower_commands(plan)
     capabilities = sorted({command["capability"] for command in commands})

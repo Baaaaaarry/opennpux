@@ -82,10 +82,14 @@ CC="${CC:-cc}"
 mkdir -p "${OUT_DIR}"
 "${SCRIPT_DIR}/import_hf_model.py" "${MODEL_DIR}" "${OUTPUT}"
 "${SCRIPT_DIR}/build_qwen_execution_plan.py" "${OUTPUT}"
-"${SCRIPT_DIR}/compile_npu_executable.py" \
-    "${OUTPUT}" \
-    "$(dirname -- "${OUTPUT}")/execution-plan.npxp" \
-    "$(dirname -- "${OUTPUT}")/model.npxe"
+PLAN="$(dirname -- "${OUTPUT}")/execution-plan.npxp"
+if ! "${SCRIPT_DIR}/compile_npu_executable.py" \
+    "${OUTPUT}" "${PLAN}" "$(dirname -- "${OUTPUT}")/model.npxe"; then
+    echo "error: generic NPU executable compilation failed" >&2
+    echo "inspect decoder coverage in: ${PLAN}" >&2
+    echo "fields: unknown_decoder_tensor_patterns, unknown_decoder_tensor_samples" >&2
+    exit 1
+fi
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \

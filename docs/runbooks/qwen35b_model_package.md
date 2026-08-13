@@ -135,6 +135,7 @@ qwen_plan_experts=256/256
 qwen_plan_layer_types=...
 qwen_plan_domains=...
 qwen_plan_unknown_patterns=...
+qwen_plan_unknown_decoder_patterns=0
 npu_executable_commands=...
 npu_command_template_bytes=...
 npu_invocation_bytes_upper_bound=...
@@ -151,7 +152,9 @@ recurrent-state phases.
 
 The exact `qwen_plan_tensor_roles`, `qwen_plan_layer_types`, and
 `qwen_plan_unknown_patterns` output is required for the graph-lowering
-increment. Any nonzero text-domain unknown count must be reviewed before it is
-treated as executable coverage. The scheduler uses paged range reads and
+increment. Text-domain unknown patterns are inventory diagnostics because
+legal graph-level constants may not belong to a decoder layer. A nonzero
+`qwen_plan_unknown_decoder_patterns` count or an `unclassified_moe` layer is a
+hard executable-compilation failure. The scheduler uses paged range reads and
 router-TopK active experts only; it never schedules all 256 experts as resident
 state.

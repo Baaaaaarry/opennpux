@@ -39,12 +39,29 @@ OUTPUT="$(OPENNPUX_CORAL_TRANSPORT=driver \
     fail "NPU_LAUNCH firmware failed"
 }
 printf '%s\n' "${OUTPUT}"
-printf '%s\n' "${OUTPUT}" | grep -q '^mobilenet_output=11,22,33,44,0$' ||
+
+# Do not invoke grep or other root-filesystem tools after checkpoint restore.
+# gem5's legacy virtio-blk checkpoint state can reject fresh disk requests even
+# though the preloaded /tmp assets and NPU execution are healthy. Parse the
+# captured coralctl output using shell builtins only; the trailing wildcard
+# tolerates the CR written by gem5term on some hosts.
+has_output_line() {
+    expected="$1"
+    while IFS= read -r line; do
+        case "${line}" in
+            "${expected}"*) return 0 ;;
+        esac
+    done <<EOF
+${OUTPUT}
+EOF
+    return 1
+}
+
+has_output_line 'mobilenet_output=11,22,33,44,0' ||
     fail "unexpected ADD output"
-printf '%s\n' "${OUTPUT}" | grep -q '^mobilenet_operation_count=4$' ||
+has_output_line 'mobilenet_operation_count=4' ||
     fail "unexpected operation count"
-printf '%s\n' "${OUTPUT}" | grep -q '^mobilenet_test=PASS$' ||
-    fail "missing runtime PASS"
+has_output_line 'mobilenet_test=PASS' || fail "missing runtime PASS"
 
 echo "npu_launch_output=11,22,33,44"
 echo "npu_launch_test=PASS"

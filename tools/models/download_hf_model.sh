@@ -22,7 +22,25 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
-mkdir -p "${DESTINATION}"
+if ! mkdir -p "${DESTINATION}"; then
+    echo "error: cannot create model directory: ${DESTINATION}" >&2
+    exit 1
+fi
+
+WRITE_PROBE="$(mktemp "${DESTINATION}/.opennpux-write-test.XXXXXX" 2>/dev/null || true)"
+if [ -z "${WRITE_PROBE}" ]; then
+    cat >&2 <<EOF
+error: model directory is not writable by $(id -un): ${DESTINATION}
+
+Create it with the current user as owner:
+  sudo install -d -o "$(id -un)" -g "$(id -gn)" "${DESTINATION}"
+
+Or choose a writable location, for example:
+  ${HOME}/models/Qwen3.5-35B
+EOF
+    exit 1
+fi
+rm -f "${WRITE_PROBE}"
 
 download_file()
 {
@@ -58,6 +76,19 @@ download_optional()
 }
 
 download_file config.json
+if ! python3 - "${DESTINATION}/config.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    config = json.load(source)
+if not isinstance(config, dict) or not config.get("model_type"):
+    raise SystemExit("downloaded config.json is not a model configuration")
+PY
+then
+    echo "error: invalid config.json returned by ${ENDPOINT}" >&2
+    exit 1
+fi
 
 if ! download_file model.safetensors.index.json; then
     rm -f "${DESTINATION}/model.safetensors.index.json.part"

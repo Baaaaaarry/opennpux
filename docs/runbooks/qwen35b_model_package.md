@@ -40,6 +40,14 @@ atomically after completion:
 ./tools/models/prepare_hf_model_package.sh /data/models/Qwen3.5-35B
 ```
 
+The destination must be writable by the invoking user. For a root-owned
+`/data/models` mount, initialize the model directory once:
+
+```sh
+sudo install -d -o "$(id -un)" -g "$(id -gn)" \
+  /data/models/Qwen3.5-35B
+```
+
 Configuration:
 
 ```text

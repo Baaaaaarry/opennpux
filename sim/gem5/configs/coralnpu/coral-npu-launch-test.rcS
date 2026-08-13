@@ -1,0 +1,53 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp /dev
+[ -r /proc/mounts ] || mount -t proc proc /proc 2>/dev/null || true
+is_mounted() {
+    while read -r _source target _rest; do
+        [ "$target" = "$1" ] && return 0
+    done < /proc/mounts
+    return 1
+}
+is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
+is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+NPU_BASE=0x1D000000
+CORALCTL=/tmp/coralctl
+MODULE=/tmp/opennpux_coral.ko
+
+fail() {
+    echo "[coral-npu-launch-test] FAIL: $*"
+    command -v m5 >/dev/null 2>&1 && m5 --inst exit
+    exit 1
+}
+
+echo "[coral-npu-launch-test] started"
+[ -f /tmp/coralnpu-phase3-preload.ready ] || fail "stale checkpoint"
+[ -x "${CORALCTL}" ] || fail "coralctl missing"
+[ -f "${MODULE}" ] || fail "kernel module missing"
+[ -x /tmp/busybox ] || fail "BusyBox missing"
+
+if [ ! -c /dev/opennpux-coral ]; then
+    /tmp/busybox insmod "${MODULE}" 2>/tmp/opennpux-coral-insmod.err || true
+fi
+[ -c /dev/opennpux-coral ] || fail "/dev/opennpux-coral missing"
+
+OUTPUT="$(OPENNPUX_CORAL_TRANSPORT=driver \
+    "${CORALCTL}" mobilenet-test "${NPU_BASE}" 1000000)" || {
+    printf '%s\n' "${OUTPUT}"
+    fail "NPU_LAUNCH firmware failed"
+}
+printf '%s\n' "${OUTPUT}"
+printf '%s\n' "${OUTPUT}" | grep -q '^mobilenet_output=11,22,33,44,0$' ||
+    fail "unexpected ADD output"
+printf '%s\n' "${OUTPUT}" | grep -q '^mobilenet_operation_count=4$' ||
+    fail "unexpected operation count"
+printf '%s\n' "${OUTPUT}" | grep -q '^mobilenet_test=PASS$' ||
+    fail "missing runtime PASS"
+
+echo "npu_launch_output=11,22,33,44"
+echo "npu_launch_test=PASS"
+echo "[coral-npu-launch-test] PASS"
+command -v m5 >/dev/null 2>&1 && m5 --inst exit
+exit 0

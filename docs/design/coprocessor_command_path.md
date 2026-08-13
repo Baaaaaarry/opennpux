@@ -103,6 +103,22 @@ Host-side control-model test:
 ./tools/coralnpu/test_coprocessor_command.sh
 ```
 
+Focused RTL end-to-end test on x86 Linux/GB10:
+
+```bash
+./tools/coralnpu/build_rvv_mobilenet.sh -c opt
+./tools/coralnpu/build_npu_launch_smoke.sh -c opt
+./tools/coralnpu/run_npu_launch_test.sh
+```
+
+The focused firmware constructs one four-element INT8 ADD descriptor in local
+EXTMEM and submits it with `NPU_LAUNCH`. The run script requires independent
+evidence from both sides of the boundary: the bridge log must show
+`source=custom-instruction` and all five second-level micro-commands, while the
+guest must report `npu_launch_output=11,22,33,44` and
+`npu_launch_test=PASS`. Unlike the full MobileNet test, this path does not load
+TFLM or execute a model graph, so it is suitable for per-commit acceptance.
+
 GB10 full build:
 
 ```bash

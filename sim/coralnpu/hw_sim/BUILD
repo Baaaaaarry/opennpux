@@ -187,6 +187,15 @@ cc_test(
 )
 
 cc_test(
+    name = "gem5_npu_launch_descriptor_test",
+    srcs = [
+        "gem5_bridge/coral_operator.h",
+        "gem5_bridge/gem5_npu_launch_descriptor.h",
+        "gem5_bridge/gem5_npu_launch_descriptor_test.cc",
+    ],
+)
+
+cc_test(
     name = "gem5_custom_mac_test",
     srcs = [
         "gem5_bridge/gem5_custom_mac.h",
@@ -272,6 +281,21 @@ coralnpu_v2_binary(
     srcs = [
         "gem5_bridge/coral_mobilenet.h",
         "gem5_bridge/gem5_mobilenet_partial.c",
+    ],
+    dtcm_size_kbytes = 64,
+    itcm_size_kbytes = 64,
+    stack_size_bytes = 4096,
+    visibility = ["//visibility:public"],
+)
+
+coralnpu_v2_binary(
+    name = "gem5_npu_launch_smoke",
+    srcs = [
+        "gem5_bridge/coral_mobilenet.h",
+        "gem5_bridge/coral_operator.h",
+        "gem5_bridge/coral_operator_client.h",
+        "gem5_bridge/gem5_npu_launch_descriptor.h",
+        "gem5_bridge/gem5_npu_launch_smoke.cc",
     ],
     dtcm_size_kbytes = 64,
     itcm_size_kbytes = 64,

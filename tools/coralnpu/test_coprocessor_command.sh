@@ -17,6 +17,7 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 CORAL_REPO="${CORAL_REPO:-${ROOT_DIR}/thirdparty/coralnpu}"
 CXX="${CXX:-c++}"
 OUTPUT="${TMPDIR:-/tmp}/opennpux-coprocessor-command-test"
+DESCRIPTOR_OUTPUT="${TMPDIR:-/tmp}/opennpux-npu-launch-descriptor-test"
 
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
 
@@ -26,6 +27,12 @@ OUTPUT="${TMPDIR:-/tmp}/opennpux-coprocessor-command-test"
     "${CORAL_REPO}/hw_sim/gem5_bridge/gem5_coprocessor_command_test.cc" \
     -o "${OUTPUT}"
 "${OUTPUT}"
+
+"${CXX}" -std=c++17 -Wall -Wextra -Werror \
+    -I"${CORAL_REPO}" \
+    "${CORAL_REPO}/hw_sim/gem5_bridge/gem5_npu_launch_descriptor_test.cc" \
+    -o "${DESCRIPTOR_OUTPUT}"
+"${DESCRIPTOR_OUTPUT}"
 
 grep -q 'val npuLaunch = Bool()' \
     "${CORAL_REPO}/hdl/chisel/src/coralnpu/scalar/Decode.scala"

@@ -25,25 +25,27 @@ mkdir -p /proc /sys /tmp /dev
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
-if command -v base64 >/dev/null 2>&1; then
-    BASE64_DECODE='base64 -d'
-elif [ -x /bin/busybox ]; then
-    BASE64_DECODE='/bin/busybox base64 -d'
-elif [ -x /tmp/busybox ]; then
-    BASE64_DECODE='/tmp/busybox base64 -d'
-else
-    echo '[coral-executable-run-test] FAIL: base64 decoder missing'
-    m5 --inst exit
-    exit 1
-fi
-\$BASE64_DECODE >/tmp/coralctl <<'OPENNPUX_CORALCTL_EOF'
+decode_base64()
+{
+    if command -v base64 >/dev/null 2>&1; then
+        base64 -d
+    elif [ -x /bin/busybox ]; then
+        /bin/busybox base64 -d
+    elif [ -x /tmp/busybox ]; then
+        /tmp/busybox base64 -d
+    else
+        echo '[coral-executable-run-test] FAIL: base64 decoder missing' >&2
+        return 1
+    fi
+}
+decode_base64 >/tmp/coralctl <<'OPENNPUX_CORALCTL_EOF'
 EOF
 base64 "$CORALCTL" >>"$TMP_SCRIPT"
 cat >>"$TMP_SCRIPT" <<'EOF'
 OPENNPUX_CORALCTL_EOF
 chmod 0755 /tmp/coralctl
 CORALCTL=/tmp/coralctl
-\$BASE64_DECODE >/tmp/model.npxc <<'OPENNPUX_EXECUTABLE_EOF'
+decode_base64 >/tmp/model.npxc <<'OPENNPUX_EXECUTABLE_EOF'
 EOF
 base64 "$EXECUTABLE" >>"$TMP_SCRIPT"
 cat >>"$TMP_SCRIPT" <<'EOF'

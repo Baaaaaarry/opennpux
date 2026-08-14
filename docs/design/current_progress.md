@@ -114,7 +114,11 @@ validates all relocations and reports the relocated-command count and parameter
 checksum in the completion record. The next scheduler increment validates 519
 dependency edges, dispatches all generic capability classes, and emits per-op
 command/operation/byte estimates through a versioned trace buffer. Numerical
-kernels and real tensor traffic remain the next milestone.
+kernels and complete tensor traffic remain the next milestone. A 4KiB weight
+page probe now binds real model-file bytes to NPU EXTMEM; weight-consuming
+commands read deterministic words through the Coral AXI Master and report
+actual request bytes plus a checksum. Full tensor-range relocation is not yet
+implemented.
 
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not

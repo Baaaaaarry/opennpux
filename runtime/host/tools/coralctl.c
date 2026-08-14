@@ -10,9 +10,46 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define NPU_EXTMEM_BASE UINT64_C(0x20000000)
+#define NPU_WEIGHT_PAGE_SIZE UINT32_C(4096)
+#define NPU_IO_BUFFER_SIZE UINT32_C(128)
+#define NPU_STATE_BUFFER_SIZE UINT32_C(256)
+#define NPU_SCRATCH_BUFFER_SIZE UINT32_C(256)
+
 static int copy_to_shared_window(
     struct opennpux_coral_shared_window *window, const uint8_t *source,
     uint32_t size);
+
+static size_t
+align_npu_record(size_t value)
+{
+    return (value + OPENNPUX_NPU_RECORD_ALIGNMENT - 1) &
+        ~(size_t)(OPENNPUX_NPU_RECORD_ALIGNMENT - 1);
+}
+
+static int
+load_weight_page(const char *path, uint8_t page[NPU_WEIGHT_PAGE_SIZE])
+{
+    memset(page, 0, NPU_WEIGHT_PAGE_SIZE);
+    if (path == NULL) {
+        for (uint32_t index = 0; index < NPU_WEIGHT_PAGE_SIZE; ++index) {
+            page[index] = (uint8_t)(index * 37u + 11u);
+        }
+        return 0;
+    }
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return -1;
+    }
+    const size_t bytes = fread(page, 1, NPU_WEIGHT_PAGE_SIZE, file);
+    const int failed = ferror(file) || bytes == 0;
+    fclose(file);
+    if (failed) {
+        errno = EIO;
+        return -1;
+    }
+    return 0;
+}
 
 static const char *
 npu_opcode_name(uint32_t opcode)
@@ -39,7 +76,8 @@ usage(const char *prog)
             "  %s vector-add-custom <elements> [base [poll-count]]\n"
             "  %s model-run <model.npxm> [base [poll-count]]\n"
             "  %s model-info-v2 <model.npxm>\n"
-            "  %s executable-run <model.npxc> [prefill|decode [base [poll-count]]]\n"
+            "  %s executable-run <model.npxc> [prefill|decode "
+            "[weight-page [base [poll-count]]]]\n"
             "  %s qwen-info <qwen-tiny.npxm>\n"
             "  %s qwen-run <qwen-tiny.npxm> [golden-package|hybrid-sim]\n"
             "  %s qwen-stage-tcb <qwen-tiny.npxm> [base]\n"
@@ -56,7 +94,8 @@ usage(const char *prog)
 
 static int
 print_executable_run(struct opennpux_coral_device *dev, const char *path,
-                     uint32_t entry_point, uint32_t firmware_entry,
+                     const char *weight_page_path, uint32_t entry_point,
+                     uint32_t firmware_entry,
                      uint64_t polls)
 {
     struct opennpux_npu_executable executable;
@@ -91,6 +130,14 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                          OPENNPUX_NPU_BIND_WRITE;
     bindings[4].flags |= OPENNPUX_NPU_BIND_WRITE;
 
+    uint8_t weight_page[NPU_WEIGHT_PAGE_SIZE];
+    if (load_weight_page(weight_page_path, weight_page) != 0) {
+        perror("executable-run weight page");
+        opennpux_coral_close_shared_window(&window);
+        opennpux_npu_executable_unload(&executable);
+        return 1;
+    }
+
     uint8_t *submission = malloc(window.size);
     size_t submission_size = 0;
     int rc = 1;
@@ -101,17 +148,48 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         goto out;
     }
     const size_t completion_offset =
-        (submission_size + OPENNPUX_NPU_RECORD_ALIGNMENT - 1) &
-        ~(size_t)(OPENNPUX_NPU_RECORD_ALIGNMENT - 1);
+        align_npu_record(submission_size);
+    const size_t trace_offset = align_npu_record(
+        completion_offset + sizeof(struct opennpux_npu_completion));
+    const size_t trace_size = sizeof(struct opennpux_npu_trace_header) +
+        OPENNPUX_NPU_TRACE_MAX_OPCODE *
+            sizeof(struct opennpux_npu_trace_record);
+    size_t data_offset = align_npu_record(trace_offset + trace_size);
+    const size_t input_offset = data_offset;
+    data_offset += NPU_IO_BUFFER_SIZE;
+    const size_t output_offset = data_offset;
+    data_offset += NPU_IO_BUFFER_SIZE;
+    const size_t weight_offset = data_offset;
+    data_offset += NPU_WEIGHT_PAGE_SIZE;
+    const size_t state_offset = data_offset;
+    data_offset += NPU_STATE_BUFFER_SIZE;
+    const size_t scratch_offset = data_offset;
+    data_offset += NPU_SCRATCH_BUFFER_SIZE;
     if (completion_offset > window.size ||
-        sizeof(struct opennpux_npu_completion) > window.size - completion_offset) {
+        sizeof(struct opennpux_npu_completion) > window.size - completion_offset ||
+        data_offset > window.size) {
         errno = ENOSPC;
         perror("executable-run completion");
         goto out;
     }
     struct opennpux_npu_invocation_header *header =
         (struct opennpux_npu_invocation_header *)(void *)submission;
-    header->completion_address = UINT64_C(0x20000000) + completion_offset;
+    struct opennpux_npu_tensor_binding *submission_bindings =
+        (struct opennpux_npu_tensor_binding *)(void *)(submission +
+                                                       header->binding_offset);
+    const size_t offsets[] = {
+        input_offset, output_offset, weight_offset, state_offset, scratch_offset,
+    };
+    const uint64_t sizes[] = {
+        NPU_IO_BUFFER_SIZE, NPU_IO_BUFFER_SIZE, NPU_WEIGHT_PAGE_SIZE,
+        NPU_STATE_BUFFER_SIZE, NPU_SCRATCH_BUFFER_SIZE,
+    };
+    for (uint32_t index = 0; index < 5; ++index) {
+        submission_bindings[index].device_address =
+            NPU_EXTMEM_BASE + offsets[index];
+        submission_bindings[index].byte_size = sizes[index];
+    }
+    header->completion_address = NPU_EXTMEM_BASE + completion_offset;
     header->checksum = 0;
     header->checksum = opennpux_npu_submission_checksum(
         submission, submission_size);
@@ -119,6 +197,12 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         copy_to_shared_window(&window, submission, (uint32_t)submission_size) != 0) {
         perror("executable-run stage");
         goto out;
+    }
+    for (size_t index = input_offset; index < data_offset; ++index) {
+        window.bytes[index] = 0;
+    }
+    for (uint32_t index = 0; index < NPU_WEIGHT_PAGE_SIZE; ++index) {
+        window.bytes[weight_offset + index] = weight_page[index];
     }
     volatile struct opennpux_npu_completion *completion =
         (volatile struct opennpux_npu_completion *)(volatile void *)(
@@ -165,17 +249,21 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     printf("scratch_binding=%" PRIu64 "\n",
            (resource_bindings >> OPENNPUX_NPU_RESOURCE_SCRATCH_SHIFT) &
                OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    printf("weight_page_source=%s\n",
+           weight_page_path == NULL ? "deterministic" : weight_page_path);
+    printf("weight_page_bytes=%" PRIu32 "\n", NPU_WEIGHT_PAGE_SIZE);
     printf("relocated_commands=%" PRIu64 "\n", completion->reserved[0]);
     printf("parameter_checksum=0x%08" PRIx64 "\n",
            completion->reserved[1]);
-    const uint64_t trace_offset = completion->trace_address >= UINT64_C(0x20000000) ?
+    const uint64_t response_trace_offset =
+        completion->trace_address >= NPU_EXTMEM_BASE ?
         completion->trace_address - UINT64_C(0x20000000) : UINT64_MAX;
     const struct opennpux_npu_trace_header *trace = NULL;
-    if (trace_offset <= window.size && completion->trace_size <=
-            window.size - trace_offset && completion->trace_size >=
+    if (response_trace_offset <= window.size && completion->trace_size <=
+            window.size - response_trace_offset && completion->trace_size >=
             sizeof(struct opennpux_npu_trace_header)) {
         trace = (const struct opennpux_npu_trace_header *)(const void *)(
-            window.bytes + trace_offset);
+            window.bytes + response_trace_offset);
     }
     if (trace != NULL &&
         (trace->magic != OPENNPUX_NPU_TRACE_MAGIC ||
@@ -195,6 +283,12 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                trace->estimated_operations);
         printf("dispatch_estimated_bytes=%" PRIu64 "\n",
                trace->estimated_bytes);
+        printf("dispatch_weight_page_requests=%" PRIu32 "\n",
+               trace->weight_page_requests);
+        printf("dispatch_weight_dma_bytes=%" PRIu64 "\n",
+               trace->weight_dma_bytes);
+        printf("dispatch_weight_checksum=0x%08" PRIx32 "\n",
+               trace->weight_checksum);
         printf("dispatch_modeled_cycles=%" PRIu64 "\n",
                completion->npu_cycles);
         const struct opennpux_npu_trace_record *records =
@@ -204,11 +298,12 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                 continue;
             }
             printf("dispatch_op_%s=count:%" PRIu32 ",operations:%" PRIu64
-                   ",bytes:%" PRIu64 "\n",
+                   ",bytes:%" PRIu64 ",weight_dma_bytes:%" PRIu64 "\n",
                    npu_opcode_name(records[index].opcode),
                    records[index].command_count,
                    records[index].estimated_operations,
-                   records[index].estimated_bytes);
+                   records[index].estimated_bytes,
+                   records[index].weight_dma_bytes);
         }
     }
     if (completion->magic != OPENNPUX_NPU_COMPLETION_MAGIC ||
@@ -773,7 +868,7 @@ print_mobilenet_test(struct opennpux_coral_device *dev, uint32_t entry,
 int
 main(int argc, char **argv)
 {
-    if (argc < 2 || argc > 6) {
+    if (argc < 2 || argc > 7) {
         usage(argv[0]);
         return 2;
     }
@@ -815,7 +910,7 @@ main(int argc, char **argv)
          (argc < 3 || argc > 5)) ||
         (command_model_run && (argc < 3 || argc > 5)) ||
         (command_model_info_v2 && argc != 3) ||
-        (command_executable_run && (argc < 3 || argc > 6)) ||
+        (command_executable_run && (argc < 3 || argc > 7)) ||
         (command_qwen_info && argc != 3) ||
         (command_qwen_run && (argc < 3 || argc > 4)) ||
         (command_qwen_stage_tcb && (argc < 3 || argc > 4)) ||
@@ -844,7 +939,9 @@ main(int argc, char **argv)
     uint64_t shared_value = 0;
     uint64_t vector_elements = 0;
     const char *model_path = NULL;
+    const char *weight_page_path = NULL;
     uint32_t executable_entry = OPENNPUX_NPU_ENTRY_DECODE;
+    int executable_poll_arg = 5;
     if (command_mem_read32 || command_mem_write32) {
         const int base_arg = command_mem_read32 ? 3 : 4;
         if (opennpux_coral_parse_u64(argv[2], &shared_offset) != 0) {
@@ -872,9 +969,20 @@ main(int argc, char **argv)
                 return 2;
             }
         }
-        if (argc >= 5 && opennpux_coral_parse_u64(argv[4], &base) != 0) {
-            fprintf(stderr, "invalid base address: %s\n", argv[4]);
-            return 2;
+        if (argc >= 5) {
+            if (strchr(argv[4], '/') != NULL) {
+                weight_page_path = argv[4];
+                executable_poll_arg = 6;
+                if (argc >= 6 &&
+                    opennpux_coral_parse_u64(argv[5], &base) != 0) {
+                    fprintf(stderr, "invalid base address: %s\n", argv[5]);
+                    return 2;
+                }
+            } else if (opennpux_coral_parse_u64(argv[4], &base) != 0) {
+                fprintf(stderr, "invalid base address or weight page: %s\n",
+                        argv[4]);
+                return 2;
+            }
         }
     } else if (command_model_run) {
         model_path = argv[2];
@@ -973,7 +1081,7 @@ main(int argc, char **argv)
         return 2;
     }
     const int poll_arg =
-        command_executable_run ? 5 :
+        command_executable_run ? executable_poll_arg :
         command_mobilenet_test ? 3 :
         command_qwen_run_tcb ? 4 :
         (command_model_run || command_vector_add ||
@@ -990,8 +1098,8 @@ main(int argc, char **argv)
     if (command_run) {
         result = print_run(&dev, (uint32_t)entry, polls);
     } else if (command_executable_run) {
-        result = print_executable_run(&dev, model_path, executable_entry,
-                                      (uint32_t)entry, polls);
+        result = print_executable_run(&dev, model_path, weight_page_path,
+                                      executable_entry, (uint32_t)entry, polls);
     } else if (command_model_run) {
         result = print_model_run(&dev, (uint32_t)entry, model_path, polls);
     } else if (command_qwen_run_tcb) {

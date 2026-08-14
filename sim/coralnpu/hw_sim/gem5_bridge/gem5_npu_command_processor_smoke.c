@@ -21,6 +21,13 @@ align_record(uint32_t value)
         ~(OPENNPUX_NPU_RECORD_ALIGNMENT - 1);
 }
 
+static int
+opcode_uses_weight(uint32_t opcode)
+{
+    return opcode == 1 || opcode == 2 || opcode == 5 || opcode == 9 ||
+        opcode == 10 || opcode == 12 || opcode == 13 || opcode == 15;
+}
+
 static uint32_t
 checksum(const volatile uint8_t *bytes, uint32_t size)
 {
@@ -124,10 +131,10 @@ main(void)
         (volatile struct opennpux_npu_tensor_binding *)(base +
                                                         header->binding_offset);
     uint64_t cycles = 0;
-    uint64_t bytes = 0;
     uint32_t relocated = 0;
     uint32_t parameter_checksum = UINT32_C(2166136261);
     uint32_t retired_token = 0;
+    trace->weight_checksum = UINT32_C(2166136261);
     for (uint32_t index = 0; index < header->command_count; ++index) {
         if (commands[index].opcode == 0 ||
             commands[index].opcode > OPENNPUX_NPU_TRACE_MAX_OPCODE ||
@@ -192,13 +199,37 @@ main(void)
                 MODELED_OPS_PER_CYCLE +
             (command_bytes + MODELED_BYTES_PER_CYCLE - 1) /
                 MODELED_BYTES_PER_CYCLE + 1;
-        bytes += command_bytes;
         volatile struct opennpux_npu_trace_record *record =
             &records[commands[index].opcode - 1];
         record->opcode = commands[index].opcode;
         ++record->command_count;
         record->estimated_operations += operations;
         record->estimated_bytes += command_bytes;
+        if (opcode_uses_weight(commands[index].opcode)) {
+            const uint64_t weight_address =
+                bindings[weight_binding].device_address;
+            const uint64_t weight_size = bindings[weight_binding].byte_size;
+            if (weight_size < sizeof(uint32_t) ||
+                weight_address < EXTMEM_BASE ||
+                weight_address > EXTMEM_BASE + COMMAND_BUFFER_SIZE ||
+                weight_size > EXTMEM_BASE + COMMAND_BUFFER_SIZE -
+                    weight_address) {
+                finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                       ERROR_RELOCATION, index);
+                return 1;
+            }
+            const uint32_t word_count = weight_size / sizeof(uint32_t);
+            const uint32_t word_index =
+                (uint32_t)commands[index].parameter_symbol % word_count;
+            const volatile uint32_t *weight_word =
+                (const volatile uint32_t *)(uintptr_t)(
+                    weight_address + word_index * sizeof(uint32_t));
+            trace->weight_checksum ^= *weight_word;
+            trace->weight_checksum *= UINT32_C(16777619);
+            ++trace->weight_page_requests;
+            trace->weight_dma_bytes += sizeof(uint32_t);
+            record->weight_dma_bytes += sizeof(uint32_t);
+        }
         trace->capability_mask |= UINT64_C(1) << commands[index].opcode;
         trace->estimated_operations += operations;
         trace->estimated_bytes += command_bytes;
@@ -206,7 +237,7 @@ main(void)
     }
     trace->command_count = header->command_count;
     completion->npu_cycles = cycles;
-    completion->dma_bytes_read = bytes;
+    completion->dma_bytes_read = trace->weight_dma_bytes;
     completion->reserved[0] = relocated;
     completion->reserved[1] = parameter_checksum;
     finish(completion, OPENNPUX_NPU_COMPLETION_SUCCESS, 0, UINT32_MAX);

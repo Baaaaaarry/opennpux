@@ -9,7 +9,7 @@
 #define OPENNPUX_NPU_COMPLETION_MAGIC UINT32_C(0x4358504e)
 #define OPENNPUX_NPU_COMPLETION_VERSION UINT32_C(1)
 #define OPENNPUX_NPU_TRACE_MAGIC UINT32_C(0x5458504e)
-#define OPENNPUX_NPU_TRACE_VERSION UINT32_C(1)
+#define OPENNPUX_NPU_TRACE_VERSION UINT32_C(2)
 #define OPENNPUX_NPU_RECORD_ALIGNMENT UINT32_C(64)
 #define OPENNPUX_NPU_MAX_BINDINGS UINT32_C(4096)
 #define OPENNPUX_NPU_MAX_COMMANDS UINT32_C(65536)
@@ -19,7 +19,7 @@
 #define OPENNPUX_NPU_COMMAND_SIZE UINT32_C(112)
 #define OPENNPUX_NPU_COMPLETION_SIZE UINT32_C(112)
 #define OPENNPUX_NPU_TRACE_HEADER_SIZE UINT32_C(64)
-#define OPENNPUX_NPU_TRACE_RECORD_SIZE UINT32_C(24)
+#define OPENNPUX_NPU_TRACE_RECORD_SIZE UINT32_C(32)
 #define OPENNPUX_NPU_TRACE_MAX_OPCODE UINT32_C(17)
 #define OPENNPUX_NPU_RUNTIME_FIELD_MASK UINT64_C(0xffff)
 #define OPENNPUX_NPU_RUNTIME_SEQUENCE_SHIFT UINT32_C(16)
@@ -72,14 +72,15 @@ struct opennpux_npu_completion {
 
 struct opennpux_npu_trace_header {
     uint32_t magic, version, struct_size, record_count;
-    uint32_t command_count, dependency_edges;
+    uint32_t command_count, dependency_edges, weight_page_requests;
+    uint32_t weight_checksum;
     uint64_t capability_mask, estimated_operations, estimated_bytes;
-    uint64_t reserved[2];
+    uint64_t weight_dma_bytes;
 };
 
 struct opennpux_npu_trace_record {
     uint32_t opcode, command_count;
-    uint64_t estimated_operations, estimated_bytes;
+    uint64_t estimated_operations, estimated_bytes, weight_dma_bytes;
 };
 
 #if defined(__cplusplus)
@@ -88,7 +89,7 @@ static_assert(sizeof(struct opennpux_npu_tensor_binding) == 112);
 static_assert(sizeof(struct opennpux_npu_command) == 112);
 static_assert(sizeof(struct opennpux_npu_completion) == 112);
 static_assert(sizeof(struct opennpux_npu_trace_header) == 64);
-static_assert(sizeof(struct opennpux_npu_trace_record) == 24);
+static_assert(sizeof(struct opennpux_npu_trace_record) == 32);
 #else
 _Static_assert(sizeof(struct opennpux_npu_invocation_header) == 144,
                "invocation ABI size changed");
@@ -100,7 +101,7 @@ _Static_assert(sizeof(struct opennpux_npu_completion) == 112,
                "completion ABI size changed");
 _Static_assert(sizeof(struct opennpux_npu_trace_header) == 64,
                "trace header ABI size changed");
-_Static_assert(sizeof(struct opennpux_npu_trace_record) == 24,
+_Static_assert(sizeof(struct opennpux_npu_trace_record) == 32,
                "trace record ABI size changed");
 #endif
 

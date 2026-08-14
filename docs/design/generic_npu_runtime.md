@@ -179,3 +179,11 @@ switching an existing 4KiB setup to 64KiB requires one new boot checkpoint.
 Executable and invocation ABI version 2 identifies the inline relocation
 fields. Version 1 `.npxc` files must be regenerated rather than interpreted
 with implicit resource bindings.
+
+The first data-plane probe stages one 4KiB page from the model weight source
+behind binding 2. Weight-consuming command classes sample the page through the
+Coral EXTMEM address, which exercises the RTL AXI Master and gem5 shared-memory
+path. Trace version 2 reports page requests, actual DMA bytes and a content
+checksum. This is deliberately a paging transport probe: it does not yet map
+each parameter symbol to its real safetensors byte range or execute arithmetic
+with the sampled values.

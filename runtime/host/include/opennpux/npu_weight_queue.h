@@ -11,7 +11,7 @@ extern "C" {
 #endif
 
 #define OPENNPUX_NPU_WEIGHT_QUEUE_MAGIC UINT32_C(0x5158504e)
-#define OPENNPUX_NPU_WEIGHT_QUEUE_VERSION UINT32_C(1)
+#define OPENNPUX_NPU_WEIGHT_QUEUE_VERSION UINT32_C(2)
 
 struct opennpux_npu_weight_queue_header {
     uint32_t magic;
@@ -22,10 +22,11 @@ struct opennpux_npu_weight_queue_header {
     uint32_t flags;
     uint32_t reserved0;
     uint32_t reserved1;
-    uint64_t producer_index;
-    uint64_t service_index;
-    uint64_t retire_index;
-    uint64_t backpressure_count;
+    uint32_t producer_index;
+    uint32_t service_index;
+    uint32_t retire_index;
+    uint32_t backpressure_count;
+    uint64_t reserved[2];
 };
 
 struct opennpux_npu_weight_queue {

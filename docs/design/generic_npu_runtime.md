@@ -235,12 +235,19 @@ placed in the shared queue when command-processor pause/resume is integrated.
 `npu_weight_queue.c` implements that shared single-producer/single-service/
 single-retire ring contract. The NPU producer can publish multiple pending
 faults, the CPU service side resolves them in order, and the NPU retires READY
-or ERROR records before slots are reused. Monotonic 64-bit indexes avoid ring
-ambiguity, release/acquire publication orders payload visibility, and an
-explicit backpressure counter records queue-full stalls. This provides the
+or ERROR records before slots are reused. RV32-safe 32-bit producer, service
+and retire indexes use wrap-safe unsigned differences; release/acquire
+publication orders payload visibility, and an explicit backpressure counter
+records queue-full stalls. This provides the
 batchable control plane needed for 64KiB weight DMA transfers; mapping cache
-slots into the shared DMA window and pausing/resuming real device commands is
-the next system-integration step.
+slots into the shared DMA window and pausing/resuming device commands is
+implemented by the paged executable smoke path. The RV32 command processor
+publishes a page fault, stalls the affected command, consumes the CPU-filled
+cache slot after READY, and retires the queue entry before continuing. The
+guest `executable-run-paged` service uses the asynchronous Coral runtime loop
+to fill 64KiB slots while the device is active. This closes the system control
+loop; replacing the deterministic test page with `.npxr`-indexed safetensor
+ranges is the next data-plane integration step.
 The host runtime exposes nonblocking `start`, `status` and `reset` operations
 plus `opennpux_coral_run_with_service()`. Its callback runs while the device is
 non-terminal, allowing a CPU pager to drain the fault queue without waiting

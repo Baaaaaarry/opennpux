@@ -2,17 +2,21 @@
 #include <stdint.h>
 
 #include "hw_sim/gem5_bridge/npu_submission.h"
+#include "hw_sim/gem5_bridge/npu_weight_queue.h"
 
 #define EXTMEM_BASE UINT32_C(0x20000000)
-#define COMMAND_BUFFER_SIZE UINT32_C(0x00010000)
+#define COMMAND_BUFFER_SIZE UINT32_C(0x00800000)
 #define ERROR_ABI UINT32_C(1)
 #define ERROR_BOUNDS UINT32_C(2)
 #define ERROR_CHECKSUM UINT32_C(3)
 #define ERROR_COMMAND UINT32_C(4)
 #define ERROR_RELOCATION UINT32_C(5)
 #define ERROR_DEPENDENCY UINT32_C(6)
+#define ERROR_PAGING UINT32_C(7)
 #define MODELED_OPS_PER_CYCLE UINT64_C(256)
 #define MODELED_BYTES_PER_CYCLE UINT64_C(32)
+#define PAGING_TRANSFER_SIZE UINT32_C(65536)
+#define EXPERT_NONE UINT64_MAX
 
 static uint32_t
 align_record(uint32_t value)
@@ -51,6 +55,76 @@ finish(volatile struct opennpux_npu_completion *completion, uint32_t state,
     completion->faulting_command = fault;
     __asm__ volatile("" ::: "memory");
     completion->state = state;
+}
+
+static void
+memory_fence(void)
+{
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+}
+
+static int
+page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
+            volatile uint8_t *cache, uint32_t cache_slots,
+            uint32_t command_id, uint32_t *word,
+            volatile uint64_t *stall_cycles)
+{
+    if (queue->magic != OPENNPUX_NPU_WEIGHT_QUEUE_MAGIC ||
+        queue->version != OPENNPUX_NPU_WEIGHT_QUEUE_VERSION ||
+        queue->header_size != sizeof(*queue) ||
+        queue->entry_size != sizeof(struct opennpux_npu_page_fault) ||
+        queue->capacity == 0 || cache_slots == 0) {
+        return -1;
+    }
+    uint32_t producer = queue->producer_index;
+    while (producer - queue->retire_index >= queue->capacity) {
+        ++queue->backpressure_count;
+        ++*stall_cycles;
+    }
+    volatile struct opennpux_npu_page_fault *entries =
+        (volatile struct opennpux_npu_page_fault *)(queue + 1);
+    volatile struct opennpux_npu_page_fault *fault =
+        &entries[producer % queue->capacity];
+    while (fault->state != OPENNPUX_NPU_PAGE_FAULT_EMPTY) {
+        ++*stall_cycles;
+    }
+    fault->magic = OPENNPUX_NPU_PAGE_FAULT_MAGIC;
+    fault->version = OPENNPUX_NPU_PAGE_FAULT_VERSION;
+    fault->struct_size = sizeof(*fault);
+    fault->sequence = (uint64_t)command_id + 1;
+    fault->command_id = command_id;
+    fault->shard_index = 0;
+    fault->file_offset = (uint64_t)command_id * PAGING_TRANSFER_SIZE;
+    fault->expert_id = EXPERT_NONE;
+    fault->cache_slot = 0;
+    fault->error_code = 0;
+    fault->page_size = PAGING_TRANSFER_SIZE;
+    fault->reserved = 0;
+    memory_fence();
+    fault->state = OPENNPUX_NPU_PAGE_FAULT_PENDING;
+    memory_fence();
+    queue->producer_index = producer + 1;
+    memory_fence();
+    while (fault->state == OPENNPUX_NPU_PAGE_FAULT_PENDING) {
+        ++*stall_cycles;
+    }
+    if (fault->state != OPENNPUX_NPU_PAGE_FAULT_READY ||
+        fault->error_code != 0 || fault->cache_slot >= cache_slots) {
+        return -1;
+    }
+    const uint32_t offset = command_id * sizeof(uint32_t);
+    if (offset > PAGING_TRANSFER_SIZE - sizeof(uint32_t)) {
+        return -1;
+    }
+    const volatile uint32_t *cache_word =
+        (const volatile uint32_t *)(cache +
+            fault->cache_slot * PAGING_TRANSFER_SIZE + offset);
+    *word = *cache_word;
+    fault->state = OPENNPUX_NPU_PAGE_FAULT_EMPTY;
+    memory_fence();
+    queue->retire_index = producer + 1;
+    memory_fence();
+    return 0;
 }
 
 int
@@ -123,6 +197,44 @@ main(void)
     volatile struct opennpux_npu_tensor_binding *bindings =
         (volatile struct opennpux_npu_tensor_binding *)(base +
                                                         header->binding_offset);
+    volatile struct opennpux_npu_tensor_binding *queue_binding = NULL;
+    volatile struct opennpux_npu_tensor_binding *cache_binding = NULL;
+    for (uint32_t index = 0; index < header->binding_count; ++index) {
+        if ((bindings[index].flags & OPENNPUX_NPU_BIND_PAGE_QUEUE) != 0) {
+            if (queue_binding != NULL) {
+                finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                       ERROR_PAGING, 0);
+                return 1;
+            }
+            queue_binding = &bindings[index];
+        }
+        if ((bindings[index].flags & OPENNPUX_NPU_BIND_PAGE_CACHE) != 0) {
+            if (cache_binding != NULL) {
+                finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                       ERROR_PAGING, 0);
+                return 1;
+            }
+            cache_binding = &bindings[index];
+        }
+    }
+    if ((queue_binding == NULL) != (cache_binding == NULL)) {
+        finish(completion, OPENNPUX_NPU_COMPLETION_ERROR, ERROR_PAGING, 0);
+        return 1;
+    }
+    if (queue_binding != NULL &&
+        (queue_binding->device_address < EXTMEM_BASE ||
+         queue_binding->byte_size < sizeof(struct opennpux_npu_weight_queue_header) ||
+         queue_binding->device_address > EXTMEM_BASE + COMMAND_BUFFER_SIZE ||
+         queue_binding->byte_size > EXTMEM_BASE + COMMAND_BUFFER_SIZE -
+             queue_binding->device_address ||
+         cache_binding->device_address < EXTMEM_BASE ||
+         cache_binding->byte_size < PAGING_TRANSFER_SIZE ||
+         cache_binding->device_address > EXTMEM_BASE + COMMAND_BUFFER_SIZE ||
+         cache_binding->byte_size > EXTMEM_BASE + COMMAND_BUFFER_SIZE -
+             cache_binding->device_address)) {
+        finish(completion, OPENNPUX_NPU_COMPLETION_ERROR, ERROR_PAGING, 0);
+        return 1;
+    }
     uint64_t cycles = 0;
     uint32_t relocated = 0;
     uint32_t parameter_checksum = UINT32_C(2166136261);
@@ -200,6 +312,29 @@ main(void)
         record->estimated_bytes += command_bytes;
         if ((commands[index].flags &
              OPENNPUX_NPU_COMMAND_USES_WEIGHT) != 0) {
+            if (queue_binding != NULL) {
+                uint32_t word = 0;
+                volatile struct opennpux_npu_weight_queue_header *queue =
+                    (volatile struct opennpux_npu_weight_queue_header *)(uintptr_t)
+                        queue_binding->device_address;
+                volatile uint8_t *cache =
+                    (volatile uint8_t *)(uintptr_t)cache_binding->device_address;
+                const uint32_t cache_slots =
+                    (uint32_t)(cache_binding->byte_size / PAGING_TRANSFER_SIZE);
+                if (page_weight(queue, cache, cache_slots,
+                                commands[index].command_id, &word,
+                                &completion->stall_cycles) != 0) {
+                    finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                           ERROR_PAGING, index);
+                    return 1;
+                }
+                trace->weight_checksum ^= word;
+                trace->weight_checksum *= UINT32_C(16777619);
+                ++trace->weight_page_requests;
+                trace->weight_dma_bytes += PAGING_TRANSFER_SIZE;
+                record->weight_dma_bytes += PAGING_TRANSFER_SIZE;
+                goto weight_complete;
+            }
             const uint64_t weight_address =
                 bindings[weight_binding].device_address;
             const uint64_t weight_size = bindings[weight_binding].byte_size;
@@ -227,6 +362,8 @@ main(void)
             ++trace->weight_page_requests;
             trace->weight_dma_bytes += sizeof(uint32_t);
             record->weight_dma_bytes += sizeof(uint32_t);
+weight_complete:
+            ;
         }
         trace->capability_mask |= UINT64_C(1) << commands[index].opcode;
         trace->estimated_operations += operations;

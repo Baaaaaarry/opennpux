@@ -59,6 +59,10 @@ mkdir -p "${OUT_DIR}"
     "${ROOT_DIR}/runtime/host/src/model_package.c" \
     "${ROOT_DIR}/runtime/host/src/npu_submission.c" \
     "${ROOT_DIR}/runtime/host/src/npu_executable.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_pager.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_queue.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_paging_layout.c" \
     "${ROOT_DIR}/runtime/host/src/qwen_model.c" \
     "${ROOT_DIR}/runtime/host/tools/coralctl.c" \
     -o "${OUT}"

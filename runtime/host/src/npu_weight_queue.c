@@ -3,14 +3,14 @@
 #include <errno.h>
 #include <string.h>
 
-static uint64_t
-load_acquire(const uint64_t *value)
+static uint32_t
+load_acquire(const uint32_t *value)
 {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
 
 static void
-store_release(uint64_t *target, uint64_t value)
+store_release(uint32_t *target, uint32_t value)
 {
     __atomic_store_n(target, value, __ATOMIC_RELEASE);
 }
@@ -65,8 +65,9 @@ opennpux_npu_weight_queue_attach(
         header->header_size != sizeof(*header) ||
         header->entry_size != sizeof(struct opennpux_npu_page_fault) ||
         opennpux_npu_weight_queue_size(header->capacity, &required) != 0 ||
-        required > storage_size || header->service_index > header->producer_index ||
-        header->retire_index > header->service_index ||
+        required > storage_size ||
+        header->producer_index - header->service_index > header->capacity ||
+        header->service_index - header->retire_index > header->capacity ||
         header->producer_index - header->retire_index > header->capacity) {
         errno = EINVAL;
         return -1;
@@ -106,8 +107,8 @@ opennpux_npu_weight_queue_publish(
         errno = EINVAL;
         return -1;
     }
-    const uint64_t producer = load_acquire(&queue->header->producer_index);
-    const uint64_t retire = load_acquire(&queue->header->retire_index);
+    const uint32_t producer = load_acquire(&queue->header->producer_index);
+    const uint32_t retire = load_acquire(&queue->header->retire_index);
     if (producer - retire >= queue->header->capacity) {
         __atomic_add_fetch(&queue->header->backpressure_count, 1,
                            __ATOMIC_RELAXED);
@@ -143,8 +144,8 @@ opennpux_npu_weight_queue_service_next(
         errno = EINVAL;
         return -1;
     }
-    const uint64_t service = load_acquire(&queue->header->service_index);
-    const uint64_t producer = load_acquire(&queue->header->producer_index);
+    const uint32_t service = load_acquire(&queue->header->service_index);
+    const uint32_t producer = load_acquire(&queue->header->producer_index);
     if (service == producer) {
         return 0;
     }
@@ -173,8 +174,8 @@ opennpux_npu_weight_queue_consume(
         errno = EINVAL;
         return -1;
     }
-    const uint64_t retire = load_acquire(&queue->header->retire_index);
-    const uint64_t service = load_acquire(&queue->header->service_index);
+    const uint32_t retire = load_acquire(&queue->header->retire_index);
+    const uint32_t service = load_acquire(&queue->header->service_index);
     if (retire == service) {
         return 0;
     }

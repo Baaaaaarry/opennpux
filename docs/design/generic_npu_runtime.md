@@ -209,6 +209,10 @@ The model-independent host loader in `runtime/host/src/npu_weight_ranges.c`
 validates the binary ABI and checksum, rejects invalid command/shard/range
 records, and performs binary-search lookup of all ranges for a command. It is
 the runtime boundary between compiler-generated metadata and the future pager.
+`opennpux_model_package_read_shard_range()` provides the corresponding bounded
+data path from a validated range record to external shard bytes. It checks the
+declared shard size and file range before I/O, so the pager does not need to
+perform a tensor-name lookup or trust compiler offsets blindly.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

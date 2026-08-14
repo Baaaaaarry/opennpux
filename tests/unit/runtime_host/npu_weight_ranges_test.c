@@ -1,3 +1,4 @@
+#include "opennpux/model_package.h"
 #include "opennpux/npu_weight_ranges.h"
 
 #include <errno.h>
@@ -16,9 +17,13 @@ check(int condition, const char *message)
 int
 main(int argc, char **argv)
 {
-    check(argc == 2, "usage: npu_weight_ranges_test <model.npxr>");
+    check(argc == 3,
+          "usage: npu_weight_ranges_test <model.npxm> <model.npxr>");
+    struct opennpux_model_package_info model;
+    check(opennpux_model_package_load(argv[1], &model) == 0,
+          "model package load failed");
     struct opennpux_npu_weight_ranges ranges;
-    check(opennpux_npu_weight_ranges_load(argv[1], &ranges) == 0,
+    check(opennpux_npu_weight_ranges_load(argv[2], &ranges) == 0,
           "range index load failed");
     check(ranges.header->range_count == 8, "range count mismatch");
     int found_expert = 0;
@@ -35,6 +40,14 @@ main(int argc, char **argv)
         }
     }
     check(found_expert, "routed expert metadata missing");
+    unsigned char sample[4];
+    check(opennpux_model_package_read_shard_range(
+              argv[1], &model, ranges.records[0].shard_index,
+              ranges.records[0].file_offset, sample, sizeof(sample)) == 0,
+          "indexed shard range read failed");
+    check(sample[0] == 0 && sample[1] == 1 &&
+              sample[2] == 2 && sample[3] == 3,
+          "indexed shard payload mismatch");
     opennpux_npu_weight_ranges_unload(&ranges);
     puts("PASS: NPU weight range loader tests");
     return 0;

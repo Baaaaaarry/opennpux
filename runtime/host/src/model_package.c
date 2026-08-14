@@ -298,20 +298,20 @@ opennpux_model_package_find_tensor(
 }
 
 int
-opennpux_model_package_read_tensor(
+opennpux_model_package_read_shard_range(
     const char *manifest_path,
     const struct opennpux_model_package_info *info,
-    const struct opennpux_model_tensor_record *tensor, uint64_t offset,
-    void *buffer, uint64_t size)
+    uint32_t shard_index, uint64_t file_offset, void *buffer, uint64_t size)
 {
-    if (manifest_path == NULL || info == NULL || tensor == NULL ||
-        buffer == NULL || tensor->shard_index >= info->shard_count ||
-        offset > tensor->data_size || size > tensor->data_size - offset) {
+    if (manifest_path == NULL || info == NULL || buffer == NULL ||
+        shard_index >= info->shard_count ||
+        file_offset > info->shards[shard_index].size ||
+        size > info->shards[shard_index].size - file_offset) {
         errno = EINVAL;
         return -1;
     }
     char path[OPENNPUX_MODEL_PATH_SIZE * 2];
-    if (package_path(manifest_path, info->shards[tensor->shard_index].path,
+    if (package_path(manifest_path, info->shards[shard_index].path,
                      path, sizeof(path)) != 0) {
         return -1;
     }
@@ -319,8 +319,8 @@ opennpux_model_package_read_tensor(
     if (file == NULL) {
         return -1;
     }
-    const uint64_t position = tensor->data_offset + offset;
-    if (position > (uint64_t)LONG_MAX || fseek(file, (long)position, SEEK_SET) != 0) {
+    if (file_offset > (uint64_t)LONG_MAX ||
+        fseek(file, (long)file_offset, SEEK_SET) != 0) {
         fclose(file);
         errno = EOVERFLOW;
         return -1;
@@ -340,6 +340,24 @@ opennpux_model_package_read_tensor(
     }
     fclose(file);
     return 0;
+}
+
+int
+opennpux_model_package_read_tensor(
+    const char *manifest_path,
+    const struct opennpux_model_package_info *info,
+    const struct opennpux_model_tensor_record *tensor, uint64_t offset,
+    void *buffer, uint64_t size)
+{
+    if (tensor == NULL || offset > tensor->data_size ||
+        size > tensor->data_size - offset ||
+        tensor->data_offset > UINT64_MAX - offset) {
+        errno = EINVAL;
+        return -1;
+    }
+    return opennpux_model_package_read_shard_range(
+        manifest_path, info, tensor->shard_index,
+        tensor->data_offset + offset, buffer, size);
 }
 
 static int

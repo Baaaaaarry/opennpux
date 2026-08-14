@@ -98,6 +98,10 @@ int opennpux_model_package_read_tensor(
     const struct opennpux_model_package_info *info,
     const struct opennpux_model_tensor_record *tensor, uint64_t offset,
     void *buffer, uint64_t size);
+int opennpux_model_package_read_shard_range(
+    const char *manifest_path,
+    const struct opennpux_model_package_info *info, uint32_t shard_index,
+    uint64_t file_offset, void *buffer, uint64_t size);
 
 #ifdef __cplusplus
 }

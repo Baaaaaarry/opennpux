@@ -193,6 +193,12 @@ host pager with exact model-file locations.
 payload bytes, zero-padding only beyond the selected tensor. The generic
 executable smoke test uses this path by default when `model.npxw` is adjacent
 to `model.npxc`; `CORAL_NPU_WEIGHT_PAGE` remains an explicit override.
+For command-processor acceptance,
+`materialize_npu_weight_samples.py` builds a 4KiB command-indexed probe table.
+Each weight-bearing command receives the first 32-bit word from its own mapped
+tensor range at offset `command_id * 4`; weightless slots remain zero. Firmware
+uses the command ID directly, proving that relocation reaches distinct real
+model tensors without pretending that a 4KiB window contains all GPTQ pages.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

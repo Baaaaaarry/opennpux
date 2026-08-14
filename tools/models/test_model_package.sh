@@ -92,6 +92,32 @@ assert actual[:len(expected)] == expected
 assert not any(actual[len(expected):])
 print("npu_weight_page_materialize=PASS")
 PY
+"${SCRIPT_DIR}/materialize_npu_weight_samples.py" \
+    "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-samples.bin" \
+    --allow-unresolved
+python3 - "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-samples.bin" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    plan = json.load(source)
+with open(sys.argv[2], "rb") as source:
+    samples = source.read()
+assert len(samples) == 4096
+for command in plan["commands"]:
+    tensor = command["primary_range"]
+    begin = command["command_id"] * 4
+    actual = samples[begin:begin + 4]
+    if tensor is None:
+        assert actual == bytes(4)
+        continue
+    shard = f"{sys.argv[1].rsplit('/', 1)[0]}/{tensor['shard']}"
+    with open(shard, "rb") as source:
+        source.seek(tensor["offset"])
+        expected = source.read(min(4, tensor["size"])).ljust(4, bytes(1))
+    assert actual == expected
+print("npu_weight_samples_materialize=PASS")
+PY
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_submission.c" \

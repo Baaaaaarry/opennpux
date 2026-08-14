@@ -52,7 +52,7 @@ TMP_SCRIPT="$(mktemp)"
 TMP_WEIGHT_PAGE="$(mktemp)"
 trap 'rm -f "$TMP_SCRIPT" "$TMP_WEIGHT_PAGE"' EXIT
 if [ -z "$WEIGHT_PAGE_SOURCE" ] && [ -r "$WEIGHT_PLAN" ]; then
-    "${ROOT_DIR}/tools/models/materialize_npu_weight_page.py" \
+    "${ROOT_DIR}/tools/models/materialize_npu_weight_samples.py" \
         "$WEIGHT_PLAN" "$TMP_WEIGHT_PAGE"
 else
     dd if="$WEIGHT_PAGE_SOURCE" of="$TMP_WEIGHT_PAGE" \

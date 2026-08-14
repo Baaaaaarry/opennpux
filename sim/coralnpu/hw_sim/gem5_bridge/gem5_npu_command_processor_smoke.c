@@ -213,8 +213,12 @@ main(void)
                 return 1;
             }
             const uint32_t word_count = weight_size / sizeof(uint32_t);
-            const uint32_t word_index =
-                (uint32_t)commands[index].parameter_symbol % word_count;
+            if (commands[index].command_id >= word_count) {
+                finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                       ERROR_RELOCATION, index);
+                return 1;
+            }
+            const uint32_t word_index = commands[index].command_id;
             const volatile uint32_t *weight_word =
                 (const volatile uint32_t *)(uintptr_t)(
                     weight_address + word_index * sizeof(uint32_t));

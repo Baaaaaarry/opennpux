@@ -11,6 +11,30 @@ extern "C" {
 #endif
 
 #define OPENNPUX_NPU_WEIGHT_PAGE_SIZE UINT32_C(4096)
+#define OPENNPUX_NPU_PAGE_FAULT_MAGIC UINT32_C(0x4658504e)
+#define OPENNPUX_NPU_PAGE_FAULT_VERSION UINT32_C(1)
+
+enum opennpux_npu_page_fault_state {
+    OPENNPUX_NPU_PAGE_FAULT_EMPTY = 0,
+    OPENNPUX_NPU_PAGE_FAULT_PENDING = 1,
+    OPENNPUX_NPU_PAGE_FAULT_READY = 2,
+    OPENNPUX_NPU_PAGE_FAULT_ERROR = 3,
+};
+
+struct opennpux_npu_page_fault {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t struct_size;
+    uint32_t state;
+    uint64_t sequence;
+    uint32_t command_id;
+    uint32_t shard_index;
+    uint64_t file_offset;
+    uint64_t expert_id;
+    uint32_t cache_slot;
+    uint32_t error_code;
+    uint64_t reserved;
+};
 
 struct opennpux_npu_weight_page_request {
     uint32_t command_id;
@@ -76,6 +100,21 @@ int opennpux_npu_weight_cache_acquire(
     const struct opennpux_model_package_info *model,
     const struct opennpux_npu_weight_page_request *request,
     const void **page, uint32_t *slot, uint32_t *cache_hit);
+int opennpux_npu_page_fault_init(
+    struct opennpux_npu_page_fault *fault, uint64_t sequence,
+    const struct opennpux_npu_weight_page_request *request);
+int opennpux_npu_page_fault_service(
+    struct opennpux_npu_page_fault *fault,
+    struct opennpux_npu_weight_cache *cache, const char *manifest_path,
+    const struct opennpux_model_package_info *model, const void **page,
+    uint32_t *cache_hit);
+
+#if defined(__cplusplus)
+static_assert(sizeof(struct opennpux_npu_page_fault) == 64);
+#else
+_Static_assert(sizeof(struct opennpux_npu_page_fault) == 64,
+               "NPU page fault ABI size changed");
+#endif
 
 #ifdef __cplusplus
 }

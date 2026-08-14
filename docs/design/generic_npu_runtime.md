@@ -224,6 +224,11 @@ hidden allocation, records hit/miss/eviction/materialized-byte counters, and
 returns a stable slot plus page pointer for DMA staging. This separates cache
 policy from the eventual device page-fault transport and allows deterministic
 unit and simulation sizing.
+The 64-byte `opennpux_npu_page_fault` record defines the first resumable
+paging handshake. A pending record identifies sequence, command, shard,
+aligned file page and optional expert; the CPU pager resolves it to a cache
+slot and publishes READY or ERROR. The record is transport-neutral and will be
+placed in the shared queue when command-processor pause/resume is integrated.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

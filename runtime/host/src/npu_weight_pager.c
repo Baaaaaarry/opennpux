@@ -182,3 +182,59 @@ opennpux_npu_weight_cache_acquire(
     *cache_hit = 0;
     return 0;
 }
+
+int
+opennpux_npu_page_fault_init(
+    struct opennpux_npu_page_fault *fault, uint64_t sequence,
+    const struct opennpux_npu_weight_page_request *request)
+{
+    if (fault == NULL || request == NULL || sequence == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    memset(fault, 0, sizeof(*fault));
+    fault->magic = OPENNPUX_NPU_PAGE_FAULT_MAGIC;
+    fault->version = OPENNPUX_NPU_PAGE_FAULT_VERSION;
+    fault->struct_size = sizeof(*fault);
+    fault->state = OPENNPUX_NPU_PAGE_FAULT_PENDING;
+    fault->sequence = sequence;
+    fault->command_id = request->command_id;
+    fault->shard_index = request->shard_index;
+    fault->file_offset = request->file_offset;
+    fault->expert_id = request->expert_id;
+    return 0;
+}
+
+int
+opennpux_npu_page_fault_service(
+    struct opennpux_npu_page_fault *fault,
+    struct opennpux_npu_weight_cache *cache, const char *manifest_path,
+    const struct opennpux_model_package_info *model, const void **page,
+    uint32_t *cache_hit)
+{
+    if (fault == NULL || fault->magic != OPENNPUX_NPU_PAGE_FAULT_MAGIC ||
+        fault->version != OPENNPUX_NPU_PAGE_FAULT_VERSION ||
+        fault->struct_size != sizeof(*fault) ||
+        fault->state != OPENNPUX_NPU_PAGE_FAULT_PENDING ||
+        fault->sequence == 0 || page == NULL || cache_hit == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    const struct opennpux_npu_weight_page_request request = {
+        .command_id = fault->command_id,
+        .shard_index = fault->shard_index,
+        .file_offset = fault->file_offset,
+        .expert_id = fault->expert_id,
+    };
+    uint32_t slot = 0;
+    if (opennpux_npu_weight_cache_acquire(
+            cache, manifest_path, model, &request, page, &slot,
+            cache_hit) != 0) {
+        fault->state = OPENNPUX_NPU_PAGE_FAULT_ERROR;
+        fault->error_code = (uint32_t)errno;
+        return -1;
+    }
+    fault->cache_slot = slot;
+    fault->state = OPENNPUX_NPU_PAGE_FAULT_READY;
+    return 0;
+}

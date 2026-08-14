@@ -81,6 +81,16 @@ main(int argc, char **argv)
               cache.stats.evictions == 1 &&
               cache.stats.bytes_read == 2 * OPENNPUX_NPU_WEIGHT_PAGE_SIZE,
           "cache statistics mismatch");
+    struct opennpux_npu_page_fault fault;
+    check(opennpux_npu_page_fault_init(&fault, 11, &request) == 0 &&
+              fault.state == OPENNPUX_NPU_PAGE_FAULT_PENDING,
+          "page fault publication failed");
+    check(opennpux_npu_page_fault_service(
+              &fault, &cache, argv[1], &model, &cached_page,
+              &cache_hit) == 0 &&
+              fault.state == OPENNPUX_NPU_PAGE_FAULT_READY &&
+              fault.cache_slot == 0 && cache_hit,
+          "page fault service failed");
     const uint64_t inactive[] = {0};
     check(opennpux_npu_weight_page_cursor_begin(
               &ranges, expert_command, inactive, 1, &cursor) == 0 &&

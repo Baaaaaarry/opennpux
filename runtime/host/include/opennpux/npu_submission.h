@@ -12,6 +12,8 @@ extern "C" {
 #define OPENNPUX_NPU_INVOCATION_VERSION UINT32_C(2)
 #define OPENNPUX_NPU_COMPLETION_MAGIC UINT32_C(0x4358504e)
 #define OPENNPUX_NPU_COMPLETION_VERSION UINT32_C(1)
+#define OPENNPUX_NPU_TRACE_MAGIC UINT32_C(0x5458504e)
+#define OPENNPUX_NPU_TRACE_VERSION UINT32_C(1)
 #define OPENNPUX_NPU_RECORD_ALIGNMENT UINT32_C(64)
 #define OPENNPUX_NPU_MAX_BINDINGS UINT32_C(4096)
 #define OPENNPUX_NPU_MAX_COMMANDS UINT32_C(65536)
@@ -20,6 +22,9 @@ extern "C" {
 #define OPENNPUX_NPU_TENSOR_BINDING_SIZE UINT32_C(112)
 #define OPENNPUX_NPU_COMMAND_SIZE UINT32_C(112)
 #define OPENNPUX_NPU_COMPLETION_SIZE UINT32_C(112)
+#define OPENNPUX_NPU_TRACE_HEADER_SIZE UINT32_C(64)
+#define OPENNPUX_NPU_TRACE_RECORD_SIZE UINT32_C(24)
+#define OPENNPUX_NPU_TRACE_MAX_OPCODE UINT32_C(17)
 
 #define OPENNPUX_NPU_RESOURCE_BINDING_NONE UINT16_C(0xffff)
 #define OPENNPUX_NPU_RUNTIME_FIELD_MASK UINT64_C(0xffff)
@@ -164,6 +169,26 @@ struct opennpux_npu_completion {
     uint64_t reserved[2];
 };
 
+struct opennpux_npu_trace_header {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t struct_size;
+    uint32_t record_count;
+    uint32_t command_count;
+    uint32_t dependency_edges;
+    uint64_t capability_mask;
+    uint64_t estimated_operations;
+    uint64_t estimated_bytes;
+    uint64_t reserved[2];
+};
+
+struct opennpux_npu_trace_record {
+    uint32_t opcode;
+    uint32_t command_count;
+    uint64_t estimated_operations;
+    uint64_t estimated_bytes;
+};
+
 struct opennpux_npu_submission_builder {
     uint8_t *buffer;
     size_t capacity;
@@ -181,6 +206,10 @@ static_assert(sizeof(struct opennpux_npu_command) ==
               OPENNPUX_NPU_COMMAND_SIZE);
 static_assert(sizeof(struct opennpux_npu_completion) ==
               OPENNPUX_NPU_COMPLETION_SIZE);
+static_assert(sizeof(struct opennpux_npu_trace_header) ==
+              OPENNPUX_NPU_TRACE_HEADER_SIZE);
+static_assert(sizeof(struct opennpux_npu_trace_record) ==
+              OPENNPUX_NPU_TRACE_RECORD_SIZE);
 #else
 _Static_assert(sizeof(struct opennpux_npu_invocation_header) ==
                OPENNPUX_NPU_INVOCATION_HEADER_SIZE,
@@ -194,6 +223,12 @@ _Static_assert(sizeof(struct opennpux_npu_command) ==
 _Static_assert(sizeof(struct opennpux_npu_completion) ==
                OPENNPUX_NPU_COMPLETION_SIZE,
                "NPU completion ABI size changed");
+_Static_assert(sizeof(struct opennpux_npu_trace_header) ==
+               OPENNPUX_NPU_TRACE_HEADER_SIZE,
+               "NPU trace header ABI size changed");
+_Static_assert(sizeof(struct opennpux_npu_trace_record) ==
+               OPENNPUX_NPU_TRACE_RECORD_SIZE,
+               "NPU trace record ABI size changed");
 #endif
 
 int opennpux_npu_submission_begin(

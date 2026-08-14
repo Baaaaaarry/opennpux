@@ -111,8 +111,10 @@ with the 40-layer Qwen3.5 executable: 520 commands fit in a 64KiB invocation,
 each command carries a resolved parameter symbol, runtime batch/sequence/KV/
 active-expert tuple, and logical weight/state/scratch binding IDs. Firmware
 validates all relocations and reports the relocated-command count and parameter
-checksum in the completion record. Numerical kernels and real tensor traffic
-remain the next milestone.
+checksum in the completion record. The next scheduler increment validates 519
+dependency edges, dispatches all generic capability classes, and emits per-op
+command/operation/byte estimates through a versioned trace buffer. Numerical
+kernels and real tensor traffic remain the next milestone.
 
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not

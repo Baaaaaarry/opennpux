@@ -14,6 +14,19 @@ static int copy_to_shared_window(
     struct opennpux_coral_shared_window *window, const uint8_t *source,
     uint32_t size);
 
+static const char *
+npu_opcode_name(uint32_t opcode)
+{
+    static const char *const names[] = {
+        "INVALID", "EMBED", "MATMUL", "ADD", "MUL", "NORMALIZE",
+        "ROPE", "SOFTMAX", "TOPK", "CONVOLUTION", "CAUSAL_CONVOLUTION",
+        "RECURRENT_UPDATE", "ROUTER", "EXPERT", "DMA", "ATTENTION",
+        "ACTIVATION", "COMBINE",
+    };
+    return opcode < sizeof(names) / sizeof(names[0]) ? names[opcode] :
+                                                       "UNKNOWN";
+}
+
 static void
 usage(const char *prog)
 {
@@ -155,6 +168,49 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     printf("relocated_commands=%" PRIu64 "\n", completion->reserved[0]);
     printf("parameter_checksum=0x%08" PRIx64 "\n",
            completion->reserved[1]);
+    const uint64_t trace_offset = completion->trace_address >= UINT64_C(0x20000000) ?
+        completion->trace_address - UINT64_C(0x20000000) : UINT64_MAX;
+    const struct opennpux_npu_trace_header *trace = NULL;
+    if (trace_offset <= window.size && completion->trace_size <=
+            window.size - trace_offset && completion->trace_size >=
+            sizeof(struct opennpux_npu_trace_header)) {
+        trace = (const struct opennpux_npu_trace_header *)(const void *)(
+            window.bytes + trace_offset);
+    }
+    if (trace != NULL &&
+        (trace->magic != OPENNPUX_NPU_TRACE_MAGIC ||
+         trace->version != OPENNPUX_NPU_TRACE_VERSION ||
+         trace->struct_size != sizeof(*trace) ||
+         trace->record_count > OPENNPUX_NPU_TRACE_MAX_OPCODE ||
+         completion->trace_size < sizeof(*trace) +
+                 trace->record_count * sizeof(struct opennpux_npu_trace_record))) {
+        trace = NULL;
+    }
+    if (trace != NULL) {
+        printf("dispatch_capability_mask=0x%016" PRIx64 "\n",
+               trace->capability_mask);
+        printf("dispatch_dependency_edges=%" PRIu32 "\n",
+               trace->dependency_edges);
+        printf("dispatch_estimated_operations=%" PRIu64 "\n",
+               trace->estimated_operations);
+        printf("dispatch_estimated_bytes=%" PRIu64 "\n",
+               trace->estimated_bytes);
+        printf("dispatch_modeled_cycles=%" PRIu64 "\n",
+               completion->npu_cycles);
+        const struct opennpux_npu_trace_record *records =
+            (const struct opennpux_npu_trace_record *)(const void *)(trace + 1);
+        for (uint32_t index = 0; index < trace->record_count; ++index) {
+            if (records[index].command_count == 0) {
+                continue;
+            }
+            printf("dispatch_op_%s=count:%" PRIu32 ",operations:%" PRIu64
+                   ",bytes:%" PRIu64 "\n",
+                   npu_opcode_name(records[index].opcode),
+                   records[index].command_count,
+                   records[index].estimated_operations,
+                   records[index].estimated_bytes);
+        }
+    }
     if (completion->magic != OPENNPUX_NPU_COMPLETION_MAGIC ||
         completion->version != OPENNPUX_NPU_COMPLETION_VERSION ||
         completion->sequence != header->sequence ||
@@ -162,7 +218,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         completion->error_code != 0 ||
         completion->completed_commands != header->command_count ||
         completion->reserved[0] != header->command_count ||
-        completion->reserved[1] == 0) {
+        completion->reserved[1] == 0 || trace == NULL ||
+        trace->command_count != header->command_count) {
         errno = EIO;
         perror("executable-run completion validation");
         goto out;

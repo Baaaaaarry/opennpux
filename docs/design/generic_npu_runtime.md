@@ -168,9 +168,13 @@ shared command buffer. The CPU stages one invocation containing all command
 records, rings the existing START path once, and receives one completion
 record. Firmware validates ABI/checksum/ranges, resolves every command's
 parameter symbol and weight/state/scratch bindings, then walks the complete
-command stream. This proves online CPU submission and NPU-side relocation and
-scheduling control; it does not yet execute command kernels or real model
-tensors. Because the shared window size is represented in the device tree,
+command stream. The command processor also checks dependency/completion tokens,
+dispatches capability IDs into generic opcode classes, applies runtime token
+counts to compiler workload estimates, and returns per-opcode command,
+operation and byte statistics in a trace buffer. This proves online CPU
+submission and NPU-side relocation and scheduling control; it does not yet
+execute command kernels or real model tensors. Because the shared window size
+is represented in the device tree,
 switching an existing 4KiB setup to 64KiB requires one new boot checkpoint.
 Executable and invocation ABI version 2 identifies the inline relocation
 fields. Version 1 `.npxc` files must be regenerated rather than interpreted

@@ -201,12 +201,19 @@ state_binding=3
 scratch_binding=4
 relocated_commands=520
 parameter_checksum=0x...
+dispatch_dependency_edges=519
+dispatch_estimated_operations=...
+dispatch_estimated_bytes=...
+dispatch_modeled_cycles=...
+dispatch_op_MATMUL=count:...,operations:...,bytes:...
+dispatch_op_EXPERT=count:...,operations:...,bytes:...
 executable_run=PASS
 [coral-executable-run-test] PASS
 ```
 
 This is a control-path milestone: CPU runtime submission, NPU command fetch,
 validation, compact dynamic-parameter relocation, resource-binding resolution,
-traversal and completion are real. Numerical Qwen inference still requires
+dependency scheduling, capability dispatch, workload accounting, traversal
+and completion are real. Numerical Qwen inference still requires
 variable-size operator parameter blocks, paged GPTQ weight DMA, operator
 execution and prefill/decode state management.

@@ -10,6 +10,16 @@
 #define ERROR_CHECKSUM UINT32_C(3)
 #define ERROR_COMMAND UINT32_C(4)
 #define ERROR_RELOCATION UINT32_C(5)
+#define ERROR_DEPENDENCY UINT32_C(6)
+#define MODELED_OPS_PER_CYCLE UINT64_C(256)
+#define MODELED_BYTES_PER_CYCLE UINT64_C(32)
+
+static uint32_t
+align_record(uint32_t value)
+{
+    return (value + OPENNPUX_NPU_RECORD_ALIGNMENT - 1) &
+        ~(OPENNPUX_NPU_RECORD_ALIGNMENT - 1);
+}
 
 static uint32_t
 checksum(const volatile uint8_t *bytes, uint32_t size)
@@ -63,6 +73,32 @@ main(void)
     completion->sequence = header->sequence;
     completion->state = OPENNPUX_NPU_COMPLETION_RUNNING;
 
+    const uint32_t trace_offset = align_record(
+        (uint32_t)(header->completion_address - EXTMEM_BASE) +
+        sizeof(struct opennpux_npu_completion));
+    const uint32_t trace_size = sizeof(struct opennpux_npu_trace_header) +
+        OPENNPUX_NPU_TRACE_MAX_OPCODE *
+            sizeof(struct opennpux_npu_trace_record);
+    if (trace_offset > COMMAND_BUFFER_SIZE ||
+        trace_size > COMMAND_BUFFER_SIZE - trace_offset) {
+        finish(completion, OPENNPUX_NPU_COMPLETION_ERROR, ERROR_BOUNDS, 0);
+        return 1;
+    }
+    volatile struct opennpux_npu_trace_header *trace =
+        (volatile struct opennpux_npu_trace_header *)(base + trace_offset);
+    volatile struct opennpux_npu_trace_record *records =
+        (volatile struct opennpux_npu_trace_record *)(base + trace_offset +
+                                                      sizeof(*trace));
+    for (uint32_t index = 0; index < trace_size; ++index) {
+        base[trace_offset + index] = 0;
+    }
+    trace->magic = OPENNPUX_NPU_TRACE_MAGIC;
+    trace->version = OPENNPUX_NPU_TRACE_VERSION;
+    trace->struct_size = sizeof(*trace);
+    trace->record_count = OPENNPUX_NPU_TRACE_MAX_OPCODE;
+    completion->trace_address = EXTMEM_BASE + trace_offset;
+    completion->trace_size = trace_size;
+
     if (header->magic != OPENNPUX_NPU_INVOCATION_MAGIC ||
         header->version != OPENNPUX_NPU_INVOCATION_VERSION ||
         header->header_size != sizeof(*header) || header->total_size < sizeof(*header) ||
@@ -91,8 +127,11 @@ main(void)
     uint64_t bytes = 0;
     uint32_t relocated = 0;
     uint32_t parameter_checksum = UINT32_C(2166136261);
+    uint32_t retired_token = 0;
     for (uint32_t index = 0; index < header->command_count; ++index) {
         if (commands[index].opcode == 0 ||
+            commands[index].opcode > OPENNPUX_NPU_TRACE_MAX_OPCODE ||
+            commands[index].capability_id == 0 ||
             commands[index].first_binding > header->binding_count ||
             commands[index].binding_count >
                 header->binding_count - commands[index].first_binding) {
@@ -129,13 +168,43 @@ main(void)
                    ERROR_RELOCATION, index);
             return 1;
         }
+        if ((commands[index].dependency_token != 0 &&
+             commands[index].dependency_token > retired_token) ||
+            commands[index].completion_token <= retired_token) {
+            finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                   ERROR_DEPENDENCY, index);
+            return 1;
+        }
+        if (commands[index].dependency_token != 0) {
+            ++trace->dependency_edges;
+        }
+        retired_token = commands[index].completion_token;
         parameter_checksum ^= (uint32_t)commands[index].parameter_symbol;
         parameter_checksum *= UINT32_C(16777619);
         ++relocated;
-        cycles += commands[index].estimated_operations;
-        bytes += commands[index].estimated_bytes;
+        const uint64_t token_count =
+            (uint64_t)batch_size * sequence_length;
+        const uint64_t operations =
+            commands[index].estimated_operations * token_count;
+        const uint64_t command_bytes =
+            commands[index].estimated_bytes * token_count;
+        cycles += (operations + MODELED_OPS_PER_CYCLE - 1) /
+                MODELED_OPS_PER_CYCLE +
+            (command_bytes + MODELED_BYTES_PER_CYCLE - 1) /
+                MODELED_BYTES_PER_CYCLE + 1;
+        bytes += command_bytes;
+        volatile struct opennpux_npu_trace_record *record =
+            &records[commands[index].opcode - 1];
+        record->opcode = commands[index].opcode;
+        ++record->command_count;
+        record->estimated_operations += operations;
+        record->estimated_bytes += command_bytes;
+        trace->capability_mask |= UINT64_C(1) << commands[index].opcode;
+        trace->estimated_operations += operations;
+        trace->estimated_bytes += command_bytes;
         completion->completed_commands = index + 1;
     }
+    trace->command_count = header->command_count;
     completion->npu_cycles = cycles;
     completion->dma_bytes_read = bytes;
     completion->reserved[0] = relocated;

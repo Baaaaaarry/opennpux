@@ -50,6 +50,54 @@ PHASE_OPCODE = {
 STATE_PHASES = {"paged_kv_cache_update", "recurrent_state_update"}
 
 
+def estimate_phase_work(
+    manifest: dict[str, Any], phase: str
+) -> tuple[int, int]:
+    """Return architecture-neutral operations and bytes per token."""
+    hidden = max(1, int(manifest.get("hidden_size", 1)))
+    heads = max(1, int(manifest.get("head_count", 1)))
+    kv_heads = max(1, int(manifest.get("kv_head_count", heads)))
+    head_dim = max(1, int(manifest.get("head_dim", hidden // heads or 1)))
+    experts = max(1, int(manifest.get("expert_count", 1)))
+    active = max(1, int(manifest.get("experts_per_token", 1)))
+    moe = max(1, int(manifest.get("moe_intermediate_size", hidden)))
+    shared = max(1, int(manifest.get("shared_expert_intermediate_size", moe)))
+    element_bytes = 2
+
+    if phase == "qkv_projection":
+        output = (heads + 2 * kv_heads) * head_dim
+        return 2 * hidden * output, (hidden + output) * element_bytes
+    if phase in {
+        "attention_output_projection",
+        "linear_attention_projection",
+        "linear_attention_output_projection",
+    }:
+        return 2 * hidden * hidden, 2 * hidden * element_bytes
+    if phase == "scaled_dot_product_attention":
+        return 4 * heads * head_dim, 3 * heads * head_dim * element_bytes
+    if phase == "router_topk":
+        return 2 * hidden * experts, (hidden + experts) * element_bytes
+    if phase == "routed_experts_active_only":
+        return 6 * hidden * moe * active, (hidden + moe * active) * element_bytes
+    if phase == "shared_expert":
+        return 6 * hidden * shared, (hidden + shared) * element_bytes
+    if phase in {"attention_norm", "ffn_norm", "linear_attention_gate_norm"}:
+        return 5 * hidden, 2 * hidden * element_bytes
+    if phase == "rope":
+        return 4 * heads * head_dim, 2 * heads * head_dim * element_bytes
+    if phase == "causal_depthwise_conv":
+        return 8 * hidden, 3 * hidden * element_bytes
+    if phase == "recurrent_state_update":
+        return 8 * hidden, 3 * hidden * element_bytes
+    if phase == "moe_combine":
+        return active * hidden, (active + 1) * hidden * element_bytes
+    if phase == "residual_add":
+        return hidden, 3 * hidden * element_bytes
+    if phase == "paged_kv_cache_update":
+        return hidden, 2 * hidden * element_bytes
+    return hidden, 2 * hidden * element_bytes
+
+
 def load_object(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as source:
         value = json.load(source)
@@ -72,6 +120,9 @@ def lower_commands(plan: dict[str, Any]) -> list[dict[str, Any]]:
                     f"no generic opcode for layer {layer_index} phase {phase}"
                 )
             completion = len(commands) + 1
+            estimated_operations, estimated_bytes = estimate_phase_work(
+                plan.get("model", {}), phase
+            )
             commands.append(
                 {
                     "command_id": len(commands),
@@ -81,6 +132,8 @@ def lower_commands(plan: dict[str, Any]) -> list[dict[str, Any]]:
                     "completion_token": completion,
                     "parameter_symbol": f"layer.{layer_index}.{phase}",
                     "profiling_tag": (layer_index << 16) | phase_index,
+                    "estimated_operations": estimated_operations,
+                    "estimated_bytes": estimated_bytes,
                     "attributes": {
                         "layer": layer_index,
                         "layer_type": layer_type,
@@ -121,7 +174,9 @@ def build_executable(
             f"decoder has {len(unknown_decoder)} unclassified tensor patterns: "
             f"{patterns}"
         )
-    commands = lower_commands(plan)
+    plan_with_model = dict(plan)
+    plan_with_model["model"] = manifest
+    commands = lower_commands(plan_with_model)
     capabilities = sorted({command["capability"] for command in commands})
     return {
         "format": FORMAT,
@@ -202,7 +257,9 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
             int(command["command_id"]), OPCODE[command["opcode"]], 0,
             hash64(command["capability"]) & 0xFFFFFFFF, 0, 5,
             int(command["dependency_token"]), int(command["completion_token"]),
-            hash64(command["parameter_symbol"]), 0, 0,
+            hash64(command["parameter_symbol"]),
+            int(command["estimated_operations"]),
+            int(command["estimated_bytes"]),
             int(command["profiling_tag"]),
             0,
             2 | (3 << 16) | (4 << 32),

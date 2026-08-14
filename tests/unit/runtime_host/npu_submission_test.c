@@ -100,6 +100,9 @@ main(void)
     };
     check(completion.sequence == builder.header->sequence,
           "completion sequence mismatch");
+    check(sizeof(struct opennpux_npu_trace_header) == 64 &&
+              sizeof(struct opennpux_npu_trace_record) == 24,
+          "trace ABI size mismatch");
     puts("PASS: generic NPU submission ABI tests");
     return 0;
 }

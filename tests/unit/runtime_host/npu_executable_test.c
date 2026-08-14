@@ -83,6 +83,9 @@ main(int argc, char **argv)
                                                header->command_offset);
     check(commands[0].parameter_symbol != 0,
           "command parameter symbol was not relocated");
+    check(commands[0].estimated_operations != 0 &&
+              commands[0].estimated_bytes != 0,
+          "command workload estimate is empty");
     check((commands[0].runtime_shape & OPENNPUX_NPU_RUNTIME_FIELD_MASK) == 1,
           "runtime batch was not instantiated");
     check(((commands[0].runtime_shape >> OPENNPUX_NPU_RUNTIME_KV_SHIFT) &

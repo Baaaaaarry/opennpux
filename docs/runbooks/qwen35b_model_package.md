@@ -168,6 +168,10 @@ guest tool. The first run must create a checkpoint whose device tree reserves a
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh
+./tools/models/compile_npu_executable.py \
+  /data/models/Qwen3.5-35B/model.npxm \
+  /data/models/Qwen3.5-35B/execution-plan.npxp \
+  /data/models/Qwen3.5-35B/model.npxe
 
 CORAL_NPU_EXECUTABLE=/data/models/Qwen3.5-35B/model.npxc \
 CORAL_REBUILD_CKPT=1 \

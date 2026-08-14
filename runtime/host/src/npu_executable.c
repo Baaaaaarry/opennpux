@@ -69,6 +69,12 @@ opennpux_npu_executable_load(
     }
     fclose(file);
     const struct opennpux_npu_executable_header *header = storage;
+    if (header->magic == OPENNPUX_NPU_EXECUTABLE_MAGIC &&
+        header->version != OPENNPUX_NPU_EXECUTABLE_VERSION) {
+        free(storage);
+        errno = EPROTONOSUPPORT;
+        return -1;
+    }
     if (header->magic != OPENNPUX_NPU_EXECUTABLE_MAGIC ||
         header->version != OPENNPUX_NPU_EXECUTABLE_VERSION ||
         header->header_size != sizeof(*header) ||

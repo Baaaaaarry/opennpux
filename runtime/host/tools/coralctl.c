@@ -48,6 +48,11 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
 {
     struct opennpux_npu_executable executable;
     if (opennpux_npu_executable_load(path, &executable) != 0) {
+        if (errno == EPROTONOSUPPORT) {
+            fprintf(stderr,
+                    "executable-run: stale executable ABI; regenerate model.npxc "
+                    "with the current compile_npu_executable.py\n");
+        }
         perror("executable-run load");
         return 1;
     }

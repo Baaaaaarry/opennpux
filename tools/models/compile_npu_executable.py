@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 
-FORMAT = "OPENNPUX_NPU_EXECUTABLE_V1"
+FORMAT = "OPENNPUX_NPU_EXECUTABLE_V2"
 HEADER = struct.Struct("<8I3Q2I3Q")
 ENTRY = struct.Struct("<4I4Q")
 COMMAND = struct.Struct("<8I6Q")
@@ -125,7 +125,7 @@ def build_executable(
     capabilities = sorted({command["capability"] for command in commands})
     return {
         "format": FORMAT,
-        "version": 1,
+        "version": 2,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -186,7 +186,7 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
     total_size = command_offset + len(commands) * COMMAND.size
     executable_id = hash64(json.dumps(executable["source"], sort_keys=True)) or 1
     header = HEADER.pack(
-        MAGIC, 1, HEADER.size, total_size, len(entries), len(commands),
+        MAGIC, 2, HEADER.size, total_size, len(entries), len(commands),
         ENTRY.size, COMMAND.size, entry_offset, command_offset, executable_id,
         0, int(executable["default_active_experts"]), 0, 0, 0,
     )

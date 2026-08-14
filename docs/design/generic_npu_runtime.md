@@ -146,7 +146,7 @@ submission ABI while adding only model rewrites, kernels, or RTL capabilities.
 6. Lower Qwen3.5 phases to generic commands and validate prefill plus iterative
    decode.
 7. Add a second Transformer family as an ABI-generality gate before freezing
-   version 1.
+   the currently provisional version 2 ABI.
 
 ## Implemented Compiler/Runtime Boundary
 
@@ -172,3 +172,6 @@ command stream. This proves online CPU submission and NPU-side relocation and
 scheduling control; it does not yet execute command kernels or real model
 tensors. Because the shared window size is represented in the device tree,
 switching an existing 4KiB setup to 64KiB requires one new boot checkpoint.
+Executable and invocation ABI version 2 identifies the inline relocation
+fields. Version 1 `.npxc` files must be regenerated rather than interpreted
+with implicit resource bindings.

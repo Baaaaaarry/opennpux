@@ -9,6 +9,25 @@ CORALCTL="${ROOT_DIR}/build/guest-tools/coralctl-aarch64"
 [ -r "$EXECUTABLE" ] || { echo "error: executable missing: $EXECUTABLE" >&2; exit 1; }
 [ -r "$FIRMWARE" ] || { echo "error: firmware missing: $FIRMWARE" >&2; exit 1; }
 [ -x "$CORALCTL" ] || { echo "error: coralctl missing: $CORALCTL" >&2; exit 1; }
+EXECUTABLE_VERSION="$(python3 - "$EXECUTABLE" <<'PY'
+import struct
+import sys
+with open(sys.argv[1], "rb") as source:
+    header = source.read(8)
+print(struct.unpack("<II", header)[1] if len(header) == 8 else 0)
+PY
+)"
+[ "$EXECUTABLE_VERSION" = 2 ] || {
+    cat >&2 <<EOF
+error: stale generic NPU executable ABI v${EXECUTABLE_VERSION}: ${EXECUTABLE}
+regenerate it with:
+  ./tools/models/compile_npu_executable.py \
+    /data/models/Qwen3.5-35B/model.npxm \
+    /data/models/Qwen3.5-35B/execution-plan.npxp \
+    /data/models/Qwen3.5-35B/model.npxe
+EOF
+    exit 1
+}
 
 if [ "${CORAL_REBUILD_CKPT:-0}" != 1 ]; then
     cat >&2 <<EOF

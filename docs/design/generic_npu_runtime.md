@@ -156,6 +156,8 @@ The generic-ABI implementation now adds:
 - `model.npxc`: compact binary entry-point and command-template image;
 - `model.npxw`: compiler-generated command-to-tensor weight paging plan;
 - prefill and decode entry points over the same immutable templates;
+- token-to-next-token command coverage, including embedding, all decoder
+  layers, final normalization, LM head and token selection;
 - CPU-side runtime instantiation with live sequence/context IDs, tensor device
   addresses, memory objects and persistent-state binding;
 - per-command parameter-symbol relocation, compact runtime batch/sequence/KV/

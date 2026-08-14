@@ -62,7 +62,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as source:
     plan = json.load(source)
 assert plan["format"] == "OPENNPUX_NPU_WEIGHT_PLAN_V1"
-assert plan["command_count"] == 26
+assert plan["command_count"] == 30
 assert plan["mapped_command_count"] > 0
 assert plan["matched_tensor_range_count"] > 0
 for command in plan["commands"]:

@@ -107,7 +107,7 @@ The next platform increments are:
 - operator capability IDs shared by RTL, RVV, hybrid and sampled backends.
 
 The first contiguous command-processor path is now implemented and validated
-with the 40-layer Qwen3.5 executable: 520 commands fit in a 64KiB invocation,
+with the 40-layer Qwen3.5 executable: 524 commands fit in a 64KiB invocation,
 each command carries a resolved parameter symbol, runtime batch/sequence/KV/
 active-expert tuple, and logical weight/state/scratch binding IDs. Firmware
 validates all relocations and reports the relocated-command count and parameter

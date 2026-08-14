@@ -18,6 +18,7 @@ RECORD = struct.Struct("<160s4I8Q2Q")
 MAGIC = 0x5458504E
 
 PHASE_ROLES = {
+    "token_embedding": ("embedding",),
     "attention_norm": ("attention_norm",),
     "qkv_projection": (
         "attention_q_proj", "attention_k_proj", "attention_v_proj",
@@ -38,6 +39,8 @@ PHASE_ROLES = {
     "router_topk": ("router",),
     "routed_experts_active_only": ("routed_expert",),
     "shared_expert": ("shared_expert",),
+    "final_norm": ("final_norm",),
+    "lm_head": ("lm_head",),
 }
 
 
@@ -92,11 +95,12 @@ def tensor_records(manifest_path: Path, manifest: dict[str, Any]) -> list[dict[s
     return records
 
 
-def command_layer_phase(command: dict[str, Any]) -> tuple[int, str]:
+def command_layer_phase(command: dict[str, Any]) -> tuple[int | None, str]:
     attributes = command.get("attributes", {})
     if not isinstance(attributes, dict):
         raise ValueError("command attributes must be an object")
-    return int(attributes["layer"]), str(attributes["phase"])
+    layer = attributes.get("layer")
+    return (int(layer) if layer is not None else None), str(attributes["phase"])
 
 
 def selection_policy(phase: str, matched: list[dict[str, Any]]) -> str:
@@ -129,7 +133,10 @@ def build_weight_plan(
             (
                 record
                 for role in roles
-                for record in by_layer_role.get((layer, role), [])
+                for record in (
+                    by_layer_role.get((layer, role), []) if layer is not None
+                    else [item for item in records if item["role"] == role]
+                )
             ),
             key=lambda record: (
                 record["shard_index"], record["offset"], record["name"]

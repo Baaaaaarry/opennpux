@@ -49,6 +49,13 @@ PHASE_OPCODE = {
 
 STATE_PHASES = {"paged_kv_cache_update", "recurrent_state_update"}
 
+MODEL_PHASE_OPCODE = {
+    "token_embedding": "EMBED",
+    "final_norm": "NORMALIZE",
+    "lm_head": "MATMUL",
+    "token_selection": "TOPK",
+}
+
 
 def estimate_phase_work(
     manifest: dict[str, Any], phase: str
@@ -95,6 +102,16 @@ def estimate_phase_work(
         return hidden, 3 * hidden * element_bytes
     if phase == "paged_kv_cache_update":
         return hidden, 2 * hidden * element_bytes
+    if phase == "token_embedding":
+        return hidden, hidden * element_bytes
+    if phase == "final_norm":
+        return 5 * hidden, 2 * hidden * element_bytes
+    if phase == "lm_head":
+        vocab = max(1, int(manifest.get("vocab_size", 1)))
+        return 2 * hidden * vocab, (hidden + vocab) * element_bytes
+    if phase == "token_selection":
+        vocab = max(1, int(manifest.get("vocab_size", 1)))
+        return 3 * vocab, vocab * element_bytes
     return hidden, 2 * hidden * element_bytes
 
 
@@ -109,6 +126,37 @@ def load_object(path: Path) -> dict[str, Any]:
 def lower_commands(plan: dict[str, Any]) -> list[dict[str, Any]]:
     commands: list[dict[str, Any]] = []
     dependency = 0
+
+    def append_command(
+        opcode: str, parameter_symbol: str, profiling_tag: int,
+        attributes: dict[str, Any]
+    ) -> None:
+        nonlocal dependency
+        phase = str(attributes["phase"])
+        completion = len(commands) + 1
+        estimated_operations, estimated_bytes = estimate_phase_work(
+            plan.get("model", {}), phase
+        )
+        commands.append(
+            {
+                "command_id": len(commands),
+                "opcode": opcode,
+                "capability": f"op.{opcode.lower()}.v1",
+                "dependency_token": dependency,
+                "completion_token": completion,
+                "parameter_symbol": parameter_symbol,
+                "profiling_tag": profiling_tag,
+                "estimated_operations": estimated_operations,
+                "estimated_bytes": estimated_bytes,
+                "attributes": attributes,
+            }
+        )
+        dependency = completion
+
+    append_command(
+        MODEL_PHASE_OPCODE["token_embedding"], "model.token_embedding", 0xff000001,
+        {"scope": "model", "phase": "token_embedding", "persistent_state": False},
+    )
     for layer in plan.get("layers", []):
         layer_index = int(layer["index"])
         layer_type = str(layer["type"])
@@ -119,30 +167,22 @@ def lower_commands(plan: dict[str, Any]) -> list[dict[str, Any]]:
                 raise ValueError(
                     f"no generic opcode for layer {layer_index} phase {phase}"
                 )
-            completion = len(commands) + 1
-            estimated_operations, estimated_bytes = estimate_phase_work(
-                plan.get("model", {}), phase
-            )
-            commands.append(
+            append_command(
+                opcode, f"layer.{layer_index}.{phase}",
+                (layer_index << 16) | phase_index,
                 {
-                    "command_id": len(commands),
-                    "opcode": opcode,
-                    "capability": f"op.{opcode.lower()}.v1",
-                    "dependency_token": dependency,
-                    "completion_token": completion,
-                    "parameter_symbol": f"layer.{layer_index}.{phase}",
-                    "profiling_tag": (layer_index << 16) | phase_index,
-                    "estimated_operations": estimated_operations,
-                    "estimated_bytes": estimated_bytes,
-                    "attributes": {
-                        "layer": layer_index,
-                        "layer_type": layer_type,
-                        "phase": phase,
-                        "persistent_state": phase in STATE_PHASES,
-                    },
-                }
+                    "scope": "layer",
+                    "layer": layer_index,
+                    "layer_type": layer_type,
+                    "phase": phase,
+                    "persistent_state": phase in STATE_PHASES,
+                },
             )
-            dependency = completion
+    for index, phase in enumerate(("final_norm", "lm_head", "token_selection")):
+        append_command(
+            MODEL_PHASE_OPCODE[phase], f"model.{phase}", 0xff000010 + index,
+            {"scope": "model", "phase": phase, "persistent_state": False},
+        )
     if not commands:
         raise ValueError("execution plan contains no commands")
     return commands
@@ -194,6 +234,7 @@ def build_executable(
             "persistent_state": "runtime-bound",
             "alignment": 64,
         },
+        "execution_scope": "token-to-next-token",
         "logical_bindings": [
             {"id": 0, "name": "input", "access": "read", "dynamic": True},
             {"id": 1, "name": "output", "access": "write", "dynamic": True},

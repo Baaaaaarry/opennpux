@@ -188,10 +188,10 @@ editing the disk image or rebuilding the checkpoint. Later runs need only the
 second command. Expected guest verdict:
 
 ```text
-submitted_commands=520
+submitted_commands=524
 completion_state=2
 completion_error=0
-completed_commands=520
+completed_commands=524
 runtime_batch=1
 runtime_sequence=1
 runtime_kv=1
@@ -199,7 +199,7 @@ runtime_active_experts=8
 weight_binding=2
 state_binding=3
 scratch_binding=4
-relocated_commands=520
+relocated_commands=524
 parameter_checksum=0x...
 dispatch_dependency_edges=519
 dispatch_estimated_operations=...

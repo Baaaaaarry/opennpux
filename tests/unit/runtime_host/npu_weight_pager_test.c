@@ -33,6 +33,8 @@ main(int argc, char **argv)
           "static pager begin failed");
     check(opennpux_npu_weight_page_cursor_next(&cursor, &request) == 1,
           "static page request missing");
+    check(request.page_size == OPENNPUX_NPU_WEIGHT_PAGE_SIZE,
+          "default page request size mismatch");
     unsigned char page[OPENNPUX_NPU_WEIGHT_PAGE_SIZE];
     check(opennpux_npu_weight_page_read(
               argv[1], &model, &request, page, sizeof(page)) == 0,
@@ -83,7 +85,8 @@ main(int argc, char **argv)
           "cache statistics mismatch");
     struct opennpux_npu_page_fault fault;
     check(opennpux_npu_page_fault_init(&fault, 11, &request) == 0 &&
-              fault.state == OPENNPUX_NPU_PAGE_FAULT_PENDING,
+              fault.state == OPENNPUX_NPU_PAGE_FAULT_PENDING &&
+              fault.page_size == OPENNPUX_NPU_WEIGHT_PAGE_SIZE,
           "page fault publication failed");
     check(opennpux_npu_page_fault_service(
               &fault, &cache, argv[1], &model, &cached_page,
@@ -96,6 +99,26 @@ main(int argc, char **argv)
               &ranges, expert_command, inactive, 1, &cursor) == 0 &&
               opennpux_npu_weight_page_cursor_next(&cursor, &request) == 0,
           "inactive expert page was scheduled");
+
+    const uint32_t transfer_size = UINT32_C(65536);
+    unsigned char *transfer_storage = malloc(transfer_size);
+    check(transfer_storage != NULL, "large transfer allocation failed");
+    check(opennpux_npu_weight_page_cursor_begin_sized(
+              &ranges, 0, NULL, 0, transfer_size, &cursor) == 0 &&
+              opennpux_npu_weight_page_cursor_next(&cursor, &request) == 1 &&
+              request.page_size == transfer_size &&
+              request.file_offset % transfer_size == 0,
+          "large transfer request failed");
+    check(opennpux_npu_weight_cache_init_sized(
+              &cache, cache_entries, transfer_storage, 1,
+              transfer_size) == 0,
+          "large transfer cache init failed");
+    check(opennpux_npu_weight_cache_acquire(
+              &cache, argv[1], &model, &request, &cached_page,
+              &cache_slot, &cache_hit) == 0 && !cache_hit &&
+              cache.stats.bytes_read == transfer_size,
+          "large transfer cache fill failed");
+    free(transfer_storage);
 
     opennpux_npu_weight_ranges_unload(&ranges);
     puts("PASS: NPU weight pager tests");

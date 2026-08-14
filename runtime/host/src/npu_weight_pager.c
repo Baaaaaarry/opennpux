@@ -4,6 +4,14 @@
 #include <string.h>
 
 static int
+valid_page_size(uint32_t page_size)
+{
+    return page_size >= OPENNPUX_NPU_WEIGHT_PAGE_SIZE &&
+        page_size <= OPENNPUX_NPU_WEIGHT_TRANSFER_MAX &&
+        (page_size & (page_size - 1)) == 0;
+}
+
+static int
 expert_active(const struct opennpux_npu_weight_page_cursor *cursor,
               uint64_t expert_id)
 {
@@ -24,8 +32,20 @@ opennpux_npu_weight_page_cursor_begin(
     const uint64_t *active_experts, uint32_t active_expert_count,
     struct opennpux_npu_weight_page_cursor *cursor)
 {
+    return opennpux_npu_weight_page_cursor_begin_sized(
+        ranges, command_id, active_experts, active_expert_count,
+        OPENNPUX_NPU_WEIGHT_PAGE_SIZE, cursor);
+}
+
+int
+opennpux_npu_weight_page_cursor_begin_sized(
+    const struct opennpux_npu_weight_ranges *ranges, uint32_t command_id,
+    const uint64_t *active_experts, uint32_t active_expert_count,
+    uint32_t page_size, struct opennpux_npu_weight_page_cursor *cursor)
+{
     if (cursor == NULL ||
-        (active_expert_count != 0 && active_experts == NULL)) {
+        (active_expert_count != 0 && active_experts == NULL) ||
+        !valid_page_size(page_size)) {
         errno = EINVAL;
         return -1;
     }
@@ -38,6 +58,7 @@ opennpux_npu_weight_page_cursor_begin(
     cursor->command_id = command_id;
     cursor->active_experts = active_experts;
     cursor->active_expert_count = active_expert_count;
+    cursor->page_size = page_size;
     return 0;
 }
 
@@ -60,7 +81,7 @@ opennpux_npu_weight_page_cursor_next(
         }
         if (cursor->next_page_offset == 0) {
             cursor->next_page_offset = record->file_offset &
-                ~(uint64_t)(OPENNPUX_NPU_WEIGHT_PAGE_SIZE - 1);
+                ~(uint64_t)(cursor->page_size - 1);
             cursor->range_end = record->file_offset + record->byte_size;
         }
         if (cursor->next_page_offset >= cursor->range_end) {
@@ -69,7 +90,7 @@ opennpux_npu_weight_page_cursor_next(
             continue;
         }
         const uint64_t page_offset = cursor->next_page_offset;
-        cursor->next_page_offset += OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+        cursor->next_page_offset += cursor->page_size;
         if (cursor->has_last_page &&
             cursor->last_shard_index == record->shard_index &&
             cursor->last_page_offset == page_offset) {
@@ -82,6 +103,7 @@ opennpux_npu_weight_page_cursor_next(
         request->shard_index = record->shard_index;
         request->file_offset = page_offset;
         request->expert_id = record->expert_id;
+        request->page_size = cursor->page_size;
         return 1;
     }
     return 0;
@@ -95,7 +117,8 @@ opennpux_npu_weight_page_read(
     void *page, uint32_t page_size)
 {
     if (manifest_path == NULL || model == NULL || request == NULL ||
-        page == NULL || page_size != OPENNPUX_NPU_WEIGHT_PAGE_SIZE ||
+        page == NULL || !valid_page_size(page_size) ||
+        request->page_size != page_size ||
         request->shard_index >= model->shard_count ||
         request->file_offset >= model->shards[request->shard_index].size) {
         errno = EINVAL;
@@ -116,7 +139,19 @@ opennpux_npu_weight_cache_init(
     struct opennpux_npu_weight_cache_entry *entries, void *storage,
     uint32_t slot_count)
 {
-    if (cache == NULL || entries == NULL || storage == NULL || slot_count == 0) {
+    return opennpux_npu_weight_cache_init_sized(
+        cache, entries, storage, slot_count,
+        OPENNPUX_NPU_WEIGHT_PAGE_SIZE);
+}
+
+int
+opennpux_npu_weight_cache_init_sized(
+    struct opennpux_npu_weight_cache *cache,
+    struct opennpux_npu_weight_cache_entry *entries, void *storage,
+    uint32_t slot_count, uint32_t page_size)
+{
+    if (cache == NULL || entries == NULL || storage == NULL || slot_count == 0 ||
+        !valid_page_size(page_size)) {
         errno = EINVAL;
         return -1;
     }
@@ -125,6 +160,7 @@ opennpux_npu_weight_cache_init(
     cache->entries = entries;
     cache->storage = storage;
     cache->slot_count = slot_count;
+    cache->page_size = page_size;
     return 0;
 }
 
@@ -140,6 +176,10 @@ opennpux_npu_weight_cache_acquire(
         errno = EINVAL;
         return -1;
     }
+    if (request->page_size != cache->page_size) {
+        errno = EINVAL;
+        return -1;
+    }
     ++cache->clock;
     uint32_t victim = 0;
     for (uint32_t index = 0; index < cache->slot_count; ++index) {
@@ -149,7 +189,7 @@ opennpux_npu_weight_cache_acquire(
             entry->last_use = cache->clock;
             ++cache->stats.hits;
             *page = cache->storage +
-                (size_t)index * OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+                (size_t)index * cache->page_size;
             *slot = index;
             *cache_hit = 1;
             return 0;
@@ -165,10 +205,10 @@ opennpux_npu_weight_cache_acquire(
         ++cache->stats.evictions;
     }
     uint8_t *destination = cache->storage +
-        (size_t)victim * OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+        (size_t)victim * cache->page_size;
     if (opennpux_npu_weight_page_read(
             manifest_path, model, request, destination,
-            OPENNPUX_NPU_WEIGHT_PAGE_SIZE) != 0) {
+            cache->page_size) != 0) {
         return -1;
     }
     entry->valid = 1;
@@ -176,7 +216,7 @@ opennpux_npu_weight_cache_acquire(
     entry->file_offset = request->file_offset;
     entry->last_use = cache->clock;
     ++cache->stats.misses;
-    cache->stats.bytes_read += OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+    cache->stats.bytes_read += cache->page_size;
     *page = destination;
     *slot = victim;
     *cache_hit = 0;
@@ -202,6 +242,7 @@ opennpux_npu_page_fault_init(
     fault->shard_index = request->shard_index;
     fault->file_offset = request->file_offset;
     fault->expert_id = request->expert_id;
+    fault->page_size = request->page_size;
     return 0;
 }
 
@@ -225,6 +266,7 @@ opennpux_npu_page_fault_service(
         .shard_index = fault->shard_index,
         .file_offset = fault->file_offset,
         .expert_id = fault->expert_id,
+        .page_size = fault->page_size,
     };
     uint32_t slot = 0;
     if (opennpux_npu_weight_cache_acquire(

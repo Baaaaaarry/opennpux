@@ -213,12 +213,15 @@ the runtime boundary between compiler-generated metadata and the future pager.
 data path from a validated range record to external shard bytes. It checks the
 declared shard size and file range before I/O, so the pager does not need to
 perform a tensor-name lookup or trust compiler offsets blindly.
-`npu_weight_pager.c` converts command ranges into aligned 4KiB requests,
+`npu_weight_pager.c` converts command ranges into aligned transfer requests,
 coalesces consecutive ranges that share a page, filters routed-expert records
 against the runtime active-expert set, and reads short final pages with zero
-padding. The current implementation is a synchronous pager primitive; queueing,
-cache residency, eviction, overlap and page-fault resume remain command
-processor/runtime integration work.
+padding. Existing callers retain a 4KiB default, while the sized API supports
+power-of-two transfer blocks from 4KiB through 2MiB. This separates the model
+shard read/DMA transaction size from the future IOMMU page size: larger blocks
+reduce command-processor handshakes without requiring larger architectural
+pages. The current implementation is a synchronous pager primitive; queueing,
+overlap and command-processor pause/resume remain integration work.
 The pager also provides a caller-owned fixed-slot LRU cache. It performs no
 hidden allocation, records hit/miss/eviction/materialized-byte counters, and
 returns a stable slot plus page pointer for DMA staging. This separates cache
@@ -226,7 +229,7 @@ policy from the eventual device page-fault transport and allows deterministic
 unit and simulation sizing.
 The 64-byte `opennpux_npu_page_fault` record defines the first resumable
 paging handshake. A pending record identifies sequence, command, shard,
-aligned file page and optional expert; the CPU pager resolves it to a cache
+aligned file block, transfer size and optional expert; the CPU pager resolves it to a cache
 slot and publishes READY or ERROR. The record is transport-neutral and will be
 placed in the shared queue when command-processor pause/resume is integrated.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from

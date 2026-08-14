@@ -9,6 +9,23 @@
 
 #define CACHE_SLOTS UINT32_C(64)
 
+static int
+parse_transfer_size(const char *text, uint32_t *size)
+{
+    char *end = NULL;
+    errno = 0;
+    const unsigned long value = strtoul(text, &end, 0);
+    if (errno != 0 || end == text || *end != '\0' ||
+        value < OPENNPUX_NPU_WEIGHT_PAGE_SIZE ||
+        value > OPENNPUX_NPU_WEIGHT_TRANSFER_MAX ||
+        (value & (value - 1)) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    *size = (uint32_t)value;
+    return 0;
+}
+
 static uint32_t
 fnv_word(uint32_t checksum, const void *page)
 {
@@ -23,8 +40,16 @@ fnv_word(uint32_t checksum, const void *page)
 int
 main(int argc, char **argv)
 {
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s <model.npxm> <model.npxr>\n", argv[0]);
+    if (argc != 3 && argc != 4) {
+        fprintf(stderr,
+                "usage: %s <model.npxm> <model.npxr> [transfer-bytes]\n",
+                argv[0]);
+        return 2;
+    }
+    uint32_t transfer_size = OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+    if (argc == 4 && parse_transfer_size(argv[3], &transfer_size) != 0) {
+        fprintf(stderr, "npu-weight-inspect: invalid transfer size '%s'\n",
+                argv[3]);
         return 2;
     }
     struct opennpux_model_package_info model;
@@ -46,7 +71,7 @@ main(int argc, char **argv)
     struct opennpux_npu_weight_cache_entry *entries = calloc(
         CACHE_SLOTS, sizeof(*entries));
     void *storage = malloc(
-        (size_t)CACHE_SLOTS * OPENNPUX_NPU_WEIGHT_PAGE_SIZE);
+        (size_t)CACHE_SLOTS * transfer_size);
     if (active_experts == NULL || entries == NULL || storage == NULL) {
         perror("npu-weight-inspect allocate");
         free(active_experts);
@@ -59,8 +84,8 @@ main(int argc, char **argv)
         active_experts[index] = index;
     }
     struct opennpux_npu_weight_cache cache;
-    if (opennpux_npu_weight_cache_init(
-            &cache, entries, storage, CACHE_SLOTS) != 0) {
+    if (opennpux_npu_weight_cache_init_sized(
+            &cache, entries, storage, CACHE_SLOTS, transfer_size) != 0) {
         perror("npu-weight-inspect cache");
         return 1;
     }
@@ -71,9 +96,9 @@ main(int argc, char **argv)
     uint32_t sample_checksum = UINT32_C(2166136261);
     for (uint32_t command = 0; command < ranges.header->command_count; ++command) {
         struct opennpux_npu_weight_page_cursor cursor;
-        if (opennpux_npu_weight_page_cursor_begin(
+        if (opennpux_npu_weight_page_cursor_begin_sized(
                 &ranges, command, active_experts, model.experts_per_token,
-                &cursor) != 0) {
+                transfer_size, &cursor) != 0) {
             perror("npu-weight-inspect cursor");
             return 1;
         }
@@ -112,8 +137,11 @@ main(int argc, char **argv)
     printf("weight_inspect_commands=%" PRIu32 "\n", ranges.header->command_count);
     printf("weight_inspect_range_records=%" PRIu32 "\n", ranges.header->range_count);
     printf("weight_inspect_active_experts=%" PRIu32 "\n", model.experts_per_token);
+    printf("weight_inspect_transfer_bytes=%" PRIu32 "\n", transfer_size);
     printf("weight_inspect_mapped_commands=%" PRIu32 "\n", mapped_commands);
     printf("weight_inspect_page_requests=%" PRIu64 "\n", page_requests);
+    printf("weight_inspect_request_bytes=%" PRIu64 "\n",
+           page_requests * transfer_size);
     printf("weight_inspect_sampled_commands=%" PRIu32 "\n", sampled_commands);
     printf("weight_inspect_sample_checksum=0x%08" PRIx32 "\n", sample_checksum);
     printf("weight_inspect_cache_hits=%" PRIu64 "\n", cache.stats.hits);

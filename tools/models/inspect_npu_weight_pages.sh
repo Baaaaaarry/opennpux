@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 2 ]; then
-    echo "usage: $0 <model.npxm> <model.npxr>" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "usage: $0 <model.npxm> <model.npxr> [transfer-bytes]" >&2
     exit 2
 fi
 
@@ -17,4 +17,4 @@ mkdir -p "$OUT_DIR"
     "${ROOT_DIR}/runtime/host/src/npu_weight_pager.c" \
     "${ROOT_DIR}/runtime/host/tools/npu_weight_inspect.c" \
     -o "${OUT_DIR}/npu-weight-inspect"
-exec "${OUT_DIR}/npu-weight-inspect" "$1" "$2"
+exec "${OUT_DIR}/npu-weight-inspect" "$@"

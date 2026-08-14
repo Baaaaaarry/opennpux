@@ -165,6 +165,23 @@ The verdict must include `weight_inspect_commands=524`,
 `weight_inspect=PASS`. `weight_inspect_page_requests` is the first measured
 full-weight paging requirement and is used to size cache and DMA modeling.
 
+Compare 4KiB paging against a 64KiB transfer block before selecting the DMA
+protocol granularity:
+
+```sh
+./tools/models/inspect_npu_weight_pages.sh \
+  /data/models/Qwen3.5-35B/model.npxm \
+  /data/models/Qwen3.5-35B/model.npxr 4096
+./tools/models/inspect_npu_weight_pages.sh \
+  /data/models/Qwen3.5-35B/model.npxm \
+  /data/models/Qwen3.5-35B/model.npxr 65536
+```
+
+Compare `weight_inspect_page_requests` for metadata/interrupt pressure,
+`weight_inspect_request_bytes` for padded transfer volume, and
+`weight_inspect_bytes_read` for sampled host I/O. The 64KiB mode is a transfer
+coalescing experiment, not a declaration that the device page size is 64KiB.
+
 The plan classifies the text decoder independently from vision and MTP tensors,
 so similarly numbered auxiliary layers cannot contaminate the 40 decoder-layer
 templates. Each text layer is currently classified as `full_attention_moe`,

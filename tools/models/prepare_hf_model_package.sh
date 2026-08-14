@@ -90,6 +90,9 @@ if ! "${SCRIPT_DIR}/compile_npu_executable.py" \
     echo "fields: unknown_decoder_tensor_patterns, unknown_decoder_tensor_samples" >&2
     exit 1
 fi
+"${SCRIPT_DIR}/compile_npu_weight_plan.py" \
+    "${OUTPUT}" "$(dirname -- "${OUTPUT}")/model.npxe" \
+    "$(dirname -- "${OUTPUT}")/model.npxw"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \

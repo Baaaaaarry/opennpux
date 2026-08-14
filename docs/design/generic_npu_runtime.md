@@ -154,6 +154,7 @@ The generic-ABI implementation now adds:
 
 - `model.npxe`: inspectable generic executable metadata;
 - `model.npxc`: compact binary entry-point and command-template image;
+- `model.npxw`: compiler-generated command-to-tensor weight paging plan;
 - prefill and decode entry points over the same immutable templates;
 - CPU-side runtime instantiation with live sequence/context IDs, tensor device
   addresses, memory objects and persistent-state binding;
@@ -180,10 +181,18 @@ Executable and invocation ABI version 2 identifies the inline relocation
 fields. Version 1 `.npxc` files must be regenerated rather than interpreted
 with implicit resource bindings.
 
+The compiler now binds each command parameter symbol to tensor roles and real
+safetensors shard/offset/size ranges through `model.npxw`. Static layer phases
+use fixed ranges, routed-expert commands retain a router-selected policy, and
+commands without parameters are explicitly marked weightless. The sidecar
+keeps frontend tensor names out of the stable device ABI while supplying the
+host pager with exact model-file locations.
+
 The first data-plane probe stages one 4KiB page from the model weight source
 behind binding 2. Weight-consuming command classes sample the page through the
 Coral EXTMEM address, which exercises the RTL AXI Master and gem5 shared-memory
 path. Trace version 2 reports page requests, actual DMA bytes and a content
 checksum. This is deliberately a paging transport probe: it does not yet map
-each parameter symbol to its real safetensors byte range or execute arithmetic
-with the sampled values.
+each command's selected range yet or execute arithmetic with the sampled
+values. The next data-plane increment consumes `model.npxw` to populate a
+bounded page cache and relocates weight binding 2 per command.

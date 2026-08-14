@@ -53,6 +53,25 @@ printf '%s\n' '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-
 "${SCRIPT_DIR}/compile_npu_executable.py" \
     "${MANIFEST}" "${MODEL_DIR}/execution-plan.npxp" \
     "${MODEL_DIR}/model.npxe"
+"${SCRIPT_DIR}/compile_npu_weight_plan.py" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxe" "${MODEL_DIR}/model.npxw"
+python3 - "${MODEL_DIR}/model.npxw" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    plan = json.load(source)
+assert plan["format"] == "OPENNPUX_NPU_WEIGHT_PLAN_V1"
+assert plan["command_count"] == 26
+assert plan["mapped_command_count"] > 0
+assert plan["matched_tensor_range_count"] > 0
+for command in plan["commands"]:
+    primary = command["primary_range"]
+    if primary is not None:
+        assert primary["size"] > 0
+        assert primary["offset"] >= 0
+print("npu_weight_plan_loader=PASS")
+PY
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_submission.c" \

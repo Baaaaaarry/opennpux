@@ -109,3 +109,76 @@ opennpux_npu_weight_page_read(
         manifest_path, model, request->shard_index, request->file_offset,
         page, bytes);
 }
+
+int
+opennpux_npu_weight_cache_init(
+    struct opennpux_npu_weight_cache *cache,
+    struct opennpux_npu_weight_cache_entry *entries, void *storage,
+    uint32_t slot_count)
+{
+    if (cache == NULL || entries == NULL || storage == NULL || slot_count == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    memset(cache, 0, sizeof(*cache));
+    memset(entries, 0, slot_count * sizeof(*entries));
+    cache->entries = entries;
+    cache->storage = storage;
+    cache->slot_count = slot_count;
+    return 0;
+}
+
+int
+opennpux_npu_weight_cache_acquire(
+    struct opennpux_npu_weight_cache *cache, const char *manifest_path,
+    const struct opennpux_model_package_info *model,
+    const struct opennpux_npu_weight_page_request *request,
+    const void **page, uint32_t *slot, uint32_t *cache_hit)
+{
+    if (cache == NULL || cache->entries == NULL || cache->storage == NULL ||
+        request == NULL || page == NULL || slot == NULL || cache_hit == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    ++cache->clock;
+    uint32_t victim = 0;
+    for (uint32_t index = 0; index < cache->slot_count; ++index) {
+        struct opennpux_npu_weight_cache_entry *entry = &cache->entries[index];
+        if (entry->valid && entry->shard_index == request->shard_index &&
+            entry->file_offset == request->file_offset) {
+            entry->last_use = cache->clock;
+            ++cache->stats.hits;
+            *page = cache->storage +
+                (size_t)index * OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+            *slot = index;
+            *cache_hit = 1;
+            return 0;
+        }
+        if (!entry->valid ||
+            (cache->entries[victim].valid &&
+             entry->last_use < cache->entries[victim].last_use)) {
+            victim = index;
+        }
+    }
+    struct opennpux_npu_weight_cache_entry *entry = &cache->entries[victim];
+    if (entry->valid) {
+        ++cache->stats.evictions;
+    }
+    uint8_t *destination = cache->storage +
+        (size_t)victim * OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+    if (opennpux_npu_weight_page_read(
+            manifest_path, model, request, destination,
+            OPENNPUX_NPU_WEIGHT_PAGE_SIZE) != 0) {
+        return -1;
+    }
+    entry->valid = 1;
+    entry->shard_index = request->shard_index;
+    entry->file_offset = request->file_offset;
+    entry->last_use = cache->clock;
+    ++cache->stats.misses;
+    cache->stats.bytes_read += OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+    *page = destination;
+    *slot = victim;
+    *cache_hit = 0;
+    return 0;
+}

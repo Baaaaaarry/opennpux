@@ -219,6 +219,11 @@ against the runtime active-expert set, and reads short final pages with zero
 padding. The current implementation is a synchronous pager primitive; queueing,
 cache residency, eviction, overlap and page-fault resume remain command
 processor/runtime integration work.
+The pager also provides a caller-owned fixed-slot LRU cache. It performs no
+hidden allocation, records hit/miss/eviction/materialized-byte counters, and
+returns a stable slot plus page pointer for DMA staging. This separates cache
+policy from the eventual device page-fault transport and allows deterministic
+unit and simulation sizing.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

@@ -41,6 +41,23 @@ main(int argc, char **argv)
         request.file_offset;
     check(page[tensor_offset] == 0 && page[tensor_offset + 1] == 1,
           "static page payload mismatch");
+    struct opennpux_npu_weight_cache cache;
+    struct opennpux_npu_weight_cache_entry cache_entries[1];
+    unsigned char cache_storage[OPENNPUX_NPU_WEIGHT_PAGE_SIZE];
+    const void *cached_page;
+    uint32_t cache_slot;
+    uint32_t cache_hit;
+    check(opennpux_npu_weight_cache_init(
+              &cache, cache_entries, cache_storage, 1) == 0,
+          "weight cache init failed");
+    check(opennpux_npu_weight_cache_acquire(
+              &cache, argv[1], &model, &request, &cached_page,
+              &cache_slot, &cache_hit) == 0 && !cache_hit && cache_slot == 0,
+          "first cache miss failed");
+    check(opennpux_npu_weight_cache_acquire(
+              &cache, argv[1], &model, &request, &cached_page,
+              &cache_slot, &cache_hit) == 0 && cache_hit,
+          "cache hit failed");
 
     uint32_t expert_command = UINT32_MAX;
     for (uint32_t index = 0; index < ranges.header->range_count; ++index) {
@@ -56,6 +73,14 @@ main(int argc, char **argv)
               opennpux_npu_weight_page_cursor_next(&cursor, &request) == 1 &&
               request.expert_id == 7,
           "active expert page missing");
+    check(opennpux_npu_weight_cache_acquire(
+              &cache, argv[1], &model, &request, &cached_page,
+              &cache_slot, &cache_hit) == 0 && !cache_hit,
+          "expert page cache miss failed");
+    check(cache.stats.hits == 1 && cache.stats.misses == 2 &&
+              cache.stats.evictions == 1 &&
+              cache.stats.bytes_read == 2 * OPENNPUX_NPU_WEIGHT_PAGE_SIZE,
+          "cache statistics mismatch");
     const uint64_t inactive[] = {0};
     check(opennpux_npu_weight_page_cursor_begin(
               &ranges, expert_command, inactive, 1, &cursor) == 0 &&

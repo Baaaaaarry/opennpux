@@ -140,6 +140,14 @@ int opennpux_coral_read_shared_u32(struct opennpux_coral_device *dev,
 int opennpux_coral_write_shared_u32(struct opennpux_coral_device *dev,
                                     uint64_t offset, uint32_t value);
 
+typedef int (*opennpux_coral_service_callback)(void *opaque);
+
+int opennpux_coral_start(struct opennpux_coral_device *dev, uint32_t entry);
+int opennpux_coral_status(struct opennpux_coral_device *dev, uint32_t *status);
+int opennpux_coral_reset(struct opennpux_coral_device *dev);
+int opennpux_coral_run_with_service(
+    struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
+    opennpux_coral_service_callback service, void *opaque, uint32_t *status);
 int opennpux_coral_run(struct opennpux_coral_device *dev, uint32_t entry,
                        uint64_t polls, uint32_t *status);
 int opennpux_coral_dma_test(struct opennpux_coral_device *dev, uint32_t entry,

@@ -414,6 +414,127 @@ opennpux_coral_write_shared_u32(struct opennpux_coral_device *dev,
 }
 
 int
+opennpux_coral_start(struct opennpux_coral_device *dev, uint32_t entry)
+{
+    if (dev == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        if ((dev->features & OPENNPUX_CORAL_FEATURE_ASYNC_START) == 0) {
+            errno = ENOTSUP;
+            return -1;
+        }
+        const struct opennpux_coral_ioc_start start = {
+            .entry = entry,
+            .flags = 0,
+        };
+        return ioctl(dev->fd, OPENNPUX_CORAL_IOC_START, &start);
+    }
+    if (dev->transport != OPENNPUX_CORAL_TRANSPORT_DEVMEM) {
+        errno = EINVAL;
+        return -1;
+    }
+    opennpux_coral_write_reg(dev, PC_START, entry);
+    opennpux_coral_write_reg(dev, RESET_CONTROL, 1);
+    opennpux_coral_write_reg(dev, RESET_CONTROL, 0);
+    return 0;
+}
+
+int
+opennpux_coral_status(struct opennpux_coral_device *dev, uint32_t *status)
+{
+    if (dev == NULL || status == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        struct opennpux_coral_info info;
+        opennpux_coral_get_info(dev, &info);
+        *status = info.status;
+        return 0;
+    }
+    if (dev->transport != OPENNPUX_CORAL_TRANSPORT_DEVMEM) {
+        errno = EINVAL;
+        return -1;
+    }
+    *status = opennpux_coral_read_reg(dev, STATUS);
+    return 0;
+}
+
+int
+opennpux_coral_reset(struct opennpux_coral_device *dev)
+{
+    if (dev == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        if ((dev->features & OPENNPUX_CORAL_FEATURE_RESET) == 0) {
+            errno = ENOTSUP;
+            return -1;
+        }
+        return ioctl(dev->fd, OPENNPUX_CORAL_IOC_RESET);
+    }
+    if (dev->transport != OPENNPUX_CORAL_TRANSPORT_DEVMEM) {
+        errno = EINVAL;
+        return -1;
+    }
+    opennpux_coral_write_reg(dev, RESET_CONTROL, 1);
+    return 0;
+}
+
+int
+opennpux_coral_run_with_service(
+    struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
+    opennpux_coral_service_callback service, void *opaque,
+    uint32_t *final_status)
+{
+    if (polls == 0 || opennpux_coral_start(dev, entry) != 0) {
+        if (polls == 0) {
+            errno = EINVAL;
+        }
+        return -1;
+    }
+    uint32_t status = 0;
+    for (uint64_t index = 0; index < polls; ++index) {
+        if (opennpux_coral_status(dev, &status) != 0) {
+            goto fail;
+        }
+        if ((status & 0x3) != 0) {
+            break;
+        }
+        if (service != NULL && service(opaque) < 0) {
+            goto fail;
+        }
+    }
+    if (final_status != NULL) {
+        *final_status = status;
+    }
+    if ((status & 0x2) != 0) {
+        errno = EIO;
+        goto fail;
+    }
+    if ((status & 0x1) == 0) {
+        errno = ETIMEDOUT;
+        goto fail;
+    }
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER &&
+        opennpux_coral_reset(dev) != 0) {
+        return -1;
+    }
+    return 0;
+
+fail:
+    {
+        const int error = errno == 0 ? EIO : errno;
+        (void)opennpux_coral_reset(dev);
+        errno = error;
+    }
+    return -1;
+}
+
+int
 opennpux_coral_run(struct opennpux_coral_device *dev, uint32_t entry,
                    uint64_t polls, uint32_t *final_status)
 {

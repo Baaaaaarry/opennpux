@@ -241,6 +241,11 @@ explicit backpressure counter records queue-full stalls. This provides the
 batchable control plane needed for 64KiB weight DMA transfers; mapping cache
 slots into the shared DMA window and pausing/resuming real device commands is
 the next system-integration step.
+The host runtime exposes nonblocking `start`, `status` and `reset` operations
+plus `opennpux_coral_run_with_service()`. Its callback runs while the device is
+non-terminal, allowing a CPU pager to drain the fault queue without waiting
+for the final NPU completion interrupt. The legacy blocking run API remains
+available for firmware that never yields on a host-managed resource.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

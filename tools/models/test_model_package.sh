@@ -121,6 +121,16 @@ PY
     -o "${WORK_DIR}/npu_weight_pager_test"
 "${WORK_DIR}/npu_weight_pager_test" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxr"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/model_package.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_pager.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_queue.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_weight_queue_test.c" \
+    -o "${WORK_DIR}/npu_weight_queue_test"
+"${WORK_DIR}/npu_weight_queue_test" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxr"
 "${SCRIPT_DIR}/inspect_npu_weight_pages.sh" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxr"
 "${SCRIPT_DIR}/materialize_npu_weight_page.py" \

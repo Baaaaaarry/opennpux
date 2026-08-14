@@ -232,6 +232,15 @@ paging handshake. A pending record identifies sequence, command, shard,
 aligned file block, transfer size and optional expert; the CPU pager resolves it to a cache
 slot and publishes READY or ERROR. The record is transport-neutral and will be
 placed in the shared queue when command-processor pause/resume is integrated.
+`npu_weight_queue.c` implements that shared single-producer/single-service/
+single-retire ring contract. The NPU producer can publish multiple pending
+faults, the CPU service side resolves them in order, and the NPU retires READY
+or ERROR records before slots are reused. Monotonic 64-bit indexes avoid ring
+ambiguity, release/acquire publication orders payload visibility, and an
+explicit backpressure counter records queue-full stalls. This provides the
+batchable control plane needed for 64KiB weight DMA transfers; mapping cache
+slots into the shared DMA window and pausing/resuming real device commands is
+the next system-integration step.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

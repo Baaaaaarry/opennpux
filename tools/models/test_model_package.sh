@@ -121,6 +121,8 @@ PY
     -o "${WORK_DIR}/npu_weight_pager_test"
 "${WORK_DIR}/npu_weight_pager_test" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxr"
+"${SCRIPT_DIR}/inspect_npu_weight_pages.sh" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxr"
 "${SCRIPT_DIR}/materialize_npu_weight_page.py" \
     "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-page.bin"
 python3 - "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-page.bin" <<'PY'

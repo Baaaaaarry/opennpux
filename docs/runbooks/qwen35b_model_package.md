@@ -150,6 +150,21 @@ npu_weight_plan=PASS
 qwen_execution_plan=PASS
 ```
 
+Inspect the complete range index and estimate runtime paging with only the
+router-selected experts active. The tool enumerates metadata for every page,
+but reads only the first page of each mapped command:
+
+```sh
+./tools/models/inspect_npu_weight_pages.sh \
+  /data/models/Qwen3.5-35B/model.npxm \
+  /data/models/Qwen3.5-35B/model.npxr
+```
+
+The verdict must include `weight_inspect_commands=524`,
+`weight_inspect_mapped_commands=343`, `weight_inspect_active_experts=8`, and
+`weight_inspect=PASS`. `weight_inspect_page_requests` is the first measured
+full-weight paging requirement and is used to size cache and DMA modeling.
+
 The plan classifies the text decoder independently from vision and MTP tensors,
 so similarly numbered auxiliary layers cannot contaminate the 40 decoder-layer
 templates. Each text layer is currently classified as `full_attention_moe`,

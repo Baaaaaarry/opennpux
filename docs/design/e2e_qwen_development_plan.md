@@ -251,6 +251,14 @@ Implemented Q0 scripts:
 - `tools/models/run_qwen_golden.sh`
 - `docs/runbooks/qwen_tiny_golden.md`
 
+The tiny package now embeds its deterministic input and tensor payloads.
+`opennpux_qwen_run_hybrid_sim()` recomputes embedding, RMSNorm, causal
+multi-head attention, residuals, SwiGLU, final projection and TopK in C before
+comparing the independently stored logits checksum and token. The package
+golden is no longer treated as the hybrid execution result. This is the
+minimal numerical reference path; moving these kernels behind the NPU
+operator bridge remains the next offload milestone.
+
 ### Phase Q1: Model Package And Runtime Loader
 
 Deliverables:

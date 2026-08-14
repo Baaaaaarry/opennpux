@@ -19,10 +19,12 @@ mkdir -p "${OUT_DIR}" "${ROOT_DIR}/build/local-tests"
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/qwen_model.c" \
     "${ROOT_DIR}/tests/unit/runtime_host/qwen_model_test.c" \
+    -lm \
     -o "${ROOT_DIR}/build/local-tests/qwen_model_test"
 "${CC}" -O2 -static -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/qwen_model.c" \
     "${ROOT_DIR}/runtime/host/tools/qwen_inspect.c" \
+    -lm \
     -o "${OUT_DIR}/qwen-inspect-aarch64"
 echo "built: ${OUT_DIR}/qwen-inspect-aarch64"

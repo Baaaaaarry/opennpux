@@ -1,6 +1,7 @@
 #include "opennpux/qwen_model.h"
 
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -690,6 +691,330 @@ opennpux_qwen_run_golden(const char *path,
     return 0;
 }
 
+static int
+parse_double_array(const char *json, const char *key, double *values,
+                   uint32_t count)
+{
+    const char *cursor = find_key(json, key);
+    if (cursor == NULL) {
+        return -1;
+    }
+    while (*cursor == ' ' || *cursor == '\n') {
+        ++cursor;
+    }
+    if (*cursor++ != '[') {
+        errno = EINVAL;
+        return -1;
+    }
+    for (uint32_t index = 0; index < count; ++index) {
+        while (*cursor == ' ' || *cursor == '\n') {
+            ++cursor;
+        }
+        char *end = NULL;
+        values[index] = strtod(cursor, &end);
+        if (end == cursor) {
+            errno = EINVAL;
+            return -1;
+        }
+        cursor = end;
+        while (*cursor == ' ' || *cursor == '\n') {
+            ++cursor;
+        }
+        if (index + 1 < count) {
+            if (*cursor++ != ',') {
+                errno = EINVAL;
+                return -1;
+            }
+        } else if (*cursor != ']') {
+            errno = EINVAL;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int
+parse_u32_array(const char *json, const char *key, uint32_t *values,
+                uint32_t count)
+{
+    const char *cursor = find_key(json, key);
+    if (cursor == NULL) {
+        return -1;
+    }
+    while (*cursor == ' ' || *cursor == '\n') {
+        ++cursor;
+    }
+    if (*cursor++ != '[') {
+        errno = EINVAL;
+        return -1;
+    }
+    for (uint32_t index = 0; index < count; ++index) {
+        while (*cursor == ' ' || *cursor == '\n') {
+            ++cursor;
+        }
+        char *end = NULL;
+        const unsigned long parsed = strtoul(cursor, &end, 0);
+        if (end == cursor || parsed > UINT32_MAX) {
+            errno = EINVAL;
+            return -1;
+        }
+        values[index] = (uint32_t)parsed;
+        cursor = end;
+        while (*cursor == ' ' || *cursor == '\n') {
+            ++cursor;
+        }
+        if (index + 1 < count) {
+            if (*cursor++ != ',') {
+                errno = EINVAL;
+                return -1;
+            }
+        } else if (*cursor != ']') {
+            errno = EINVAL;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static void
+matmul_vector(const double *vector, const double *matrix, uint32_t rows,
+              uint32_t columns, double *output)
+{
+    for (uint32_t column = 0; column < columns; ++column) {
+        double sum = 0.0;
+        for (uint32_t row = 0; row < rows; ++row) {
+            sum += vector[row] * matrix[(size_t)row * columns + column];
+        }
+        output[column] = sum;
+    }
+}
+
+static void
+rms_norm(const double *input, const double *weight, uint32_t count,
+         double epsilon, double *output)
+{
+    double mean_square = 0.0;
+    for (uint32_t index = 0; index < count; ++index) {
+        mean_square += input[index] * input[index];
+    }
+    const double scale = 1.0 / sqrt(mean_square / count + epsilon);
+    for (uint32_t index = 0; index < count; ++index) {
+        output[index] = input[index] * scale * weight[index];
+    }
+}
+
+static uint32_t
+float_checksum(const double *values, uint32_t count)
+{
+    uint32_t checksum = UINT32_C(2166136261);
+    for (uint32_t index = 0; index < count; ++index) {
+        const float value = (float)values[index];
+        const uint8_t *bytes = (const uint8_t *)&value;
+        for (uint32_t byte = 0; byte < sizeof(value); ++byte) {
+            checksum ^= bytes[byte];
+            checksum *= UINT32_C(16777619);
+        }
+    }
+    return checksum;
+}
+
+static int
+run_numeric_reference(const char *json,
+                      struct opennpux_qwen_run_result *result)
+{
+    const uint32_t tokens = result->info.prompt_token_count;
+    const uint32_t hidden_size = result->info.hidden_size;
+    const uint32_t intermediate = result->info.intermediate_size;
+    const uint32_t vocab = result->info.vocab_size;
+    const uint32_t heads = result->info.head_count;
+    const uint32_t head_dim = result->info.head_dim;
+    uint32_t version = 0;
+    if (tokens == 0 || hidden_size == 0 || intermediate == 0 || vocab == 0 ||
+        heads == 0 || heads * head_dim != hidden_size ||
+        parse_u32_key(json, "numeric_reference_version", &version) != 0 ||
+        version != 1) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const size_t token_hidden = (size_t)tokens * hidden_size;
+    double *storage = calloc(
+        token_hidden * 8 + (size_t)tokens * heads * tokens +
+        (size_t)tokens * intermediate * 3 + vocab, sizeof(double));
+    uint32_t *input_ids = calloc(tokens, sizeof(*input_ids));
+    double *token_embedding = calloc((size_t)vocab * hidden_size, sizeof(double));
+    double *lm_head = calloc((size_t)hidden_size * vocab, sizeof(double));
+    double *rms_attn = calloc(hidden_size, sizeof(double));
+    double *rms_ffn = calloc(hidden_size, sizeof(double));
+    double *wq = calloc((size_t)hidden_size * hidden_size, sizeof(double));
+    double *wk = calloc((size_t)hidden_size * hidden_size, sizeof(double));
+    double *wv = calloc((size_t)hidden_size * hidden_size, sizeof(double));
+    double *wo = calloc((size_t)hidden_size * hidden_size, sizeof(double));
+    double *w_gate = calloc((size_t)hidden_size * intermediate, sizeof(double));
+    double *w_up = calloc((size_t)hidden_size * intermediate, sizeof(double));
+    double *w_down = calloc((size_t)intermediate * hidden_size, sizeof(double));
+    int rc = -1;
+    if (storage == NULL || input_ids == NULL || token_embedding == NULL ||
+        lm_head == NULL || rms_attn == NULL || rms_ffn == NULL || wq == NULL ||
+        wk == NULL || wv == NULL || wo == NULL || w_gate == NULL ||
+        w_up == NULL || w_down == NULL) {
+        errno = ENOMEM;
+        goto out;
+    }
+    double epsilon = 0.0;
+    const char *epsilon_text = find_key(json, "epsilon");
+    char *epsilon_end = NULL;
+    if (epsilon_text != NULL) {
+        epsilon = strtod(epsilon_text, &epsilon_end);
+    }
+    if (epsilon_text == NULL || epsilon_end == epsilon_text || epsilon <= 0.0 ||
+        parse_u32_array(json, "runtime_input_ids", input_ids, tokens) != 0 ||
+        parse_double_array(json, "token_embedding", token_embedding,
+                           vocab * hidden_size) != 0 ||
+        parse_double_array(json, "lm_head", lm_head, hidden_size * vocab) != 0 ||
+        parse_double_array(json, "rms_attn_weight", rms_attn, hidden_size) != 0 ||
+        parse_double_array(json, "rms_ffn_weight", rms_ffn, hidden_size) != 0 ||
+        parse_double_array(json, "wq", wq, hidden_size * hidden_size) != 0 ||
+        parse_double_array(json, "wk", wk, hidden_size * hidden_size) != 0 ||
+        parse_double_array(json, "wv", wv, hidden_size * hidden_size) != 0 ||
+        parse_double_array(json, "wo", wo, hidden_size * hidden_size) != 0 ||
+        parse_double_array(json, "w_gate", w_gate,
+                           hidden_size * intermediate) != 0 ||
+        parse_double_array(json, "w_up", w_up,
+                           hidden_size * intermediate) != 0 ||
+        parse_double_array(json, "w_down", w_down,
+                           intermediate * hidden_size) != 0) {
+        goto out;
+    }
+
+    double *hidden = storage;
+    double *normed = hidden + token_hidden;
+    double *q = normed + token_hidden;
+    double *k = q + token_hidden;
+    double *v = k + token_hidden;
+    double *context = v + token_hidden;
+    double *projected = context + token_hidden;
+    double *ffn_normed = projected + token_hidden;
+    double *scores = ffn_normed + token_hidden;
+    double *gate = scores + (size_t)tokens * heads * tokens;
+    double *up = gate + (size_t)tokens * intermediate;
+    double *gated = up + (size_t)tokens * intermediate;
+    double *logits = gated + (size_t)tokens * intermediate;
+
+    for (uint32_t token = 0; token < tokens; ++token) {
+        if (input_ids[token] >= vocab) {
+            errno = EINVAL;
+            goto out;
+        }
+        memcpy(hidden + (size_t)token * hidden_size,
+               token_embedding + (size_t)input_ids[token] * hidden_size,
+               hidden_size * sizeof(double));
+        rms_norm(hidden + (size_t)token * hidden_size, rms_attn,
+                 hidden_size, epsilon,
+                 normed + (size_t)token * hidden_size);
+        matmul_vector(normed + (size_t)token * hidden_size, wq,
+                      hidden_size, hidden_size, q + (size_t)token * hidden_size);
+        matmul_vector(normed + (size_t)token * hidden_size, wk,
+                      hidden_size, hidden_size, k + (size_t)token * hidden_size);
+        matmul_vector(normed + (size_t)token * hidden_size, wv,
+                      hidden_size, hidden_size, v + (size_t)token * hidden_size);
+    }
+    for (uint32_t position = 0; position < tokens; ++position) {
+        for (uint32_t head = 0; head < heads; ++head) {
+            double peak = -INFINITY;
+            for (uint32_t source = 0; source <= position; ++source) {
+                double dot = 0.0;
+                for (uint32_t lane = 0; lane < head_dim; ++lane) {
+                    const uint32_t offset = head * head_dim + lane;
+                    dot += q[(size_t)position * hidden_size + offset] *
+                           k[(size_t)source * hidden_size + offset];
+                }
+                const double score = dot / sqrt((double)head_dim);
+                scores[((size_t)position * heads + head) * tokens + source] = score;
+                if (score > peak) {
+                    peak = score;
+                }
+            }
+            double total = 0.0;
+            for (uint32_t source = 0; source <= position; ++source) {
+                double *score = &scores[
+                    ((size_t)position * heads + head) * tokens + source];
+                *score = exp(*score - peak);
+                total += *score;
+            }
+            for (uint32_t source = 0; source <= position; ++source) {
+                const double probability = scores[
+                    ((size_t)position * heads + head) * tokens + source] / total;
+                for (uint32_t lane = 0; lane < head_dim; ++lane) {
+                    const uint32_t offset = head * head_dim + lane;
+                    context[(size_t)position * hidden_size + offset] +=
+                        probability * v[(size_t)source * hidden_size + offset];
+                }
+            }
+        }
+        matmul_vector(context + (size_t)position * hidden_size, wo,
+                      hidden_size, hidden_size,
+                      projected + (size_t)position * hidden_size);
+        for (uint32_t lane = 0; lane < hidden_size; ++lane) {
+            hidden[(size_t)position * hidden_size + lane] +=
+                projected[(size_t)position * hidden_size + lane];
+        }
+        rms_norm(hidden + (size_t)position * hidden_size, rms_ffn,
+                 hidden_size, epsilon,
+                 ffn_normed + (size_t)position * hidden_size);
+        matmul_vector(ffn_normed + (size_t)position * hidden_size, w_gate,
+                      hidden_size, intermediate,
+                      gate + (size_t)position * intermediate);
+        matmul_vector(ffn_normed + (size_t)position * hidden_size, w_up,
+                      hidden_size, intermediate,
+                      up + (size_t)position * intermediate);
+        for (uint32_t lane = 0; lane < intermediate; ++lane) {
+            const double value = gate[(size_t)position * intermediate + lane];
+            gated[(size_t)position * intermediate + lane] =
+                value / (1.0 + exp(-value)) *
+                up[(size_t)position * intermediate + lane];
+        }
+        matmul_vector(gated + (size_t)position * intermediate, w_down,
+                      intermediate, hidden_size, projected);
+        for (uint32_t lane = 0; lane < hidden_size; ++lane) {
+            hidden[(size_t)position * hidden_size + lane] += projected[lane];
+        }
+    }
+    rms_norm(hidden + (size_t)(tokens - 1) * hidden_size, rms_ffn,
+             hidden_size, epsilon, normed);
+    matmul_vector(normed, lm_head, hidden_size, vocab, logits);
+    uint32_t next_token = 0;
+    for (uint32_t token = 1; token < vocab; ++token) {
+        if (logits[token] > logits[next_token]) {
+            next_token = token;
+        }
+    }
+    const uint32_t logits_checksum = float_checksum(logits, vocab);
+    if (next_token != result->info.next_token ||
+        logits_checksum != result->info.logits_checksum) {
+        errno = EIO;
+        goto out;
+    }
+    result->next_token = next_token;
+    result->output_checksum = logits_checksum;
+    rc = 0;
+out:
+    free(storage);
+    free(input_ids);
+    free(token_embedding);
+    free(lm_head);
+    free(rms_attn);
+    free(rms_ffn);
+    free(wq);
+    free(wk);
+    free(wv);
+    free(wo);
+    free(w_gate);
+    free(w_up);
+    free(w_down);
+    return rc;
+}
+
 int
 opennpux_qwen_run_hybrid_sim(const char *path,
                              struct opennpux_qwen_run_result *result)
@@ -711,6 +1036,11 @@ opennpux_qwen_run_hybrid_sim(const char *path,
     }
 
     if (opennpux_qwen_run_golden(path, result) != 0) {
+        free(json);
+        return -1;
+    }
+
+    if (run_numeric_reference(json, result) != 0) {
         free(json);
         return -1;
     }

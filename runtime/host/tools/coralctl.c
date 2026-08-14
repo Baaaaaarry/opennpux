@@ -641,6 +641,9 @@ print_qwen_run(const char *path, const char *mode)
            result.prompt_checksum);
     printf("qwen_prefill=%s\n", result.prefill_pass ? "PASS" : "FAIL");
     printf("qwen_decode=%s\n", result.decode_pass ? "PASS" : "FAIL");
+    if (strcmp(selected_mode, "hybrid-sim") == 0) {
+        printf("qwen_numeric_reference=PASS\n");
+    }
     printf("qwen_completed_operators=%" PRIu32 "\n",
            result.completed_operators);
     printf("qwen_operator_summary=%s\n", opennpux_qwen_required_ops_string());

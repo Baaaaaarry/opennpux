@@ -73,6 +73,8 @@ grep -q '^qwen_prefill=PASS$' /tmp/qwen-run.out ||
     fail "qwen prefill did not report PASS"
 grep -q '^qwen_decode=PASS$' /tmp/qwen-run.out ||
     fail "qwen decode did not report PASS"
+grep -q '^qwen_numeric_reference=PASS$' /tmp/qwen-run.out ||
+    fail "qwen numerical reference did not report PASS"
 grep -q '^qwen_logits_checksum=0x829e9f00$' /tmp/qwen-run.out ||
     fail "qwen logits checksum mismatch"
 grep -q '^qwen_next_token=7$' /tmp/qwen-run.out ||

@@ -134,6 +134,7 @@ Expected output:
 qwen_model=<selected-model>
 qwen_prefill=PASS
 qwen_decode=PASS
+qwen_numeric_reference=PASS
 qwen_logits_checksum=0x829e9f00
 qwen_next_token=7
 qwen_tcb_run=PASS

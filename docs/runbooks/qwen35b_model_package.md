@@ -140,6 +140,11 @@ npu_executable_commands=...
 npu_command_template_bytes=...
 npu_invocation_bytes_upper_bound=...
 npu_executable=PASS
+npu_weight_plan_commands=524
+npu_weight_plan_mapped_commands=343
+npu_weight_plan_weightless_commands=181
+npu_weight_plan_unresolved_weight_commands=0
+npu_weight_plan=PASS
 qwen_execution_plan=PASS
 ```
 
@@ -201,11 +206,11 @@ state_binding=3
 scratch_binding=4
 relocated_commands=524
 parameter_checksum=0x...
-dispatch_dependency_edges=519
+dispatch_dependency_edges=523
 dispatch_estimated_operations=...
 dispatch_estimated_bytes=...
-dispatch_weight_page_requests=...
-dispatch_weight_dma_bytes=...
+dispatch_weight_page_requests=343
+dispatch_weight_dma_bytes=1372
 dispatch_weight_checksum=0x...
 dispatch_modeled_cycles=...
 dispatch_op_MATMUL=count:...,operations:...,bytes:...
@@ -217,8 +222,9 @@ executable_run=PASS
 This is a control-path milestone: CPU runtime submission, NPU command fetch,
 validation, compact dynamic-parameter relocation, resource-binding resolution,
 dependency scheduling, capability dispatch, workload accounting, traversal
-and completion are real. Numerical Qwen inference still requires
-variable-size operator parameter blocks, parameter-symbol-to-safetensors range
-mapping, complete GPTQ page streaming, operator execution and prefill/decode
-state management. Set `CORAL_NPU_WEIGHT_PAGE=/path/to/page.bin` to override the
-default first 4KiB page selected from the model directory.
+and completion are real. Numerical Qwen inference still requires variable-size
+operator parameter blocks, complete GPTQ page streaming, operator execution
+and prefill/decode state management. Parameter symbols are now mapped to real
+safetensors ranges in `model.npxw`; the smoke test materializes the first
+mapped tensor payload by default. Set
+`CORAL_NPU_WEIGHT_PAGE=/path/to/page.bin` to override it.

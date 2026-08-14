@@ -200,6 +200,7 @@ def main() -> None:
     parser.add_argument("manifest", type=Path)
     parser.add_argument("executable", type=Path)
     parser.add_argument("output", type=Path, nargs="?")
+    parser.add_argument("--require-complete", action="store_true")
     args = parser.parse_args()
     manifest_path = args.manifest.resolve()
     output = args.output or args.executable.with_suffix(".npxw")
@@ -217,6 +218,11 @@ def main() -> None:
     )
     print(f"npu_weight_plan_tensor_ranges={plan['matched_tensor_range_count']}")
     print(f"npu_weight_plan_tensor_bytes={plan['matched_tensor_bytes']}")
+    if args.require_complete and plan["unresolved_weight_command_count"] != 0:
+        raise ValueError(
+            "weight plan has unresolved weight-bearing commands: "
+            f"{plan['unresolved_weight_command_count']}"
+        )
     print("npu_weight_plan=PASS")
 
 

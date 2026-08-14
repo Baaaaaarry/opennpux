@@ -92,7 +92,7 @@ if ! "${SCRIPT_DIR}/compile_npu_executable.py" \
 fi
 "${SCRIPT_DIR}/compile_npu_weight_plan.py" \
     "${OUTPUT}" "$(dirname -- "${OUTPUT}")/model.npxe" \
-    "$(dirname -- "${OUTPUT}")/model.npxw"
+    "$(dirname -- "${OUTPUT}")/model.npxw" --require-complete
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \

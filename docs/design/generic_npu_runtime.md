@@ -213,6 +213,12 @@ the runtime boundary between compiler-generated metadata and the future pager.
 data path from a validated range record to external shard bytes. It checks the
 declared shard size and file range before I/O, so the pager does not need to
 perform a tensor-name lookup or trust compiler offsets blindly.
+`npu_weight_pager.c` converts command ranges into aligned 4KiB requests,
+coalesces consecutive ranges that share a page, filters routed-expert records
+against the runtime active-expert set, and reads short final pages with zero
+padding. The current implementation is a synchronous pager primitive; queueing,
+cache residency, eviction, overlap and page-fault resume remain command
+processor/runtime integration work.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

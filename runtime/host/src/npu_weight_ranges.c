@@ -89,7 +89,9 @@ opennpux_npu_weight_ranges_load(
     for (uint32_t index = 0; index < header->range_count; ++index) {
         if (records[index].command_id >= header->command_count ||
             records[index].shard_index >= header->shard_count ||
-            records[index].byte_size == 0 || records[index].tensor_id == 0 ||
+            records[index].byte_size == 0 ||
+            records[index].file_offset > UINT64_MAX - records[index].byte_size ||
+            records[index].tensor_id == 0 ||
             records[index].parameter_symbol == 0 ||
             (index != 0 && records[index].command_id < previous_command)) {
             free(storage);

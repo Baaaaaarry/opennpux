@@ -1,0 +1,68 @@
+#include "opennpux/model_package.h"
+#include "opennpux/npu_weight_pager.h"
+#include "opennpux/npu_weight_ranges.h"
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static void
+check(int condition, const char *message)
+{
+    if (!condition) {
+        fprintf(stderr, "FAIL: %s (errno=%d)\n", message, errno);
+        exit(1);
+    }
+}
+
+int
+main(int argc, char **argv)
+{
+    check(argc == 3, "usage: npu_weight_pager_test <model.npxm> <model.npxr>");
+    struct opennpux_model_package_info model;
+    struct opennpux_npu_weight_ranges ranges;
+    check(opennpux_model_package_load(argv[1], &model) == 0,
+          "model package load failed");
+    check(opennpux_npu_weight_ranges_load(argv[2], &ranges) == 0,
+          "weight range load failed");
+
+    struct opennpux_npu_weight_page_cursor cursor;
+    struct opennpux_npu_weight_page_request request;
+    check(opennpux_npu_weight_page_cursor_begin(
+              &ranges, 0, NULL, 0, &cursor) == 0,
+          "static pager begin failed");
+    check(opennpux_npu_weight_page_cursor_next(&cursor, &request) == 1,
+          "static page request missing");
+    unsigned char page[OPENNPUX_NPU_WEIGHT_PAGE_SIZE];
+    check(opennpux_npu_weight_page_read(
+              argv[1], &model, &request, page, sizeof(page)) == 0,
+          "static page read failed");
+    const uint64_t tensor_offset = ranges.records[0].file_offset -
+        request.file_offset;
+    check(page[tensor_offset] == 0 && page[tensor_offset + 1] == 1,
+          "static page payload mismatch");
+
+    uint32_t expert_command = UINT32_MAX;
+    for (uint32_t index = 0; index < ranges.header->range_count; ++index) {
+        if (ranges.records[index].expert_id == 7) {
+            expert_command = ranges.records[index].command_id;
+            break;
+        }
+    }
+    check(expert_command != UINT32_MAX, "expert command missing");
+    const uint64_t active[] = {7};
+    check(opennpux_npu_weight_page_cursor_begin(
+              &ranges, expert_command, active, 1, &cursor) == 0 &&
+              opennpux_npu_weight_page_cursor_next(&cursor, &request) == 1 &&
+              request.expert_id == 7,
+          "active expert page missing");
+    const uint64_t inactive[] = {0};
+    check(opennpux_npu_weight_page_cursor_begin(
+              &ranges, expert_command, inactive, 1, &cursor) == 0 &&
+              opennpux_npu_weight_page_cursor_next(&cursor, &request) == 0,
+          "inactive expert page was scheduled");
+
+    opennpux_npu_weight_ranges_unload(&ranges);
+    puts("PASS: NPU weight pager tests");
+    return 0;
+}

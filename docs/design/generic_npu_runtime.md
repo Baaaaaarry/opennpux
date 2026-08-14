@@ -193,6 +193,10 @@ host pager with exact model-file locations.
 payload bytes, zero-padding only beyond the selected tensor. The generic
 executable smoke test uses this path by default when `model.npxw` is adjacent
 to `model.npxc`; `CORAL_NPU_WEIGHT_PAGE` remains an explicit override.
+The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
+the lowered phase rather than inferred from the opcode. This prevents dynamic
+attention compute from being counted as a static-weight DMA request while
+retaining weight reads for projections, normalization, routing and experts.
 
 The first data-plane probe stages one 4KiB page from the model weight source
 behind binding 2. Weight-consuming command classes sample the page through the

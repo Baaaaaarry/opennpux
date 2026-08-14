@@ -49,6 +49,14 @@ PHASE_OPCODE = {
 
 STATE_PHASES = {"paged_kv_cache_update", "recurrent_state_update"}
 
+WEIGHT_PHASES = {
+    "token_embedding", "attention_norm", "qkv_projection",
+    "attention_output_projection", "linear_attention_projection",
+    "causal_depthwise_conv", "linear_attention_gate_norm",
+    "linear_attention_output_projection", "ffn_norm", "router_topk",
+    "routed_experts_active_only", "shared_expert", "final_norm", "lm_head",
+}
+
 MODEL_PHASE_OPCODE = {
     "token_embedding": "EMBED",
     "final_norm": "NORMALIZE",
@@ -141,6 +149,7 @@ def lower_commands(plan: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "command_id": len(commands),
                 "opcode": opcode,
+                "flags": 1 if phase in WEIGHT_PHASES else 0,
                 "capability": f"op.{opcode.lower()}.v1",
                 "dependency_token": dependency,
                 "completion_token": completion,
@@ -295,7 +304,8 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
     )
     command_data = b"".join(
         COMMAND.pack(
-            int(command["command_id"]), OPCODE[command["opcode"]], 0,
+            int(command["command_id"]), OPCODE[command["opcode"]],
+            int(command["flags"]),
             hash64(command["capability"]) & 0xFFFFFFFF, 0, 5,
             int(command["dependency_token"]), int(command["completion_token"]),
             hash64(command["parameter_symbol"]),

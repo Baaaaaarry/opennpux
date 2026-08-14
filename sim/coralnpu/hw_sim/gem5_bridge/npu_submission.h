@@ -36,6 +36,7 @@
 #define OPENNPUX_NPU_BIND_WRITE UINT32_C(2)
 #define OPENNPUX_NPU_BIND_PERSISTENT UINT32_C(4)
 #define OPENNPUX_NPU_BIND_WEIGHT UINT32_C(8)
+#define OPENNPUX_NPU_COMMAND_USES_WEIGHT UINT32_C(1)
 
 struct opennpux_npu_invocation_header {
     uint32_t magic, version, header_size, total_size;

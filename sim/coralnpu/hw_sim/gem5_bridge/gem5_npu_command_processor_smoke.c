@@ -21,13 +21,6 @@ align_record(uint32_t value)
         ~(OPENNPUX_NPU_RECORD_ALIGNMENT - 1);
 }
 
-static int
-opcode_uses_weight(uint32_t opcode)
-{
-    return opcode == 1 || opcode == 2 || opcode == 5 || opcode == 9 ||
-        opcode == 10 || opcode == 12 || opcode == 13 || opcode == 15;
-}
-
 static uint32_t
 checksum(const volatile uint8_t *bytes, uint32_t size)
 {
@@ -205,7 +198,8 @@ main(void)
         ++record->command_count;
         record->estimated_operations += operations;
         record->estimated_bytes += command_bytes;
-        if (opcode_uses_weight(commands[index].opcode)) {
+        if ((commands[index].flags &
+             OPENNPUX_NPU_COMMAND_USES_WEIGHT) != 0) {
             const uint64_t weight_address =
                 bindings[weight_binding].device_address;
             const uint64_t weight_size = bindings[weight_binding].byte_size;

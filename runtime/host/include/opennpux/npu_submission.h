@@ -84,6 +84,10 @@ enum opennpux_npu_invocation_flags {
     OPENNPUX_NPU_INVOKE_ALLOW_FALLBACK = 1u << 1,
 };
 
+enum opennpux_npu_command_flags {
+    OPENNPUX_NPU_COMMAND_USES_WEIGHT = 1u << 0,
+};
+
 enum opennpux_npu_completion_state {
     OPENNPUX_NPU_COMPLETION_PENDING = 0,
     OPENNPUX_NPU_COMPLETION_RUNNING = 1,

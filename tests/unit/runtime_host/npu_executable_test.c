@@ -83,6 +83,11 @@ main(int argc, char **argv)
                                                header->command_offset);
     check(commands[0].parameter_symbol != 0,
           "command parameter symbol was not relocated");
+    check((commands[0].flags & OPENNPUX_NPU_COMMAND_USES_WEIGHT) != 0,
+          "embedding command lost its weight requirement");
+    check((commands[header->command_count - 1].flags &
+           OPENNPUX_NPU_COMMAND_USES_WEIGHT) == 0,
+          "token selection incorrectly requires static weights");
     check(commands[0].estimated_operations != 0 &&
               commands[0].estimated_bytes != 0,
           "command workload estimate is empty");

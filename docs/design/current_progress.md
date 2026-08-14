@@ -97,13 +97,15 @@ emits a generic NPU executable, while the CPU runtime submits every live
 inference request with current tensor bindings, dynamic dimensions, persistent
 state and synchronization.
 
-The next platform increments are:
+The generic platform contract now includes:
 
-- versioned submission and completion rings;
-- generic executable, invocation, binding and command records;
-- CPU runtime load/bind/submit/wait APIs;
-- driver memory-object, fence and IRQ transport;
-- NPU command processor, dependency scheduler and modeled resource queues;
+- versioned generic executable, invocation, binding, command, completion and
+  trace records;
+- CPU-side load, bind, instantiate and submit paths;
+- a firmware command processor with dependency validation and capability
+  dispatch statistics;
+- complete command-to-safetensors range indexes with active-expert filtering;
+- a caller-owned LRU weight cache and resumable shared fault queue;
 - operator capability IDs shared by RTL, RVV, hybrid and sampled backends.
 
 The first contiguous command-processor path is now implemented and validated
@@ -111,14 +113,21 @@ with the 40-layer Qwen3.5 executable: 524 commands fit in a 64KiB invocation,
 each command carries a resolved parameter symbol, runtime batch/sequence/KV/
 active-expert tuple, and logical weight/state/scratch binding IDs. Firmware
 validates all relocations and reports the relocated-command count and parameter
-checksum in the completion record. The next scheduler increment validates 519
-dependency edges, dispatches all generic capability classes, and emits per-op
-command/operation/byte estimates through a versioned trace buffer. Numerical
-kernels and complete tensor traffic remain the next milestone. A 4KiB weight
-page probe now binds real model-file bytes to NPU EXTMEM; weight-consuming
-commands read deterministic words through the Coral AXI Master and report
-actual request bytes plus a checksum. Full tensor-range relocation is not yet
-implemented.
+checksum in the completion record. The scheduler validates 523 dependency
+edges across the complete 524-command token path, dispatches all generic
+capability classes, and emits per-op command/operation/byte estimates through
+a versioned trace buffer. The range compiler maps 343 weight-bearing commands
+to 124,268 real safetensors ranges with no unresolved weight command.
+
+GB10 measurement with eight active experts enumerates 1,340,225 aligned 4KiB
+requests. Coalescing at a 64KiB transfer granularity reduces this to 85,173
+requests (15.74x fewer) while padded request volume rises only from roughly
+5.49GB to 5.58GB (about 1.7%). The 64KiB transfer block is therefore the
+selected weight-DMA control granularity; it remains independent of the future
+IOMMU page size. A shared single-producer/single-service/single-retire fault
+ring now supports batched PENDING/READY/ERROR page lifecycles, cache slots and
+explicit queue-full backpressure. Numerical GPTQ kernels, shared-window cache
+placement and real command pause/service/resume are the next milestone.
 
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not

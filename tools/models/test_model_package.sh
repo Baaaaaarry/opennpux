@@ -133,6 +133,16 @@ PY
     "${MANIFEST}" "${MODEL_DIR}/model.npxr"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/model_package.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_pager.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_queue.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_paging_layout.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_paging_layout_test.c" \
+    -o "${WORK_DIR}/npu_paging_layout_test"
+"${WORK_DIR}/npu_paging_layout_test"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+    -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/coral_runtime.c" \
     "${ROOT_DIR}/tests/unit/runtime_host/coral_async_runtime_test.c" \
     -o "${WORK_DIR}/coral_async_runtime_test"

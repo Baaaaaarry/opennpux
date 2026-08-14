@@ -246,6 +246,13 @@ plus `opennpux_coral_run_with_service()`. Its callback runs while the device is
 non-terminal, allowing a CPU pager to drain the fault queue without waiting
 for the final NPU completion interrupt. The legacy blocking run API remains
 available for firmware that never yields on a host-managed resource.
+`npu_paging_layout.c` reserves a control region for invocation/completion/
+trace data, places the fault ring at the next 64-byte boundary, and aligns the
+weight cache to the selected transfer size. The default 8MiB window uses a
+64-entry ring and 64 64KiB cache slots: queue offset `0x10000`, cache offset
+`0x20000`, and required size `0x420000`. Dedicated PAGE_QUEUE and PAGE_CACHE
+binding flags expose these resources without embedding model-specific fields
+in the invocation ABI.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

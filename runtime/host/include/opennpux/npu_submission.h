@@ -77,6 +77,8 @@ enum opennpux_npu_binding_flags {
     OPENNPUX_NPU_BIND_WRITE = 1u << 1,
     OPENNPUX_NPU_BIND_PERSISTENT = 1u << 2,
     OPENNPUX_NPU_BIND_WEIGHT = 1u << 3,
+    OPENNPUX_NPU_BIND_PAGE_QUEUE = 1u << 4,
+    OPENNPUX_NPU_BIND_PAGE_CACHE = 1u << 5,
 };
 
 enum opennpux_npu_invocation_flags {

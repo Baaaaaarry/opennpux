@@ -104,6 +104,12 @@ records = [
 assert any(record[8] == 7 for record in records)
 print("npu_weight_range_index=PASS")
 PY
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_weight_ranges_test.c" \
+    -o "${WORK_DIR}/npu_weight_ranges_test"
+"${WORK_DIR}/npu_weight_ranges_test" "${MODEL_DIR}/model.npxr"
 "${SCRIPT_DIR}/materialize_npu_weight_page.py" \
     "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-page.bin"
 python3 - "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-page.bin" <<'PY'

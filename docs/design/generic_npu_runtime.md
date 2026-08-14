@@ -205,6 +205,10 @@ file offset and size, tensor and parameter-symbol hashes, and the routed-expert
 ID. This compact index is the source for the next bounded page-cache and
 active-expert loading implementation; `model.npxw` retains only inspectable
 per-command summaries and range spans.
+The model-independent host loader in `runtime/host/src/npu_weight_ranges.c`
+validates the binary ABI and checksum, rejects invalid command/shard/range
+records, and performs binary-search lookup of all ranges for a command. It is
+the runtime boundary between compiler-generated metadata and the future pager.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

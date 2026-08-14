@@ -199,6 +199,12 @@ Each weight-bearing command receives the first 32-bit word from its own mapped
 tensor range at offset `command_id * 4`; weightless slots remain zero. Firmware
 uses the command ID directly, proving that relocation reaches distinct real
 model tensors without pretending that a 4KiB window contains all GPTQ pages.
+The companion `model.npxr` binary stores every matched tensor range as a fixed
+64-byte record. Records carry command/shard IDs, role and component hashes,
+file offset and size, tensor and parameter-symbol hashes, and the routed-expert
+ID. This compact index is the source for the next bounded page-cache and
+active-expert loading implementation; `model.npxw` retains only inspectable
+per-command summaries and range spans.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

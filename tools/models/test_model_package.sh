@@ -72,6 +72,38 @@ for command in plan["commands"]:
         assert primary["offset"] >= 0
 print("npu_weight_plan_loader=PASS")
 PY
+python3 - "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/model.npxr" <<'PY'
+import json
+import struct
+import sys
+
+header_struct = struct.Struct("<8I4Q")
+record_struct = struct.Struct("<4I6Q")
+with open(sys.argv[1], encoding="utf-8") as source:
+    plan = json.load(source)
+data = open(sys.argv[2], "rb").read()
+header = header_struct.unpack_from(data)
+assert header[0] == 0x5258504E and header[1] == 1
+assert header[2] == header_struct.size and header[3] == record_struct.size
+assert header[4] == plan["command_count"]
+assert header[5] == plan["matched_tensor_range_count"]
+assert header[9] == len(data)
+mutable = bytearray(data)
+mutable[28:32] = bytes(4)
+checksum = 2166136261
+for byte in mutable:
+    checksum = ((checksum ^ byte) * 16777619) & 0xffffffff
+assert checksum == header[7]
+for command in plan["commands"]:
+    assert command["range_count"] == command["matched_tensor_count"]
+    assert command["range_start"] + command["range_count"] <= header[5]
+records = [
+    record_struct.unpack_from(data, header[8] + index * header[3])
+    for index in range(header[5])
+]
+assert any(record[8] == 7 for record in records)
+print("npu_weight_range_index=PASS")
+PY
 "${SCRIPT_DIR}/materialize_npu_weight_page.py" \
     "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-page.bin"
 python3 - "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-page.bin" <<'PY'

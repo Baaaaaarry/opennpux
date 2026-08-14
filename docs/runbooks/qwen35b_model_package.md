@@ -144,6 +144,8 @@ npu_weight_plan_commands=524
 npu_weight_plan_mapped_commands=343
 npu_weight_plan_weightless_commands=181
 npu_weight_plan_unresolved_weight_commands=0
+npu_weight_range_records=...
+npu_weight_range_bytes=...
 npu_weight_plan=PASS
 qwen_execution_plan=PASS
 ```

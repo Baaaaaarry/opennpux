@@ -9,13 +9,19 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from build_qwen_execution_plan import LAYER_RE, tensor_component, tensor_role
+from build_qwen_execution_plan import (
+    EXPERT_RE, LAYER_RE, tensor_component, tensor_role,
+)
 
 
 FORMAT = "OPENNPUX_NPU_WEIGHT_PLAN_V1"
 HEADER = struct.Struct("<8I")
 RECORD = struct.Struct("<160s4I8Q2Q")
 MAGIC = 0x5458504E
+RANGE_FORMAT = "OPENNPUX_NPU_WEIGHT_RANGE_INDEX_V1"
+RANGE_MAGIC = 0x5258504E
+RANGE_HEADER = struct.Struct("<8I4Q")
+RANGE_RECORD = struct.Struct("<4I6Q")
 
 PHASE_ROLES = {
     "token_embedding": ("embedding",),
@@ -79,11 +85,13 @@ def tensor_records(manifest_path: Path, manifest: dict[str, Any]) -> list[dict[s
         if shard_index >= len(shards):
             raise ValueError(f"tensor {name} has invalid shard index {shard_index}")
         layer_match = LAYER_RE.search(name)
+        expert_match = EXPERT_RE.search(name)
         records.append(
             {
                 "name": name,
                 "name_hash": f"0x{hash64(name):016x}",
                 "layer": int(layer_match.group(1)) if layer_match else None,
+                "expert": int(expert_match.group(1)) if expert_match else None,
                 "role": tensor_role(name),
                 "component": tensor_component(name),
                 "shard": str(shards[shard_index]["path"]),
@@ -113,7 +121,7 @@ def selection_policy(phase: str, matched: list[dict[str, Any]]) -> str:
 
 def build_weight_plan(
     manifest_path: Path, manifest: dict[str, Any], executable: dict[str, Any]
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if executable.get("format") != "OPENNPUX_NPU_EXECUTABLE_V2":
         raise ValueError("unsupported generic NPU executable")
     records = tensor_records(manifest_path, manifest)
@@ -126,6 +134,7 @@ def build_weight_plan(
     mapped_commands = 0
     exact_ranges = 0
     mapped_bytes = 0
+    range_records = []
     for command in executable.get("commands", []):
         layer, phase = command_layer_phase(command)
         roles = PHASE_ROLES.get(phase, ())
@@ -143,6 +152,15 @@ def build_weight_plan(
             ),
         )
         total_bytes = sum(int(record["size"]) for record in matched)
+        range_start = len(range_records)
+        for record in matched:
+            range_records.append(
+                {
+                    "command_id": int(command["command_id"]),
+                    "parameter_symbol": str(command["parameter_symbol"]),
+                    **record,
+                }
+            )
         if matched:
             mapped_commands += 1
             exact_ranges += len(matched)
@@ -170,11 +188,13 @@ def build_weight_plan(
                 "selection": selection_policy(phase, matched),
                 "matched_tensor_count": len(matched),
                 "matched_tensor_bytes": total_bytes,
+                "range_start": range_start,
+                "range_count": len(matched),
                 "primary_range": primary,
             }
         )
 
-    return {
+    plan = {
         "format": FORMAT,
         "version": 1,
         "executable": manifest_path.with_name("model.npxc").name,
@@ -193,6 +213,54 @@ def build_weight_plan(
         "matched_tensor_bytes": mapped_bytes,
         "commands": commands,
     }
+    return plan, range_records
+
+
+def checksum(data: bytes, checksum_offset: int) -> int:
+    mutable = bytearray(data)
+    mutable[checksum_offset : checksum_offset + 4] = bytes(4)
+    value = 2166136261
+    for byte in mutable:
+        value ^= byte
+        value = (value * 16777619) & 0xFFFFFFFF
+    return value
+
+
+def write_range_index(
+    executable: dict[str, Any], plan: dict[str, Any],
+    ranges: list[dict[str, Any]], output: Path
+) -> None:
+    record_offset = RANGE_HEADER.size
+    total_size = record_offset + len(ranges) * RANGE_RECORD.size
+    executable_id = hash64(json.dumps(executable["source"], sort_keys=True)) or 1
+    header = RANGE_HEADER.pack(
+        RANGE_MAGIC, 1, RANGE_HEADER.size, RANGE_RECORD.size,
+        int(plan["command_count"]), len(ranges), len(plan["shards"]), 0,
+        record_offset, total_size, executable_id, 0,
+    )
+    records = b"".join(
+        RANGE_RECORD.pack(
+            int(record["command_id"]), int(record["shard_index"]),
+            hash64(str(record["role"])) & 0xFFFFFFFF,
+            hash64(str(record["component"])) & 0xFFFFFFFF,
+            int(record["offset"]), int(record["size"]),
+            int(str(record["name_hash"]), 16),
+            hash64(str(record["parameter_symbol"])),
+            UINT64_MAX if record["expert"] is None else int(record["expert"]),
+            0,
+        )
+        for record in ranges
+    )
+    data = header + records
+    checksum_offset = 28
+    value = checksum(data, checksum_offset)
+    output.write_bytes(
+        data[:checksum_offset] + struct.pack("<I", value) +
+        data[checksum_offset + 4 :]
+    )
+
+
+UINT64_MAX = (1 << 64) - 1
 
 
 def main() -> None:
@@ -201,13 +269,17 @@ def main() -> None:
     parser.add_argument("executable", type=Path)
     parser.add_argument("output", type=Path, nargs="?")
     parser.add_argument("--require-complete", action="store_true")
+    parser.add_argument("--range-output", type=Path)
     args = parser.parse_args()
     manifest_path = args.manifest.resolve()
     output = args.output or args.executable.with_suffix(".npxw")
-    plan = build_weight_plan(
-        manifest_path, load_object(manifest_path), load_object(args.executable)
+    executable = load_object(args.executable)
+    plan, ranges = build_weight_plan(
+        manifest_path, load_object(manifest_path), executable
     )
     output.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
+    range_output = args.range_output or output.with_suffix(".npxr")
+    write_range_index(executable, plan, ranges, range_output)
     print(f"npu_weight_plan={output}")
     print(f"npu_weight_plan_commands={plan['command_count']}")
     print(f"npu_weight_plan_mapped_commands={plan['mapped_command_count']}")
@@ -218,6 +290,9 @@ def main() -> None:
     )
     print(f"npu_weight_plan_tensor_ranges={plan['matched_tensor_range_count']}")
     print(f"npu_weight_plan_tensor_bytes={plan['matched_tensor_bytes']}")
+    print(f"npu_weight_range_index={range_output}")
+    print(f"npu_weight_range_records={len(ranges)}")
+    print(f"npu_weight_range_bytes={range_output.stat().st_size}")
     if args.require_complete and plan["unresolved_weight_command_count"] != 0:
         raise ValueError(
             "weight plan has unresolved weight-bearing commands: "

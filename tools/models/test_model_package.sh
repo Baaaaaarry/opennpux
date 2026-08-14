@@ -72,6 +72,26 @@ for command in plan["commands"]:
         assert primary["offset"] >= 0
 print("npu_weight_plan_loader=PASS")
 PY
+"${SCRIPT_DIR}/materialize_npu_weight_page.py" \
+    "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-page.bin"
+python3 - "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/weight-page.bin" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    plan = json.load(source)
+command = next(item for item in plan["commands"] if item["primary_range"])
+tensor = command["primary_range"]
+with open(f"{sys.argv[1].rsplit('/', 1)[0]}/{tensor['shard']}", "rb") as source:
+    source.seek(tensor["offset"])
+    expected = source.read(min(4096, tensor["size"]))
+with open(sys.argv[2], "rb") as source:
+    actual = source.read()
+assert len(actual) == 4096
+assert actual[:len(expected)] == expected
+assert not any(actual[len(expected):])
+print("npu_weight_page_materialize=PASS")
+PY
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_submission.c" \

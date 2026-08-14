@@ -6,6 +6,7 @@ EXECUTABLE="${CORAL_NPU_EXECUTABLE:-${ROOT_DIR}/build/local-tests/model-package/
 FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_npu_command_processor_smoke.elf}"
 CORALCTL="${ROOT_DIR}/build/guest-tools/coralctl-aarch64"
 WEIGHT_PAGE_SOURCE="${CORAL_NPU_WEIGHT_PAGE:-}"
+WEIGHT_PLAN="${CORAL_NPU_WEIGHT_PLAN:-${EXECUTABLE%.npxc}.npxw}"
 
 [ -r "$EXECUTABLE" ] || { echo "error: executable missing: $EXECUTABLE" >&2; exit 1; }
 [ -r "$FIRMWARE" ] || { echo "error: firmware missing: $FIRMWARE" >&2; exit 1; }
@@ -30,13 +31,15 @@ EOF
     exit 1
 }
 
-if [ -z "$WEIGHT_PAGE_SOURCE" ]; then
+if [ -z "$WEIGHT_PAGE_SOURCE" ] && [ ! -r "$WEIGHT_PLAN" ]; then
     EXECUTABLE_DIR="$(dirname -- "$EXECUTABLE")"
     WEIGHT_PAGE_SOURCE="$(find "$EXECUTABLE_DIR" -maxdepth 1 -type f \
         \( -name 'model-*.safetensors' -o -name 'model.safetensors' \) \
         -print | sort | head -n 1)"
 fi
-[ -r "${WEIGHT_PAGE_SOURCE:-}" ] || WEIGHT_PAGE_SOURCE="$EXECUTABLE"
+if [ -n "$WEIGHT_PAGE_SOURCE" ] && [ ! -r "$WEIGHT_PAGE_SOURCE" ]; then
+    WEIGHT_PAGE_SOURCE="$EXECUTABLE"
+fi
 
 if [ "${CORAL_REBUILD_CKPT:-0}" != 1 ]; then
     cat >&2 <<EOF
@@ -48,7 +51,13 @@ fi
 TMP_SCRIPT="$(mktemp)"
 TMP_WEIGHT_PAGE="$(mktemp)"
 trap 'rm -f "$TMP_SCRIPT" "$TMP_WEIGHT_PAGE"' EXIT
-dd if="$WEIGHT_PAGE_SOURCE" of="$TMP_WEIGHT_PAGE" bs=4096 count=1 2>/dev/null
+if [ -z "$WEIGHT_PAGE_SOURCE" ] && [ -r "$WEIGHT_PLAN" ]; then
+    "${ROOT_DIR}/tools/models/materialize_npu_weight_page.py" \
+        "$WEIGHT_PLAN" "$TMP_WEIGHT_PAGE"
+else
+    dd if="$WEIGHT_PAGE_SOURCE" of="$TMP_WEIGHT_PAGE" \
+        bs=4096 count=1 conv=sync 2>/dev/null
+fi
 cat >"$TMP_SCRIPT" <<EOF
 #!/bin/sh
 mkdir -p /proc /sys /tmp /dev

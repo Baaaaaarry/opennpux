@@ -187,6 +187,10 @@ use fixed ranges, routed-expert commands retain a router-selected policy, and
 commands without parameters are explicitly marked weightless. The sidecar
 keeps frontend tensor names out of the stable device ABI while supplying the
 host pager with exact model-file locations.
+`materialize_npu_weight_page.py` validates those locations and extracts tensor
+payload bytes, zero-padding only beyond the selected tensor. The generic
+executable smoke test uses this path by default when `model.npxw` is adjacent
+to `model.npxc`; `CORAL_NPU_WEIGHT_PAGE` remains an explicit override.
 
 The first data-plane probe stages one 4KiB page from the model weight source
 behind binding 2. Weight-consuming command classes sample the page through the

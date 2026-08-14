@@ -246,8 +246,11 @@ publishes a page fault, stalls the affected command, consumes the CPU-filled
 cache slot after READY, and retires the queue entry before continuing. The
 guest `executable-run-paged` service uses the asynchronous Coral runtime loop
 to fill 64KiB slots while the device is active. This closes the system control
-loop; replacing the deterministic test page with `.npxr`-indexed safetensor
-ranges is the next data-plane integration step.
+loop. The same command accepts a model manifest and `.npxr` range index; in
+that mode it resolves the command's first active tensor page, reads the real
+safetensors shard through the model package loader, and fills the shared LRU
+cache rather than repeating a synthetic page. Multi-page command residency and
+prefetch remain separate performance work.
 The host runtime exposes nonblocking `start`, `status` and `reset` operations
 plus `opennpux_coral_run_with_service()`. Its callback runs while the device is
 non-terminal, allowing a CPU pager to drain the fault queue without waiting

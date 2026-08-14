@@ -59,6 +59,12 @@ struct executable_page_service {
     struct opennpux_npu_weight_queue *queue;
     uint8_t *cache;
     const uint8_t *source;
+    const char *manifest_path;
+    const struct opennpux_model_package_info *model;
+    const struct opennpux_npu_weight_ranges *ranges;
+    struct opennpux_npu_weight_cache *weight_cache;
+    const uint64_t *active_experts;
+    uint32_t active_expert_count;
     uint32_t cache_slots;
     uint32_t transfer_size;
     uint64_t faults_serviced;
@@ -88,9 +94,32 @@ service_executable_page(void *opaque)
         errno = EPROTO;
         return -1;
     }
-    const uint32_t slot = fault->command_id % service->cache_slots;
-    memcpy(service->cache + (size_t)slot * service->transfer_size,
-           service->source, service->transfer_size);
+    uint32_t slot = fault->command_id % service->cache_slots;
+    if (service->ranges != NULL) {
+        struct opennpux_npu_weight_page_cursor cursor;
+        struct opennpux_npu_weight_page_request request;
+        const void *page = NULL;
+        uint32_t cache_hit = 0;
+        if (opennpux_npu_weight_page_cursor_begin_sized(
+                service->ranges, fault->command_id,
+                service->active_experts, service->active_expert_count,
+                service->transfer_size, &cursor) != 0 ||
+            opennpux_npu_weight_page_cursor_next(&cursor, &request) != 1 ||
+            opennpux_npu_weight_cache_acquire(
+                service->weight_cache, service->manifest_path,
+                service->model, &request, &page, &slot, &cache_hit) != 0) {
+            errno = EIO;
+            return -1;
+        }
+        fault->shard_index = request.shard_index;
+        fault->file_offset = request.file_offset;
+        fault->expert_id = request.expert_id;
+        (void)page;
+        (void)cache_hit;
+    } else {
+        memcpy(service->cache + (size_t)slot * service->transfer_size,
+               service->source, service->transfer_size);
+    }
     fault->cache_slot = slot;
     fault->error_code = 0;
     __atomic_store_n(&fault->state, OPENNPUX_NPU_PAGE_FAULT_READY,
@@ -131,6 +160,8 @@ usage(const char *prog)
             "[weight-page [base [poll-count]]]]\n"
             "  %s executable-run-paged <model.npxc> [prefill|decode "
             "[weight-page [base [poll-count]]]]\n"
+            "  %s executable-run-paged <model.npxc> [prefill|decode] "
+            "<model.npxm> <model.npxr> [base [poll-count]]\n"
             "  %s qwen-info <qwen-tiny.npxm>\n"
             "  %s qwen-run <qwen-tiny.npxm> [golden-package|hybrid-sim]\n"
             "  %s qwen-stage-tcb <qwen-tiny.npxm> [base]\n"
@@ -142,12 +173,13 @@ usage(const char *prog)
             "  %s mem-write32 <offset> <value> [base]\n"
             "features: qwen-run-tcb-v2\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog, prog, prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
 static int
 print_executable_run(struct opennpux_coral_device *dev, const char *path,
-                     const char *weight_page_path, uint32_t entry_point,
+                     const char *weight_page_path, const char *manifest_path,
+                     const char *range_path, uint32_t entry_point,
                      uint32_t firmware_entry, int paged,
                      uint64_t polls)
 {
@@ -200,11 +232,21 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         return 1;
     }
 
+    const int real_weights = manifest_path != NULL;
+    struct opennpux_model_package_info weight_model;
+    struct opennpux_npu_weight_ranges weight_ranges;
+    struct opennpux_npu_weight_cache weight_cache;
+    struct opennpux_npu_weight_cache_entry *weight_cache_entries = NULL;
+    uint64_t active_experts[8];
+    memset(&weight_model, 0, sizeof(weight_model));
+    memset(&weight_ranges, 0, sizeof(weight_ranges));
+    memset(&weight_cache, 0, sizeof(weight_cache));
+    memset(active_experts, 0, sizeof(active_experts));
     const uint32_t weight_page_size = paged ?
         paging_layout.transfer_size : NPU_WEIGHT_PAGE_SIZE;
-    uint8_t *weight_page = malloc(weight_page_size);
-    if (weight_page == NULL ||
-        load_weight_page(weight_page_path, weight_page, weight_page_size) != 0) {
+    uint8_t *weight_page = real_weights ? NULL : malloc(weight_page_size);
+    if (!real_weights && (weight_page == NULL ||
+        load_weight_page(weight_page_path, weight_page, weight_page_size) != 0)) {
         perror("executable-run weight page");
         free(weight_page);
         opennpux_coral_close_shared_window(&window);
@@ -280,7 +322,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         window.bytes[index] = 0;
     }
     for (uint32_t index = 0; index < NPU_WEIGHT_PAGE_SIZE; ++index) {
-        window.bytes[weight_offset + index] = weight_page[index];
+        window.bytes[weight_offset + index] =
+            weight_page == NULL ? 0 : weight_page[index];
     }
     struct opennpux_npu_weight_queue page_queue;
     memset(&page_queue, 0, sizeof(page_queue));
@@ -299,6 +342,35 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         page_service.source = weight_page;
         page_service.cache_slots = paging_layout.cache_slots;
         page_service.transfer_size = paging_layout.transfer_size;
+        if (real_weights) {
+            weight_cache_entries = calloc(
+                paging_layout.cache_slots, sizeof(*weight_cache_entries));
+            if (weight_cache_entries == NULL || range_path == NULL ||
+                opennpux_model_package_load(
+                    manifest_path, &weight_model) != 0 ||
+                opennpux_npu_weight_ranges_load(
+                    range_path, &weight_ranges) != 0 ||
+                weight_ranges.header->executable_id !=
+                    executable.header->executable_id ||
+                opennpux_npu_weight_cache_init_sized(
+                    &weight_cache, weight_cache_entries,
+                    page_service.cache, paging_layout.cache_slots,
+                    paging_layout.transfer_size) != 0) {
+                perror("executable-run real weight pager");
+                goto out;
+            }
+            const uint32_t active_count = weight_model.experts_per_token < 8 ?
+                weight_model.experts_per_token : 8;
+            for (uint32_t index = 0; index < active_count; ++index) {
+                active_experts[index] = index;
+            }
+            page_service.manifest_path = manifest_path;
+            page_service.model = &weight_model;
+            page_service.ranges = &weight_ranges;
+            page_service.weight_cache = &weight_cache;
+            page_service.active_experts = active_experts;
+            page_service.active_expert_count = active_count;
+        }
     }
     volatile struct opennpux_npu_completion *completion =
         (volatile struct opennpux_npu_completion *)(volatile void *)(
@@ -351,7 +423,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
            (resource_bindings >> OPENNPUX_NPU_RESOURCE_SCRATCH_SHIFT) &
                OPENNPUX_NPU_RUNTIME_FIELD_MASK);
     printf("weight_page_source=%s\n",
-           weight_page_path == NULL ? "deterministic" : weight_page_path);
+           real_weights ? manifest_path :
+           (weight_page_path == NULL ? "deterministic" : weight_page_path));
     printf("weight_page_bytes=%" PRIu32 "\n", weight_page_size);
     if (paged) {
         printf("paging_transfer_size=%" PRIu32 "\n",
@@ -368,6 +441,18 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                page_queue.header->retire_index);
         printf("paging_queue_backpressure=%" PRIu32 "\n",
                page_queue.header->backpressure_count);
+        printf("paging_source=%s\n",
+               real_weights ? "model-ranges" : "repeated-page");
+        if (real_weights) {
+            printf("paging_cache_hits=%" PRIu64 "\n",
+                   weight_cache.stats.hits);
+            printf("paging_cache_misses=%" PRIu64 "\n",
+                   weight_cache.stats.misses);
+            printf("paging_cache_evictions=%" PRIu64 "\n",
+                   weight_cache.stats.evictions);
+            printf("paging_weight_bytes_read=%" PRIu64 "\n",
+                   weight_cache.stats.bytes_read);
+        }
     }
     printf("relocated_commands=%" PRIu64 "\n", completion->reserved[0]);
     printf("parameter_checksum=0x%08" PRIx64 "\n",
@@ -449,6 +534,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     puts("executable_run=PASS");
     rc = 0;
 out:
+    opennpux_npu_weight_ranges_unload(&weight_ranges);
+    free(weight_cache_entries);
     free(weight_page);
     free(submission);
     opennpux_coral_close_shared_window(&window);
@@ -996,7 +1083,7 @@ print_mobilenet_test(struct opennpux_coral_device *dev, uint32_t entry,
 int
 main(int argc, char **argv)
 {
-    if (argc < 2 || argc > 7) {
+    if (argc < 2 || argc > 8) {
         usage(argv[0]);
         return 2;
     }
@@ -1042,7 +1129,8 @@ main(int argc, char **argv)
          (argc < 3 || argc > 5)) ||
         (command_model_run && (argc < 3 || argc > 5)) ||
         (command_model_info_v2 && argc != 3) ||
-        (command_executable_run && (argc < 3 || argc > 7)) ||
+        (command_executable_run &&
+         (argc < 3 || argc > (command_executable_run_paged ? 8 : 7))) ||
         (command_qwen_info && argc != 3) ||
         (command_qwen_run && (argc < 3 || argc > 4)) ||
         (command_qwen_stage_tcb && (argc < 3 || argc > 4)) ||
@@ -1072,6 +1160,8 @@ main(int argc, char **argv)
     uint64_t vector_elements = 0;
     const char *model_path = NULL;
     const char *weight_page_path = NULL;
+    const char *weight_manifest_path = NULL;
+    const char *weight_range_path = NULL;
     uint32_t executable_entry = OPENNPUX_NPU_ENTRY_DECODE;
     int executable_poll_arg = 5;
     if (command_mem_read32 || command_mem_write32) {
@@ -1102,7 +1192,24 @@ main(int argc, char **argv)
             }
         }
         if (argc >= 5) {
-            if (strchr(argv[4], '/') != NULL) {
+            const size_t argument_length = strlen(argv[4]);
+            const int is_manifest = command_executable_run_paged &&
+                argument_length >= 5 &&
+                strcmp(argv[4] + argument_length - 5, ".npxm") == 0;
+            if (is_manifest) {
+                if (argc < 6) {
+                    fprintf(stderr, "missing NPU weight range index\n");
+                    return 2;
+                }
+                weight_manifest_path = argv[4];
+                weight_range_path = argv[5];
+                executable_poll_arg = 7;
+                if (argc >= 7 &&
+                    opennpux_coral_parse_u64(argv[6], &base) != 0) {
+                    fprintf(stderr, "invalid base address: %s\n", argv[6]);
+                    return 2;
+                }
+            } else if (strchr(argv[4], '/') != NULL) {
                 weight_page_path = argv[4];
                 executable_poll_arg = 6;
                 if (argc >= 6 &&
@@ -1231,6 +1338,7 @@ main(int argc, char **argv)
         result = print_run(&dev, (uint32_t)entry, polls);
     } else if (command_executable_run) {
         result = print_executable_run(&dev, model_path, weight_page_path,
+                                      weight_manifest_path, weight_range_path,
                                       executable_entry, (uint32_t)entry,
                                       command_executable_run_paged, polls);
     } else if (command_model_run) {

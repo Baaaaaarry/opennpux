@@ -367,6 +367,8 @@ NPUDevice::completeHostToLocalExtmemSync()
              "Coral coherent host-to-EXTMEM sync complete count=%u "
              "size=%#x first_word=%#010x\n",
              dmaCompletions, fastDmaSyncSize, firstWord);
+    inform("Coral coherent host-to-EXTMEM sync complete: size=%#x "
+           "first_word=%#010x", fastDmaSyncSize, firstWord);
     releaseBackendReset();
     checkDrainDone();
 }

@@ -32,3 +32,4 @@ def test_local_extmem_launch_uses_coherent_dma_before_reset_release():
     assert complete.index("writeLocalExtmem(") < complete.index(
         "releaseBackendReset();"
     )
+    assert "first_word=%#010x" in complete

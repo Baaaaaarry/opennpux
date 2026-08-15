@@ -24,6 +24,18 @@ CORAL_RTL_BRIDGE="${CORAL_RTL_BRIDGE:-${ROOT_DIR}/build/coralnpu/libcoralnpu_gem
 CORAL_RTL_FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_qwen_device_infer.elf}"
 CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_qwen_device_ckpt}"
 
+# Pulling an overlay commit does not always make the mirrored source newer
+# than an existing gem5 binary (for example after preserving timestamps while
+# copying a worktree). Require the coherent-launch capability in the binary;
+# run_multicore.sh will relink it when the marker is absent.
+if [ -x "${GEM5_ROOT}/build/ARM/gem5.opt" ] &&
+   ! strings "${GEM5_ROOT}/build/ARM/gem5.opt" 2>/dev/null |
+       grep -q 'Coral coherent host-to-EXTMEM sync complete'; then
+    echo "[coral-qwen-e2e] gem5 lacks coherent launch sync; forcing rebuild"
+    GEM5_REBUILD=1
+    export GEM5_REBUILD
+fi
+
 [ -f "${CORAL_DISK_IMG}" ] || {
     echo "error: disk image not found: ${CORAL_DISK_IMG}" >&2
     exit 1

@@ -39,12 +39,14 @@ class NPUDevice : public DmaVirtDevice
     uint32_t backendId;
     uint32_t firmwareEntry;
     bool dmaActive;
+    bool hostToExtmemSyncActive;
     uint32_t dmaRequests;
     uint32_t dmaCompletions;
     uint32_t dmaErrors;
     std::vector<uint8_t> fastDmaCache;
     std::vector<bool> fastDmaPageValid;
     std::vector<bool> fastDmaPageDirty;
+    std::vector<uint8_t> hostToExtmemSyncData;
 
     bool dmaQuiesced() const;
     void checkDrainDone();
@@ -62,11 +64,14 @@ class NPUDevice : public DmaVirtDevice
                                 uint8_t *data);
     void functionalMemoryRange(MemCmd command, Addr addr, size_t size,
                                uint8_t *data);
-    void syncHostToLocalExtmem();
+    void startHostToLocalExtmemSync();
+    void completeHostToLocalExtmemSync();
+    void releaseBackendReset();
     void syncLocalExtmemToHost();
 
     std::unique_ptr<CoralBackend> backend;
     MemberEventWrapper<&NPUDevice::processBackendEvent> backendEvent;
+    EventFunctionWrapper hostToExtmemSyncEvent;
 
   public:
     using Params = NPUDeviceParams;

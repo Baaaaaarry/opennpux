@@ -5,6 +5,7 @@
 #include "dev/npu/npu_device.hh"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 
 #include "base/addr_range.hh"
@@ -52,6 +53,7 @@ NPUDevice::NPUDevice(const Params &p)
     backendId(0),
     firmwareEntry(0),
     dmaActive(false),
+    hostToExtmemSyncActive(false),
     dmaRequests(0),
     dmaCompletions(0),
     dmaErrors(0),
@@ -60,7 +62,10 @@ NPUDevice::NPUDevice(const Params &p)
         (dmaSharedSize + kFastDmaPageSize - 1) / kFastDmaPageSize : 0,
         false),
     fastDmaPageDirty(fastDmaPageValid.size(), false),
-    backendEvent(*this)
+    hostToExtmemSyncData(fastDmaSyncSize, 0),
+    backendEvent(*this),
+    hostToExtmemSyncEvent(
+        [this] { completeHostToLocalExtmemSync(); }, name())
 {
     fatal_if(dmaSharedSize == 0, "Coral NPU DMA shared size is zero");
     fatal_if(fastDma && fastDmaEventBatch == 0,
@@ -100,7 +105,8 @@ NPUDevice::NPUDevice(const Params &p)
 bool
 NPUDevice::dmaQuiesced() const
 {
-    return !dmaActive && !backend->hasDmaRequest() &&
+    return !dmaActive && !hostToExtmemSyncActive &&
+           !backend->hasDmaRequest() &&
            !backend->hasPendingEvent();
 }
 
@@ -317,23 +323,68 @@ NPUDevice::invalidateFastDmaCache()
 }
 
 void
-NPUDevice::syncHostToLocalExtmem()
+NPUDevice::startHostToLocalExtmemSync()
 {
-    if (!backend->hasLocalExtmem()) {
+    if (!backend->hasLocalExtmem() || fastDmaSyncSize == 0) {
+        releaseBackendReset();
         return;
     }
-    std::vector<uint8_t> data(fastDmaSyncSize);
-    functionalMemoryRange(MemCmd::ReadReq,
-                          dmaSharedBase + fastDmaSyncOffset, data.size(),
-                          data.data());
-    backend->writeLocalExtmem(dmaExtmemBase + fastDmaSyncOffset,
-                              data.data(), data.size());
+    fatal_if(hostToExtmemSyncActive,
+             "Coral host-to-EXTMEM synchronization already active");
+    fatal_if(fastDmaSyncSize > std::numeric_limits<int>::max(),
+             "Coral host-to-EXTMEM synchronization is too large: %#x",
+             fastDmaSyncSize);
+
+    hostToExtmemSyncActive = true;
     ++dmaRequests;
-    ++dmaCompletions;
+    dmaRead(dmaSharedBase + fastDmaSyncOffset,
+            static_cast<int>(fastDmaSyncSize), &hostToExtmemSyncEvent,
+            hostToExtmemSyncData.data());
     DPRINTFR(NPUDevice,
-             "Coral local EXTMEM host-to-NPU sync count=%u size=%llu\n",
-             dmaCompletions,
-             static_cast<unsigned long long>(fastDmaSyncSize));
+             "Coral coherent host-to-EXTMEM sync start count=%u "
+             "host=%#x size=%#x\n",
+             dmaRequests, dmaSharedBase + fastDmaSyncOffset,
+             fastDmaSyncSize);
+}
+
+void
+NPUDevice::completeHostToLocalExtmemSync()
+{
+    fatal_if(!hostToExtmemSyncActive,
+             "Coral host-to-EXTMEM sync completion without active request");
+    hostToExtmemSyncActive = false;
+    backend->writeLocalExtmem(dmaExtmemBase + fastDmaSyncOffset,
+                              hostToExtmemSyncData.data(),
+                              hostToExtmemSyncData.size());
+    ++dmaCompletions;
+
+    uint32_t firstWord = 0;
+    if (hostToExtmemSyncData.size() >= sizeof(firstWord)) {
+        std::memcpy(&firstWord, hostToExtmemSyncData.data(),
+                    sizeof(firstWord));
+    }
+    DPRINTFR(NPUDevice,
+             "Coral coherent host-to-EXTMEM sync complete count=%u "
+             "size=%#x first_word=%#010x\n",
+             dmaCompletions, fastDmaSyncSize, firstWord);
+    releaseBackendReset();
+    checkDrainDone();
+}
+
+void
+NPUDevice::releaseBackendReset()
+{
+    RequestPtr request = std::make_shared<Request>(
+        pioAddr + kResetControlOffset, sizeof(uint32_t), 0,
+        dmaPort.requestorId);
+    Packet packet(request, MemCmd::WriteReq);
+    uint32_t resetControl = 0;
+    packet.dataStatic(reinterpret_cast<uint8_t *>(&resetControl));
+    fatal_if(!backend->write(&packet, pioAddr),
+             "Coral backend rejected deferred reset release");
+    DPRINTFR(NPUDevice,
+             "Coral RTL reset released after coherent EXTMEM sync\n");
+    syncBackendEvent();
 }
 
 void
@@ -467,7 +518,10 @@ NPUDevice::write(PacketPtr pkt)
         offset == kResetControlOffset &&
         pkt->getSize() == sizeof(uint32_t) &&
         (pkt->getLE<uint32_t>() & 0x3) == 0) {
-        syncHostToLocalExtmem();
+        pkt->makeAtomicResponse();
+        startHostToLocalExtmemSync();
+        syncBackendEvent();
+        return pioDelay;
     }
 
     if (!backend->write(pkt, pioAddr)) {

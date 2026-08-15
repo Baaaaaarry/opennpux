@@ -698,6 +698,8 @@ copy_to_shared_window(struct opennpux_coral_shared_window *window,
     for (uint32_t index = 0; index < size; ++index) {
         window->bytes[index] = source[index];
     }
+    // Publish shared-memory payload stores before the MMIO doorbell.
+    __atomic_thread_fence(__ATOMIC_RELEASE);
     return 0;
 }
 
@@ -810,7 +812,7 @@ print_qwen_run_tcb(struct opennpux_coral_device *dev, const char *path,
         perror("qwen-run-tcb");
         rc = 1;
     }
-    __sync_synchronize();
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
 
     const volatile struct opennpux_qwen_tcb_header *header =
         (const volatile struct opennpux_qwen_tcb_header *)(const volatile void *)
@@ -896,7 +898,7 @@ print_qwen_device_run(struct opennpux_coral_device *dev, const char *path,
         perror("qwen-device-run");
         rc = 1;
     }
-    __sync_synchronize();
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
     const volatile struct opennpux_qwen_device_request *result =
         (const volatile struct opennpux_qwen_device_request *)(
             const volatile void *)window.bytes;

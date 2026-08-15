@@ -24,6 +24,20 @@ mkdir -p "${OUT_DIR}"
     -o "${OUT_DIR}/qwen_model_test"
 "${OUT_DIR}/qwen-inspect" "${MODEL}"
 "${OUT_DIR}/qwen_model_test" "${MODEL}"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    -c "${ROOT_DIR}/runtime/host/src/qwen_model.c" \
+    -o "${OUT_DIR}/qwen_model.o"
+"${CXX:-c++}" -O2 -Wall -Wextra -Werror -std=c++17 \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    -I"${ROOT_DIR}/sim/coralnpu" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_hybrid_kernels.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_hybrid_operator.cc" \
+    "${ROOT_DIR}/tests/unit/runtime_host/qwen_device_inference_test.cc" \
+    "${OUT_DIR}/qwen_model.o" -lm \
+    -o "${OUT_DIR}/qwen_device_inference_test"
+"${OUT_DIR}/qwen_device_inference_test" "${MODEL}"
+echo "qwen_device_inference_kernel=PASS"
 CORRUPT_MODEL="${OUT_DIR}/qwen-tiny-corrupt.npxm"
 python3 - "${MODEL}" "${CORRUPT_MODEL}" <<'PY'
 import json

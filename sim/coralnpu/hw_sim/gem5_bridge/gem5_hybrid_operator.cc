@@ -123,6 +123,10 @@ bool DispatchGem5HybridOperator(
       success = RunGem5HybridLayerNorm(
           descriptor, extmem, extmem_base, extmem_size);
       break;
+    case CORAL_OPERATOR_OP_QWEN_TINY_INFER:
+      success = RunGem5HybridQwenTinyInfer(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
     default:
       descriptor->error = CORAL_OPERATOR_ERROR_UNSUPPORTED;
       break;

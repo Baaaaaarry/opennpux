@@ -818,6 +818,116 @@ float_checksum(const double *values, uint32_t count)
     return checksum;
 }
 
+static uint32_t
+byte_checksum(const void *data, uint32_t size)
+{
+    const uint8_t *bytes = data;
+    uint32_t checksum = UINT32_C(2166136261);
+    for (uint32_t index = 0; index < size; ++index) {
+        checksum ^= bytes[index];
+        checksum *= UINT32_C(16777619);
+    }
+    return checksum;
+}
+
+int
+opennpux_qwen_build_device_request(
+    const char *path, const char *prompt,
+    struct opennpux_qwen_device_request *request,
+    struct opennpux_qwen_model_info *expected)
+{
+    if (path == NULL || prompt == NULL || request == NULL || expected == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    const size_t prompt_bytes = strlen(prompt);
+    if (prompt_bytes == 0 ||
+        prompt_bytes >= OPENNPUX_QWEN_DEVICE_MAX_PROMPT_BYTES) {
+        errno = EINVAL;
+        return -1;
+    }
+    size_t json_size = 0;
+    char *json = read_file(path, &json_size);
+    if (json == NULL || json_size == 0) {
+        free(json);
+        errno = EINVAL;
+        return -1;
+    }
+    char packaged_prompt[OPENNPUX_QWEN_DEVICE_MAX_PROMPT_BYTES];
+    memset(packaged_prompt, 0, sizeof(packaged_prompt));
+    if (opennpux_qwen_load_model_info(path, expected) != 0 ||
+        expected->prompt_token_count != OPENNPUX_QWEN_DEVICE_TOKENS ||
+        expected->vocab_size != OPENNPUX_QWEN_DEVICE_VOCAB ||
+        expected->hidden_size != OPENNPUX_QWEN_DEVICE_HIDDEN ||
+        expected->intermediate_size != OPENNPUX_QWEN_DEVICE_INTERMEDIATE ||
+        expected->head_count != OPENNPUX_QWEN_DEVICE_HEADS ||
+        expected->head_dim != OPENNPUX_QWEN_DEVICE_HEAD_DIM ||
+        parse_string_key(json, "text", packaged_prompt,
+                         sizeof(packaged_prompt)) != 0 ||
+        strcmp(prompt, packaged_prompt) != 0) {
+        free(json);
+        errno = EINVAL;
+        return -1;
+    }
+
+    memset(request, 0, sizeof(*request));
+    request->magic = OPENNPUX_QWEN_DEVICE_MAGIC;
+    request->version = OPENNPUX_QWEN_DEVICE_VERSION;
+    request->struct_size = sizeof(*request);
+    request->state = OPENNPUX_QWEN_DEVICE_PENDING;
+    request->prompt_bytes = (uint32_t)prompt_bytes;
+    memcpy(request->prompt, prompt, prompt_bytes);
+    request->prompt_checksum = byte_checksum(prompt, (uint32_t)prompt_bytes);
+
+    const char *epsilon_text = find_key(json, "epsilon");
+    char *epsilon_end = NULL;
+    if (epsilon_text != NULL) {
+        request->epsilon = strtod(epsilon_text, &epsilon_end);
+    }
+    const int invalid =
+        epsilon_text == NULL || epsilon_end == epsilon_text ||
+        request->epsilon <= 0.0 ||
+        parse_u32_array(json, "runtime_input_ids", request->input_ids,
+                        OPENNPUX_QWEN_DEVICE_TOKENS) != 0 ||
+        parse_double_array(json, "token_embedding", request->token_embedding,
+                           OPENNPUX_QWEN_DEVICE_VOCAB *
+                           OPENNPUX_QWEN_DEVICE_HIDDEN) != 0 ||
+        parse_double_array(json, "lm_head", request->lm_head,
+                           OPENNPUX_QWEN_DEVICE_HIDDEN *
+                           OPENNPUX_QWEN_DEVICE_VOCAB) != 0 ||
+        parse_double_array(json, "rms_attn_weight", request->rms_attn_weight,
+                           OPENNPUX_QWEN_DEVICE_HIDDEN) != 0 ||
+        parse_double_array(json, "rms_ffn_weight", request->rms_ffn_weight,
+                           OPENNPUX_QWEN_DEVICE_HIDDEN) != 0 ||
+        parse_double_array(json, "wq", request->wq,
+                           OPENNPUX_QWEN_DEVICE_HIDDEN *
+                           OPENNPUX_QWEN_DEVICE_HIDDEN) != 0 ||
+        parse_double_array(json, "wk", request->wk,
+                           OPENNPUX_QWEN_DEVICE_HIDDEN *
+                           OPENNPUX_QWEN_DEVICE_HIDDEN) != 0 ||
+        parse_double_array(json, "wv", request->wv,
+                           OPENNPUX_QWEN_DEVICE_HIDDEN *
+                           OPENNPUX_QWEN_DEVICE_HIDDEN) != 0 ||
+        parse_double_array(json, "wo", request->wo,
+                           OPENNPUX_QWEN_DEVICE_HIDDEN *
+                           OPENNPUX_QWEN_DEVICE_HIDDEN) != 0 ||
+        parse_double_array(json, "w_gate", request->w_gate,
+                           OPENNPUX_QWEN_DEVICE_HIDDEN *
+                           OPENNPUX_QWEN_DEVICE_INTERMEDIATE) != 0 ||
+        parse_double_array(json, "w_up", request->w_up,
+                           OPENNPUX_QWEN_DEVICE_HIDDEN *
+                           OPENNPUX_QWEN_DEVICE_INTERMEDIATE) != 0 ||
+        parse_double_array(json, "w_down", request->w_down,
+                           OPENNPUX_QWEN_DEVICE_INTERMEDIATE *
+                           OPENNPUX_QWEN_DEVICE_HIDDEN) != 0;
+    free(json);
+    if (invalid) {
+        errno = EINVAL;
+        return -1;
+    }
+    return 0;
+}
+
 static int
 run_numeric_reference(const char *json,
                       struct opennpux_qwen_run_result *result)

@@ -116,6 +116,8 @@ const char* OperatorName(uint32_t opcode) {
       return "softmax";
     case CORAL_OPERATOR_OP_LAYER_NORM:
       return "layer_norm";
+    case CORAL_OPERATOR_OP_QWEN_TINY_INFER:
+      return "qwen_tiny_infer";
     default:
       return "unknown";
   }
@@ -144,7 +146,8 @@ uint32_t ParseSampledRtlMask() {
            OperatorMaskBit(CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8) |
            OperatorMaskBit(CORAL_OPERATOR_OP_ADD_INT8) |
            OperatorMaskBit(CORAL_OPERATOR_OP_SOFTMAX) |
-           OperatorMaskBit(CORAL_OPERATOR_OP_LAYER_NORM);
+           OperatorMaskBit(CORAL_OPERATOR_OP_LAYER_NORM) |
+           OperatorMaskBit(CORAL_OPERATOR_OP_QWEN_TINY_INFER);
   }
   if (IsHexMaskText(text)) {
     return static_cast<uint32_t>(std::strtoul(text, nullptr, 0));
@@ -172,6 +175,9 @@ uint32_t ParseSampledRtlMask() {
     } else if (TokenEquals(token_begin, p, "layernorm") ||
                TokenEquals(token_begin, p, "layer_norm")) {
       mask |= OperatorMaskBit(CORAL_OPERATOR_OP_LAYER_NORM);
+    } else if (TokenEquals(token_begin, p, "qwen") ||
+               TokenEquals(token_begin, p, "qwen_tiny")) {
+      mask |= OperatorMaskBit(CORAL_OPERATOR_OP_QWEN_TINY_INFER);
     }
     if (*p == '\0') {
       break;
@@ -627,7 +633,8 @@ struct coral_gem5_handle {
                    CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8) |
                   (UINT32_C(1) << CORAL_OPERATOR_OP_ADD_INT8) |
                   (UINT32_C(1) << CORAL_OPERATOR_OP_SOFTMAX) |
-                  (UINT32_C(1) << CORAL_OPERATOR_OP_LAYER_NORM);
+                  (UINT32_C(1) << CORAL_OPERATOR_OP_LAYER_NORM) |
+                  (UINT32_C(1) << CORAL_OPERATOR_OP_QWEN_TINY_INFER);
 #endif
         }
         auto* destination = reinterpret_cast<uint8_t*>(

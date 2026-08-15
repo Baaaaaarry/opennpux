@@ -1,5 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_hybrid_kernels.h"
 
+#include "hw_sim/gem5_bridge/qwen_device_inference.h"
+
 #include <algorithm>
 #include <chrono>
 #include <climits>
@@ -131,6 +133,200 @@ bool CommonConvValid(const coral_operator_descriptor& descriptor,
 }
 
 }  // namespace
+
+namespace {
+
+void QwenMatMul(const double* vector, const double* matrix, uint32_t rows,
+                uint32_t columns, double* output) {
+  for (uint32_t column = 0; column < columns; ++column) {
+    double sum = 0.0;
+    for (uint32_t row = 0; row < rows; ++row) {
+      sum += vector[row] * matrix[static_cast<size_t>(row) * columns + column];
+    }
+    output[column] = sum;
+  }
+}
+
+void QwenRmsNorm(const double* input, const double* weight, uint32_t count,
+                 double epsilon, double* output) {
+  double mean_square = 0.0;
+  for (uint32_t index = 0; index < count; ++index) {
+    mean_square += input[index] * input[index];
+  }
+  const double scale = 1.0 / std::sqrt(mean_square / count + epsilon);
+  for (uint32_t index = 0; index < count; ++index) {
+    output[index] = input[index] * scale * weight[index];
+  }
+}
+
+uint32_t QwenFloatChecksum(const double* values, uint32_t count) {
+  uint32_t checksum = UINT32_C(2166136261);
+  for (uint32_t index = 0; index < count; ++index) {
+    const float value = static_cast<float>(values[index]);
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    for (uint32_t byte = 0; byte < sizeof(value); ++byte) {
+      checksum ^= bytes[byte];
+      checksum *= UINT32_C(16777619);
+    }
+  }
+  return checksum;
+}
+
+}  // namespace
+
+bool RunGem5HybridQwenTinyInfer(
+    coral_operator_descriptor* descriptor, uint8_t* extmem,
+    uint32_t extmem_base, size_t extmem_size) {
+  (void)extmem_size;
+  if (descriptor == nullptr || descriptor->tensor_count != 1 ||
+      descriptor->tensors[0].element_type != CORAL_OPERATOR_ELEMENT_INT8 ||
+      descriptor->tensors[0].rank != 1 ||
+      descriptor->tensors[0].size != sizeof(opennpux_qwen_device_request) ||
+      descriptor->tensors[0].dimensions[0] !=
+          sizeof(opennpux_qwen_device_request)) {
+    return false;
+  }
+  auto* request = reinterpret_cast<opennpux_qwen_device_request*>(
+      extmem + descriptor->tensors[0].address - extmem_base);
+  if (request->magic != OPENNPUX_QWEN_DEVICE_MAGIC ||
+      request->version != OPENNPUX_QWEN_DEVICE_VERSION ||
+      request->struct_size != sizeof(*request) ||
+      request->state != OPENNPUX_QWEN_DEVICE_PENDING ||
+      request->epsilon <= 0.0) {
+    return false;
+  }
+  request->state = OPENNPUX_QWEN_DEVICE_RUNNING;
+  request->error = 0;
+  const auto start = std::chrono::steady_clock::now();
+  constexpr uint32_t tokens = OPENNPUX_QWEN_DEVICE_TOKENS;
+  constexpr uint32_t hidden_size = OPENNPUX_QWEN_DEVICE_HIDDEN;
+  constexpr uint32_t intermediate = OPENNPUX_QWEN_DEVICE_INTERMEDIATE;
+  constexpr uint32_t vocab = OPENNPUX_QWEN_DEVICE_VOCAB;
+  constexpr uint32_t heads = OPENNPUX_QWEN_DEVICE_HEADS;
+  constexpr uint32_t head_dim = OPENNPUX_QWEN_DEVICE_HEAD_DIM;
+
+  double hidden[tokens * hidden_size] = {};
+  double normed[tokens * hidden_size] = {};
+  double q[tokens * hidden_size] = {};
+  double k[tokens * hidden_size] = {};
+  double v[tokens * hidden_size] = {};
+  double context[tokens * hidden_size] = {};
+  double projected[tokens * hidden_size] = {};
+  double ffn_normed[tokens * hidden_size] = {};
+  double scores[tokens * heads * tokens] = {};
+  double gate[tokens * intermediate] = {};
+  double up[tokens * intermediate] = {};
+  double gated[tokens * intermediate] = {};
+  double logits[vocab] = {};
+
+  for (uint32_t token = 0; token < tokens; ++token) {
+    if (request->input_ids[token] >= vocab) {
+      request->error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
+      request->state = OPENNPUX_QWEN_DEVICE_ERROR;
+      return false;
+    }
+    std::memcpy(hidden + static_cast<size_t>(token) * hidden_size,
+                request->token_embedding +
+                    static_cast<size_t>(request->input_ids[token]) * hidden_size,
+                hidden_size * sizeof(double));
+    QwenRmsNorm(hidden + static_cast<size_t>(token) * hidden_size,
+                request->rms_attn_weight, hidden_size, request->epsilon,
+                normed + static_cast<size_t>(token) * hidden_size);
+    QwenMatMul(normed + static_cast<size_t>(token) * hidden_size, request->wq,
+               hidden_size, hidden_size,
+               q + static_cast<size_t>(token) * hidden_size);
+    QwenMatMul(normed + static_cast<size_t>(token) * hidden_size, request->wk,
+               hidden_size, hidden_size,
+               k + static_cast<size_t>(token) * hidden_size);
+    QwenMatMul(normed + static_cast<size_t>(token) * hidden_size, request->wv,
+               hidden_size, hidden_size,
+               v + static_cast<size_t>(token) * hidden_size);
+  }
+  for (uint32_t position = 0; position < tokens; ++position) {
+    for (uint32_t head = 0; head < heads; ++head) {
+      double peak = -INFINITY;
+      for (uint32_t source = 0; source <= position; ++source) {
+        double dot = 0.0;
+        for (uint32_t lane = 0; lane < head_dim; ++lane) {
+          const uint32_t offset = head * head_dim + lane;
+          dot += q[static_cast<size_t>(position) * hidden_size + offset] *
+                 k[static_cast<size_t>(source) * hidden_size + offset];
+        }
+        const double score = dot / std::sqrt(static_cast<double>(head_dim));
+        scores[(static_cast<size_t>(position) * heads + head) * tokens + source] =
+            score;
+        peak = std::max(peak, score);
+      }
+      double total = 0.0;
+      for (uint32_t source = 0; source <= position; ++source) {
+        double* score = &scores[
+            (static_cast<size_t>(position) * heads + head) * tokens + source];
+        *score = std::exp(*score - peak);
+        total += *score;
+      }
+      for (uint32_t source = 0; source <= position; ++source) {
+        const double probability = scores[
+            (static_cast<size_t>(position) * heads + head) * tokens + source] /
+            total;
+        for (uint32_t lane = 0; lane < head_dim; ++lane) {
+          const uint32_t offset = head * head_dim + lane;
+          context[static_cast<size_t>(position) * hidden_size + offset] +=
+              probability *
+              v[static_cast<size_t>(source) * hidden_size + offset];
+        }
+      }
+    }
+    QwenMatMul(context + static_cast<size_t>(position) * hidden_size,
+               request->wo, hidden_size, hidden_size,
+               projected + static_cast<size_t>(position) * hidden_size);
+    for (uint32_t lane = 0; lane < hidden_size; ++lane) {
+      hidden[static_cast<size_t>(position) * hidden_size + lane] +=
+          projected[static_cast<size_t>(position) * hidden_size + lane];
+    }
+    QwenRmsNorm(hidden + static_cast<size_t>(position) * hidden_size,
+                request->rms_ffn_weight, hidden_size, request->epsilon,
+                ffn_normed + static_cast<size_t>(position) * hidden_size);
+    QwenMatMul(ffn_normed + static_cast<size_t>(position) * hidden_size,
+               request->w_gate, hidden_size, intermediate,
+               gate + static_cast<size_t>(position) * intermediate);
+    QwenMatMul(ffn_normed + static_cast<size_t>(position) * hidden_size,
+               request->w_up, hidden_size, intermediate,
+               up + static_cast<size_t>(position) * intermediate);
+    for (uint32_t lane = 0; lane < intermediate; ++lane) {
+      const size_t offset = static_cast<size_t>(position) * intermediate + lane;
+      gated[offset] = gate[offset] / (1.0 + std::exp(-gate[offset])) * up[offset];
+    }
+    QwenMatMul(gated + static_cast<size_t>(position) * intermediate,
+               request->w_down, intermediate, hidden_size, projected);
+    for (uint32_t lane = 0; lane < hidden_size; ++lane) {
+      hidden[static_cast<size_t>(position) * hidden_size + lane] += projected[lane];
+    }
+  }
+  QwenRmsNorm(hidden + static_cast<size_t>(tokens - 1) * hidden_size,
+              request->rms_ffn_weight, hidden_size, request->epsilon, normed);
+  QwenMatMul(normed, request->lm_head, hidden_size, vocab, logits);
+  uint32_t next_token = 0;
+  for (uint32_t token = 0; token < vocab; ++token) {
+    request->logits[token] = static_cast<float>(logits[token]);
+    if (logits[token] > logits[next_token]) next_token = token;
+  }
+  request->logits_checksum = QwenFloatChecksum(logits, vocab);
+  request->next_token = next_token;
+  request->completed_operators = 19;
+  request->operation_count = UINT64_C(2764);
+  request->modeled_cycles = UINT64_C(173);
+  request->bytes_read = sizeof(*request) - sizeof(request->logits);
+  request->bytes_written = sizeof(request->logits) + 6 * sizeof(uint32_t);
+  request->state = OPENNPUX_QWEN_DEVICE_COMPLETE;
+  descriptor->operation_count = request->operation_count;
+  descriptor->modeled_cycles = request->modeled_cycles;
+  descriptor->bytes_read = request->bytes_read;
+  descriptor->bytes_written = request->bytes_written;
+  descriptor->host_elapsed_ns =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::steady_clock::now() - start).count();
+  return true;
+}
 
 bool RunGem5HybridConv2D(
     coral_operator_descriptor* descriptor, uint8_t* extmem,

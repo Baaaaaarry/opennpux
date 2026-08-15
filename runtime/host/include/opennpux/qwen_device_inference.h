@@ -1,0 +1,69 @@
+#ifndef OPENNPUX_QWEN_DEVICE_INFERENCE_H
+#define OPENNPUX_QWEN_DEVICE_INFERENCE_H
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define OPENNPUX_QWEN_DEVICE_MAGIC UINT32_C(0x4e495751)
+#define OPENNPUX_QWEN_DEVICE_VERSION UINT32_C(1)
+#define OPENNPUX_QWEN_DEVICE_MAX_PROMPT_BYTES UINT32_C(64)
+#define OPENNPUX_QWEN_DEVICE_TOKENS UINT32_C(4)
+#define OPENNPUX_QWEN_DEVICE_VOCAB UINT32_C(16)
+#define OPENNPUX_QWEN_DEVICE_HIDDEN UINT32_C(8)
+#define OPENNPUX_QWEN_DEVICE_INTERMEDIATE UINT32_C(12)
+#define OPENNPUX_QWEN_DEVICE_HEADS UINT32_C(2)
+#define OPENNPUX_QWEN_DEVICE_HEAD_DIM UINT32_C(4)
+
+enum opennpux_qwen_device_state {
+    OPENNPUX_QWEN_DEVICE_PENDING = 0,
+    OPENNPUX_QWEN_DEVICE_RUNNING = 1,
+    OPENNPUX_QWEN_DEVICE_COMPLETE = 2,
+    OPENNPUX_QWEN_DEVICE_ERROR = 3,
+};
+
+struct opennpux_qwen_device_request {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t struct_size;
+    uint32_t state;
+    uint32_t error;
+    uint32_t prompt_bytes;
+    uint32_t prompt_checksum;
+    uint32_t input_ids[OPENNPUX_QWEN_DEVICE_TOKENS];
+    char prompt[OPENNPUX_QWEN_DEVICE_MAX_PROMPT_BYTES];
+    double epsilon;
+    double token_embedding[OPENNPUX_QWEN_DEVICE_VOCAB *
+                           OPENNPUX_QWEN_DEVICE_HIDDEN];
+    double lm_head[OPENNPUX_QWEN_DEVICE_HIDDEN *
+                   OPENNPUX_QWEN_DEVICE_VOCAB];
+    double rms_attn_weight[OPENNPUX_QWEN_DEVICE_HIDDEN];
+    double rms_ffn_weight[OPENNPUX_QWEN_DEVICE_HIDDEN];
+    double wq[OPENNPUX_QWEN_DEVICE_HIDDEN * OPENNPUX_QWEN_DEVICE_HIDDEN];
+    double wk[OPENNPUX_QWEN_DEVICE_HIDDEN * OPENNPUX_QWEN_DEVICE_HIDDEN];
+    double wv[OPENNPUX_QWEN_DEVICE_HIDDEN * OPENNPUX_QWEN_DEVICE_HIDDEN];
+    double wo[OPENNPUX_QWEN_DEVICE_HIDDEN * OPENNPUX_QWEN_DEVICE_HIDDEN];
+    double w_gate[OPENNPUX_QWEN_DEVICE_HIDDEN *
+                  OPENNPUX_QWEN_DEVICE_INTERMEDIATE];
+    double w_up[OPENNPUX_QWEN_DEVICE_HIDDEN *
+                OPENNPUX_QWEN_DEVICE_INTERMEDIATE];
+    double w_down[OPENNPUX_QWEN_DEVICE_INTERMEDIATE *
+                  OPENNPUX_QWEN_DEVICE_HIDDEN];
+    float logits[OPENNPUX_QWEN_DEVICE_VOCAB];
+    uint32_t logits_checksum;
+    uint32_t next_token;
+    uint32_t completed_operators;
+    uint32_t reserved;
+    uint64_t operation_count;
+    uint64_t modeled_cycles;
+    uint64_t bytes_read;
+    uint64_t bytes_written;
+};
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

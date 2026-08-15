@@ -20,8 +20,9 @@ fi
 
 CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT:-/sbin/opennpux-init.sh}"
 CORAL_DISK_IMG="${CORAL_DISK_IMG:-${VALIDATED_DISK_DEFAULT}}"
-CORAL_RTL_BRIDGE="${CORAL_RTL_BRIDGE:-${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_bridge.so}"
-CORAL_RTL_FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_qwen_tcb_smoke.elf}"
+CORAL_RTL_BRIDGE="${CORAL_RTL_BRIDGE:-${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_rvv_highmem_bridge.so}"
+CORAL_RTL_FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_qwen_device_infer.elf}"
+CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_qwen_device_ckpt}"
 
 [ -f "${CORAL_DISK_IMG}" ] || {
     echo "error: disk image not found: ${CORAL_DISK_IMG}" >&2
@@ -37,7 +38,7 @@ CORAL_RTL_FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_qwen_t
     exit 1
 }
 [ -f "${CORAL_RTL_FIRMWARE}" ] || {
-    echo "error: Qwen TCB firmware not found: ${CORAL_RTL_FIRMWARE}" >&2
+    echo "error: Qwen device inference firmware not found: ${CORAL_RTL_FIRMWARE}" >&2
     echo "hint: run ./tools/coralnpu/build_rtl_bridge.sh" >&2
     exit 1
 }
@@ -50,5 +51,7 @@ CORAL_RTL_FIRMWARE="${CORAL_RTL_FIRMWARE}" \
 CORAL_DISK_IMG="${CORAL_DISK_IMG}" \
 CORAL_KERNEL_IMAGE="${CORAL_KERNEL_IMAGE}" \
 CORAL_KERNEL_INIT="${CORAL_KERNEL_INIT}" \
+CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT}" \
 CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB --npu-operator-mode=hybrid --npu-fast-dma --npu-fast-dma-sync-offset=0 --npu-fast-dma-sync-size=8KiB" \
 ./run_multicore.sh

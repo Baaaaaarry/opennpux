@@ -144,6 +144,7 @@ Gem5CommandEngine Gem5CoprocessorCommandAdapter::OperatorEngine(
     case CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8:
     case CORAL_OPERATOR_OP_MATMUL_INT8:
     case CORAL_OPERATOR_OP_FULLY_CONNECTED_INT8:
+    case CORAL_OPERATOR_OP_QWEN_TINY_INFER:
       return Gem5CommandEngine::kTensor;
     case CORAL_OPERATOR_OP_ADD_INT8:
     case CORAL_OPERATOR_OP_LAYER_NORM:

@@ -34,4 +34,8 @@ bool RunGem5HybridLayerNorm(
     coral_operator_descriptor* descriptor, uint8_t* extmem,
     uint32_t extmem_base, size_t extmem_size);
 
+bool RunGem5HybridQwenTinyInfer(
+    coral_operator_descriptor* descriptor, uint8_t* extmem,
+    uint32_t extmem_base, size_t extmem_size);
+
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_HYBRID_KERNELS_H_

@@ -136,6 +136,11 @@ cc_binary(
         "gem5_bridge/gem5_coprocessor_command.h",
         "gem5_bridge/gem5_custom_mac.h",
         "gem5_bridge/gem5_dma_request_builder.h",
+        "gem5_bridge/gem5_hybrid_kernels.cc",
+        "gem5_bridge/gem5_hybrid_kernels.h",
+        "gem5_bridge/gem5_hybrid_operator.cc",
+        "gem5_bridge/gem5_hybrid_operator.h",
+        "gem5_bridge/qwen_device_inference.h",
     ],
     linkshared = True,
     visibility = ["//visibility:public"],
@@ -164,6 +169,7 @@ cc_binary(
         "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_operator.cc",
         "gem5_bridge/gem5_hybrid_operator.h",
+        "gem5_bridge/qwen_device_inference.h",
     ],
     copts = ["-DCORAL_GEM5_RVV_HIGHMEM"],
     linkshared = True,
@@ -213,6 +219,7 @@ cc_test(
         "gem5_bridge/gem5_hybrid_kernels_test.cc",
         "gem5_bridge/gem5_hybrid_operator.cc",
         "gem5_bridge/gem5_hybrid_operator.h",
+        "gem5_bridge/qwen_device_inference.h",
     ],
 )
 
@@ -257,6 +264,20 @@ coralnpu_v2_binary(
         "gem5_bridge/gem5_qwen_tcb_smoke.c",
         "gem5_bridge/qwen_tcb.h",
     ],
+)
+
+coralnpu_v2_binary(
+    name = "gem5_qwen_device_infer",
+    srcs = [
+        "gem5_bridge/coral_operator.h",
+        "gem5_bridge/coral_operator_client.h",
+        "gem5_bridge/gem5_qwen_device_infer.cc",
+        "gem5_bridge/qwen_device_inference.h",
+    ],
+    dtcm_size_kbytes = 64,
+    itcm_size_kbytes = 64,
+    stack_size_bytes = 4096,
+    visibility = ["//visibility:public"],
 )
 
 coralnpu_v2_binary(

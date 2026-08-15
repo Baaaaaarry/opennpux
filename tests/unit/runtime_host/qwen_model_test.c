@@ -113,6 +113,25 @@ main(int argc, char **argv)
     check(opennpux_qwen_tcb_trace_checksum(ops, OPENNPUX_QWEN_MAX_OPS + 1) == 0,
           "qwen tcb trace checksum bounds mismatch");
 
+    struct opennpux_qwen_device_request request;
+    struct opennpux_qwen_model_info expected;
+    check(opennpux_qwen_build_device_request(
+              argv[1], "open npux", &request, &expected) == 0,
+          "failed to build qwen device request");
+    check(request.magic == OPENNPUX_QWEN_DEVICE_MAGIC,
+          "qwen device request magic mismatch");
+    check(request.struct_size == sizeof(request),
+          "qwen device request size mismatch");
+    check(request.state == OPENNPUX_QWEN_DEVICE_PENDING,
+          "qwen device request initial state mismatch");
+    check(request.next_token == 0 && request.logits_checksum == 0,
+          "CPU precomputed a Qwen device result");
+    check(expected.next_token == 7 && expected.logits_checksum == 0x829e9f00,
+          "qwen device expected result mismatch");
+    check(opennpux_qwen_build_device_request(
+              argv[1], "different prompt", &request, &expected) != 0,
+          "tiny tokenizer accepted an unsupported prompt");
+
     puts("PASS: qwen model host unit tests");
     puts("qwen_loader=PASS");
     return 0;

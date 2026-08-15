@@ -570,6 +570,18 @@ def addOptions(parser):
         default=1024,
         help="Maximum RTL backend batches processed per gem5 event in fast DMA mode"
     )
+    parser.add_argument(
+        "--npu-fast-dma-sync-offset",
+        type=lambda v: int(v, 0),
+        default=0x00400000,
+        help="Offset in the shared window synchronized with local EXTMEM"
+    )
+    parser.add_argument(
+        "--npu-fast-dma-sync-size",
+        type=str,
+        default="4KiB",
+        help="Bytes synchronized between shared memory and local EXTMEM"
+    )
 
     # Gemmini/NDP integration
     parser.add_argument(
@@ -766,8 +778,8 @@ def build(options):
             dmaSharedSize=options.npu_dma_shared_size,
             fastDma=options.npu_fast_dma,
             fastDmaEventBatch=options.npu_fast_dma_event_batch,
-            fastDmaSyncOffset=0x00400000,
-            fastDmaSyncSize="4KiB",
+            fastDmaSyncOffset=options.npu_fast_dma_sync_offset,
+            fastDmaSyncSize=options.npu_fast_dma_sync_size,
         )
         # Attach MMIO port to the IO bus, similar to other devices.
         system.npu.pio = system.iobus.mem_side_ports

@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "opennpux/qwen_device_inference.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -139,6 +141,10 @@ int opennpux_qwen_run_golden(const char *path,
                              struct opennpux_qwen_run_result *result);
 int opennpux_qwen_run_hybrid_sim(const char *path,
                                  struct opennpux_qwen_run_result *result);
+int opennpux_qwen_build_device_request(
+    const char *path, const char *prompt,
+    struct opennpux_qwen_device_request *request,
+    struct opennpux_qwen_model_info *expected);
 int opennpux_qwen_build_tcb(const struct opennpux_qwen_run_result *result,
                             void *buffer, uint32_t buffer_size,
                             uint32_t *tcb_size, uint32_t *tcb_checksum);

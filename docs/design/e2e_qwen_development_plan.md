@@ -346,7 +346,7 @@ Validation:
 
 ```bash
 ./tools/coralnpu/prepare_qwen_guest_assets.sh
-./tools/coralnpu/build_rtl_bridge.sh
+./tools/coralnpu/build_qwen_device.sh
 ./tools/coralnpu/run_qwen_e2e_test.sh
 ```
 
@@ -354,13 +354,21 @@ Acceptance:
 
 ```text
 [coral-qwen-e2e-test] PASS
-qwen_prefill=PASS
-qwen_decode=PASS
-qwen_logits_checksum=<golden>
-qwen_next_token=<golden>
-qwen_tcb_run=PASS
+qwen_prompt=open npux
+qwen_device_completed_operators=19
+qwen_logits_checksum=0x829e9f00
+qwen_next_token=7
+qwen_device_inference=PASS
 qwen_e2e=PASS
 ```
+
+The Q4 acceptance boundary is strict: the ARM guest may tokenize the prompt,
+load weights, and submit the request, but it must not execute the numerical
+reference path or pre-populate logits/next-token fields. Coral firmware issues
+`NPU_LAUNCH`; the second-level command decoder dispatches the inference opcode
+to the NPU hybrid execution engine, and the NPU result is synchronized back to
+the CPU through the shared DMA window. `qwen-run-tcb` remains a descriptor ABI
+test and is not an end-to-end inference acceptance test.
 
 ### Phase Q5: Sampled RTL Bring-up
 

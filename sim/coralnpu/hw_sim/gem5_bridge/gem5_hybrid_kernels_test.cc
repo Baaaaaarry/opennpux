@@ -1,4 +1,5 @@
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
+#include "hw_sim/gem5_bridge/qwen_device_inference.h"
 
 #include <cassert>
 #include <cmath>
@@ -275,6 +276,32 @@ void TestLayerNormFloat() {
   assert(std::fabs(ReadFloat(memory, 76) - 0.99998f) < 0.0001f);
 }
 
+void TestQwenTinyInfer() {
+  std::vector<uint8_t> memory(sizeof(opennpux_qwen_device_request), 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_QWEN_TINY_INFER);
+  descriptor.tensor_count = 1;
+  SetTensor(&descriptor.tensors[0], kBase, memory.size(), 1, memory.size(), 0,
+            0, 0, CORAL_OPERATOR_ELEMENT_INT8);
+  auto* request = reinterpret_cast<opennpux_qwen_device_request*>(
+      memory.data());
+  request->magic = OPENNPUX_QWEN_DEVICE_MAGIC;
+  request->version = OPENNPUX_QWEN_DEVICE_VERSION;
+  request->struct_size = sizeof(*request);
+  request->state = OPENNPUX_QWEN_DEVICE_PENDING;
+  request->epsilon = 1.0e-5;
+  for (double& weight : request->rms_attn_weight) weight = 1.0;
+  for (double& weight : request->rms_ffn_weight) weight = 1.0;
+
+  Gem5HybridOperatorResult result = {};
+  assert(DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result));
+  assert(request->state == OPENNPUX_QWEN_DEVICE_COMPLETE);
+  assert(request->error == 0);
+  assert(request->next_token == 0);
+  assert(request->completed_operators == 19);
+  assert(descriptor.modeled_cycles == 173);
+}
+
 }  // namespace
 
 int main() {
@@ -286,5 +313,6 @@ int main() {
   TestAddInt8();
   TestSoftmaxFloat();
   TestLayerNormFloat();
+  TestQwenTinyInfer();
   return 0;
 }

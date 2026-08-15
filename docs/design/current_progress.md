@@ -475,3 +475,23 @@ check_mobilenet_abi.sh 通过。
 
 后续建议（RTL 侧，超出本次范围）：定位 Lsu.scala vector slot 的跨 line
 事务迭代 / DBus2Axi 在跨 line vector 访问时的第二个 line 事务生成逻辑。
+
+## 2026-08-15 Tiny Qwen CPU prompt -> NPU inference -> CPU result
+
+Qwen 最小端到端验收已从“CPU 数值参考 + NPU TCB 遍历”收紧为真正设备闭环：
+ARM guest 仅解析模型、接收 `open npux` prompt、打包 6760 字节请求并启动 NPU；
+`gem5_qwen_device_infer.elf` 在 Coral core 上通过 custom-0 `NPU_LAUNCH`
+提交 `QWEN_TINY_INFER`；二级译码生成 descriptor fetch、operand read、execute、
+writeback、completion 五级微命令；Hybrid NPU engine 完成 embedding、RMSNorm、
+QKV/attention、residual、SwiGLU、LM head 和 TopK 数值计算；最终 logits checksum
+和 next token 经 shared DMA window 回写 CPU。
+
+关键约束：请求 ABI 不包含 expected token/checksum，初始结果字段必须为 0；CPU
+只在 NPU 完成后用独立 golden 校验 `0x829e9f00 / token 7`。RVV local EXTMEM
+与 SoC shared memory 使用 fast-DMA 在启动前和完成后同步起始 8KiB，相关 offset
+和 size 已由 D9200/D9300 配置参数化。
+
+本地通过：Qwen loader/golden、请求无预计算检查、Host packer -> NPU kernel
+数值集成测试、严格 coralctl 编译。GB10 待执行 Verilator + full-system 验收：
+`./tools/coralnpu/build_qwen_device.sh` 后运行
+`./tools/coralnpu/run_qwen_e2e_test.sh`。

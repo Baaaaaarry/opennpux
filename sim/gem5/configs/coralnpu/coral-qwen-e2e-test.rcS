@@ -42,12 +42,12 @@ for candidate in \
     /data/bin/coralctl \
     /tmp/coralctl
 do
-    if [ -x "$candidate" ] && "$candidate" 2>&1 | grep -q qwen-run-tcb-v2; then
+    if [ -x "$candidate" ] && "$candidate" 2>&1 | grep -q qwen-device-run-v1; then
         CORALCTL="$candidate"
         break
     fi
 done
-[ -n "${CORALCTL}" ] || fail "coralctl with qwen-run-tcb-v2 support missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
+[ -n "${CORALCTL}" ] || fail "coralctl with qwen-device-run-v1 support missing; install assets and rebuild checkpoint with CORAL_REBUILD_CKPT=1"
 echo "[coral-qwen-e2e-test] tool=${CORALCTL}"
 
 for candidate in \
@@ -68,21 +68,18 @@ run_and_print qwen-info "${CORALCTL}" qwen-info "${QWEN_MODEL}"
 grep -q '^qwen_info=PASS$' /tmp/qwen-info.out ||
     fail "qwen-info did not report PASS"
 
-run_and_print qwen-run "${CORALCTL}" qwen-run "${QWEN_MODEL}" hybrid-sim
-grep -q '^qwen_prefill=PASS$' /tmp/qwen-run.out ||
-    fail "qwen prefill did not report PASS"
-grep -q '^qwen_decode=PASS$' /tmp/qwen-run.out ||
-    fail "qwen decode did not report PASS"
-grep -q '^qwen_numeric_reference=PASS$' /tmp/qwen-run.out ||
-    fail "qwen numerical reference did not report PASS"
-grep -q '^qwen_logits_checksum=0x829e9f00$' /tmp/qwen-run.out ||
+run_and_print qwen-device-run "${CORALCTL}" qwen-device-run \
+    "${QWEN_MODEL}" "open npux"
+grep -q '^qwen_prompt=open npux$' /tmp/qwen-device-run.out ||
+    fail "CPU prompt submission missing"
+grep -q '^qwen_device_completed_operators=19$' /tmp/qwen-device-run.out ||
+    fail "NPU did not complete the Qwen operator chain"
+grep -q '^qwen_logits_checksum=0x829e9f00$' /tmp/qwen-device-run.out ||
     fail "qwen logits checksum mismatch"
-grep -q '^qwen_next_token=7$' /tmp/qwen-run.out ||
+grep -q '^qwen_next_token=7$' /tmp/qwen-device-run.out ||
     fail "qwen next token mismatch"
-grep -q '^qwen_run=PASS$' /tmp/qwen-run.out ||
-    fail "qwen-run did not report PASS"
-
-run_and_print qwen-run-tcb "${CORALCTL}" qwen-run-tcb "${QWEN_MODEL}"
+grep -q '^qwen_device_inference=PASS$' /tmp/qwen-device-run.out ||
+    fail "NPU numerical inference did not report PASS"
 
 echo "qwen_e2e=PASS"
 echo "[coral-qwen-e2e-test] PASS"

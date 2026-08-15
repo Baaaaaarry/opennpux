@@ -5,7 +5,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 GEM5_ROOT="${ROOT_DIR}/thirdparty/gem5"
-TEST_SCRIPT="${GEM5_ROOT}/configs/coralnpu/coral-qwen-e2e-test.rcS"
+TEST_SCRIPT="${ROOT_DIR}/runtime/host/bootscripts/coral-qwen-e2e-test.rcS"
 KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
 VALIDATED_DISK_DEFAULT="/home/barry/wlk/gem5_arm_linux_images/ubuntu-18.04-arm64-docker.img"
 

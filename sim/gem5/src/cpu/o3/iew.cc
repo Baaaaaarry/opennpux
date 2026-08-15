@@ -574,7 +574,17 @@ IEW::instToCommit(const DynInstPtr& inst)
     // and write the instruction to that time.  If there are not,
     // keep looking back to see where's the first time there's a
     // free slot.
-    while ((*iewQueue)[wbCycle].insts[wbNumInst]) {
+    while (true) {
+        if (wbCycle > iewQueue->getFuture()) {
+            fatal("%s: IEW-to-commit queue exhausted: wbCycle=%u, "
+                  "future=%d, wbWidth=%u. Increase forwardComSize so its "
+                  "writeback capacity covers the CPU ROB.\n",
+                  cpu->name(), wbCycle, iewQueue->getFuture(), wbWidth);
+        }
+
+        if (!(*iewQueue)[wbCycle].insts[wbNumInst])
+            break;
+
         ++wbNumInst;
         if (wbNumInst == wbWidth) {
             ++wbCycle;

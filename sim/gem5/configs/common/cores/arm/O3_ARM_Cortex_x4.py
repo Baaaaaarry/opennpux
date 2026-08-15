@@ -120,7 +120,10 @@ class O3_ARM_Cortex_x4(ArmO3CPUWithMonitor):
     squashWidth = 10
     trapLatency = 5
     backComSize = 5
-    forwardComSize = 5
+    # instToCommit may have to spill a burst of simultaneous FU completions
+    # across future IEW-to-commit slots.  Keep enough slots for every ROB
+    # entry: (40 + 1) * wbWidth = 410 > numROBEntries.
+    forwardComSize = 40
     numPhysIntRegs = 256
     numPhysFloatRegs = 256
     numPhysVecRegs = 256

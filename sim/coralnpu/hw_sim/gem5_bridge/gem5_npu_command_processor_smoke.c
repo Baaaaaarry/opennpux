@@ -183,7 +183,10 @@ main(void)
     if (!range_valid(header->binding_offset, header->binding_count,
                      sizeof(struct opennpux_npu_tensor_binding), header->total_size) ||
         !range_valid(header->command_offset, header->command_count,
-                     sizeof(struct opennpux_npu_command), header->total_size)) {
+                     sizeof(struct opennpux_npu_command), header->total_size) ||
+        header->parameter_offset > header->total_size ||
+        header->parameter_size >
+            header->total_size - header->parameter_offset) {
         finish(completion, OPENNPUX_NPU_COMPLETION_ERROR, ERROR_BOUNDS, 0);
         return 1;
     }
@@ -246,7 +249,25 @@ main(void)
             commands[index].capability_id == 0 ||
             commands[index].first_binding > header->binding_count ||
             commands[index].binding_count >
-                header->binding_count - commands[index].first_binding) {
+                header->binding_count - commands[index].first_binding ||
+            commands[index].parameter_size !=
+                sizeof(struct opennpux_npu_operator_parameters) ||
+            commands[index].parameter_offset > header->parameter_size ||
+            commands[index].parameter_size >
+                header->parameter_size - commands[index].parameter_offset) {
+            finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                   ERROR_COMMAND, index);
+            return 1;
+        }
+        volatile const struct opennpux_npu_operator_parameters *parameters =
+            (volatile const struct opennpux_npu_operator_parameters *)(
+                base + header->parameter_offset +
+                commands[index].parameter_offset);
+        if (parameters->magic != OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC ||
+            parameters->version !=
+                OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION ||
+            parameters->struct_size != sizeof(*parameters) ||
+            parameters->opcode != commands[index].opcode) {
             finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
                    ERROR_COMMAND, index);
             return 1;

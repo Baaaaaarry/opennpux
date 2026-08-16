@@ -31,7 +31,9 @@ struct opennpux_npu_executable_header {
     uint64_t executable_id;
     uint32_t checksum;
     uint32_t default_active_experts;
-    uint64_t reserved[3];
+    uint64_t parameter_offset;
+    uint64_t parameter_size;
+    uint64_t reserved;
 };
 
 struct opennpux_npu_executable_entry {
@@ -57,7 +59,8 @@ struct opennpux_npu_command_template {
     uint64_t estimated_operations;
     uint64_t estimated_bytes;
     uint64_t profiling_tag;
-    uint64_t reserved0;
+    uint32_t parameter_offset;
+    uint32_t parameter_size;
     uint64_t resource_bindings;
 };
 
@@ -74,6 +77,7 @@ struct opennpux_npu_executable {
     const struct opennpux_npu_executable_header *header;
     const struct opennpux_npu_executable_entry *entries;
     const struct opennpux_npu_command_template *commands;
+    const uint8_t *parameters;
 };
 
 #if defined(__cplusplus)
@@ -83,6 +87,8 @@ static_assert(sizeof(struct opennpux_npu_executable_entry) ==
               OPENNPUX_NPU_EXECUTABLE_ENTRY_SIZE);
 static_assert(sizeof(struct opennpux_npu_command_template) ==
               OPENNPUX_NPU_COMMAND_TEMPLATE_SIZE);
+static_assert(sizeof(struct opennpux_npu_operator_parameters) ==
+              OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE);
 #else
 _Static_assert(sizeof(struct opennpux_npu_executable_header) ==
                OPENNPUX_NPU_EXECUTABLE_HEADER_SIZE,
@@ -93,6 +99,9 @@ _Static_assert(sizeof(struct opennpux_npu_executable_entry) ==
 _Static_assert(sizeof(struct opennpux_npu_command_template) ==
                OPENNPUX_NPU_COMMAND_TEMPLATE_SIZE,
                "NPU command template ABI size changed");
+_Static_assert(sizeof(struct opennpux_npu_operator_parameters) ==
+               OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE,
+               "NPU operator parameter ABI size changed");
 #endif
 
 int opennpux_npu_executable_load(

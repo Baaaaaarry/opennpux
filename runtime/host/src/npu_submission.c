@@ -175,6 +175,12 @@ opennpux_npu_submission_validate(const void *buffer, size_t size)
         header->command_count > OPENNPUX_NPU_MAX_COMMANDS ||
         header->binding_offset % OPENNPUX_NPU_RECORD_ALIGNMENT != 0 ||
         header->command_offset % OPENNPUX_NPU_RECORD_ALIGNMENT != 0 ||
+        ((header->parameter_offset == 0) != (header->parameter_size == 0)) ||
+        (header->parameter_size != 0 &&
+         (header->parameter_offset % OPENNPUX_NPU_RECORD_ALIGNMENT != 0 ||
+          header->parameter_offset > header->total_size ||
+          header->parameter_size >
+              header->total_size - header->parameter_offset)) ||
         array_size(header->binding_count,
                    sizeof(struct opennpux_npu_tensor_binding),
                    &binding_bytes) != 0 ||
@@ -238,6 +244,25 @@ opennpux_npu_submission_validate(const void *buffer, size_t size)
                 header->parameter_size - commands[index].parameter_offset)) {
             errno = EINVAL;
             return -1;
+        }
+        if (header->parameter_size != 0) {
+            if (commands[index].parameter_size !=
+                    sizeof(struct opennpux_npu_operator_parameters)) {
+                errno = EINVAL;
+                return -1;
+            }
+            const struct opennpux_npu_operator_parameters *parameters =
+                (const struct opennpux_npu_operator_parameters *)(
+                    bytes + header->parameter_offset +
+                    commands[index].parameter_offset);
+            if (parameters->magic != OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC ||
+                parameters->version !=
+                    OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION ||
+                parameters->struct_size != sizeof(*parameters) ||
+                parameters->opcode != commands[index].opcode) {
+                errno = EINVAL;
+                return -1;
+            }
         }
     }
     return 0;

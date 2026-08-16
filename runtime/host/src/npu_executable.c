@@ -30,6 +30,16 @@ range_valid(uint64_t offset, uint64_t count, uint64_t record_size,
         count * record_size <= total_size - offset;
 }
 
+static size_t
+align_record(size_t value)
+{
+    const size_t alignment = OPENNPUX_NPU_RECORD_ALIGNMENT;
+    if (value > SIZE_MAX - (alignment - 1)) {
+        return 0;
+    }
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
 int
 opennpux_npu_executable_load(
     const char *path, struct opennpux_npu_executable *executable)
@@ -90,6 +100,11 @@ opennpux_npu_executable_load(
                      header->entry_record_size, header->total_size) ||
         !range_valid(header->command_offset, header->command_count,
                      header->command_record_size, header->total_size) ||
+        ((header->parameter_offset == 0) != (header->parameter_size == 0)) ||
+        (header->parameter_size != 0 &&
+         (header->parameter_offset % OPENNPUX_NPU_RECORD_ALIGNMENT != 0 ||
+          !range_valid(header->parameter_offset, header->parameter_size, 1,
+                       header->total_size))) ||
         header->checksum != executable_checksum(storage, (size_t)length)) {
         free(storage);
         errno = EINVAL;
@@ -102,6 +117,8 @@ opennpux_npu_executable_load(
         (const uint8_t *)storage + header->entry_offset);
     executable->commands = (const struct opennpux_npu_command_template *)(
         (const uint8_t *)storage + header->command_offset);
+    executable->parameters = header->parameter_size == 0 ? NULL :
+        (const uint8_t *)storage + header->parameter_offset;
     for (uint32_t index = 0; index < header->entry_count; ++index) {
         const struct opennpux_npu_executable_entry *entry = &executable->entries[index];
         if (entry->command_count == 0 ||
@@ -124,12 +141,33 @@ opennpux_npu_executable_load(
             &executable->commands[index];
         if (command->opcode == OPENNPUX_NPU_OP_INVALID ||
             command->parameter_symbol == 0 ||
+            ((command->parameter_offset == 0 && command->parameter_size == 0) ?
+                 0 :
+                 (command->parameter_size !=
+                      sizeof(struct opennpux_npu_operator_parameters) ||
+                  command->parameter_offset > header->parameter_size ||
+                  command->parameter_size >
+                      header->parameter_size - command->parameter_offset)) ||
             command->binding_count > OPENNPUX_NPU_MAX_BINDINGS ||
             command->first_binding > OPENNPUX_NPU_MAX_BINDINGS -
                 command->binding_count) {
             opennpux_npu_executable_unload(executable);
             errno = EINVAL;
             return -1;
+        }
+        if (command->parameter_size != 0) {
+            const struct opennpux_npu_operator_parameters *parameters =
+                (const struct opennpux_npu_operator_parameters *)(
+                    executable->parameters + command->parameter_offset);
+            if (parameters->magic != OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC ||
+                parameters->version !=
+                    OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION ||
+                parameters->struct_size != sizeof(*parameters) ||
+                parameters->opcode != command->opcode) {
+                opennpux_npu_executable_unload(executable);
+                errno = EINVAL;
+                return -1;
+            }
         }
     }
     return 0;
@@ -214,6 +252,25 @@ opennpux_npu_executable_instantiate_with_parameters(
             binding_count, entry->command_count) != 0) {
         return -1;
     }
+    const size_t parameter_offset = builder.header->total_size;
+    const size_t total_size = align_record(
+        parameter_offset + executable->header->parameter_size);
+    if (total_size == 0 || total_size > submission_capacity ||
+        total_size > UINT32_MAX) {
+        errno = ENOSPC;
+        return -1;
+    }
+    if (total_size > builder.header->total_size) {
+        memset(builder.buffer + builder.header->total_size, 0,
+               total_size - builder.header->total_size);
+    }
+    if (executable->header->parameter_size != 0) {
+        memcpy(builder.buffer + parameter_offset, executable->parameters,
+               executable->header->parameter_size);
+        builder.header->parameter_offset = parameter_offset;
+        builder.header->parameter_size = executable->header->parameter_size;
+        builder.header->total_size = (uint32_t)total_size;
+    }
     memcpy(builder.bindings, bindings,
            binding_count * sizeof(struct opennpux_npu_tensor_binding));
     for (uint32_t index = 0; index < entry->command_count; ++index) {
@@ -232,6 +289,8 @@ opennpux_npu_executable_instantiate_with_parameters(
         destination->estimated_bytes = source->estimated_bytes;
         destination->profiling_tag = source->profiling_tag;
         destination->parameter_symbol = source->parameter_symbol;
+        destination->parameter_offset = source->parameter_offset;
+        destination->parameter_size = source->parameter_size;
         destination->runtime_shape = runtime_shape;
         destination->resource_bindings = source->resource_bindings;
     }

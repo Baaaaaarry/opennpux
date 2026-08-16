@@ -48,6 +48,7 @@ main(int argc, char **argv)
         sizeof(struct opennpux_npu_invocation_header) +
         5 * sizeof(struct opennpux_npu_tensor_binding) +
         executable.header->command_count * sizeof(struct opennpux_npu_command) +
+        executable.header->parameter_size +
         3 * OPENNPUX_NPU_RECORD_ALIGNMENT;
     void *submission = aligned_alloc(
         OPENNPUX_NPU_RECORD_ALIGNMENT,
@@ -83,6 +84,19 @@ main(int argc, char **argv)
                                                header->command_offset);
     check(commands[0].parameter_symbol != 0,
           "command parameter symbol was not relocated");
+    check(header->parameter_size != 0 && commands[0].parameter_size ==
+              sizeof(struct opennpux_npu_operator_parameters),
+          "command numerical parameters were not instantiated");
+    const struct opennpux_npu_operator_parameters *operator_parameters =
+        (const struct opennpux_npu_operator_parameters *)(
+            (const uint8_t *)submission + header->parameter_offset +
+            commands[0].parameter_offset);
+    check(operator_parameters->magic ==
+              OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC &&
+              operator_parameters->opcode == commands[0].opcode &&
+              operator_parameters->quantization_bits == 4 &&
+              operator_parameters->quantization_group_size == 128,
+          "instantiated numerical parameter contract is invalid");
     check((commands[0].flags & OPENNPUX_NPU_COMMAND_USES_WEIGHT) != 0,
           "embedding command lost its weight requirement");
     check((commands[header->command_count - 1].flags &
@@ -101,6 +115,22 @@ main(int argc, char **argv)
           "active expert count was not instantiated");
     check((commands[0].resource_bindings & OPENNPUX_NPU_RUNTIME_FIELD_MASK) == 2,
           "weight binding was not relocated");
+
+    struct opennpux_npu_invocation_header *mutable_header =
+        (struct opennpux_npu_invocation_header *)submission;
+    struct opennpux_npu_operator_parameters *mutable_parameters =
+        (struct opennpux_npu_operator_parameters *)((uint8_t *)submission +
+            mutable_header->parameter_offset + commands[0].parameter_offset);
+    mutable_parameters->opcode ^= 1;
+    mutable_header->checksum = opennpux_npu_submission_checksum(
+        submission, mutable_header->total_size);
+    check(opennpux_npu_submission_validate(submission, submission_size) != 0,
+          "operator parameter opcode corruption was accepted");
+    mutable_parameters->opcode ^= 1;
+    mutable_header->checksum = opennpux_npu_submission_checksum(
+        submission, mutable_header->total_size);
+    check(opennpux_npu_submission_validate(submission, submission_size) == 0,
+          "restored operator parameters were rejected");
 
     free(submission);
     opennpux_npu_executable_unload(&executable);

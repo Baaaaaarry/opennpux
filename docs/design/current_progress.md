@@ -144,6 +144,18 @@ smoke must use `libcoralnpu_gem5_rvv_highmem_bridge.so`; the dedicated
 `build_gptq_matmul_smoke.sh` and `run_gptq_matmul_smoke.sh` scripts enforce that
 pairing and reject a run with no opcode-10 command submission.
 
+Generic executables now carry a model-independent, fixed-size numerical
+parameter record for every command. The record preserves static feature sizes,
+attention geometry, expert intermediate width and GPTQ bits/group size while
+runtime rows remain dynamic. Instantiation copies these records into the TCB
+parameter area, relocates each command to its record, and protects the complete
+payload with bounds checks and the invocation checksum. The NPU command
+processor rejects missing, truncated, mismatched-opcode or stale parameter
+records before dependency scheduling. This closes the command-contract gap
+between the existing 524-command Qwen3.5 schedule and the GPTQ tensor engine;
+the next increment maps exact weight components and live input/output bindings
+into the MATMUL request.
+
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not
 require changes to the queue or driver ABI.

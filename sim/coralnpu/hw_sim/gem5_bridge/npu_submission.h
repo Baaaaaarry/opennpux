@@ -39,6 +39,9 @@
 #define OPENNPUX_NPU_BIND_PAGE_QUEUE UINT32_C(16)
 #define OPENNPUX_NPU_BIND_PAGE_CACHE UINT32_C(32)
 #define OPENNPUX_NPU_COMMAND_USES_WEIGHT UINT32_C(1)
+#define OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC UINT32_C(0x5058504e)
+#define OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION UINT32_C(1)
+#define OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE UINT32_C(64)
 
 struct opennpux_npu_invocation_header {
     uint32_t magic, version, header_size, total_size;
@@ -63,6 +66,13 @@ struct opennpux_npu_command {
     uint64_t parameter_offset, parameter_size, scratch_offset, scratch_size;
     uint64_t estimated_operations, estimated_bytes, profiling_tag;
     uint64_t parameter_symbol, runtime_shape, resource_bindings;
+};
+
+struct opennpux_npu_operator_parameters {
+    uint32_t magic, version, struct_size, opcode;
+    uint32_t phase, flags, input_features, output_features;
+    uint32_t intermediate_features, head_count, kv_head_count, head_dim;
+    uint32_t quantization_bits, quantization_group_size, reserved[2];
 };
 
 struct opennpux_npu_completion {
@@ -93,6 +103,8 @@ static_assert(sizeof(struct opennpux_npu_command) == 112);
 static_assert(sizeof(struct opennpux_npu_completion) == 112);
 static_assert(sizeof(struct opennpux_npu_trace_header) == 64);
 static_assert(sizeof(struct opennpux_npu_trace_record) == 32);
+static_assert(sizeof(struct opennpux_npu_operator_parameters) ==
+              OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE);
 #else
 _Static_assert(sizeof(struct opennpux_npu_invocation_header) == 144,
                "invocation ABI size changed");
@@ -106,6 +118,9 @@ _Static_assert(sizeof(struct opennpux_npu_trace_header) == 64,
                "trace header ABI size changed");
 _Static_assert(sizeof(struct opennpux_npu_trace_record) == 32,
                "trace record ABI size changed");
+_Static_assert(sizeof(struct opennpux_npu_operator_parameters) ==
+                   OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE,
+               "operator parameter ABI size changed");
 #endif
 
 #endif

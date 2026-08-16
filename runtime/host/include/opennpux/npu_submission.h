@@ -25,6 +25,9 @@ extern "C" {
 #define OPENNPUX_NPU_TRACE_HEADER_SIZE UINT32_C(64)
 #define OPENNPUX_NPU_TRACE_RECORD_SIZE UINT32_C(32)
 #define OPENNPUX_NPU_TRACE_MAX_OPCODE UINT32_C(17)
+#define OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC UINT32_C(0x5058504e)
+#define OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION UINT32_C(1)
+#define OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE UINT32_C(64)
 
 #define OPENNPUX_NPU_RESOURCE_BINDING_NONE UINT16_C(0xffff)
 #define OPENNPUX_NPU_RUNTIME_FIELD_MASK UINT64_C(0xffff)
@@ -88,6 +91,24 @@ enum opennpux_npu_invocation_flags {
 
 enum opennpux_npu_command_flags {
     OPENNPUX_NPU_COMMAND_USES_WEIGHT = 1u << 0,
+};
+
+enum opennpux_npu_operator_phase {
+    OPENNPUX_NPU_PHASE_INVALID = 0,
+    OPENNPUX_NPU_PHASE_EMBED = 1,
+    OPENNPUX_NPU_PHASE_NORMALIZE = 2,
+    OPENNPUX_NPU_PHASE_MATMUL = 3,
+    OPENNPUX_NPU_PHASE_ATTENTION = 4,
+    OPENNPUX_NPU_PHASE_STATE_UPDATE = 5,
+    OPENNPUX_NPU_PHASE_ROUTER = 6,
+    OPENNPUX_NPU_PHASE_EXPERT = 7,
+    OPENNPUX_NPU_PHASE_COMBINE = 8,
+    OPENNPUX_NPU_PHASE_TOPK = 9,
+};
+
+enum opennpux_npu_operator_parameter_flags {
+    OPENNPUX_NPU_PARAMETER_GPTQ = 1u << 0,
+    OPENNPUX_NPU_PARAMETER_DYNAMIC_ROWS = 1u << 1,
 };
 
 enum opennpux_npu_completion_state {
@@ -155,6 +176,24 @@ struct opennpux_npu_command {
     uint64_t resource_bindings;
 };
 
+struct opennpux_npu_operator_parameters {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t struct_size;
+    uint32_t opcode;
+    uint32_t phase;
+    uint32_t flags;
+    uint32_t input_features;
+    uint32_t output_features;
+    uint32_t intermediate_features;
+    uint32_t head_count;
+    uint32_t kv_head_count;
+    uint32_t head_dim;
+    uint32_t quantization_bits;
+    uint32_t quantization_group_size;
+    uint32_t reserved[2];
+};
+
 struct opennpux_npu_completion {
     uint32_t magic;
     uint32_t version;
@@ -219,6 +258,8 @@ static_assert(sizeof(struct opennpux_npu_trace_header) ==
               OPENNPUX_NPU_TRACE_HEADER_SIZE);
 static_assert(sizeof(struct opennpux_npu_trace_record) ==
               OPENNPUX_NPU_TRACE_RECORD_SIZE);
+static_assert(sizeof(struct opennpux_npu_operator_parameters) ==
+              OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE);
 #else
 _Static_assert(sizeof(struct opennpux_npu_invocation_header) ==
                OPENNPUX_NPU_INVOCATION_HEADER_SIZE,
@@ -238,6 +279,9 @@ _Static_assert(sizeof(struct opennpux_npu_trace_header) ==
 _Static_assert(sizeof(struct opennpux_npu_trace_record) ==
                OPENNPUX_NPU_TRACE_RECORD_SIZE,
                "NPU trace record ABI size changed");
+_Static_assert(sizeof(struct opennpux_npu_operator_parameters) ==
+               OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE,
+               "NPU operator parameter ABI size changed");
 #endif
 
 int opennpux_npu_submission_begin(

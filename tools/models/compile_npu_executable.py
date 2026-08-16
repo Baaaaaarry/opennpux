@@ -12,12 +12,14 @@ from typing import Any
 FORMAT = "OPENNPUX_NPU_EXECUTABLE_V2"
 HEADER = struct.Struct("<8I3Q2I3Q")
 ENTRY = struct.Struct("<4I4Q")
-COMMAND = struct.Struct("<8I6Q")
+COMMAND = struct.Struct("<8I4Q2IQ")
+OPERATOR_PARAMETERS = struct.Struct("<16I")
 MAGIC = 0x4558504E
 INVOCATION_HEADER_SIZE = 144
 TENSOR_BINDING_SIZE = 112
 INVOCATION_COMMAND_SIZE = 112
 RECORD_ALIGNMENT = 64
+OPERATOR_PARAMETERS_MAGIC = 0x5058504E
 
 OPCODE = {
     "EMBED": 1, "MATMUL": 2, "ADD": 3, "MUL": 4, "NORMALIZE": 5,
@@ -63,6 +65,76 @@ MODEL_PHASE_OPCODE = {
     "lm_head": "MATMUL",
     "token_selection": "TOPK",
 }
+
+PHASE_KIND = {
+    "token_embedding": 1,
+    "attention_norm": 2,
+    "ffn_norm": 2,
+    "linear_attention_gate_norm": 2,
+    "final_norm": 2,
+    "qkv_projection": 3,
+    "attention_output_projection": 3,
+    "linear_attention_projection": 3,
+    "linear_attention_output_projection": 3,
+    "lm_head": 3,
+    "scaled_dot_product_attention": 4,
+    "paged_kv_cache_update": 5,
+    "recurrent_state_update": 5,
+    "router_topk": 6,
+    "routed_experts_active_only": 7,
+    "shared_expert": 7,
+    "moe_combine": 8,
+    "token_selection": 9,
+}
+
+
+def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> dict[str, int]:
+    hidden = max(1, int(manifest.get("hidden_size", 1)))
+    heads = max(1, int(manifest.get("head_count", 1)))
+    kv_heads = max(1, int(manifest.get("kv_head_count", heads)))
+    head_dim = max(1, int(manifest.get("head_dim", hidden // heads or 1)))
+    experts = max(1, int(manifest.get("expert_count", 1)))
+    moe = max(1, int(manifest.get("moe_intermediate_size", hidden)))
+    shared = max(1, int(manifest.get("shared_expert_intermediate_size", moe)))
+    vocab = max(1, int(manifest.get("vocab_size", 1)))
+    input_features = hidden
+    output_features = hidden
+    intermediate = 0
+    if phase == "qkv_projection":
+        output_features = (heads + 2 * kv_heads) * head_dim
+    elif phase == "router_topk":
+        output_features = experts
+    elif phase == "routed_experts_active_only":
+        intermediate = moe
+    elif phase == "shared_expert":
+        intermediate = shared
+    elif phase == "lm_head":
+        output_features = vocab
+    elif phase == "token_embedding":
+        input_features = 1
+    elif phase == "token_selection":
+        input_features = vocab
+        output_features = 1
+    quantization = manifest.get("quantization", {})
+    quant_bits = int(manifest.get("quantization_bits", quantization.get("bits", 0)))
+    group_size = int(manifest.get(
+        "quantization_group_size", quantization.get("group_size", 0)
+    ))
+    flags = 2
+    if opcode in {"MATMUL", "EXPERT", "ROUTER", "EMBED"} and quant_bits == 4:
+        flags |= 1
+    return {
+        "phase": PHASE_KIND.get(phase, 0),
+        "flags": flags,
+        "input_features": input_features,
+        "output_features": output_features,
+        "intermediate_features": intermediate,
+        "head_count": heads,
+        "kv_head_count": kv_heads,
+        "head_dim": head_dim,
+        "quantization_bits": quant_bits,
+        "quantization_group_size": group_size,
+    }
 
 
 def estimate_phase_work(
@@ -158,6 +230,9 @@ def lower_commands(plan: dict[str, Any]) -> list[dict[str, Any]]:
                 "estimated_operations": estimated_operations,
                 "estimated_bytes": estimated_bytes,
                 "attributes": attributes,
+                "parameters": operator_parameters(
+                    plan.get("model", {}), phase, opcode
+                ),
             }
         )
         dependency = completion
@@ -288,12 +363,15 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
     commands = executable["commands"]
     entry_offset = HEADER.size
     command_offset = entry_offset + len(entries) * ENTRY.size
-    total_size = command_offset + len(commands) * COMMAND.size
+    parameter_offset = align(command_offset + len(commands) * COMMAND.size)
+    parameter_size = len(commands) * OPERATOR_PARAMETERS.size
+    total_size = parameter_offset + parameter_size
     executable_id = hash64(json.dumps(executable["source"], sort_keys=True)) or 1
     header = HEADER.pack(
         MAGIC, 2, HEADER.size, total_size, len(entries), len(commands),
         ENTRY.size, COMMAND.size, entry_offset, command_offset, executable_id,
-        0, int(executable["default_active_experts"]), 0, 0, 0,
+        0, int(executable["default_active_experts"]), parameter_offset,
+        parameter_size, 0,
     )
     entry_data = b"".join(
         ENTRY.pack(
@@ -312,12 +390,30 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
             int(command["estimated_operations"]),
             int(command["estimated_bytes"]),
             int(command["profiling_tag"]),
-            0,
+            index * OPERATOR_PARAMETERS.size,
+            OPERATOR_PARAMETERS.size,
             2 | (3 << 16) | (4 << 32),
+        )
+        for index, command in enumerate(commands)
+    )
+    parameter_data = b"".join(
+        OPERATOR_PARAMETERS.pack(
+            OPERATOR_PARAMETERS_MAGIC, 1, OPERATOR_PARAMETERS.size,
+            OPCODE[command["opcode"]], int(command["parameters"]["phase"]),
+            int(command["parameters"]["flags"]),
+            int(command["parameters"]["input_features"]),
+            int(command["parameters"]["output_features"]),
+            int(command["parameters"]["intermediate_features"]),
+            int(command["parameters"]["head_count"]),
+            int(command["parameters"]["kv_head_count"]),
+            int(command["parameters"]["head_dim"]),
+            int(command["parameters"]["quantization_bits"]),
+            int(command["parameters"]["quantization_group_size"]), 0, 0,
         )
         for command in commands
     )
     data = header + entry_data + command_data
+    data += b"\0" * (parameter_offset - len(data)) + parameter_data
     # offsetof(opennpux_npu_executable_header, checksum)
     checksum_offset = 56
     value = checksum(data, checksum_offset)
@@ -343,7 +439,8 @@ def main() -> None:
     command_offset = align(binding_offset + 5 * TENSOR_BINDING_SIZE)
     invocation_bytes = align(
         command_offset + len(executable["commands"]) * INVOCATION_COMMAND_SIZE
-    )
+    ) + len(executable["commands"]) * OPERATOR_PARAMETERS.size
+    invocation_bytes = align(invocation_bytes)
     print(f"npu_invocation_bytes_upper_bound={invocation_bytes}")
     print(
         "npu_executable_capabilities="

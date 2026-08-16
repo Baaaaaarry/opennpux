@@ -205,6 +205,14 @@ guest tool. The first run must create a checkpoint whose device tree reserves
 the standard 8MiB NPU shared window. The compiled 524-command invocation is
 larger than 64KiB once numerical operator parameter records are included:
 
+Before simulation, validate that every packed GPTQ tensor has an unambiguous
+`qweight/qzeros/scales[/g_idx]` binding:
+
+```sh
+./tools/models/inspect_gptq_bindings.py \
+  /data/models/Qwen3.5-35B/model.npxr --require-complete
+```
+
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh

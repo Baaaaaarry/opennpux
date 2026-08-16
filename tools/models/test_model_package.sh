@@ -112,6 +112,11 @@ assert any(
 assert any(record[8] == 7 and record[9] == 7 for record in records)
 print("npu_weight_range_index=PASS")
 PY
+"${SCRIPT_DIR}/inspect_gptq_bindings.py" "${MODEL_DIR}/model.npxr" \
+    | tee "${WORK_DIR}/gptq-bindings.log"
+grep -q '^gptq_binding_complete=1$' "${WORK_DIR}/gptq-bindings.log"
+grep -q '^gptq_binding_incomplete=3$' "${WORK_DIR}/gptq-bindings.log"
+grep -q '^gptq_binding_duplicate=0$' "${WORK_DIR}/gptq-bindings.log"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \

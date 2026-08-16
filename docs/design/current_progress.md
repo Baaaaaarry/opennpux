@@ -134,7 +134,11 @@ placement and real command pause/service/resume are the next milestone.
 The first model-independent GPTQ data-plane kernel is now implemented for
 packed int4 MatMul. It consumes AutoGPTQ `qweight`, `qzeros`, per-group
 `scales`, and optional `g_idx`, supports batched input rows, and reports
-operations, bytes and modeled cycles. This fixes the dequantization contract
+operations, bytes and modeled cycles. The generic operator adapter validates
+numerical command parameters and all operand buffer extents before dispatching
+that kernel. It is independent of Qwen tensor names and is linked into both
+Coral bridge variants, establishing the reusable command-to-kernel boundary
+for hybrid and sampled execution. This fixes the dequantization contract
 before wiring paged command ranges into MATMUL, ROUTER, EXPERT and LM-head
 dispatch. Both Coral bridge variants compile the kernel and deterministic
 grouped-quantization unit coverage fixes its numerical semantics. A dedicated

@@ -137,6 +137,8 @@ cc_binary(
         "gem5_bridge/gem5_coprocessor_command.h",
         "gem5_bridge/gem5_custom_mac.h",
         "gem5_bridge/gem5_dma_request_builder.h",
+        "gem5_bridge/gem5_generic_gptq_executor.cc",
+        "gem5_bridge/gem5_generic_gptq_executor.h",
         "gem5_bridge/gem5_gptq_kernels.cc",
         "gem5_bridge/gem5_gptq_kernels.h",
         "gem5_bridge/gem5_hybrid_kernels.cc",
@@ -169,6 +171,8 @@ cc_binary(
         "gem5_bridge/gem5_coprocessor_command.h",
         "gem5_bridge/gem5_custom_mac.h",
         "gem5_bridge/gem5_dma_request_builder.h",
+        "gem5_bridge/gem5_generic_gptq_executor.cc",
+        "gem5_bridge/gem5_generic_gptq_executor.h",
         "gem5_bridge/gem5_gptq_kernels.cc",
         "gem5_bridge/gem5_gptq_kernels.h",
         "gem5_bridge/gem5_hybrid_kernels.cc",
@@ -222,6 +226,18 @@ cc_test(
         "gem5_bridge/gem5_gptq_kernels.cc",
         "gem5_bridge/gem5_gptq_kernels.h",
         "gem5_bridge/gem5_gptq_kernels_test.cc",
+    ],
+)
+
+cc_test(
+    name = "gem5_generic_gptq_executor_test",
+    srcs = [
+        "gem5_bridge/gem5_generic_gptq_executor.cc",
+        "gem5_bridge/gem5_generic_gptq_executor.h",
+        "gem5_bridge/gem5_generic_gptq_executor_test.cc",
+        "gem5_bridge/gem5_gptq_kernels.cc",
+        "gem5_bridge/gem5_gptq_kernels.h",
+        "gem5_bridge/npu_submission.h",
     ],
 )
 

@@ -208,6 +208,7 @@ larger than 64KiB once numerical operator parameter records are included:
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh
+./tools/coralnpu/test_hybrid_kernels.sh
 ./tools/models/compile_npu_executable.py \
   /data/models/Qwen3.5-35B/model.npxm \
   /data/models/Qwen3.5-35B/execution-plan.npxp \

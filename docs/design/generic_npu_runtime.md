@@ -196,6 +196,12 @@ host pager with exact model-file locations.
 payload bytes, zero-padding only beyond the selected tensor. The generic
 executable smoke test uses this path by default when `model.npxw` is adjacent
 to `model.npxc`; `CORAL_NPU_WEIGHT_PAGE` remains an explicit override.
+The binary range-index ABI now publishes stable semantic IDs and an exact
+`command + role + component + expert` lookup API. A numerical backend can
+therefore request `qweight`, `qzeros`, `scales` and `g_idx` independently
+instead of treating a command's first tensor range as its complete weight.
+Ambiguous matches are rejected, which preserves the distinction between MoE
+experts and projection tensors before GPTQ execution.
 For command-processor acceptance,
 `materialize_npu_weight_samples.py` builds a 4KiB command-indexed probe table.
 Each weight-bearing command receives the first 32-bit word from its own mapped

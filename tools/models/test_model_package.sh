@@ -23,6 +23,9 @@ for name, tensors in (
     ("model-00001-of-00002.safetensors", {
         "model.language_model.embed_tokens.weight": bytes(range(8)),
         "model.language_model.layers.0.self_attn.q_proj.qweight": bytes(range(8)),
+        "model.language_model.layers.0.self_attn.q_proj.qzeros": bytes(range(4)),
+        "model.language_model.layers.0.self_attn.q_proj.scales": bytes(range(8)),
+        "model.language_model.layers.0.self_attn.q_proj.g_idx": bytes(range(8)),
         "model.language_model.layers.0.self_attn.k_proj.qweight": bytes(range(8)),
         "model.language_model.layers.0.self_attn.q_norm.weight": bytes(range(8)),
     }),
@@ -46,7 +49,7 @@ for name, tensors in (
     encoded = json.dumps(header, separators=(",", ":")).encode()
     (root / name).write_bytes(struct.pack("<Q", len(encoded)) + encoded + payload)
 PY
-printf '%s\n' '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-00001-of-00002.safetensors","c":"model-00001-of-00002.safetensors","d":"model-00001-of-00002.safetensors","e":"model-00002-of-00002.safetensors","f":"model-00002-of-00002.safetensors","g":"model-00002-of-00002.safetensors","h":"model-00002-of-00002.safetensors"}}' > "${MODEL_DIR}/model.safetensors.index.json"
+printf '%s\n' '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-00001-of-00002.safetensors","c":"model-00001-of-00002.safetensors","d":"model-00001-of-00002.safetensors","e":"model-00001-of-00002.safetensors","f":"model-00001-of-00002.safetensors","g":"model-00001-of-00002.safetensors","h":"model-00002-of-00002.safetensors","i":"model-00002-of-00002.safetensors","j":"model-00002-of-00002.safetensors","k":"model-00002-of-00002.safetensors"}}' > "${MODEL_DIR}/model.safetensors.index.json"
 
 "${SCRIPT_DIR}/import_hf_model.py" "${MODEL_DIR}" "${MANIFEST}"
 "${SCRIPT_DIR}/build_qwen_execution_plan.py" "${MANIFEST}"
@@ -102,6 +105,10 @@ records = [
     for index in range(header[5])
 ]
 assert any(record[8] == 7 for record in records)
+assert any(
+    record[2] == 0xA3F281BA and record[3] == 0x40406979
+    for record in records
+)
 print("npu_weight_range_index=PASS")
 PY
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \

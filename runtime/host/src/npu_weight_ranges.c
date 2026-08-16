@@ -146,3 +146,79 @@ opennpux_npu_weight_ranges_for_command(
     *record_count = begin - first;
     return 0;
 }
+
+int
+opennpux_npu_weight_range_find(
+    const struct opennpux_npu_weight_ranges *ranges, uint32_t command_id,
+    uint32_t role_id, uint32_t component_id, uint64_t expert_id,
+    const struct opennpux_npu_weight_range_record **record)
+{
+    if (record == NULL || role_id == 0 || component_id == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    const struct opennpux_npu_weight_range_record *records;
+    uint32_t record_count;
+    if (opennpux_npu_weight_ranges_for_command(
+            ranges, command_id, &records, &record_count) != 0) {
+        return -1;
+    }
+    const struct opennpux_npu_weight_range_record *match = NULL;
+    for (uint32_t index = 0; index < record_count; ++index) {
+        if (records[index].role_id != role_id ||
+            records[index].component_id != component_id ||
+            records[index].expert_id != expert_id) {
+            continue;
+        }
+        if (match != NULL) {
+            errno = EEXIST;
+            return -1;
+        }
+        match = &records[index];
+    }
+    if (match == NULL) {
+        errno = ENOENT;
+        return -1;
+    }
+    *record = match;
+    return 0;
+}
+
+int
+opennpux_npu_weight_ranges_find_gptq(
+    const struct opennpux_npu_weight_ranges *ranges, uint32_t command_id,
+    uint32_t role_id, uint64_t expert_id,
+    struct opennpux_npu_gptq_weight_ranges *gptq)
+{
+    if (gptq == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    memset(gptq, 0, sizeof(*gptq));
+    if (opennpux_npu_weight_range_find(
+            ranges, command_id, role_id,
+            OPENNPUX_NPU_WEIGHT_COMPONENT_QWEIGHT, expert_id,
+            &gptq->qweight) != 0 ||
+        opennpux_npu_weight_range_find(
+            ranges, command_id, role_id,
+            OPENNPUX_NPU_WEIGHT_COMPONENT_QZEROS, expert_id,
+            &gptq->qzeros) != 0 ||
+        opennpux_npu_weight_range_find(
+            ranges, command_id, role_id,
+            OPENNPUX_NPU_WEIGHT_COMPONENT_SCALES, expert_id,
+            &gptq->scales) != 0) {
+        memset(gptq, 0, sizeof(*gptq));
+        return -1;
+    }
+    if (opennpux_npu_weight_range_find(
+            ranges, command_id, role_id,
+            OPENNPUX_NPU_WEIGHT_COMPONENT_G_IDX, expert_id,
+            &gptq->g_idx) != 0) {
+        if (errno != ENOENT) {
+            memset(gptq, 0, sizeof(*gptq));
+            return -1;
+        }
+        gptq->g_idx = NULL;
+    }
+    return 0;
+}

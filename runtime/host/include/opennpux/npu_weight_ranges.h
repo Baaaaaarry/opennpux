@@ -14,6 +14,25 @@ extern "C" {
 #define OPENNPUX_NPU_WEIGHT_RANGE_RECORD_SIZE UINT32_C(64)
 #define OPENNPUX_NPU_WEIGHT_EXPERT_NONE UINT64_MAX
 
+/* Low 32 bits of the package compiler's SHA-256 semantic identifiers. */
+#define OPENNPUX_NPU_WEIGHT_COMPONENT_WEIGHT UINT32_C(0x8fdf4408)
+#define OPENNPUX_NPU_WEIGHT_COMPONENT_BIAS UINT32_C(0xe82448fa)
+#define OPENNPUX_NPU_WEIGHT_COMPONENT_QWEIGHT UINT32_C(0x40406979)
+#define OPENNPUX_NPU_WEIGHT_COMPONENT_QZEROS UINT32_C(0x5d11cedb)
+#define OPENNPUX_NPU_WEIGHT_COMPONENT_SCALES UINT32_C(0x76c0006c)
+#define OPENNPUX_NPU_WEIGHT_COMPONENT_G_IDX UINT32_C(0x1b2ede4b)
+#define OPENNPUX_NPU_WEIGHT_COMPONENT_OTHER UINT32_C(0x108a29d9)
+
+#define OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_K_PROJ UINT32_C(0xf91b83dd)
+#define OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_O_PROJ UINT32_C(0xfa6afc40)
+#define OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_Q_PROJ UINT32_C(0xa3f281ba)
+#define OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_V_PROJ UINT32_C(0x77364ab0)
+#define OPENNPUX_NPU_WEIGHT_ROLE_EMBEDDING UINT32_C(0x560158aa)
+#define OPENNPUX_NPU_WEIGHT_ROLE_LM_HEAD UINT32_C(0xe812c442)
+#define OPENNPUX_NPU_WEIGHT_ROLE_ROUTED_EXPERT UINT32_C(0x676a07a0)
+#define OPENNPUX_NPU_WEIGHT_ROLE_ROUTER UINT32_C(0x0456c974)
+#define OPENNPUX_NPU_WEIGHT_ROLE_SHARED_EXPERT UINT32_C(0x06fc7f70)
+
 struct opennpux_npu_weight_range_header {
     uint32_t magic;
     uint32_t version;
@@ -49,6 +68,13 @@ struct opennpux_npu_weight_ranges {
     const struct opennpux_npu_weight_range_record *records;
 };
 
+struct opennpux_npu_gptq_weight_ranges {
+    const struct opennpux_npu_weight_range_record *qweight;
+    const struct opennpux_npu_weight_range_record *qzeros;
+    const struct opennpux_npu_weight_range_record *scales;
+    const struct opennpux_npu_weight_range_record *g_idx;
+};
+
 #if defined(__cplusplus)
 static_assert(sizeof(struct opennpux_npu_weight_range_header) ==
               OPENNPUX_NPU_WEIGHT_RANGE_HEADER_SIZE);
@@ -71,6 +97,14 @@ int opennpux_npu_weight_ranges_for_command(
     const struct opennpux_npu_weight_ranges *ranges, uint32_t command_id,
     const struct opennpux_npu_weight_range_record **records,
     uint32_t *record_count);
+int opennpux_npu_weight_range_find(
+    const struct opennpux_npu_weight_ranges *ranges, uint32_t command_id,
+    uint32_t role_id, uint32_t component_id, uint64_t expert_id,
+    const struct opennpux_npu_weight_range_record **record);
+int opennpux_npu_weight_ranges_find_gptq(
+    const struct opennpux_npu_weight_ranges *ranges, uint32_t command_id,
+    uint32_t role_id, uint64_t expert_id,
+    struct opennpux_npu_gptq_weight_ranges *gptq);
 
 #ifdef __cplusplus
 }

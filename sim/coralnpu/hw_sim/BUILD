@@ -129,6 +129,7 @@ cc_binary(
         "gem5_bridge/coralnpu_gem5_abi.cc",
         "gem5_bridge/coralnpu_gem5_abi.h",
         "gem5_bridge/coral_mobilenet.h",
+        "gem5_bridge/coral_gptq_matmul.h",
         "gem5_bridge/coral_operator.h",
         "gem5_bridge/gem5_axi_master_drivers.h",
         "gem5_bridge/gem5_core_mini_axi_wrapper.h",
@@ -136,6 +137,8 @@ cc_binary(
         "gem5_bridge/gem5_coprocessor_command.h",
         "gem5_bridge/gem5_custom_mac.h",
         "gem5_bridge/gem5_dma_request_builder.h",
+        "gem5_bridge/gem5_gptq_kernels.cc",
+        "gem5_bridge/gem5_gptq_kernels.h",
         "gem5_bridge/gem5_hybrid_kernels.cc",
         "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_operator.cc",
@@ -158,6 +161,7 @@ cc_binary(
         "gem5_bridge/coralnpu_gem5_abi.cc",
         "gem5_bridge/coralnpu_gem5_abi.h",
         "gem5_bridge/coral_mobilenet.h",
+        "gem5_bridge/coral_gptq_matmul.h",
         "gem5_bridge/coral_operator.h",
         "gem5_bridge/gem5_axi_master_drivers.h",
         "gem5_bridge/gem5_core_mini_axi_wrapper.h",
@@ -165,6 +169,8 @@ cc_binary(
         "gem5_bridge/gem5_coprocessor_command.h",
         "gem5_bridge/gem5_custom_mac.h",
         "gem5_bridge/gem5_dma_request_builder.h",
+        "gem5_bridge/gem5_gptq_kernels.cc",
+        "gem5_bridge/gem5_gptq_kernels.h",
         "gem5_bridge/gem5_hybrid_kernels.cc",
         "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_operator.cc",
@@ -211,9 +217,21 @@ cc_test(
 )
 
 cc_test(
+    name = "gem5_gptq_kernels_test",
+    srcs = [
+        "gem5_bridge/gem5_gptq_kernels.cc",
+        "gem5_bridge/gem5_gptq_kernels.h",
+        "gem5_bridge/gem5_gptq_kernels_test.cc",
+    ],
+)
+
+cc_test(
     name = "gem5_hybrid_kernels_test",
     srcs = [
+        "gem5_bridge/coral_gptq_matmul.h",
         "gem5_bridge/coral_operator.h",
+        "gem5_bridge/gem5_gptq_kernels.cc",
+        "gem5_bridge/gem5_gptq_kernels.h",
         "gem5_bridge/gem5_hybrid_kernels.cc",
         "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_kernels_test.cc",
@@ -273,6 +291,20 @@ coralnpu_v2_binary(
         "gem5_bridge/coral_operator_client.h",
         "gem5_bridge/gem5_qwen_device_infer.cc",
         "gem5_bridge/qwen_device_inference.h",
+    ],
+    dtcm_size_kbytes = 64,
+    itcm_size_kbytes = 64,
+    stack_size_bytes = 4096,
+    visibility = ["//visibility:public"],
+)
+
+coralnpu_v2_binary(
+    name = "gem5_gptq_matmul_smoke",
+    srcs = [
+        "gem5_bridge/coral_gptq_matmul.h",
+        "gem5_bridge/coral_operator.h",
+        "gem5_bridge/coral_operator_client.h",
+        "gem5_bridge/gem5_gptq_matmul_smoke.cc",
     ],
     dtcm_size_kbytes = 64,
     itcm_size_kbytes = 64,

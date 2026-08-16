@@ -127,6 +127,10 @@ bool DispatchGem5HybridOperator(
       success = RunGem5HybridQwenTinyInfer(
           descriptor, extmem, extmem_base, extmem_size);
       break;
+    case CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4:
+      success = RunGem5HybridGptqInt4MatMul(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
     default:
       descriptor->error = CORAL_OPERATOR_ERROR_UNSUPPORTED;
       break;

@@ -129,6 +129,17 @@ ring now supports batched PENDING/READY/ERROR page lifecycles, cache slots and
 explicit queue-full backpressure. Numerical GPTQ kernels, shared-window cache
 placement and real command pause/service/resume are the next milestone.
 
+The first model-independent GPTQ data-plane kernel is now implemented for
+packed int4 MatMul. It consumes AutoGPTQ `qweight`, `qzeros`, per-group
+`scales`, and optional `g_idx`, supports batched input rows, and reports
+operations, bytes and modeled cycles. This fixes the dequantization contract
+before wiring paged command ranges into MATMUL, ROUTER, EXPERT and LM-head
+dispatch. Both Coral bridge variants compile the kernel and deterministic
+grouped-quantization unit coverage fixes its numerical semantics. A dedicated
+firmware smoke image submits the GPTQ operator through the CUSTOM_0 instruction
+and two-level command decoder, so GB10 validation covers fetch, TDMA, tensor
+execution, writeback and completion rather than calling the host kernel alone.
+
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not
 require changes to the queue or driver ABI.

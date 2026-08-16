@@ -86,6 +86,24 @@ void TestSourceAndNameObservability() {
   }
 }
 
+void TestGptqUsesTensorEngine() {
+  Gem5CoprocessorCommandAdapter adapter;
+  const coral_operator_descriptor descriptor =
+      ValidDescriptor(CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4);
+  uint32_t tag = 0;
+  uint32_t error = UINT32_MAX;
+  assert(adapter.Submit(Gem5CommandSource::kCustomInstruction, 0x20400300,
+                        descriptor, &tag, &error));
+
+  Gem5CoprocessorCommand command = {};
+  for (size_t index = 0; index < 3; ++index) {
+    assert(adapter.IssueNext(&command));
+    assert(adapter.Complete(command.command_id, true));
+  }
+  assert(command.opcode == Gem5MicroOpcode::kExecuteOperator);
+  assert(command.engine == Gem5CommandEngine::kTensor);
+}
+
 void TestBadDescriptorRejected() {
   Gem5CoprocessorCommandAdapter adapter;
   coral_operator_descriptor descriptor =
@@ -228,6 +246,7 @@ void TestDynamicLatencyUpdate() {
 int main() {
   TestTwoLevelDecodeAndDependencies();
   TestSourceAndNameObservability();
+  TestGptqUsesTensorEngine();
   TestBadDescriptorRejected();
   TestFailureStopsDependentCommands();
   TestEngineCreditsAndMultipleSubmissions();

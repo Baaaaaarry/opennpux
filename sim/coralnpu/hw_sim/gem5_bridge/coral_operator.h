@@ -41,6 +41,7 @@ enum coral_operator_opcode {
     CORAL_OPERATOR_OP_SOFTMAX = 7,
     CORAL_OPERATOR_OP_LAYER_NORM = 8,
     CORAL_OPERATOR_OP_QWEN_TINY_INFER = 9,
+    CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4 = 10,
 };
 
 enum coral_operator_state {

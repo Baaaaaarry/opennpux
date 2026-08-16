@@ -31,6 +31,7 @@ mkdir -p "${OUT_DIR}"
 "${CXX:-c++}" -O2 -Wall -Wextra -Werror -std=c++17 \
     -I"${ROOT_DIR}/runtime/host/include" \
     -I"${ROOT_DIR}/sim/coralnpu" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_gptq_kernels.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_hybrid_kernels.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_hybrid_operator.cc" \
     "${ROOT_DIR}/tests/unit/runtime_host/qwen_device_inference_test.cc" \

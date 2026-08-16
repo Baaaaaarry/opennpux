@@ -1,5 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_hybrid_kernels.h"
 
+#include "hw_sim/gem5_bridge/coral_gptq_matmul.h"
+#include "hw_sim/gem5_bridge/gem5_gptq_kernels.h"
 #include "hw_sim/gem5_bridge/qwen_device_inference.h"
 
 #include <algorithm>
@@ -94,6 +96,31 @@ bool SameShape(const coral_operator_tensor& lhs,
   return true;
 }
 
+bool ExtmemRangeValid(uint32_t address, uint64_t size, uint32_t base,
+                      size_t capacity) {
+  return size != 0 && size <= capacity && address >= base &&
+         static_cast<uint64_t>(address - base) <= capacity - size;
+}
+
+bool ByteSize(uint64_t count, uint64_t element_size, uint64_t* size) {
+  if (size == nullptr || element_size == 0 ||
+      count > UINT64_MAX / element_size) {
+    return false;
+  }
+  *size = count * element_size;
+  return true;
+}
+
+uint32_t FloatChecksum(const float* values, uint64_t count) {
+  uint32_t checksum = UINT32_C(2166136261);
+  const auto* bytes = reinterpret_cast<const uint8_t*>(values);
+  for (uint64_t index = 0; index < count * sizeof(float); ++index) {
+    checksum ^= bytes[index];
+    checksum *= UINT32_C(16777619);
+  }
+  return checksum;
+}
+
 bool CommonConvValid(const coral_operator_descriptor& descriptor,
                      bool depthwise) {
   if (descriptor.tensor_count != 4 || descriptor.quantization_count == 0 ||
@@ -133,6 +160,114 @@ bool CommonConvValid(const coral_operator_descriptor& descriptor,
 }
 
 }  // namespace
+
+bool RunGem5HybridGptqInt4MatMul(
+    coral_operator_descriptor* descriptor, uint8_t* extmem,
+    uint32_t extmem_base, size_t extmem_size) {
+  if (descriptor == nullptr || descriptor->tensor_count != 1 ||
+      descriptor->tensors[0].element_type != CORAL_OPERATOR_ELEMENT_INT8 ||
+      descriptor->tensors[0].rank != 1 ||
+      descriptor->tensors[0].size != sizeof(coral_gptq_matmul_request) ||
+      descriptor->tensors[0].dimensions[0] !=
+          sizeof(coral_gptq_matmul_request)) {
+    return false;
+  }
+  auto* request = reinterpret_cast<coral_gptq_matmul_request*>(
+      extmem + descriptor->tensors[0].address - extmem_base);
+  request->error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
+  request->state = CORAL_GPTQ_MATMUL_ERROR;
+  if (request->magic != CORAL_GPTQ_MATMUL_MAGIC ||
+      request->version != CORAL_GPTQ_MATMUL_VERSION ||
+      request->struct_size != sizeof(*request) ||
+      request->rows == 0 || request->input_columns == 0 ||
+      request->output_columns == 0 || request->group_size == 0) {
+    return false;
+  }
+  const uint64_t weight_rows =
+      (static_cast<uint64_t>(request->input_columns) + 7) / 8;
+  const uint64_t groups =
+      (static_cast<uint64_t>(request->input_columns) +
+       request->group_size - 1) /
+      request->group_size;
+  const uint64_t zero_columns =
+      (static_cast<uint64_t>(request->output_columns) + 7) / 8;
+  const uint64_t input_count =
+      static_cast<uint64_t>(request->rows) * request->input_columns;
+  const uint64_t output_count =
+      static_cast<uint64_t>(request->rows) * request->output_columns;
+  const uint64_t weight_count = weight_rows * request->output_columns;
+  const uint64_t zero_count = groups * zero_columns;
+  const uint64_t scale_count = groups * request->output_columns;
+  const bool has_g_idx = request->g_idx_address != 0;
+  uint64_t input_bytes = 0;
+  uint64_t output_bytes = 0;
+  uint64_t weight_bytes = 0;
+  uint64_t zero_bytes = 0;
+  uint64_t scale_bytes = 0;
+  uint64_t g_idx_bytes = 0;
+  if (!ByteSize(input_count, sizeof(float), &input_bytes) ||
+      !ByteSize(output_count, sizeof(float), &output_bytes) ||
+      !ByteSize(weight_count, sizeof(uint32_t), &weight_bytes) ||
+      !ByteSize(zero_count, sizeof(uint32_t), &zero_bytes) ||
+      !ByteSize(scale_count, sizeof(float), &scale_bytes) ||
+      !ByteSize(request->input_columns, sizeof(uint32_t), &g_idx_bytes) ||
+      !ExtmemRangeValid(request->input_address, input_bytes,
+                        extmem_base, extmem_size) ||
+      !ExtmemRangeValid(request->qweight_address,
+                        weight_bytes, extmem_base, extmem_size) ||
+      !ExtmemRangeValid(request->qzeros_address,
+                        zero_bytes, extmem_base, extmem_size) ||
+      !ExtmemRangeValid(request->scales_address, scale_bytes, extmem_base,
+                        extmem_size) ||
+      (has_g_idx &&
+       !ExtmemRangeValid(request->g_idx_address, g_idx_bytes, extmem_base,
+                         extmem_size)) ||
+      !ExtmemRangeValid(request->output_address, output_bytes, extmem_base,
+                        extmem_size)) {
+    request->error = CORAL_OPERATOR_ERROR_ADDRESS;
+    return false;
+  }
+
+  request->state = CORAL_GPTQ_MATMUL_RUNNING;
+  Gem5GptqKernelStats stats = {};
+  const Gem5GptqMatMulConfig config = {
+      request->rows, request->input_columns, request->output_columns,
+      request->group_size, request->zero_bias};
+  const bool success = RunGem5GptqInt4MatMul(
+      config, reinterpret_cast<const float*>(
+                  extmem + request->input_address - extmem_base),
+      reinterpret_cast<const uint32_t*>(
+          extmem + request->qweight_address - extmem_base),
+      reinterpret_cast<const uint32_t*>(
+          extmem + request->qzeros_address - extmem_base),
+      reinterpret_cast<const float*>(
+          extmem + request->scales_address - extmem_base),
+      has_g_idx ? reinterpret_cast<const uint32_t*>(
+                      extmem + request->g_idx_address - extmem_base) :
+                  nullptr,
+      reinterpret_cast<float*>(extmem + request->output_address - extmem_base),
+      &stats);
+  if (!success) {
+    request->error = CORAL_OPERATOR_ERROR_EXECUTION;
+    request->state = CORAL_GPTQ_MATMUL_ERROR;
+    return false;
+  }
+  request->operations = stats.operations;
+  request->bytes_read = stats.bytes_read;
+  request->bytes_written = stats.bytes_written;
+  request->modeled_cycles = stats.modeled_cycles;
+  request->output_checksum = FloatChecksum(
+      reinterpret_cast<const float*>(
+          extmem + request->output_address - extmem_base),
+      output_count);
+  request->error = CORAL_OPERATOR_ERROR_NONE;
+  request->state = CORAL_GPTQ_MATMUL_COMPLETE;
+  descriptor->operation_count = stats.operations;
+  descriptor->bytes_read = stats.bytes_read;
+  descriptor->bytes_written = stats.bytes_written;
+  descriptor->modeled_cycles = stats.modeled_cycles;
+  return true;
+}
 
 namespace {
 

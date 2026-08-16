@@ -1,4 +1,5 @@
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
+#include "hw_sim/gem5_bridge/coral_gptq_matmul.h"
 #include "hw_sim/gem5_bridge/qwen_device_inference.h"
 
 #include <cassert>
@@ -302,6 +303,52 @@ void TestQwenTinyInfer() {
   assert(descriptor.modeled_cycles == 173);
 }
 
+void TestGptqMatMulDispatch() {
+  std::vector<uint8_t> memory(1024, 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4);
+  descriptor.tensor_count = 1;
+  constexpr uint32_t request_offset = 0;
+  constexpr uint32_t input_offset = 128;
+  constexpr uint32_t qweight_offset = 160;
+  constexpr uint32_t qzeros_offset = 176;
+  constexpr uint32_t scales_offset = 192;
+  constexpr uint32_t output_offset = 224;
+  SetTensor(&descriptor.tensors[0], kBase + request_offset,
+            sizeof(coral_gptq_matmul_request), 1,
+            sizeof(coral_gptq_matmul_request), 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  auto* request = reinterpret_cast<coral_gptq_matmul_request*>(
+      memory.data() + request_offset);
+  request->magic = CORAL_GPTQ_MATMUL_MAGIC;
+  request->version = CORAL_GPTQ_MATMUL_VERSION;
+  request->struct_size = sizeof(*request);
+  request->state = CORAL_GPTQ_MATMUL_PENDING;
+  request->rows = 1;
+  request->input_columns = 2;
+  request->output_columns = 1;
+  request->group_size = 2;
+  request->zero_bias = 0;
+  request->input_address = kBase + input_offset;
+  request->qweight_address = kBase + qweight_offset;
+  request->qzeros_address = kBase + qzeros_offset;
+  request->scales_address = kBase + scales_offset;
+  request->output_address = kBase + output_offset;
+  WriteFloat(&memory, input_offset, 2.0f);
+  WriteFloat(&memory, input_offset + 4, 3.0f);
+  Write32(&memory, qweight_offset, 0x21);
+  Write32(&memory, qzeros_offset, 0);
+  WriteFloat(&memory, scales_offset, 0.5f);
+
+  Gem5HybridOperatorResult result = {};
+  assert(DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result));
+  assert(request->state == CORAL_GPTQ_MATMUL_COMPLETE);
+  assert(request->error == CORAL_OPERATOR_ERROR_NONE);
+  assert(std::fabs(ReadFloat(memory, output_offset) - 4.0f) < 1.0e-6f);
+  assert(request->operations == 4);
+  assert(request->output_checksum != 0);
+}
+
 }  // namespace
 
 int main() {
@@ -314,5 +361,6 @@ int main() {
   TestSoftmaxFloat();
   TestLayerNormFloat();
   TestQwenTinyInfer();
+  TestGptqMatMulDispatch();
   return 0;
 }

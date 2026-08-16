@@ -202,6 +202,10 @@ therefore request `qweight`, `qzeros`, `scales` and `g_idx` independently
 instead of treating a command's first tensor range as its complete weight.
 Ambiguous matches are rejected, which preserves the distinction between MoE
 experts and projection tensors before GPTQ execution.
+A model-independent loader now materializes one exact GPTQ component set from
+safetensors with caller-selected size limits and failure-safe cleanup. This is
+the contiguous execution path for projection-sized tensors; the same component
+contract will back tiled loading for oversized LM-head and expert matrices.
 For command-processor acceptance,
 `materialize_npu_weight_samples.py` builds a 4KiB command-indexed probe table.
 Each weight-bearing command receives the first 32-bit word from its own mapped

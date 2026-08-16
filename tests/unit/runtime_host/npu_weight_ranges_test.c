@@ -64,14 +64,16 @@ main(int argc, char **argv)
     check(opennpux_npu_weight_ranges_find_gptq(
               &ranges, q_projection_command,
               OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_Q_PROJ,
-              OPENNPUX_NPU_WEIGHT_EXPERT_NONE, &gptq) == 0 &&
+              OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
+              OPENNPUX_NPU_WEIGHT_SLOT_Q_PROJ, &gptq) == 0 &&
               gptq.qweight != NULL && gptq.qzeros != NULL &&
               gptq.scales != NULL && gptq.g_idx != NULL,
           "complete GPTQ component set lookup failed");
     check(opennpux_npu_weight_ranges_find_gptq(
               &ranges, q_projection_command,
               OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_K_PROJ,
-              OPENNPUX_NPU_WEIGHT_EXPERT_NONE, &gptq) != 0 &&
+              OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
+              OPENNPUX_NPU_WEIGHT_SLOT_K_PROJ, &gptq) != 0 &&
               errno == ENOENT,
           "incomplete GPTQ component set was accepted");
     unsigned char sample[4];

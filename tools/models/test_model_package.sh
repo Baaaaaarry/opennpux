@@ -106,9 +106,10 @@ records = [
 ]
 assert any(record[8] == 7 for record in records)
 assert any(
-    record[2] == 0xA3F281BA and record[3] == 0x40406979
+    record[2] == 0xA3F281BA and record[3] == 0x40406979 and record[9] == 1
     for record in records
 )
+assert any(record[8] == 7 and record[9] == 7 for record in records)
 print("npu_weight_range_index=PASS")
 PY
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
@@ -118,6 +119,15 @@ PY
     "${ROOT_DIR}/tests/unit/runtime_host/npu_weight_ranges_test.c" \
     -o "${WORK_DIR}/npu_weight_ranges_test"
 "${WORK_DIR}/npu_weight_ranges_test" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxr"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/model_package.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_weights.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_gptq_weights_test.c" \
+    -o "${WORK_DIR}/npu_gptq_weights_test"
+"${WORK_DIR}/npu_gptq_weights_test" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxr"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \

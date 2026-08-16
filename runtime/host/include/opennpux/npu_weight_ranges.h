@@ -33,6 +33,17 @@ extern "C" {
 #define OPENNPUX_NPU_WEIGHT_ROLE_ROUTER UINT32_C(0x0456c974)
 #define OPENNPUX_NPU_WEIGHT_ROLE_SHARED_EXPERT UINT32_C(0x06fc7f70)
 
+#define OPENNPUX_NPU_WEIGHT_SLOT_MASK UINT64_C(0xffff)
+#define OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT UINT32_C(0)
+#define OPENNPUX_NPU_WEIGHT_SLOT_Q_PROJ UINT32_C(1)
+#define OPENNPUX_NPU_WEIGHT_SLOT_K_PROJ UINT32_C(2)
+#define OPENNPUX_NPU_WEIGHT_SLOT_V_PROJ UINT32_C(3)
+#define OPENNPUX_NPU_WEIGHT_SLOT_O_PROJ UINT32_C(4)
+#define OPENNPUX_NPU_WEIGHT_SLOT_GATE_PROJ UINT32_C(5)
+#define OPENNPUX_NPU_WEIGHT_SLOT_UP_PROJ UINT32_C(6)
+#define OPENNPUX_NPU_WEIGHT_SLOT_DOWN_PROJ UINT32_C(7)
+#define OPENNPUX_NPU_WEIGHT_SLOT_QKV_PROJ UINT32_C(8)
+
 struct opennpux_npu_weight_range_header {
     uint32_t magic;
     uint32_t version;
@@ -101,9 +112,14 @@ int opennpux_npu_weight_range_find(
     const struct opennpux_npu_weight_ranges *ranges, uint32_t command_id,
     uint32_t role_id, uint32_t component_id, uint64_t expert_id,
     const struct opennpux_npu_weight_range_record **record);
+int opennpux_npu_weight_range_find_slot(
+    const struct opennpux_npu_weight_ranges *ranges, uint32_t command_id,
+    uint32_t role_id, uint32_t component_id, uint64_t expert_id,
+    uint32_t slot_id,
+    const struct opennpux_npu_weight_range_record **record);
 int opennpux_npu_weight_ranges_find_gptq(
     const struct opennpux_npu_weight_ranges *ranges, uint32_t command_id,
-    uint32_t role_id, uint64_t expert_id,
+    uint32_t role_id, uint64_t expert_id, uint32_t slot_id,
     struct opennpux_npu_gptq_weight_ranges *gptq);
 
 #ifdef __cplusplus

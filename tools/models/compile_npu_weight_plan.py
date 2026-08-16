@@ -49,6 +49,17 @@ PHASE_ROLES = {
     "lm_head": ("lm_head",),
 }
 
+TENSOR_SLOTS = {
+    "q_proj": 1,
+    "k_proj": 2,
+    "v_proj": 3,
+    "o_proj": 4,
+    "gate_proj": 5,
+    "up_proj": 6,
+    "down_proj": 7,
+    "in_proj_qkv": 8,
+}
+
 
 def load_object(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as source:
@@ -60,6 +71,14 @@ def load_object(path: Path) -> dict[str, Any]:
 
 def hash64(value: str) -> int:
     return int.from_bytes(hashlib.sha256(value.encode()).digest()[:8], "little")
+
+
+def tensor_slot(name: str) -> int:
+    fields = name.split(".")
+    for field in reversed(fields[:-1]):
+        if field in TENSOR_SLOTS:
+            return TENSOR_SLOTS[field]
+    return 0
 
 
 def tensor_records(manifest_path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
@@ -94,6 +113,7 @@ def tensor_records(manifest_path: Path, manifest: dict[str, Any]) -> list[dict[s
                 "expert": int(expert_match.group(1)) if expert_match else None,
                 "role": tensor_role(name),
                 "component": tensor_component(name),
+                "slot": tensor_slot(name),
                 "shard": str(shards[shard_index]["path"]),
                 "shard_index": shard_index,
                 "offset": int(values[-2]),
@@ -247,7 +267,7 @@ def write_range_index(
             int(str(record["name_hash"]), 16),
             hash64(str(record["parameter_symbol"])),
             UINT64_MAX if record["expert"] is None else int(record["expert"]),
-            0,
+            int(record["slot"]),
         )
         for record in ranges
     )

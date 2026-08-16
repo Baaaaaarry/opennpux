@@ -43,7 +43,7 @@ fi
 
 if [ "${CORAL_REBUILD_CKPT:-0}" != 1 ]; then
     cat >&2 <<EOF
-note: this test requires a checkpoint whose DT reserves a 64KiB NPU shared window.
+note: this test requires a checkpoint whose DT reserves an 8MiB NPU shared window.
       Set CORAL_REBUILD_CKPT=1 for the first run after this change.
 EOF
 fi
@@ -109,7 +109,8 @@ EOF
 cd "$GEM5_ROOT"
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_FIRMWARE="$FIRMWARE" \
-CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=64KiB" \
+CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_executable_ckpt}" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB" \
 CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}" \
 CORAL_RESUME_BOOTSCRIPT="$TMP_SCRIPT" \
 ./run_multicore.sh

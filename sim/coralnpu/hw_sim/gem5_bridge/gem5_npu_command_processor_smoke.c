@@ -314,6 +314,16 @@ main(void)
         retired_token = commands[index].completion_token;
         parameter_checksum ^= (uint32_t)commands[index].parameter_symbol;
         parameter_checksum *= UINT32_C(16777619);
+        parameter_checksum ^=
+            (uint32_t)(commands[index].parameter_symbol >> 32);
+        parameter_checksum *= UINT32_C(16777619);
+        volatile const uint32_t *parameter_words =
+            (volatile const uint32_t *)(const volatile void *)parameters;
+        for (uint32_t word = 0;
+             word < sizeof(*parameters) / sizeof(*parameter_words); ++word) {
+            parameter_checksum ^= parameter_words[word];
+            parameter_checksum *= UINT32_C(16777619);
+        }
         ++relocated;
         const uint64_t token_count =
             (uint64_t)batch_size * sequence_length;

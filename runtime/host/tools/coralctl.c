@@ -15,6 +15,7 @@
 #define NPU_EXTMEM_BASE UINT64_C(0x20000000)
 #define NPU_WEIGHT_PAGE_SIZE UINT32_C(4096)
 #define NPU_PAGING_WINDOW_SIZE UINT32_C(0x00800000)
+#define NPU_EXECUTABLE_WINDOW_SIZE NPU_PAGING_WINDOW_SIZE
 #define NPU_PAGING_CONTROL_SIZE UINT32_C(0x00010000)
 #define NPU_IO_BUFFER_SIZE UINT32_C(128)
 #define NPU_STATE_BUFFER_SIZE UINT32_C(256)
@@ -196,7 +197,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         return 1;
     }
     struct opennpux_coral_shared_window window;
-    const uint32_t window_size = paged ? NPU_PAGING_WINDOW_SIZE : 65536;
+    const uint32_t window_size = paged ? NPU_PAGING_WINDOW_SIZE :
+                                         NPU_EXECUTABLE_WINDOW_SIZE;
     if (opennpux_coral_open_shared_window(dev, window_size, &window) != 0) {
         opennpux_npu_executable_unload(&executable);
         return 1;

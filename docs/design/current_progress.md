@@ -109,12 +109,14 @@ The generic platform contract now includes:
 - operator capability IDs shared by RTL, RVV, hybrid and sampled backends.
 
 The first contiguous command-processor path is now implemented and validated
-with the 40-layer Qwen3.5 executable: 524 commands fit in a 64KiB invocation,
-each command carries a resolved parameter symbol, runtime batch/sequence/KV/
-active-expert tuple, and logical weight/state/scratch binding IDs. Firmware
-validates all relocations and reports the relocated-command count and parameter
-checksum in the completion record. The scheduler validates 523 dependency
-edges across the complete 524-command token path, dispatches all generic
+with the 40-layer Qwen3.5 executable. Its 524 commands plus fixed-size numerical
+operator records occupy about 93KiB and are staged in the standard 8MiB shared
+window. Each command carries a resolved parameter symbol, numerical dimensions
+and quantization fields, runtime batch/sequence/KV/active-expert tuple, and
+logical weight/state/scratch binding IDs. Firmware validates all relocations
+and reports the relocated-command count and a checksum over symbols and full
+parameter records in the completion record. The scheduler validates 523
+dependency edges across the complete 524-command token path, dispatches all generic
 capability classes, and emits per-op command/operation/byte estimates through
 a versioned trace buffer. The range compiler maps 343 weight-bearing commands
 to 124,268 real safetensors ranges with no unresolved weight command.

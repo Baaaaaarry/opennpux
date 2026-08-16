@@ -201,8 +201,9 @@ state.
 ## Generic Command Processor Smoke
 
 After the real model produces `model.npxc`, build the command processor and
-guest tool. The first run must create a checkpoint whose device tree reserves a
-64KiB NPU shared window:
+guest tool. The first run must create a checkpoint whose device tree reserves
+the standard 8MiB NPU shared window. The compiled 524-command invocation is
+larger than 64KiB once numerical operator parameter records are included:
 
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh

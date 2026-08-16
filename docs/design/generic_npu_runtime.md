@@ -166,19 +166,22 @@ The generic-ABI implementation now adds:
 - a host test that loads `.npxc`, creates a decode invocation and validates the
   resulting submission record.
 
-The first command-processor smoke implementation uses a 64KiB contiguous
-shared command buffer. The CPU stages one invocation containing all command
+The command-processor smoke implementation uses the platform's 8MiB contiguous
+shared window. The CPU stages one invocation containing all command
 records, rings the existing START path once, and receives one completion
 record. Firmware validates ABI/checksum/ranges, resolves every command's
-parameter symbol and weight/state/scratch bindings, then walks the complete
-command stream. The command processor also checks dependency/completion tokens,
-dispatches capability IDs into generic opcode classes, applies runtime token
+parameter symbol, fixed-size numerical operator record and weight/state/scratch
+bindings, then walks the complete command stream. The command processor also
+checks dependency/completion tokens, dispatches capability IDs into generic
+opcode classes, applies runtime token
 counts to compiler workload estimates, and returns per-opcode command,
 operation and byte statistics in a trace buffer. This proves online CPU
 submission and NPU-side relocation and scheduling control; it does not yet
-execute command kernels or real model tensors. Because the shared window size
-is represented in the device tree,
-switching an existing 4KiB setup to 64KiB requires one new boot checkpoint.
+execute command kernels or real model tensors. Numerical parameter records make
+the 524-command invocation about 93KiB, so the former 64KiB control window is
+not sufficient. Because the shared window size is represented in the device
+tree, switching an existing smaller setup to 8MiB requires one new boot
+checkpoint.
 Executable and invocation ABI version 2 identifies the inline relocation
 fields. Version 1 `.npxc` files must be regenerated rather than interpreted
 with implicit resource bindings.

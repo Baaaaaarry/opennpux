@@ -123,6 +123,11 @@ cc_binary(
     deps = [":core_mini_axi_simulator_rvv"],
 )
 
+cc_library(
+    name = "gem5_npu_submission_headers",
+    hdrs = ["gem5_bridge/npu_submission.h"],
+)
+
 cc_binary(
     name = "libcoralnpu_gem5_bridge.so",
     srcs = [
@@ -150,6 +155,7 @@ cc_binary(
     linkshared = True,
     visibility = ["//visibility:public"],
     deps = [
+        ":gem5_npu_submission_headers",
         ":hw_primitives",
         "//hdl/chisel/src/coralnpu:core_mini_axi_cc_library_cc",
         "//hdl/verilog/opennpux:custom_mac_cc",
@@ -185,6 +191,7 @@ cc_binary(
     linkshared = True,
     visibility = ["//visibility:public"],
     deps = [
+        ":gem5_npu_submission_headers",
         ":hw_primitives",
         "//hdl/chisel/src/coralnpu:rvv_core_mini_highmem_axi_cc_library_cc",
         "//hdl/verilog/opennpux:custom_mac_cc",
@@ -237,8 +244,8 @@ cc_test(
         "gem5_bridge/gem5_generic_gptq_executor_test.cc",
         "gem5_bridge/gem5_gptq_kernels.cc",
         "gem5_bridge/gem5_gptq_kernels.h",
-        "gem5_bridge/npu_submission.h",
     ],
+    deps = [":gem5_npu_submission_headers"],
 )
 
 cc_test(

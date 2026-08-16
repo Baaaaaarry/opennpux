@@ -139,6 +139,10 @@ grouped-quantization unit coverage fixes its numerical semantics. A dedicated
 firmware smoke image submits the GPTQ operator through the CUSTOM_0 instruction
 and two-level command decoder, so GB10 validation covers fetch, TDMA, tensor
 execution, writeback and completion rather than calling the host kernel alone.
+Because CUSTOM_0 decode is carried by the RVV highmem core integration, this
+smoke must use `libcoralnpu_gem5_rvv_highmem_bridge.so`; the dedicated
+`build_gptq_matmul_smoke.sh` and `run_gptq_matmul_smoke.sh` scripts enforce that
+pairing and reject a run with no opcode-10 command submission.
 
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not

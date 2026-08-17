@@ -83,7 +83,7 @@ static int
 page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
             volatile uint8_t *cache, uint32_t cache_slots,
             uint32_t command_id, uint32_t *word,
-            volatile uint64_t *stall_cycles)
+            volatile uint64_t *stall_cycles, uint32_t *last)
 {
     if (queue->magic != OPENNPUX_NPU_WEIGHT_QUEUE_MAGIC ||
         queue->version != OPENNPUX_NPU_WEIGHT_QUEUE_VERSION ||
@@ -115,7 +115,7 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
     fault->cache_slot = 0;
     fault->error_code = 0;
     fault->page_size = PAGING_TRANSFER_SIZE;
-    fault->reserved = 0;
+    fault->flags = 0;
     memory_fence();
     fault->state = OPENNPUX_NPU_PAGE_FAULT_PENDING;
     memory_fence();
@@ -136,6 +136,7 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
         (const volatile uint32_t *)(cache +
             fault->cache_slot * PAGING_TRANSFER_SIZE + offset);
     *word = *cache_word;
+    *last = (fault->flags & OPENNPUX_NPU_PAGE_FAULT_LAST) != 0;
     fault->state = OPENNPUX_NPU_PAGE_FAULT_EMPTY;
     memory_fence();
     queue->retire_index = producer + 1;
@@ -409,6 +410,8 @@ main(void)
              OPENNPUX_NPU_COMMAND_USES_WEIGHT) != 0) {
             if (queue_binding != NULL) {
                 uint32_t word = 0;
+                uint32_t last = 0;
+                uint32_t pages = 0;
                 volatile struct opennpux_npu_weight_queue_header *queue =
                     (volatile struct opennpux_npu_weight_queue_header *)(uintptr_t)
                         queue_binding->device_address;
@@ -416,18 +419,26 @@ main(void)
                     (volatile uint8_t *)(uintptr_t)cache_binding->device_address;
                 const uint32_t cache_slots =
                     (uint32_t)(cache_binding->byte_size / PAGING_TRANSFER_SIZE);
-                if (page_weight(queue, cache, cache_slots,
-                                commands[index].command_id, &word,
-                                &completion->stall_cycles) != 0) {
+                do {
+                    if (page_weight(queue, cache, cache_slots,
+                                    commands[index].command_id, &word,
+                                    &completion->stall_cycles, &last) != 0) {
+                        finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                               ERROR_PAGING, index);
+                        return 1;
+                    }
+                    trace->weight_checksum ^= word;
+                    trace->weight_checksum *= UINT32_C(16777619);
+                    ++trace->weight_page_requests;
+                    trace->weight_dma_bytes += PAGING_TRANSFER_SIZE;
+                    record->weight_dma_bytes += PAGING_TRANSFER_SIZE;
+                    ++pages;
+                } while (!last && pages < UINT32_C(1048576));
+                if (!last) {
                     finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
                            ERROR_PAGING, index);
                     return 1;
                 }
-                trace->weight_checksum ^= word;
-                trace->weight_checksum *= UINT32_C(16777619);
-                ++trace->weight_page_requests;
-                trace->weight_dma_bytes += PAGING_TRANSFER_SIZE;
-                record->weight_dma_bytes += PAGING_TRANSFER_SIZE;
                 goto weight_complete;
             }
             const uint64_t weight_address =

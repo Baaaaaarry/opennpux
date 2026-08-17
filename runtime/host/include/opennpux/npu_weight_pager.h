@@ -13,7 +13,8 @@ extern "C" {
 #define OPENNPUX_NPU_WEIGHT_PAGE_SIZE UINT32_C(4096)
 #define OPENNPUX_NPU_WEIGHT_TRANSFER_MAX UINT32_C(2097152)
 #define OPENNPUX_NPU_PAGE_FAULT_MAGIC UINT32_C(0x4658504e)
-#define OPENNPUX_NPU_PAGE_FAULT_VERSION UINT32_C(2)
+#define OPENNPUX_NPU_PAGE_FAULT_VERSION UINT32_C(3)
+#define OPENNPUX_NPU_PAGE_FAULT_LAST UINT32_C(1)
 
 enum opennpux_npu_page_fault_state {
     OPENNPUX_NPU_PAGE_FAULT_EMPTY = 0,
@@ -35,7 +36,7 @@ struct opennpux_npu_page_fault {
     uint32_t cache_slot;
     uint32_t error_code;
     uint32_t page_size;
-    uint32_t reserved;
+    uint32_t flags;
 };
 
 struct opennpux_npu_weight_page_request {

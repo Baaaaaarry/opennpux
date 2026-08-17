@@ -4,9 +4,10 @@
 #include <stdint.h>
 
 #define OPENNPUX_NPU_WEIGHT_QUEUE_MAGIC UINT32_C(0x5158504e)
-#define OPENNPUX_NPU_WEIGHT_QUEUE_VERSION UINT32_C(2)
+#define OPENNPUX_NPU_WEIGHT_QUEUE_VERSION UINT32_C(3)
 #define OPENNPUX_NPU_PAGE_FAULT_MAGIC UINT32_C(0x4658504e)
-#define OPENNPUX_NPU_PAGE_FAULT_VERSION UINT32_C(2)
+#define OPENNPUX_NPU_PAGE_FAULT_VERSION UINT32_C(3)
+#define OPENNPUX_NPU_PAGE_FAULT_LAST UINT32_C(1)
 
 #define OPENNPUX_NPU_PAGE_FAULT_EMPTY UINT32_C(0)
 #define OPENNPUX_NPU_PAGE_FAULT_PENDING UINT32_C(1)
@@ -18,7 +19,7 @@ struct opennpux_npu_page_fault {
     uint64_t sequence;
     uint32_t command_id, shard_index;
     uint64_t file_offset, expert_id;
-    uint32_t cache_slot, error_code, page_size, reserved;
+    uint32_t cache_slot, error_code, page_size, flags;
 };
 
 struct opennpux_npu_weight_queue_header {

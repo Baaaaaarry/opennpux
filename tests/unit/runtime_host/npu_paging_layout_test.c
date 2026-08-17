@@ -43,6 +43,25 @@ main(void)
               OPENNPUX_NPU_PAGING_TRANSFER_DEFAULT, &layout) == 0,
           "paging layout restore failed");
 
+    check(opennpux_npu_paging_layout_plan(
+              UINT64_C(0x18000), UINT64_C(8) * 1024 * 1024,
+              OPENNPUX_NPU_PAGING_QUEUE_CAPACITY_DEFAULT,
+              OPENNPUX_NPU_PAGING_CACHE_SLOTS_DEFAULT,
+              OPENNPUX_NPU_PAGING_TRANSFER_DEFAULT, &layout) == 0,
+          "large invocation paging layout failed");
+    check(layout.queue_offset == UINT64_C(0x18000) &&
+              layout.queue_offset >= layout.control_size &&
+              layout.cache_offset == UINT64_C(0x20000) &&
+              layout.cache_offset >= layout.queue_offset + layout.queue_size,
+          "large invocation overlaps paging resources");
+
+    check(opennpux_npu_paging_layout_plan(
+              UINT64_C(65536), UINT64_C(8) * 1024 * 1024,
+              OPENNPUX_NPU_PAGING_QUEUE_CAPACITY_DEFAULT,
+              OPENNPUX_NPU_PAGING_CACHE_SLOTS_DEFAULT,
+              OPENNPUX_NPU_PAGING_TRANSFER_DEFAULT, &layout) == 0,
+          "default paging layout second restore failed");
+
     void *window = calloc(1, (size_t)layout.required_size);
     check(window != NULL, "paging window allocation failed");
     struct opennpux_npu_weight_queue queue;

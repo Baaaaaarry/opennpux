@@ -35,6 +35,11 @@ main(int argc, char **argv)
           "static page request missing");
     check(request.page_size == OPENNPUX_NPU_WEIGHT_PAGE_SIZE,
           "default page request size mismatch");
+    check(request.role_id == ranges.records[0].role_id &&
+              request.component_id == ranges.records[0].component_id &&
+              request.range_file_offset == ranges.records[0].file_offset &&
+              request.range_size == ranges.records[0].byte_size,
+          "page request tensor identity mismatch");
     unsigned char page[OPENNPUX_NPU_WEIGHT_PAGE_SIZE];
     check(opennpux_npu_weight_page_read(
               argv[1], &model, &request, page, sizeof(page)) == 0,
@@ -86,7 +91,11 @@ main(int argc, char **argv)
     struct opennpux_npu_page_fault fault;
     check(opennpux_npu_page_fault_init(&fault, 11, &request) == 0 &&
               fault.state == OPENNPUX_NPU_PAGE_FAULT_PENDING &&
-              fault.page_size == OPENNPUX_NPU_WEIGHT_PAGE_SIZE,
+              fault.page_size == OPENNPUX_NPU_WEIGHT_PAGE_SIZE &&
+              fault.role_id == request.role_id &&
+              fault.component_id == request.component_id &&
+              fault.range_file_offset == request.range_file_offset &&
+              fault.range_size == request.range_size,
           "page fault publication failed");
     check(opennpux_npu_page_fault_service(
               &fault, &cache, argv[1], &model, &cached_page,

@@ -91,18 +91,14 @@ opennpux_npu_weight_page_cursor_next(
         }
         const uint64_t page_offset = cursor->next_page_offset;
         cursor->next_page_offset += cursor->page_size;
-        if (cursor->has_last_page &&
-            cursor->last_shard_index == record->shard_index &&
-            cursor->last_page_offset == page_offset) {
-            continue;
-        }
-        cursor->has_last_page = 1;
-        cursor->last_shard_index = record->shard_index;
-        cursor->last_page_offset = page_offset;
         request->command_id = cursor->command_id;
         request->shard_index = record->shard_index;
         request->file_offset = page_offset;
         request->expert_id = record->expert_id;
+        request->role_id = record->role_id;
+        request->component_id = record->component_id;
+        request->range_file_offset = record->file_offset;
+        request->range_size = record->byte_size;
         request->page_size = cursor->page_size;
         return 1;
     }
@@ -242,6 +238,10 @@ opennpux_npu_page_fault_init(
     fault->shard_index = request->shard_index;
     fault->file_offset = request->file_offset;
     fault->expert_id = request->expert_id;
+    fault->role_id = request->role_id;
+    fault->component_id = request->component_id;
+    fault->range_file_offset = request->range_file_offset;
+    fault->range_size = request->range_size;
     fault->page_size = request->page_size;
     return 0;
 }
@@ -266,6 +266,10 @@ opennpux_npu_page_fault_service(
         .shard_index = fault->shard_index,
         .file_offset = fault->file_offset,
         .expert_id = fault->expert_id,
+        .role_id = fault->role_id,
+        .component_id = fault->component_id,
+        .range_file_offset = fault->range_file_offset,
+        .range_size = fault->range_size,
         .page_size = fault->page_size,
     };
     uint32_t slot = 0;

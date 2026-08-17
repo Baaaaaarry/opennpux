@@ -13,7 +13,7 @@ extern "C" {
 #define OPENNPUX_NPU_WEIGHT_PAGE_SIZE UINT32_C(4096)
 #define OPENNPUX_NPU_WEIGHT_TRANSFER_MAX UINT32_C(2097152)
 #define OPENNPUX_NPU_PAGE_FAULT_MAGIC UINT32_C(0x4658504e)
-#define OPENNPUX_NPU_PAGE_FAULT_VERSION UINT32_C(3)
+#define OPENNPUX_NPU_PAGE_FAULT_VERSION UINT32_C(4)
 #define OPENNPUX_NPU_PAGE_FAULT_LAST UINT32_C(1)
 
 enum opennpux_npu_page_fault_state {
@@ -33,6 +33,10 @@ struct opennpux_npu_page_fault {
     uint32_t shard_index;
     uint64_t file_offset;
     uint64_t expert_id;
+    uint32_t role_id;
+    uint32_t component_id;
+    uint64_t range_file_offset;
+    uint64_t range_size;
     uint32_t cache_slot;
     uint32_t error_code;
     uint32_t page_size;
@@ -44,6 +48,10 @@ struct opennpux_npu_weight_page_request {
     uint32_t shard_index;
     uint64_t file_offset;
     uint64_t expert_id;
+    uint32_t role_id;
+    uint32_t component_id;
+    uint64_t range_file_offset;
+    uint64_t range_size;
     uint32_t page_size;
 };
 
@@ -57,9 +65,6 @@ struct opennpux_npu_weight_page_cursor {
     const uint64_t *active_experts;
     uint32_t active_expert_count;
     uint32_t page_size;
-    uint32_t last_shard_index;
-    uint64_t last_page_offset;
-    uint32_t has_last_page;
 };
 
 struct opennpux_npu_weight_cache_entry {
@@ -124,9 +129,9 @@ int opennpux_npu_page_fault_service(
     uint32_t *cache_hit);
 
 #if defined(__cplusplus)
-static_assert(sizeof(struct opennpux_npu_page_fault) == 64);
+static_assert(sizeof(struct opennpux_npu_page_fault) == 88);
 #else
-_Static_assert(sizeof(struct opennpux_npu_page_fault) == 64,
+_Static_assert(sizeof(struct opennpux_npu_page_fault) == 88,
                "NPU page fault ABI size changed");
 #endif
 

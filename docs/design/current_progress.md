@@ -130,8 +130,15 @@ IOMMU page size. A shared single-producer/single-service/single-retire fault
 ring now supports batched PENDING/READY/ERROR page lifecycles, cache slots and
 explicit queue-full backpressure. The complete real model now resolves 30,720
 routed-expert projection groups with no missing or duplicate GPTQ component.
-Shared-window cache placement and real command pause/service/resume are the
-next milestone.
+Shared-window cache placement and real command pause/service/resume are now
+implemented. The queue and cache are placed after the actual invocation and
+auxiliary buffers, avoiding overlap with the roughly 93KiB Qwen submission.
+Page-fault ABI version 4 identifies each response by command, tensor role,
+GPTQ component, expert and exact source range. Firmware can therefore rebuild
+generic quantized operands from streamed pages instead of treating a command's
+first sampled word as its weight. Complete per-command range streaming is the
+input contract for tiled MATMUL and EXPERT execution; that tiled numerical
+dispatch remains the next milestone.
 
 The first model-independent GPTQ data-plane kernel is now implemented for
 packed int4 MatMul. It consumes AutoGPTQ `qweight`, `qzeros`, per-group

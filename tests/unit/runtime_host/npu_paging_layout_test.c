@@ -24,7 +24,7 @@ main(void)
               OPENNPUX_NPU_PAGING_TRANSFER_DEFAULT, &layout) == 0,
           "default paging layout failed");
     check(layout.queue_offset == UINT64_C(65536) &&
-              layout.queue_size == UINT64_C(4160) &&
+              layout.queue_size == UINT64_C(5696) &&
               layout.cache_offset == UINT64_C(131072) &&
               layout.cache_size == UINT64_C(4194304) &&
               layout.required_size == UINT64_C(4325376),

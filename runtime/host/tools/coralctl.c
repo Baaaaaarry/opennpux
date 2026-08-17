@@ -150,6 +150,10 @@ service_executable_page(void *opaque)
         fault->shard_index = request.shard_index;
         fault->file_offset = request.file_offset;
         fault->expert_id = request.expert_id;
+        fault->role_id = request.role_id;
+        fault->component_id = request.component_id;
+        fault->range_file_offset = request.range_file_offset;
+        fault->range_size = request.range_size;
         struct opennpux_npu_weight_page_cursor probe = *cursor;
         struct opennpux_npu_weight_page_request next_request;
         const int has_next =

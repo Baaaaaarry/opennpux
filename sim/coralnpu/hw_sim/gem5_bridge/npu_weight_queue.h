@@ -4,9 +4,9 @@
 #include <stdint.h>
 
 #define OPENNPUX_NPU_WEIGHT_QUEUE_MAGIC UINT32_C(0x5158504e)
-#define OPENNPUX_NPU_WEIGHT_QUEUE_VERSION UINT32_C(3)
+#define OPENNPUX_NPU_WEIGHT_QUEUE_VERSION UINT32_C(4)
 #define OPENNPUX_NPU_PAGE_FAULT_MAGIC UINT32_C(0x4658504e)
-#define OPENNPUX_NPU_PAGE_FAULT_VERSION UINT32_C(3)
+#define OPENNPUX_NPU_PAGE_FAULT_VERSION UINT32_C(4)
 #define OPENNPUX_NPU_PAGE_FAULT_LAST UINT32_C(1)
 
 #define OPENNPUX_NPU_PAGE_FAULT_EMPTY UINT32_C(0)
@@ -19,6 +19,8 @@ struct opennpux_npu_page_fault {
     uint64_t sequence;
     uint32_t command_id, shard_index;
     uint64_t file_offset, expert_id;
+    uint32_t role_id, component_id;
+    uint64_t range_file_offset, range_size;
     uint32_t cache_slot, error_code, page_size, flags;
 };
 
@@ -30,7 +32,7 @@ struct opennpux_npu_weight_queue_header {
     uint64_t reserved[2];
 };
 
-_Static_assert(sizeof(struct opennpux_npu_page_fault) == 64,
+_Static_assert(sizeof(struct opennpux_npu_page_fault) == 88,
                "NPU page fault ABI size changed");
 _Static_assert(sizeof(struct opennpux_npu_weight_queue_header) == 64,
                "NPU weight queue header ABI size changed");

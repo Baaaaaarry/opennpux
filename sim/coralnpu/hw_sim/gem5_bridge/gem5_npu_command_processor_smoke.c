@@ -83,7 +83,8 @@ static int
 page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
             volatile uint8_t *cache, uint32_t cache_slots,
             uint32_t command_id, uint32_t *word,
-            volatile uint64_t *stall_cycles, uint32_t *last)
+            volatile uint64_t *stall_cycles, uint32_t *last,
+            uint32_t *role_id, uint32_t *component_id)
 {
     if (queue->magic != OPENNPUX_NPU_WEIGHT_QUEUE_MAGIC ||
         queue->version != OPENNPUX_NPU_WEIGHT_QUEUE_VERSION ||
@@ -112,6 +113,10 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
     fault->shard_index = 0;
     fault->file_offset = (uint64_t)command_id * PAGING_TRANSFER_SIZE;
     fault->expert_id = EXPERT_NONE;
+    fault->role_id = 0;
+    fault->component_id = 0;
+    fault->range_file_offset = 0;
+    fault->range_size = 0;
     fault->cache_slot = 0;
     fault->error_code = 0;
     fault->page_size = PAGING_TRANSFER_SIZE;
@@ -137,6 +142,8 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
             fault->cache_slot * PAGING_TRANSFER_SIZE + offset);
     *word = *cache_word;
     *last = (fault->flags & OPENNPUX_NPU_PAGE_FAULT_LAST) != 0;
+    *role_id = fault->role_id;
+    *component_id = fault->component_id;
     fault->state = OPENNPUX_NPU_PAGE_FAULT_EMPTY;
     memory_fence();
     queue->retire_index = producer + 1;
@@ -412,6 +419,8 @@ main(void)
                 uint32_t word = 0;
                 uint32_t last = 0;
                 uint32_t pages = 0;
+                uint32_t role_id = 0;
+                uint32_t component_id = 0;
                 volatile struct opennpux_npu_weight_queue_header *queue =
                     (volatile struct opennpux_npu_weight_queue_header *)(uintptr_t)
                         queue_binding->device_address;
@@ -422,12 +431,17 @@ main(void)
                 do {
                     if (page_weight(queue, cache, cache_slots,
                                     commands[index].command_id, &word,
-                                    &completion->stall_cycles, &last) != 0) {
+                                    &completion->stall_cycles, &last,
+                                    &role_id, &component_id) != 0) {
                         finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
                                ERROR_PAGING, index);
                         return 1;
                     }
                     trace->weight_checksum ^= word;
+                    trace->weight_checksum *= UINT32_C(16777619);
+                    trace->weight_checksum ^= role_id;
+                    trace->weight_checksum *= UINT32_C(16777619);
+                    trace->weight_checksum ^= component_id;
                     trace->weight_checksum *= UINT32_C(16777619);
                     ++trace->weight_page_requests;
                     trace->weight_dma_bytes += PAGING_TRANSFER_SIZE;

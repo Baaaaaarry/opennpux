@@ -292,6 +292,12 @@ large command stream, such as the 524-command Qwen decode invocation, from
 overwriting the paging ring. Dedicated PAGE_QUEUE and PAGE_CACHE binding flags
 expose these resources without embedding model-specific fields in the
 invocation ABI.
+Page-fault ABI version 4 also identifies the semantic tensor role, GPTQ
+component, expert, and exact source range represented by every response. The
+NPU can therefore reconstruct `qweight`, `qzeros`, `scales`, and `g_idx`
+streams without parsing Qwen tensor names. Overlapping aligned transfers are
+published once per semantic range; the bounded cache converts duplicate
+physical reads into hits while preserving component identity for execution.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

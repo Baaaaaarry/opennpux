@@ -1,10 +1,12 @@
 #include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
 
+#include <cmath>
 #include <limits>
 
 namespace {
 
 constexpr uint32_t kMatMulOpcode = 2;
+constexpr uint32_t kExpertOpcode = 13;
 constexpr uint32_t kGptqFlag = 1;
 
 bool ProductSize(uint64_t first, uint64_t second, uint64_t third,
@@ -31,6 +33,40 @@ uint32_t ScaleElementSize(uint32_t data_type) {
     return sizeof(uint16_t);
   }
   return data_type == OPENNPUX_NPU_DTYPE_FLOAT32 ? sizeof(float) : 0;
+}
+
+bool AddStats(const Gem5GptqKernelStats& source,
+              Gem5GptqKernelStats* destination) {
+  if (destination == nullptr ||
+      source.operations > UINT64_MAX - destination->operations ||
+      source.bytes_read > UINT64_MAX - destination->bytes_read ||
+      source.bytes_written > UINT64_MAX - destination->bytes_written ||
+      source.modeled_cycles > UINT64_MAX - destination->modeled_cycles) {
+    return false;
+  }
+  destination->operations += source.operations;
+  destination->bytes_read += source.bytes_read;
+  destination->bytes_written += source.bytes_written;
+  destination->modeled_cycles += source.modeled_cycles;
+  return true;
+}
+
+bool RunProjection(const opennpux_npu_operator_parameters& base,
+                   uint32_t rows, uint32_t input_features,
+                   uint32_t output_features,
+                   const Gem5GenericConstBuffer& input,
+                   const Gem5GenericGptqWeights& weights,
+                   const Gem5GenericMutableBuffer& output,
+                   Gem5GptqKernelStats* stats) {
+  auto parameters = base;
+  parameters.opcode = kMatMulOpcode;
+  parameters.input_features = input_features;
+  parameters.output_features = output_features;
+  return RunGem5GenericGptqMatMul(
+      parameters, rows,
+      {input, weights.qweight, weights.qzeros, weights.scales, weights.g_idx,
+       output},
+      stats);
 }
 
 }  // namespace
@@ -94,4 +130,78 @@ bool RunGem5GenericGptqMatMul(
       operands.scales.data,
       static_cast<const uint32_t*>(operands.g_idx.data),
       static_cast<float*>(operands.output.data), stats);
+}
+
+bool RunGem5GenericGptqExpert(
+    const opennpux_npu_operator_parameters& parameters, uint32_t rows,
+    const Gem5GenericGptqExpertOperands& operands,
+    Gem5GptqKernelStats* stats) {
+  if (parameters.magic != OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC ||
+      parameters.version != OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION ||
+      parameters.struct_size != sizeof(parameters) ||
+      parameters.opcode != kExpertOpcode ||
+      (parameters.flags & kGptqFlag) == 0 || rows == 0 ||
+      parameters.input_features == 0 ||
+      parameters.output_features != parameters.input_features ||
+      parameters.intermediate_features == 0 || stats == nullptr ||
+      operands.gate_output.data == nullptr ||
+      operands.up_output.data == nullptr || operands.activated.data == nullptr ||
+      operands.output.data == nullptr) {
+    return false;
+  }
+
+  uint64_t intermediate_count = 0;
+  uint64_t intermediate_bytes = 0;
+  if (!ProductSize(rows, parameters.intermediate_features, 1,
+                   &intermediate_count) ||
+      !ProductSize(intermediate_count, sizeof(float), 1,
+                   &intermediate_bytes) ||
+      intermediate_bytes > operands.gate_output.size ||
+      intermediate_bytes > operands.up_output.size ||
+      intermediate_bytes > operands.activated.size) {
+    return false;
+  }
+
+  Gem5GptqKernelStats gate_stats = {};
+  Gem5GptqKernelStats up_stats = {};
+  Gem5GptqKernelStats down_stats = {};
+  if (!RunProjection(parameters, rows, parameters.input_features,
+                     parameters.intermediate_features, operands.input,
+                     operands.gate, operands.gate_output, &gate_stats) ||
+      !RunProjection(parameters, rows, parameters.input_features,
+                     parameters.intermediate_features, operands.input,
+                     operands.up, operands.up_output, &up_stats)) {
+    return false;
+  }
+
+  const auto* gate = static_cast<const float*>(operands.gate_output.data);
+  const auto* up = static_cast<const float*>(operands.up_output.data);
+  auto* activated = static_cast<float*>(operands.activated.data);
+  for (uint64_t index = 0; index < intermediate_count; ++index) {
+    const float sigmoid = 1.0f / (1.0f + std::exp(-gate[index]));
+    activated[index] = gate[index] * sigmoid * up[index];
+    if (!std::isfinite(activated[index])) {
+      return false;
+    }
+  }
+  if (!RunProjection(parameters, rows, parameters.intermediate_features,
+                     parameters.output_features,
+                     {activated, static_cast<size_t>(intermediate_bytes)},
+                     operands.down, operands.output, &down_stats) ||
+      intermediate_count > UINT64_MAX / 6 ||
+      intermediate_bytes > UINT64_MAX / 3) {
+    return false;
+  }
+
+  const uint64_t activation_operations = intermediate_count * 6;
+  const uint64_t activation_bytes_read = intermediate_bytes * 2;
+  const uint64_t activation_bytes_written = intermediate_bytes;
+  const Gem5GptqKernelStats activation_stats = {
+      activation_operations, activation_bytes_read,
+      activation_bytes_written,
+      (activation_operations + 15) / 16 +
+          (activation_bytes_read + activation_bytes_written + 15) / 16};
+  *stats = {};
+  return AddStats(gate_stats, stats) && AddStats(up_stats, stats) &&
+         AddStats(activation_stats, stats) && AddStats(down_stats, stats);
 }

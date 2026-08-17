@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
 
 #include <cassert>
+#include <cmath>
 
 namespace {
 
@@ -18,6 +19,13 @@ opennpux_npu_operator_parameters Parameters() {
   parameters.scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
   parameters.quantized_zero_bias = 0;
   return parameters;
+}
+
+Gem5GenericGptqWeights IdentityWeights(const uint32_t* qweight,
+                                       const uint32_t* qzeros,
+                                       const float* scales) {
+  return {{qweight, sizeof(uint32_t) * 2}, {qzeros, sizeof(uint32_t)},
+          {scales, sizeof(float) * 2}, {nullptr, 0}};
 }
 
 }  // namespace
@@ -54,5 +62,45 @@ int main() {
   assert(!RunGem5GenericGptqMatMul(parameters, 1, truncated, &stats));
   parameters.quantization_bits = 8;
   assert(!RunGem5GenericGptqMatMul(parameters, 1, operands, &stats));
+
+  auto expert_parameters = Parameters();
+  expert_parameters.opcode = 13;
+  expert_parameters.input_features = 2;
+  expert_parameters.output_features = 2;
+  expert_parameters.intermediate_features = 2;
+  const float expert_input[] = {1.0f, 2.0f};
+  const uint32_t identity_qweight[] = {
+      UINT32_C(0x00000001), UINT32_C(0x00000010)};
+  const uint32_t sum_qweight[] = {
+      UINT32_C(0x00000011), UINT32_C(0x00000011)};
+  const uint32_t expert_qzeros[] = {0};
+  const float expert_scales[] = {1.0f, 1.0f};
+  float gate_output[2] = {};
+  float up_output[2] = {};
+  float activated[2] = {};
+  float expert_output[2] = {};
+  const Gem5GenericGptqExpertOperands expert_operands = {
+      {expert_input, sizeof(expert_input)},
+      IdentityWeights(identity_qweight, expert_qzeros, expert_scales),
+      IdentityWeights(sum_qweight, expert_qzeros, expert_scales),
+      IdentityWeights(identity_qweight, expert_qzeros, expert_scales),
+      {gate_output, sizeof(gate_output)},
+      {up_output, sizeof(up_output)},
+      {activated, sizeof(activated)},
+      {expert_output, sizeof(expert_output)},
+  };
+  assert(RunGem5GenericGptqExpert(
+      expert_parameters, 1, expert_operands, &stats));
+  assert(gate_output[0] == 1.0f && gate_output[1] == 2.0f);
+  assert(up_output[0] == 3.0f && up_output[1] == 3.0f);
+  assert(std::fabs(expert_output[0] -
+                   3.0f / (1.0f + std::exp(-1.0f))) < 1e-6f);
+  assert(std::fabs(expert_output[1] -
+                   6.0f / (1.0f + std::exp(-2.0f))) < 1e-6f);
+  assert(stats.operations == 36);
+  assert(stats.modeled_cycles > 0);
+  expert_parameters.intermediate_features = 0;
+  assert(!RunGem5GenericGptqExpert(
+      expert_parameters, 1, expert_operands, &stats));
   return 0;
 }

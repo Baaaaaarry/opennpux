@@ -30,6 +30,11 @@ uint32_t Gem5GptqScaleElementSize(uint32_t data_type);
 
 // AutoGPTQ layout: qweight packs the K axis, qzeros packs the N axis, and
 // scales is group-major. g_idx is optional; otherwise k / group_size is used.
+//
+// The float32 accumulation order is part of the contract: the host reference in
+// runtime/host/src/npu_gptq_reference.c reproduces it to gate the full-system
+// projection test on an exact output checksum. Do not build either side with
+// multiply-add contraction enabled.
 bool RunGem5GptqInt4MatMul(
     const Gem5GptqMatMulConfig& config, const float* input,
     const uint32_t* qweight, const uint32_t* qzeros, const void* scales,

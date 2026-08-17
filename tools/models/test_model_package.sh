@@ -26,7 +26,9 @@ for name, tensors in (
             index % 256 for index in range(288)),
         "model.language_model.layers.0.self_attn.q_proj.qzeros": bytes(range(12)),
         "model.language_model.layers.0.self_attn.q_proj.scales": bytes(range(48)),
-        "model.language_model.layers.0.self_attn.q_proj.g_idx": bytes(range(72)),
+        # 18 input columns at group size 128 all belong to group 0, so the
+        # numerical reference can consume this g_idx instead of rejecting it.
+        "model.language_model.layers.0.self_attn.q_proj.g_idx": bytes(72),
         "model.language_model.layers.0.self_attn.k_proj.qweight": bytes(range(8)),
         "model.language_model.layers.0.self_attn.q_norm.weight": bytes(range(8)),
     }),
@@ -137,6 +139,17 @@ grep -q '^gptq_projection_scale_dtype=4$' \
     "${WORK_DIR}/gptq-projection.log"
 grep -q '^gptq_projection_materialize=PASS$' \
     "${WORK_DIR}/gptq-projection.log"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 -ffp-contract=off \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_reference.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_gptq_reference_test.c" \
+    -o "${WORK_DIR}/npu_gptq_reference_test" -lm
+"${WORK_DIR}/npu_gptq_reference_test" "${MODEL_DIR}/gptq-projection.bin"
+"${SCRIPT_DIR}/gptq_reference.sh" "${MODEL_DIR}/gptq-projection.bin" \
+    | tee "${WORK_DIR}/gptq-reference.log"
+grep -q '^gptq_reference_shape=1x18x24$' "${WORK_DIR}/gptq-reference.log"
+grep -q '^gptq_reference_scale_dtype=4$' "${WORK_DIR}/gptq-reference.log"
+grep -q '^gptq_reference=PASS$' "${WORK_DIR}/gptq-reference.log"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \

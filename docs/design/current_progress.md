@@ -162,6 +162,16 @@ as an EXTMEM image. `coralctl mem-load` stages that image into the shared DMA
 window, dedicated firmware consumes the externally prepared request, and the
 CUSTOM_0 path reports state, error, operations and output checksum. This is the
 first numerical step beyond metadata probes and sampled weight words.
+That projection is now gated numerically rather than by a non-zero checksum. A
+model-independent host reference in `runtime/host/src/npu_gptq_reference.c`
+decodes the same staged EXTMEM image, validates every operand extent against
+the request record, and recomputes the projection in float32 in the bridge
+kernel's accumulation order. The full-system runner computes the expectation
+before boot and requires the device to report exactly the same output checksum
+and operation count, so an addressing, packing, group-index or scale-dtype
+regression can no longer pass. The reference must be compiled with
+`-ffp-contract=off`; a fused multiply-add changes the rounding and breaks the
+exact comparison on FMA-baseline targets.
 
 Generic executables now carry a model-independent, fixed-size numerical
 parameter record for every command. The record preserves static feature sizes,

@@ -234,9 +234,30 @@ CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
 The first run needs an 8MiB-window checkpoint; set `CORAL_REBUILD_CKPT=1` only
 when that checkpoint does not already exist. The expected verdict includes
 `gptq_projection_scale_dtype=4`, `gptq_projection_state=0x00000002`, a zero
-error, non-zero operation/checksum fields, and `gptq_projection_run=PASS`.
+error, `gptq_projection_reference=PASS`, and `gptq_projection_run=PASS`.
 Select another real projection with `CORAL_GPTQ_LAYER`, `CORAL_GPTQ_EXPERT`
 and `CORAL_GPTQ_SLOT=gate_proj|up_proj|down_proj`.
+
+Before booting, the runner recomputes the staged image on the host and injects
+the result into the guest script, so the device must match
+`gptq_projection_expected_checksum` and
+`gptq_projection_expected_operations_low` exactly. Inspect the same expectation
+without a simulation run:
+
+```sh
+./tools/models/materialize_gptq_projection.py \
+  /data/models/Qwen3.5-35B/model.npxm \
+  /data/models/Qwen3.5-35B/model.npxw \
+  /data/models/Qwen3.5-35B/model.npxr \
+  /tmp/gptq-projection.bin --layer 0 --expert 0 --slot gate_proj
+./tools/models/gptq_reference.sh /tmp/gptq-projection.bin
+./tools/coralnpu/check_gptq_matmul_abi.sh
+```
+
+`gptq_reference.sh` compiles `runtime/host/src/npu_gptq_reference.c` with
+`-ffp-contract=off`. That flag is mandatory: the reference accumulates in
+float32 in the same order as the bridge kernel, and a fused multiply-add would
+change the rounding and therefore the checksum.
 
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh

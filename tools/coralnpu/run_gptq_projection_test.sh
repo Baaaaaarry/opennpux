@@ -12,7 +12,8 @@ FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_gptq_projection.
 CORALCTL="${ROOT_DIR}/build/guest-tools/coralctl-aarch64"
 IMAGE="$(mktemp)"
 SCRIPT="$(mktemp)"
-trap 'rm -f "$IMAGE" "$SCRIPT"' EXIT
+REFERENCE_LOG="$(mktemp)"
+trap 'rm -f "$IMAGE" "$SCRIPT" "$REFERENCE_LOG"' EXIT
 
 for path in "$MANIFEST" "$WEIGHT_PLAN" "$RANGE_INDEX" "$BRIDGE" \
             "$FIRMWARE" "$CORALCTL"; do
@@ -25,6 +26,17 @@ done
     --expert "${CORAL_GPTQ_EXPERT:-0}" \
     --slot "${CORAL_GPTQ_SLOT:-gate_proj}"
 IMAGE_BYTES="$(wc -c < "$IMAGE" | tr -d ' ')"
+
+# The device must reproduce the host reference exactly, not merely report a
+# non-zero checksum.
+"${ROOT_DIR}/tools/models/gptq_reference.sh" "$IMAGE" | tee "$REFERENCE_LOG"
+EXPECTED_CHECKSUM="$(sed -n 's/^gptq_reference_checksum=//p' "$REFERENCE_LOG")"
+EXPECTED_OPERATIONS="$(sed -n 's/^gptq_reference_operations_low=//p' \
+    "$REFERENCE_LOG")"
+[ -n "$EXPECTED_CHECKSUM" ] && [ -n "$EXPECTED_OPERATIONS" ] || {
+    echo "error: host GPTQ reference produced no expectation" >&2
+    exit 1
+}
 
 cat >"$SCRIPT" <<'EOF'
 #!/bin/sh
@@ -45,8 +57,12 @@ chmod 0755 /tmp/coralctl
 decode_base64 >/tmp/gptq-projection.bin <<'OPENNPUX_GPTQ_EOF'
 EOF
 base64 "$IMAGE" >>"$SCRIPT"
-cat >>"$SCRIPT" <<'EOF'
+cat >>"$SCRIPT" <<EOF
 OPENNPUX_GPTQ_EOF
+EXPECTED_CHECKSUM=$EXPECTED_CHECKSUM
+EXPECTED_OPERATIONS=$EXPECTED_OPERATIONS
+EOF
+cat >>"$SCRIPT" <<'EOF'
 echo '[coral-gptq-projection-test] started'
 /tmp/coralctl mem-load /tmp/gptq-projection.bin || {
     echo '[coral-gptq-projection-test] FAIL: EXTMEM image load failed'
@@ -70,12 +86,18 @@ echo "gptq_projection_state=$STATE"
 echo "gptq_projection_error=$ERROR"
 echo "gptq_projection_operations_low=$OPERATIONS"
 echo "gptq_projection_checksum=$CHECKSUM"
-if [ "$STATE" = 0x00000002 ] && [ "$ERROR" = 0x00000000 ] &&
-   [ "$OPERATIONS" != 0x00000000 ] && [ "$CHECKSUM" != 0x00000000 ]; then
+echo "gptq_projection_expected_operations_low=$EXPECTED_OPERATIONS"
+echo "gptq_projection_expected_checksum=$EXPECTED_CHECKSUM"
+if [ "$STATE" != 0x00000002 ] || [ "$ERROR" != 0x00000000 ]; then
+    echo '[coral-gptq-projection-test] FAIL: invalid projection result'
+elif [ "$OPERATIONS" != "$EXPECTED_OPERATIONS" ]; then
+    echo '[coral-gptq-projection-test] FAIL: projection operation count'
+elif [ "$CHECKSUM" != "$EXPECTED_CHECKSUM" ]; then
+    echo '[coral-gptq-projection-test] FAIL: projection checksum mismatch'
+else
+    echo 'gptq_projection_reference=PASS'
     echo 'gptq_projection_run=PASS'
     echo '[coral-gptq-projection-test] PASS'
-else
-    echo '[coral-gptq-projection-test] FAIL: invalid projection result'
 fi
 m5 --inst exit
 exit 0

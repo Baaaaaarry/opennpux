@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 namespace {
@@ -85,6 +86,45 @@ void TestBfloat16Scales() {
   assert(std::fabs(output[0] - 8.0f) < 1.0e-6f);
 }
 
+// Shared vector with the host reference in
+// tests/unit/runtime_host/npu_gptq_reference_test.c. Both implementations must
+// produce identical float32 values and the same FNV-1a output checksum,
+// because the full-system projection test compares the device checksum against
+// the host expectation.
+void TestHostReferenceVector() {
+  const Gem5GptqMatMulConfig config = {
+      1, 8, 8, 8, 1, kGem5GptqScaleFloat32};
+  float input[8];
+  uint32_t qweight[8];
+  float scales[8];
+  for (unsigned index = 0; index < 8; ++index) {
+    input[index] = 1.0f;
+    qweight[index] = UINT32_C(0x76543210);
+    scales[index] = 1.0f;
+  }
+  const uint32_t qzeros[] = {0};
+  float output[8] = {};
+  Gem5GptqKernelStats stats = {};
+
+  assert(RunGem5GptqInt4MatMul(config, input, qweight, qzeros, scales,
+                               nullptr, output, &stats));
+  for (unsigned index = 0; index < 8; ++index) {
+    assert(output[index] == 20.0f);
+  }
+  assert(stats.operations == 128);
+  assert(stats.bytes_read == 100);
+  assert(stats.bytes_written == 32);
+  assert(stats.modeled_cycles == 73);
+
+  uint32_t checksum = UINT32_C(2166136261);
+  const auto* bytes = reinterpret_cast<const uint8_t*>(output);
+  for (std::size_t index = 0; index < sizeof(output); ++index) {
+    checksum ^= bytes[index];
+    checksum *= UINT32_C(16777619);
+  }
+  assert(checksum == UINT32_C(0x5bea2f85));
+}
+
 }  // namespace
 
 int main() {
@@ -93,5 +133,6 @@ int main() {
   TestRejectsInvalidGroupIndex();
   TestFloat16Scales();
   TestBfloat16Scales();
+  TestHostReferenceVector();
   return 0;
 }

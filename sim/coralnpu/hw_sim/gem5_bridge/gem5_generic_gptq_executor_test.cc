@@ -110,6 +110,33 @@ int main() {
       parameters, 1, {input, sizeof(input)},
       ReadGem5GenericGptqPageSpans, &page_reader, 8, false,
       {streamed_output, sizeof(streamed_output)}, &stats));
+
+  uint8_t page_cache[32];
+  for (size_t index = 0; index < sizeof(page_cache); ++index) {
+    page_cache[index] = static_cast<uint8_t>(index);
+  }
+  opennpux_npu_page_fault fault = {};
+  fault.file_offset = 0x1000;
+  fault.page_size = 16;
+  fault.range_file_offset = 0x1008;
+  fault.range_size = 12;
+  fault.component_id = OPENNPUX_NPU_WEIGHT_COMPONENT_QWEIGHT;
+  fault.cache_slot = 1;
+  Gem5GenericGptqPageSpan built_span = {};
+  assert(BuildGem5GenericGptqPageSpan(
+      fault, page_cache, sizeof(page_cache), &built_span));
+  assert(built_span.component == kGem5GptqQweight);
+  assert(built_span.tensor_offset == 0 && built_span.size == 8);
+  assert(built_span.data == page_cache + 24);
+  fault.file_offset = 0x1010;
+  fault.cache_slot = 0;
+  assert(BuildGem5GenericGptqPageSpan(
+      fault, page_cache, sizeof(page_cache), &built_span));
+  assert(built_span.tensor_offset == 8 && built_span.size == 4);
+  assert(built_span.data == page_cache);
+  fault.component_id = 0;
+  assert(!BuildGem5GenericGptqPageSpan(
+      fault, page_cache, sizeof(page_cache), &built_span));
   parameters.output_features = 1;
 
   const uint16_t half_scales[] = {UINT16_C(0x3800)};

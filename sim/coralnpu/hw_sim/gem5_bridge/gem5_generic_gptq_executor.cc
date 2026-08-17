@@ -113,6 +113,57 @@ bool ReadGem5GenericGptqPageSpans(
   return true;
 }
 
+bool BuildGem5GenericGptqPageSpan(
+    const opennpux_npu_page_fault& fault, const void* cache,
+    size_t cache_size, Gem5GenericGptqPageSpan* span) {
+  if (cache == nullptr || span == nullptr || fault.page_size == 0 ||
+      fault.range_size == 0 || fault.file_offset > UINT64_MAX - fault.page_size ||
+      fault.range_file_offset > UINT64_MAX - fault.range_size ||
+      fault.cache_slot > SIZE_MAX / fault.page_size) {
+    return false;
+  }
+  Gem5GptqComponent component;
+  switch (fault.component_id) {
+    case OPENNPUX_NPU_WEIGHT_COMPONENT_QWEIGHT:
+      component = kGem5GptqQweight;
+      break;
+    case OPENNPUX_NPU_WEIGHT_COMPONENT_QZEROS:
+      component = kGem5GptqQzeros;
+      break;
+    case OPENNPUX_NPU_WEIGHT_COMPONENT_SCALES:
+      component = kGem5GptqScales;
+      break;
+    case OPENNPUX_NPU_WEIGHT_COMPONENT_G_IDX:
+      component = kGem5GptqGIdx;
+      break;
+    default:
+      return false;
+  }
+  const uint64_t page_end = fault.file_offset + fault.page_size;
+  const uint64_t range_end = fault.range_file_offset + fault.range_size;
+  const uint64_t valid_start =
+      fault.file_offset > fault.range_file_offset ? fault.file_offset :
+                                                    fault.range_file_offset;
+  const uint64_t valid_end = page_end < range_end ? page_end : range_end;
+  if (valid_start >= valid_end) {
+    return false;
+  }
+  const size_t slot_offset =
+      static_cast<size_t>(fault.cache_slot) * fault.page_size;
+  const uint64_t page_data_offset = valid_start - fault.file_offset;
+  const uint64_t valid_size = valid_end - valid_start;
+  if (slot_offset > cache_size || page_data_offset > cache_size - slot_offset ||
+      valid_size > cache_size - slot_offset - page_data_offset) {
+    return false;
+  }
+  span->component = component;
+  span->tensor_offset = valid_start - fault.range_file_offset;
+  span->data = static_cast<const uint8_t*>(cache) + slot_offset +
+      static_cast<size_t>(page_data_offset);
+  span->size = static_cast<size_t>(valid_size);
+  return true;
+}
+
 bool RunGem5GenericGptqMatMul(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,
     const Gem5GenericGptqOperands& operands, Gem5GptqKernelStats* stats) {

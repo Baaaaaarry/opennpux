@@ -1,6 +1,7 @@
 #include "opennpux/model_package.h"
 #include "opennpux/npu_weight_pager.h"
 #include "opennpux/npu_weight_ranges.h"
+#include "opennpux/npu_weight_residency.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -103,6 +104,25 @@ main(int argc, char **argv)
               fault.state == OPENNPUX_NPU_PAGE_FAULT_READY &&
               fault.cache_slot == 0 && cache_hit,
           "page fault service failed");
+    unsigned char residency_storage[
+        sizeof(struct opennpux_npu_weight_residency_header) +
+        sizeof(struct opennpux_npu_weight_residency_record)];
+    check(opennpux_npu_weight_residency_init(
+              residency_storage, sizeof(residency_storage), 1) == 0 &&
+              opennpux_npu_weight_residency_publish(
+                  residency_storage, sizeof(residency_storage), &fault) == 0,
+          "weight residency publication failed");
+    const struct opennpux_npu_weight_residency_header *residency =
+        (const struct opennpux_npu_weight_residency_header *)(const void *)
+            residency_storage;
+    const struct opennpux_npu_weight_residency_record *resident =
+        (const struct opennpux_npu_weight_residency_record *)(residency + 1);
+    check(residency->valid_records == 1 && residency->generation == 1 &&
+              resident->command_id == fault.command_id &&
+              resident->component_id == fault.component_id &&
+              resident->range_file_offset == fault.range_file_offset &&
+              resident->cache_slot == fault.cache_slot,
+          "weight residency record mismatch");
     const uint64_t inactive[] = {0};
     check(opennpux_npu_weight_page_cursor_begin(
               &ranges, expert_command, inactive, 1, &cursor) == 0 &&

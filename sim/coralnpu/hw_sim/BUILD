@@ -125,7 +125,11 @@ cc_binary(
 
 cc_library(
     name = "gem5_npu_submission_headers",
-    hdrs = ["gem5_bridge/npu_submission.h"],
+    hdrs = [
+        "gem5_bridge/npu_submission.h",
+        "gem5_bridge/npu_weight_queue.h",
+        "gem5_bridge/npu_weight_residency.h",
+    ],
 )
 
 cc_binary(
@@ -373,6 +377,7 @@ coralnpu_v2_binary(
         "gem5_bridge/npu_route_table.h",
         "gem5_bridge/npu_submission.h",
         "gem5_bridge/npu_weight_queue.h",
+        "gem5_bridge/npu_weight_residency.h",
     ],
 )
 

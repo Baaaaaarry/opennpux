@@ -298,6 +298,13 @@ NPU can therefore reconstruct `qweight`, `qzeros`, `scales`, and `g_idx`
 streams without parsing Qwen tensor names. Overlapping aligned transfers are
 published once per semantic range; the bounded cache converts duplicate
 physical reads into hits while preserving component identity for execution.
+A PAGE_RESIDENCY binding publishes one fixed record per cache slot. Records
+carry the currently resident command/component/expert and the exact tensor and
+page ranges, with a generation counter for synchronization. Firmware validates
+the record before consuming a READY page, and the Verilated bridge can convert
+the same records into streamed-kernel page spans after the fault entry is
+retired. This separates transient queue ownership from numerical operand
+residency.
 The executable command flag `OPENNPUX_NPU_COMMAND_USES_WEIGHT` is emitted from
 the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while

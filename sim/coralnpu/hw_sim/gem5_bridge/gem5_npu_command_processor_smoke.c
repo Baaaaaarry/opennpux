@@ -4,6 +4,7 @@
 #include "hw_sim/gem5_bridge/npu_submission.h"
 #include "hw_sim/gem5_bridge/npu_route_table.h"
 #include "hw_sim/gem5_bridge/npu_weight_queue.h"
+#include "hw_sim/gem5_bridge/npu_weight_residency.h"
 
 #define EXTMEM_BASE UINT32_C(0x20000000)
 #define COMMAND_BUFFER_SIZE UINT32_C(0x00800000)
@@ -82,6 +83,7 @@ memory_fence(void)
 static int
 page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
             volatile uint8_t *cache, uint32_t cache_slots,
+            volatile const struct opennpux_npu_weight_residency_header *residency,
             uint32_t command_id, uint32_t *word,
             volatile uint64_t *stall_cycles, uint32_t *last,
             uint32_t *role_id, uint32_t *component_id)
@@ -131,6 +133,26 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
     }
     if (fault->state != OPENNPUX_NPU_PAGE_FAULT_READY ||
         fault->error_code != 0 || fault->cache_slot >= cache_slots) {
+        return -1;
+    }
+    if (residency == NULL ||
+        residency->magic != OPENNPUX_NPU_WEIGHT_RESIDENCY_MAGIC ||
+        residency->version != OPENNPUX_NPU_WEIGHT_RESIDENCY_VERSION ||
+        residency->header_size != sizeof(*residency) ||
+        residency->record_size !=
+            sizeof(struct opennpux_npu_weight_residency_record) ||
+        fault->cache_slot >= residency->capacity) {
+        return -1;
+    }
+    volatile const struct opennpux_npu_weight_residency_record *resident =
+        (volatile const struct opennpux_npu_weight_residency_record *)(
+            residency + 1) + fault->cache_slot;
+    if ((resident->flags & OPENNPUX_NPU_WEIGHT_RESIDENCY_VALID) == 0 ||
+        resident->command_id != fault->command_id ||
+        resident->role_id != fault->role_id ||
+        resident->component_id != fault->component_id ||
+        resident->page_file_offset != fault->file_offset ||
+        resident->cache_slot != fault->cache_slot) {
         return -1;
     }
     const uint32_t offset = command_id * sizeof(uint32_t);
@@ -227,6 +249,7 @@ main(void)
     volatile struct opennpux_npu_tensor_binding *queue_binding = NULL;
     volatile struct opennpux_npu_tensor_binding *cache_binding = NULL;
     volatile struct opennpux_npu_tensor_binding *route_binding = NULL;
+    volatile struct opennpux_npu_tensor_binding *residency_binding = NULL;
     for (uint32_t index = 0; index < header->binding_count; ++index) {
         if ((bindings[index].flags & OPENNPUX_NPU_BIND_PAGE_QUEUE) != 0) {
             if (queue_binding != NULL) {
@@ -252,8 +275,17 @@ main(void)
             }
             route_binding = &bindings[index];
         }
+        if ((bindings[index].flags & OPENNPUX_NPU_BIND_PAGE_RESIDENCY) != 0) {
+            if (residency_binding != NULL) {
+                finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                       ERROR_PAGING, 0);
+                return 1;
+            }
+            residency_binding = &bindings[index];
+        }
     }
-    if ((queue_binding == NULL) != (cache_binding == NULL)) {
+    if ((queue_binding == NULL) != (cache_binding == NULL) ||
+        (queue_binding == NULL) != (residency_binding == NULL)) {
         finish(completion, OPENNPUX_NPU_COMPLETION_ERROR, ERROR_PAGING, 0);
         return 1;
     }
@@ -270,6 +302,21 @@ main(void)
              cache_binding->device_address)) {
         finish(completion, OPENNPUX_NPU_COMPLETION_ERROR, ERROR_PAGING, 0);
         return 1;
+    }
+    volatile const struct opennpux_npu_weight_residency_header *residency = NULL;
+    if (residency_binding != NULL) {
+        if (residency_binding->device_address < EXTMEM_BASE ||
+            residency_binding->byte_size < sizeof(*residency) ||
+            residency_binding->device_address > EXTMEM_BASE + COMMAND_BUFFER_SIZE ||
+            residency_binding->byte_size > EXTMEM_BASE + COMMAND_BUFFER_SIZE -
+                residency_binding->device_address) {
+            finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                   ERROR_PAGING, 0);
+            return 1;
+        }
+        residency =
+            (volatile const struct opennpux_npu_weight_residency_header *)(
+                uintptr_t)residency_binding->device_address;
     }
     volatile const struct opennpux_npu_route_table_header *route = NULL;
     if (route_binding != NULL) {
@@ -429,7 +476,7 @@ main(void)
                 const uint32_t cache_slots =
                     (uint32_t)(cache_binding->byte_size / PAGING_TRANSFER_SIZE);
                 do {
-                    if (page_weight(queue, cache, cache_slots,
+                    if (page_weight(queue, cache, cache_slots, residency,
                                     commands[index].command_id, &word,
                                     &completion->stall_cycles, &last,
                                     &role_id, &component_id) != 0) {

@@ -4,6 +4,7 @@
 #include "opennpux/npu_paging_layout.h"
 #include "opennpux/npu_router.h"
 #include "opennpux/npu_weight_queue.h"
+#include "opennpux/npu_weight_residency.h"
 #include "opennpux/qwen_model.h"
 
 #include <errno.h>
@@ -91,6 +92,8 @@ struct executable_page_service {
     struct opennpux_npu_weight_page_cursor *cursors;
     uint8_t *cursor_initialized;
     uint32_t command_count;
+    void *residency;
+    size_t residency_size;
     uint32_t cache_slots;
     uint32_t transfer_size;
     uint64_t faults_serviced;
@@ -171,6 +174,12 @@ service_executable_page(void *opaque)
     }
     fault->cache_slot = slot;
     fault->error_code = 0;
+    if (service->residency != NULL &&
+        opennpux_npu_weight_residency_publish(
+            service->residency, service->residency_size, fault) != 0) {
+        errno = EPROTO;
+        return -1;
+    }
     __atomic_store_n(&fault->state, OPENNPUX_NPU_PAGE_FAULT_READY,
                      __ATOMIC_RELEASE);
     __atomic_store_n(&header->service_index, consumer + 1,
@@ -308,7 +317,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         opennpux_npu_executable_unload(&executable);
         return 1;
     }
-    struct opennpux_npu_tensor_binding bindings[8];
+    struct opennpux_npu_tensor_binding bindings[9];
     memset(bindings, 0, sizeof(bindings));
     for (uint32_t index = 0; index < 5; ++index) {
         bindings[index].tensor_id = index;
@@ -337,7 +346,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     if (paged) {
         bindings[6].tensor_id = 6;
         bindings[6].flags = OPENNPUX_NPU_BIND_READ |
-            OPENNPUX_NPU_BIND_WRITE | OPENNPUX_NPU_BIND_PAGE_QUEUE;
+            OPENNPUX_NPU_BIND_WRITE | OPENNPUX_NPU_BIND_PAGE_RESIDENCY;
         bindings[6].data_type = OPENNPUX_NPU_DTYPE_INT8;
         bindings[6].rank = 1;
         bindings[6].byte_size = 1;
@@ -345,13 +354,21 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         bindings[6].memory_object = 7;
         bindings[7].tensor_id = 7;
         bindings[7].flags = OPENNPUX_NPU_BIND_READ |
-            OPENNPUX_NPU_BIND_WRITE | OPENNPUX_NPU_BIND_WEIGHT |
-            OPENNPUX_NPU_BIND_PAGE_CACHE;
+            OPENNPUX_NPU_BIND_WRITE | OPENNPUX_NPU_BIND_PAGE_QUEUE;
         bindings[7].data_type = OPENNPUX_NPU_DTYPE_INT8;
         bindings[7].rank = 1;
         bindings[7].byte_size = 1;
         bindings[7].dimensions[0] = 1;
         bindings[7].memory_object = 8;
+        bindings[8].tensor_id = 8;
+        bindings[8].flags = OPENNPUX_NPU_BIND_READ |
+            OPENNPUX_NPU_BIND_WRITE | OPENNPUX_NPU_BIND_WEIGHT |
+            OPENNPUX_NPU_BIND_PAGE_CACHE;
+        bindings[8].data_type = OPENNPUX_NPU_DTYPE_INT8;
+        bindings[8].rank = 1;
+        bindings[8].byte_size = 1;
+        bindings[8].dimensions[0] = 1;
+        bindings[8].memory_object = 9;
     }
 
     struct opennpux_npu_paging_layout paging_layout;
@@ -398,7 +415,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     size_t submission_size = 0;
     int rc = 1;
     if (submission == NULL || opennpux_npu_executable_instantiate(
-            &executable, entry_point, 1, 1, bindings, paged ? 8 : 6, submission,
+            &executable, entry_point, 1, 1, bindings, paged ? 9 : 6, submission,
             window.size, &submission_size) != 0) {
         perror("executable-run instantiate");
         goto out;
@@ -425,7 +442,12 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     const size_t route_capacity =
         sizeof(struct opennpux_npu_route_table_header) +
         8 * sizeof(struct opennpux_npu_route_record);
-    data_offset = route_offset + route_capacity;
+    const size_t residency_offset = align_npu_record(
+        route_offset + route_capacity);
+    const size_t residency_size = paged ?
+        opennpux_npu_weight_residency_size(
+            OPENNPUX_NPU_PAGING_CACHE_SLOTS_DEFAULT) : 0;
+    data_offset = residency_offset + residency_size;
     if (completion_offset > window.size ||
         sizeof(struct opennpux_npu_completion) > window.size - completion_offset ||
         data_offset > window.size) {
@@ -461,9 +483,15 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     }
     submission_bindings[5].device_address = NPU_EXTMEM_BASE + route_offset;
     submission_bindings[5].byte_size = route_capacity;
+    if (paged) {
+        submission_bindings[6].device_address =
+            NPU_EXTMEM_BASE + residency_offset;
+        submission_bindings[6].byte_size = residency_size;
+        submission_bindings[6].dimensions[0] = residency_size;
+    }
     if (paged && opennpux_npu_paging_layout_bindings(
-            &paging_layout, NPU_EXTMEM_BASE, 6, 7,
-            &submission_bindings[6], &submission_bindings[7]) != 0) {
+            &paging_layout, NPU_EXTMEM_BASE, 7, 8,
+            &submission_bindings[7], &submission_bindings[8]) != 0) {
         perror("executable-run paging bindings");
         goto out;
     }
@@ -480,6 +508,13 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct executable_page_service page_service;
     memset(&page_service, 0, sizeof(page_service));
     if (paged) {
+        if (opennpux_npu_weight_residency_init(
+                (void *)(uintptr_t)(window.bytes + residency_offset),
+                residency_size,
+                OPENNPUX_NPU_PAGING_CACHE_SLOTS_DEFAULT) != 0) {
+            perror("executable-run residency table");
+            goto out;
+        }
         if (opennpux_npu_paging_layout_init_queue(
                 (void *)(uintptr_t)window.bytes, window.size,
                 &paging_layout, &page_queue) != 0) {
@@ -492,6 +527,9 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         page_service.source = weight_page;
         page_service.cache_slots = paging_layout.cache_slots;
         page_service.transfer_size = paging_layout.transfer_size;
+        page_service.residency =
+            (void *)(uintptr_t)(window.bytes + residency_offset);
+        page_service.residency_size = residency_size;
         if (real_weights) {
             weight_cache_entries = calloc(
                 paging_layout.cache_slots, sizeof(*weight_cache_entries));
@@ -672,6 +710,13 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             printf("paging_weight_bytes_read=%" PRIu64 "\n",
                    weight_cache.stats.bytes_read);
         }
+        const struct opennpux_npu_weight_residency_header *residency =
+            (const struct opennpux_npu_weight_residency_header *)(const void *)(
+                window.bytes + residency_offset);
+        printf("paging_residency_generation=%" PRIu64 "\n",
+               residency->generation);
+        printf("paging_residency_records=%" PRIu32 "\n",
+               residency->valid_records);
     }
     printf("relocated_commands=%" PRIu64 "\n", completion->reserved[0]);
     printf("parameter_checksum=0x%08" PRIx64 "\n",

@@ -370,6 +370,7 @@ coralnpu_v2_binary(
     name = "gem5_npu_command_processor_smoke",
     srcs = [
         "gem5_bridge/gem5_npu_command_processor_smoke.c",
+        "gem5_bridge/npu_route_table.h",
         "gem5_bridge/npu_submission.h",
         "gem5_bridge/npu_weight_queue.h",
     ],

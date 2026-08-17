@@ -82,6 +82,7 @@ enum opennpux_npu_binding_flags {
     OPENNPUX_NPU_BIND_WEIGHT = 1u << 3,
     OPENNPUX_NPU_BIND_PAGE_QUEUE = 1u << 4,
     OPENNPUX_NPU_BIND_PAGE_CACHE = 1u << 5,
+    OPENNPUX_NPU_BIND_ROUTE_TABLE = 1u << 6,
 };
 
 enum opennpux_npu_invocation_flags {

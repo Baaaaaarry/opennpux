@@ -283,7 +283,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         opennpux_npu_executable_unload(&executable);
         return 1;
     }
-    struct opennpux_npu_tensor_binding bindings[7];
+    struct opennpux_npu_tensor_binding bindings[8];
     memset(bindings, 0, sizeof(bindings));
     for (uint32_t index = 0; index < 5; ++index) {
         bindings[index].tensor_id = index;
@@ -299,6 +299,15 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     bindings[3].flags |= OPENNPUX_NPU_BIND_PERSISTENT |
                          OPENNPUX_NPU_BIND_WRITE;
     bindings[4].flags |= OPENNPUX_NPU_BIND_WRITE;
+    bindings[5].tensor_id = 5;
+    bindings[5].flags = OPENNPUX_NPU_BIND_READ |
+                        OPENNPUX_NPU_BIND_ROUTE_TABLE;
+    bindings[5].data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
+    bindings[5].rank = 1;
+    bindings[5].byte_size = sizeof(struct opennpux_npu_route_table_header) +
+        8 * sizeof(struct opennpux_npu_route_record);
+    bindings[5].dimensions[0] = 8;
+    bindings[5].memory_object = 6;
 
     struct opennpux_npu_paging_layout paging_layout;
     memset(&paging_layout, 0, sizeof(paging_layout));
@@ -308,8 +317,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             OPENNPUX_NPU_PAGING_CACHE_SLOTS_DEFAULT,
             OPENNPUX_NPU_PAGING_TRANSFER_DEFAULT, &paging_layout) != 0 ||
         opennpux_npu_paging_layout_bindings(
-            &paging_layout, NPU_EXTMEM_BASE, 5, 6,
-            &bindings[5], &bindings[6]) != 0)) {
+            &paging_layout, NPU_EXTMEM_BASE, 6, 7,
+            &bindings[6], &bindings[7]) != 0)) {
         perror("executable-run paging layout");
         opennpux_coral_close_shared_window(&window);
         opennpux_npu_executable_unload(&executable);
@@ -322,13 +331,23 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct opennpux_npu_weight_cache weight_cache;
     struct opennpux_npu_weight_cache_entry *weight_cache_entries = NULL;
     uint64_t active_experts[8];
-    struct opennpux_npu_route active_routes[8];
+    opennpux_npu_route active_routes[8];
     uint32_t active_route_count = 0;
     memset(&weight_model, 0, sizeof(weight_model));
     memset(&weight_ranges, 0, sizeof(weight_ranges));
     memset(&weight_cache, 0, sizeof(weight_cache));
     memset(active_experts, 0, sizeof(active_experts));
     memset(active_routes, 0, sizeof(active_routes));
+    active_route_count = executable.header->default_active_experts < 8 ?
+        executable.header->default_active_experts : 8;
+    if (active_route_count == 0) {
+        active_route_count = 1;
+    }
+    for (uint32_t index = 0; index < active_route_count; ++index) {
+        active_experts[index] = index;
+        active_routes[index].expert_id = index;
+        active_routes[index].weight = 1.0f / (float)active_route_count;
+    }
     const uint32_t weight_page_size = paged ?
         paging_layout.transfer_size : NPU_WEIGHT_PAGE_SIZE;
     uint8_t *weight_page = real_weights ? NULL : malloc(weight_page_size);
@@ -345,7 +364,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     size_t submission_size = 0;
     int rc = 1;
     if (submission == NULL || opennpux_npu_executable_instantiate(
-            &executable, entry_point, 1, 1, bindings, paged ? 7 : 5, submission,
+            &executable, entry_point, 1, 1, bindings, paged ? 8 : 6, submission,
             window.size, &submission_size) != 0) {
         perror("executable-run instantiate");
         goto out;
@@ -368,6 +387,11 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     data_offset += NPU_STATE_BUFFER_SIZE;
     const size_t scratch_offset = data_offset;
     data_offset += NPU_SCRATCH_BUFFER_SIZE;
+    const size_t route_offset = align_npu_record(data_offset);
+    const size_t route_capacity =
+        sizeof(struct opennpux_npu_route_table_header) +
+        8 * sizeof(struct opennpux_npu_route_record);
+    data_offset = route_offset + route_capacity;
     if (completion_offset > window.size ||
         sizeof(struct opennpux_npu_completion) > window.size - completion_offset ||
         data_offset > window.size) {
@@ -392,19 +416,13 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             NPU_EXTMEM_BASE + offsets[index];
         submission_bindings[index].byte_size = sizes[index];
     }
+    submission_bindings[5].device_address = NPU_EXTMEM_BASE + route_offset;
+    submission_bindings[5].byte_size = route_capacity;
     if (paged) {
-        submission_bindings[5] = bindings[5];
         submission_bindings[6] = bindings[6];
+        submission_bindings[7] = bindings[7];
     }
     header->completion_address = NPU_EXTMEM_BASE + completion_offset;
-    header->checksum = 0;
-    header->checksum = opennpux_npu_submission_checksum(
-        submission, submission_size);
-    if (opennpux_npu_submission_validate(submission, submission_size) != 0 ||
-        copy_to_shared_window(&window, submission, (uint32_t)submission_size) != 0) {
-        perror("executable-run stage");
-        goto out;
-    }
     for (size_t index = input_offset; index < data_offset; ++index) {
         window.bytes[index] = 0;
     }
@@ -485,6 +503,26 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             page_service.active_expert_count = active_count;
         }
     }
+    size_t route_size = 0;
+    if (opennpux_npu_route_table_build(
+            active_routes, active_route_count,
+            (void *)(uintptr_t)(window.bytes + route_offset), route_capacity,
+            &route_size) != 0) {
+        errno = EINVAL;
+        perror("executable-run route table");
+        goto out;
+    }
+    submission_bindings[5].byte_size = route_size;
+    submission_bindings[5].dimensions[0] = active_route_count;
+    header->checksum = 0;
+    header->checksum = opennpux_npu_submission_checksum(
+        submission, submission_size);
+    if (opennpux_npu_submission_validate(submission, submission_size) != 0 ||
+        copy_to_shared_window(&window, submission,
+                              (uint32_t)submission_size) != 0) {
+        perror("executable-run stage");
+        goto out;
+    }
     volatile struct opennpux_npu_completion *completion =
         (volatile struct opennpux_npu_completion *)(volatile void *)(
             window.bytes + completion_offset);
@@ -511,6 +549,9 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     printf("completion_state=%" PRIu32 "\n", completion->state);
     printf("completion_error=%" PRIu32 "\n", completion->error_code);
     printf("completed_commands=%" PRIu32 "\n", completion->completed_commands);
+    printf("device_route_count=%" PRIu32 "\n", completion->reserved0);
+    printf("device_route_checksum=0x%08" PRIx64 "\n",
+           completion->completion_fence);
     const struct opennpux_npu_command *commands =
         (const struct opennpux_npu_command *)(const void *)(
             submission + header->command_offset);
@@ -632,6 +673,9 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                    records[index].weight_dma_bytes);
         }
     }
+    const struct opennpux_npu_route_table_header *route_table =
+        (const struct opennpux_npu_route_table_header *)(const void *)(
+            window.bytes + route_offset);
     if (completion->magic != OPENNPUX_NPU_COMPLETION_MAGIC ||
         completion->version != OPENNPUX_NPU_COMPLETION_VERSION ||
         completion->sequence != header->sequence ||
@@ -639,7 +683,10 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         completion->error_code != 0 ||
         completion->completed_commands != header->command_count ||
         completion->reserved[0] != header->command_count ||
-        completion->reserved[1] == 0 || trace == NULL ||
+        completion->reserved[1] == 0 ||
+        completion->reserved0 != active_route_count ||
+        completion->completion_fence != route_table->checksum ||
+        trace == NULL ||
         trace->command_count != header->command_count) {
         errno = EIO;
         perror("executable-run completion validation");

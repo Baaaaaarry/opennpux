@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "hw_sim/gem5_bridge/npu_submission.h"
+#include "hw_sim/gem5_bridge/npu_route_table.h"
 #include "hw_sim/gem5_bridge/npu_weight_queue.h"
 
 #define EXTMEM_BASE UINT32_C(0x20000000)
@@ -13,6 +14,7 @@
 #define ERROR_RELOCATION UINT32_C(5)
 #define ERROR_DEPENDENCY UINT32_C(6)
 #define ERROR_PAGING UINT32_C(7)
+#define ERROR_ROUTE UINT32_C(8)
 #define MODELED_OPS_PER_CYCLE UINT64_C(256)
 #define MODELED_BYTES_PER_CYCLE UINT64_C(32)
 #define PAGING_TRANSFER_SIZE UINT32_C(65536)
@@ -30,6 +32,20 @@ checksum(const volatile uint8_t *bytes, uint32_t size)
 {
     const uint32_t begin = (uint32_t)offsetof(
         struct opennpux_npu_invocation_header, checksum);
+    uint32_t value = UINT32_C(2166136261);
+    for (uint32_t index = 0; index < size; ++index) {
+        uint8_t byte = index >= begin && index < begin + 4 ? 0 : bytes[index];
+        value ^= byte;
+        value *= UINT32_C(16777619);
+    }
+    return value;
+}
+
+static uint32_t
+route_checksum(const volatile uint8_t *bytes, uint32_t size)
+{
+    const uint32_t begin = (uint32_t)offsetof(
+        struct opennpux_npu_route_table_header, checksum);
     uint32_t value = UINT32_C(2166136261);
     for (uint32_t index = 0; index < size; ++index) {
         uint8_t byte = index >= begin && index < begin + 4 ? 0 : bytes[index];
@@ -202,6 +218,7 @@ main(void)
                                                         header->binding_offset);
     volatile struct opennpux_npu_tensor_binding *queue_binding = NULL;
     volatile struct opennpux_npu_tensor_binding *cache_binding = NULL;
+    volatile struct opennpux_npu_tensor_binding *route_binding = NULL;
     for (uint32_t index = 0; index < header->binding_count; ++index) {
         if ((bindings[index].flags & OPENNPUX_NPU_BIND_PAGE_QUEUE) != 0) {
             if (queue_binding != NULL) {
@@ -218,6 +235,14 @@ main(void)
                 return 1;
             }
             cache_binding = &bindings[index];
+        }
+        if ((bindings[index].flags & OPENNPUX_NPU_BIND_ROUTE_TABLE) != 0) {
+            if (route_binding != NULL) {
+                finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                       ERROR_ROUTE, 0);
+                return 1;
+            }
+            route_binding = &bindings[index];
         }
     }
     if ((queue_binding == NULL) != (cache_binding == NULL)) {
@@ -237,6 +262,36 @@ main(void)
              cache_binding->device_address)) {
         finish(completion, OPENNPUX_NPU_COMPLETION_ERROR, ERROR_PAGING, 0);
         return 1;
+    }
+    volatile const struct opennpux_npu_route_table_header *route = NULL;
+    if (route_binding != NULL) {
+        if (route_binding->device_address < EXTMEM_BASE ||
+            route_binding->byte_size < sizeof(*route) ||
+            route_binding->device_address > EXTMEM_BASE + COMMAND_BUFFER_SIZE ||
+            route_binding->byte_size > EXTMEM_BASE + COMMAND_BUFFER_SIZE -
+                route_binding->device_address) {
+            finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                   ERROR_ROUTE, 0);
+            return 1;
+        }
+        route = (volatile const struct opennpux_npu_route_table_header *)(
+            uintptr_t)route_binding->device_address;
+        if (route->magic != OPENNPUX_NPU_ROUTE_TABLE_MAGIC ||
+            route->version != OPENNPUX_NPU_ROUTE_TABLE_VERSION ||
+            route->header_size != sizeof(*route) ||
+            route->record_size != sizeof(struct opennpux_npu_route_record) ||
+            route->record_count == 0 ||
+            route->record_count > OPENNPUX_NPU_MAX_ACTIVE_EXPERTS ||
+            route->total_size != sizeof(*route) + route->record_count *
+                sizeof(struct opennpux_npu_route_record) ||
+            route->total_size > route_binding->byte_size ||
+            route->checksum != route_checksum(
+                (volatile const uint8_t *)(const volatile void *)route,
+                route->total_size)) {
+            finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                   ERROR_ROUTE, 0);
+            return 1;
+        }
     }
     uint64_t cycles = 0;
     uint32_t relocated = 0;
@@ -278,6 +333,10 @@ main(void)
             (commands[index].runtime_shape >>
              OPENNPUX_NPU_RUNTIME_SEQUENCE_SHIFT) &
             OPENNPUX_NPU_RUNTIME_FIELD_MASK;
+        const uint32_t active_expert_count =
+            (commands[index].runtime_shape >>
+             OPENNPUX_NPU_RUNTIME_EXPERT_SHIFT) &
+            OPENNPUX_NPU_RUNTIME_FIELD_MASK;
         const uint32_t weight_binding =
             commands[index].resource_bindings & OPENNPUX_NPU_RUNTIME_FIELD_MASK;
         const uint32_t state_binding =
@@ -299,6 +358,11 @@ main(void)
             (bindings[scratch_binding].flags & OPENNPUX_NPU_BIND_WRITE) == 0) {
             finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
                    ERROR_RELOCATION, index);
+            return 1;
+        }
+        if (route != NULL && active_expert_count != route->record_count) {
+            finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                   ERROR_ROUTE, index);
             return 1;
         }
         if ((commands[index].dependency_token != 0 &&
@@ -406,6 +470,10 @@ weight_complete:
     completion->dma_bytes_read = trace->weight_dma_bytes;
     completion->reserved[0] = relocated;
     completion->reserved[1] = parameter_checksum;
+    if (route != NULL) {
+        completion->reserved0 = route->record_count;
+        completion->completion_fence = route->checksum;
+    }
     finish(completion, OPENNPUX_NPU_COMPLETION_SUCCESS, 0, UINT32_MAX);
     return 0;
 }

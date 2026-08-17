@@ -198,6 +198,8 @@ bool RunGem5HybridGptqInt4MatMul(
   const uint64_t weight_count = weight_rows * request->output_columns;
   const uint64_t zero_count = groups * zero_columns;
   const uint64_t scale_count = groups * request->output_columns;
+  const uint32_t scale_element_size =
+      Gem5GptqScaleElementSize(request->scale_data_type);
   const bool has_g_idx = request->g_idx_address != 0;
   uint64_t input_bytes = 0;
   uint64_t output_bytes = 0;
@@ -209,7 +211,8 @@ bool RunGem5HybridGptqInt4MatMul(
       !ByteSize(output_count, sizeof(float), &output_bytes) ||
       !ByteSize(weight_count, sizeof(uint32_t), &weight_bytes) ||
       !ByteSize(zero_count, sizeof(uint32_t), &zero_bytes) ||
-      !ByteSize(scale_count, sizeof(float), &scale_bytes) ||
+      scale_element_size == 0 ||
+      !ByteSize(scale_count, scale_element_size, &scale_bytes) ||
       !ByteSize(request->input_columns, sizeof(uint32_t), &g_idx_bytes) ||
       !ExtmemRangeValid(request->input_address, input_bytes,
                         extmem_base, extmem_size) ||
@@ -232,7 +235,7 @@ bool RunGem5HybridGptqInt4MatMul(
   Gem5GptqKernelStats stats = {};
   const Gem5GptqMatMulConfig config = {
       request->rows, request->input_columns, request->output_columns,
-      request->group_size, request->zero_bias, kGem5GptqScaleFloat32};
+      request->group_size, request->zero_bias, request->scale_data_type};
   const bool success = RunGem5GptqInt4MatMul(
       config, reinterpret_cast<const float*>(
                   extmem + request->input_address - extmem_base),

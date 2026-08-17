@@ -57,6 +57,7 @@ int main() {
   request->scales_address = kScalesAddress;
   request->g_idx_address = 0;
   request->output_address = kOutputAddress;
+  request->scale_data_type = CORAL_GPTQ_SCALE_FLOAT32;
 
   opennpux::InitializeOperatorDescriptor(
       descriptor, CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4,

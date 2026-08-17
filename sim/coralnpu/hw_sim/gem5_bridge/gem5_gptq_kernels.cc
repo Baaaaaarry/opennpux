@@ -70,6 +70,10 @@ float ReadScale(const void* scales, size_t index, uint32_t data_type) {
 
 }  // namespace
 
+uint32_t Gem5GptqScaleElementSize(uint32_t data_type) {
+  return ScaleElementSize(data_type);
+}
+
 bool RunGem5GptqInt4MatMul(
     const Gem5GptqMatMulConfig& config, const float* input,
     const uint32_t* qweight, const uint32_t* qzeros, const void* scales,

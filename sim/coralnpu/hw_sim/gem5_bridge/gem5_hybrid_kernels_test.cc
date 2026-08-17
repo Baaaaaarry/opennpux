@@ -45,6 +45,10 @@ void Write32(std::vector<uint8_t>* memory, size_t offset, int32_t value) {
   std::memcpy(memory->data() + offset, &value, sizeof(value));
 }
 
+void Write16(std::vector<uint8_t>* memory, size_t offset, uint16_t value) {
+  std::memcpy(memory->data() + offset, &value, sizeof(value));
+}
+
 void WriteFloat(std::vector<uint8_t>* memory, size_t offset, float value) {
   std::memcpy(memory->data() + offset, &value, sizeof(value));
 }
@@ -333,11 +337,12 @@ void TestGptqMatMulDispatch() {
   request->qzeros_address = kBase + qzeros_offset;
   request->scales_address = kBase + scales_offset;
   request->output_address = kBase + output_offset;
+  request->scale_data_type = CORAL_GPTQ_SCALE_FLOAT16;
   WriteFloat(&memory, input_offset, 2.0f);
   WriteFloat(&memory, input_offset + 4, 3.0f);
   Write32(&memory, qweight_offset, 0x21);
   Write32(&memory, qzeros_offset, 0);
-  WriteFloat(&memory, scales_offset, 0.5f);
+  Write16(&memory, scales_offset, UINT16_C(0x3800));
 
   Gem5HybridOperatorResult result = {};
   assert(DispatchGem5HybridOperator(

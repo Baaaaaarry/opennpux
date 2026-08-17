@@ -26,6 +26,8 @@ struct Gem5GptqKernelStats {
   uint64_t modeled_cycles;
 };
 
+uint32_t Gem5GptqScaleElementSize(uint32_t data_type);
+
 // AutoGPTQ layout: qweight packs the K axis, qzeros packs the N axis, and
 // scales is group-major. g_idx is optional; otherwise k / group_size is used.
 bool RunGem5GptqInt4MatMul(

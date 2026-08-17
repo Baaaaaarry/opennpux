@@ -4,7 +4,10 @@
 #include <stdint.h>
 
 #define CORAL_GPTQ_MATMUL_MAGIC UINT32_C(0x514d3447)
-#define CORAL_GPTQ_MATMUL_VERSION UINT32_C(1)
+#define CORAL_GPTQ_MATMUL_VERSION UINT32_C(2)
+#define CORAL_GPTQ_SCALE_FLOAT16 UINT32_C(4)
+#define CORAL_GPTQ_SCALE_BFLOAT16 UINT32_C(5)
+#define CORAL_GPTQ_SCALE_FLOAT32 UINT32_C(6)
 
 enum coral_gptq_matmul_state {
   CORAL_GPTQ_MATMUL_PENDING = 0,
@@ -35,7 +38,8 @@ struct coral_gptq_matmul_request {
   uint64_t bytes_written;
   uint64_t modeled_cycles;
   uint32_t output_checksum;
-  uint32_t reserved[7];
+  uint32_t scale_data_type;
+  uint32_t reserved[6];
 };
 
 #ifdef __cplusplus

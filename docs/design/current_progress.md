@@ -152,6 +152,10 @@ Because CUSTOM_0 decode is carried by the RVV highmem core integration, this
 smoke must use `libcoralnpu_gem5_rvv_highmem_bridge.so`; the dedicated
 `build_gptq_matmul_smoke.sh` and `run_gptq_matmul_smoke.sh` scripts enforce that
 pairing and reject a run with no opcode-10 command submission.
+The CUSTOM_0 GPTQ request ABI is now version 2 and carries the scale storage
+type explicitly. Its firmware-to-bridge path validates buffer extents with the
+actual FP16/BF16/FP32 element width before dispatch, closing the last FP32-only
+assumption on the end-to-end custom-instruction path.
 
 Generic executables now carry a model-independent, fixed-size numerical
 parameter record for every command. The record preserves static feature sizes,

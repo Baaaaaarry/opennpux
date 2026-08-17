@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
 
 #include <cmath>
+#include <cstring>
 #include <limits>
 
 namespace {
@@ -70,6 +71,47 @@ bool RunProjection(const opennpux_npu_operator_parameters& base,
 }
 
 }  // namespace
+
+bool ReadGem5GenericGptqPageSpans(
+    void* opaque, Gem5GptqComponent component, uint64_t offset,
+    void* destination, size_t size) {
+  auto* reader = static_cast<Gem5GenericGptqPageReader*>(opaque);
+  if (reader == nullptr || reader->spans == nullptr || destination == nullptr ||
+      size == 0 || offset > UINT64_MAX - size) {
+    return false;
+  }
+  auto* output = static_cast<uint8_t*>(destination);
+  const uint64_t end = offset + size;
+  uint64_t cursor = offset;
+  while (cursor < end) {
+    const Gem5GenericGptqPageSpan* match = nullptr;
+    for (size_t index = 0; index < reader->span_count; ++index) {
+      const auto& span = reader->spans[index];
+      if (span.component != component || span.data == nullptr ||
+          span.tensor_offset > UINT64_MAX - span.size ||
+          cursor < span.tensor_offset ||
+          cursor >= span.tensor_offset + span.size) {
+        continue;
+      }
+      if (match != nullptr) {
+        return false;
+      }
+      match = &span;
+    }
+    if (match == nullptr) {
+      return false;
+    }
+    const uint64_t span_end = match->tensor_offset + match->size;
+    const uint64_t copy_end = span_end < end ? span_end : end;
+    const size_t copy_size = static_cast<size_t>(copy_end - cursor);
+    std::memcpy(output + static_cast<size_t>(cursor - offset),
+                static_cast<const uint8_t*>(match->data) +
+                    static_cast<size_t>(cursor - match->tensor_offset),
+                copy_size);
+    cursor = copy_end;
+  }
+  return true;
+}
 
 bool RunGem5GenericGptqMatMul(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,

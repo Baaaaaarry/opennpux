@@ -44,6 +44,24 @@ struct Gem5GenericGptqExpertOperands {
   Gem5GenericMutableBuffer output;
 };
 
+struct Gem5GenericGptqPageSpan {
+  Gem5GptqComponent component;
+  uint64_t tensor_offset;
+  const void* data;
+  size_t size;
+};
+
+struct Gem5GenericGptqPageReader {
+  const Gem5GenericGptqPageSpan* spans;
+  size_t span_count;
+};
+
+// Gem5GptqRead adapter over semantic ranges currently resident in cache slots.
+// Every requested byte must be covered exactly once; gaps and overlaps fail.
+bool ReadGem5GenericGptqPageSpans(
+    void* opaque, Gem5GptqComponent component, uint64_t offset,
+    void* destination, size_t size);
+
 bool RunGem5GenericGptqMatMul(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,
     const Gem5GenericGptqOperands& operands, Gem5GptqKernelStats* stats);

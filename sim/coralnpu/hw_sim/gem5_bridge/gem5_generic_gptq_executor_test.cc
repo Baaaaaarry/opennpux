@@ -86,6 +86,30 @@ int main() {
   for (float value : streamed_output) {
     assert(value == 4.0f);
   }
+  const auto* qweight_bytes =
+      reinterpret_cast<const uint8_t*>(streamed_qweight);
+  const Gem5GenericGptqPageSpan page_spans[] = {
+      {kGem5GptqQweight, 0, qweight_bytes, 16},
+      {kGem5GptqQweight, 16, qweight_bytes + 16,
+       sizeof(streamed_qweight) - 16},
+      {kGem5GptqQzeros, 0, streamed_qzeros, sizeof(streamed_qzeros)},
+      {kGem5GptqScales, 0, streamed_scales, sizeof(streamed_scales)},
+  };
+  Gem5GenericGptqPageReader page_reader = {
+      page_spans, sizeof(page_spans) / sizeof(page_spans[0])};
+  std::memset(streamed_output, 0, sizeof(streamed_output));
+  assert(RunGem5GenericGptqMatMulStreamed(
+      parameters, 1, {input, sizeof(input)},
+      ReadGem5GenericGptqPageSpans, &page_reader, 8, false,
+      {streamed_output, sizeof(streamed_output)}, &stats));
+  for (float value : streamed_output) {
+    assert(value == 4.0f);
+  }
+  page_reader.span_count = 1;
+  assert(!RunGem5GenericGptqMatMulStreamed(
+      parameters, 1, {input, sizeof(input)},
+      ReadGem5GenericGptqPageSpans, &page_reader, 8, false,
+      {streamed_output, sizeof(streamed_output)}, &stats));
   parameters.output_features = 1;
 
   const uint16_t half_scales[] = {UINT16_C(0x3800)};

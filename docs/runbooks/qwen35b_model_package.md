@@ -259,6 +259,30 @@ without a simulation run:
 float32 in the same order as the bridge kernel, and a fused multiply-add would
 change the rounding and therefore the checksum.
 
+## Real GPTQ Gated MLP Expert
+
+After the individual projection gate passes, validate one complete routed
+expert. This path consumes the real `gate_proj`, `up_proj`, and `down_proj`
+GPTQ tensors and executes the model-independent topology
+`SiLU(gate(input)) * up(input) -> down`:
+
+```sh
+./tools/coralnpu/build_gptq_matmul_smoke.sh
+./tools/guest_tools/build_coralctl.sh
+
+CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
+  CORAL_GPTQ_LAYER=0 \
+  CORAL_GPTQ_EXPERT=0 \
+  ./tools/coralnpu/run_gptq_expert_test.sh
+```
+
+The expected guest verdict is `[coral-gptq-expert-test] PASS`. The runner
+checks completion/error state, the exact analytical operation count, non-zero
+checksums at all four stage boundaries, and modeled cycles. Select another
+expert or token batch with `CORAL_GPTQ_LAYER`, `CORAL_GPTQ_EXPERT`, and
+`CORAL_GPTQ_ROWS`. The implementation is a hybrid functional/timing model of a
+generic gated MLP expert, not a Qwen-specific kernel or dedicated RTL unit.
+
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh

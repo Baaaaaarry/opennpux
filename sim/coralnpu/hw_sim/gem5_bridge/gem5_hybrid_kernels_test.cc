@@ -1,4 +1,5 @@
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
+#include "hw_sim/gem5_bridge/coral_gptq_expert.h"
 #include "hw_sim/gem5_bridge/coral_gptq_matmul.h"
 #include "hw_sim/gem5_bridge/qwen_device_inference.h"
 
@@ -354,6 +355,63 @@ void TestGptqMatMulDispatch() {
   assert(request->output_checksum != 0);
 }
 
+void TestGptqGatedMlpDispatch() {
+  std::vector<uint8_t> memory(2048, 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_GPTQ_GATED_MLP);
+  descriptor.tensor_count = 1;
+  SetTensor(&descriptor.tensors[0], kBase,
+            sizeof(coral_gptq_expert_request), 1,
+            sizeof(coral_gptq_expert_request), 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  auto* request = reinterpret_cast<coral_gptq_expert_request*>(memory.data());
+  request->magic = CORAL_GPTQ_EXPERT_MAGIC;
+  request->version = CORAL_GPTQ_EXPERT_VERSION;
+  request->struct_size = sizeof(*request);
+  request->state = CORAL_GPTQ_EXPERT_PENDING;
+  request->rows = 1;
+  request->hidden_columns = 2;
+  request->intermediate_columns = 2;
+  request->group_size = 2;
+  request->input_address = kBase + 256;
+  request->gate_output_address = kBase + 320;
+  request->up_output_address = kBase + 384;
+  request->activated_address = kBase + 448;
+  request->output_address = kBase + 512;
+  WriteFloat(&memory, 256, 1.0f);
+  WriteFloat(&memory, 260, 2.0f);
+
+  auto set_weights = [&](coral_gptq_projection_weights* weights,
+                         uint32_t base, uint32_t first, uint32_t second) {
+    weights->qweight_address = kBase + base;
+    weights->qzeros_address = kBase + base + 64;
+    weights->scales_address = kBase + base + 128;
+    weights->scale_data_type = CORAL_GPTQ_SCALE_FLOAT16;
+    Write32(&memory, base, static_cast<int32_t>(first));
+    Write32(&memory, base + 4, static_cast<int32_t>(second));
+    Write32(&memory, base + 64, 0);
+    Write16(&memory, base + 128, UINT16_C(0x3c00));
+    Write16(&memory, base + 130, UINT16_C(0x3c00));
+  };
+  set_weights(&request->gate, 640, 0x01, 0x10);
+  set_weights(&request->up, 896, 0x11, 0x11);
+  set_weights(&request->down, 1152, 0x01, 0x10);
+
+  Gem5HybridOperatorResult result = {};
+  assert(DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result));
+  assert(request->state == CORAL_GPTQ_EXPERT_COMPLETE);
+  assert(request->error == CORAL_OPERATOR_ERROR_NONE);
+  const float expected0 = 3.0f / (1.0f + std::exp(-1.0f));
+  const float expected1 = 6.0f / (1.0f + std::exp(-2.0f));
+  assert(std::fabs(ReadFloat(memory, 512) - expected0) < 1.0e-6f);
+  assert(std::fabs(ReadFloat(memory, 516) - expected1) < 1.0e-6f);
+  assert(request->operations == 36);
+  assert(request->gate_cycles != 0 && request->up_cycles != 0 &&
+         request->activation_cycles != 0 && request->down_cycles != 0);
+  assert(request->output_checksum != 0);
+  assert(descriptor.modeled_cycles == request->modeled_cycles);
+}
+
 }  // namespace
 
 int main() {
@@ -367,5 +425,6 @@ int main() {
   TestLayerNormFloat();
   TestQwenTinyInfer();
   TestGptqMatMulDispatch();
+  TestGptqGatedMlpDispatch();
   return 0;
 }

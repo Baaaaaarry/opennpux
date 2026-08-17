@@ -1,5 +1,6 @@
 #include "hw_sim/gem5_bridge/gem5_hybrid_kernels.h"
 
+#include "hw_sim/gem5_bridge/coral_gptq_expert.h"
 #include "hw_sim/gem5_bridge/coral_gptq_matmul.h"
 #include "hw_sim/gem5_bridge/gem5_gptq_kernels.h"
 #include "hw_sim/gem5_bridge/qwen_device_inference.h"
@@ -119,6 +120,73 @@ uint32_t FloatChecksum(const float* values, uint64_t count) {
     checksum *= UINT32_C(16777619);
   }
   return checksum;
+}
+
+bool RunGptqProjection(
+    uint8_t* extmem, uint32_t extmem_base, size_t extmem_size,
+    uint32_t rows, uint32_t input_columns, uint32_t output_columns,
+    uint32_t group_size, uint32_t zero_bias, uint32_t input_address,
+    const coral_gptq_projection_weights& weights, uint32_t output_address,
+    Gem5GptqKernelStats* stats) {
+  if (rows == 0 || input_columns == 0 || output_columns == 0 ||
+      group_size == 0 || zero_bias > 15 || stats == nullptr) {
+    return false;
+  }
+  const uint64_t weight_rows =
+      (static_cast<uint64_t>(input_columns) + 7) / 8;
+  const uint64_t groups =
+      (static_cast<uint64_t>(input_columns) + group_size - 1) / group_size;
+  const uint64_t zero_columns =
+      (static_cast<uint64_t>(output_columns) + 7) / 8;
+  const uint32_t scale_size =
+      Gem5GptqScaleElementSize(weights.scale_data_type);
+  uint64_t input_bytes = 0;
+  uint64_t output_bytes = 0;
+  uint64_t qweight_bytes = 0;
+  uint64_t qzeros_bytes = 0;
+  uint64_t scales_bytes = 0;
+  uint64_t g_idx_bytes = 0;
+  const bool has_g_idx = weights.g_idx_address != 0;
+  if (scale_size == 0 ||
+      !ByteSize(static_cast<uint64_t>(rows) * input_columns, sizeof(float),
+                &input_bytes) ||
+      !ByteSize(static_cast<uint64_t>(rows) * output_columns, sizeof(float),
+                &output_bytes) ||
+      !ByteSize(weight_rows * output_columns, sizeof(uint32_t),
+                &qweight_bytes) ||
+      !ByteSize(groups * zero_columns, sizeof(uint32_t), &qzeros_bytes) ||
+      !ByteSize(groups * output_columns, scale_size, &scales_bytes) ||
+      !ByteSize(input_columns, sizeof(uint32_t), &g_idx_bytes) ||
+      !ExtmemRangeValid(input_address, input_bytes, extmem_base, extmem_size) ||
+      !ExtmemRangeValid(weights.qweight_address, qweight_bytes,
+                        extmem_base, extmem_size) ||
+      !ExtmemRangeValid(weights.qzeros_address, qzeros_bytes,
+                        extmem_base, extmem_size) ||
+      !ExtmemRangeValid(weights.scales_address, scales_bytes,
+                        extmem_base, extmem_size) ||
+      (has_g_idx &&
+       !ExtmemRangeValid(weights.g_idx_address, g_idx_bytes,
+                         extmem_base, extmem_size)) ||
+      !ExtmemRangeValid(output_address, output_bytes,
+                        extmem_base, extmem_size)) {
+    return false;
+  }
+
+  const Gem5GptqMatMulConfig config = {
+      rows, input_columns, output_columns, group_size, zero_bias,
+      weights.scale_data_type};
+  return RunGem5GptqInt4MatMul(
+      config,
+      reinterpret_cast<const float*>(extmem + input_address - extmem_base),
+      reinterpret_cast<const uint32_t*>(
+          extmem + weights.qweight_address - extmem_base),
+      reinterpret_cast<const uint32_t*>(
+          extmem + weights.qzeros_address - extmem_base),
+      extmem + weights.scales_address - extmem_base,
+      has_g_idx ? reinterpret_cast<const uint32_t*>(
+                      extmem + weights.g_idx_address - extmem_base) :
+                  nullptr,
+      reinterpret_cast<float*>(extmem + output_address - extmem_base), stats);
 }
 
 bool CommonConvValid(const coral_operator_descriptor& descriptor,
@@ -268,6 +336,130 @@ bool RunGem5HybridGptqInt4MatMul(
   descriptor->bytes_read = stats.bytes_read;
   descriptor->bytes_written = stats.bytes_written;
   descriptor->modeled_cycles = stats.modeled_cycles;
+  return true;
+}
+
+bool RunGem5HybridGptqGatedMlp(
+    coral_operator_descriptor* descriptor, uint8_t* extmem,
+    uint32_t extmem_base, size_t extmem_size) {
+  if (descriptor == nullptr || descriptor->tensor_count != 1 ||
+      descriptor->tensors[0].element_type != CORAL_OPERATOR_ELEMENT_INT8 ||
+      descriptor->tensors[0].rank != 1 ||
+      descriptor->tensors[0].size != sizeof(coral_gptq_expert_request) ||
+      descriptor->tensors[0].dimensions[0] !=
+          sizeof(coral_gptq_expert_request)) {
+    return false;
+  }
+  auto* request = reinterpret_cast<coral_gptq_expert_request*>(
+      extmem + descriptor->tensors[0].address - extmem_base);
+  const uint32_t submitted_state = request->state;
+  request->error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
+  request->state = CORAL_GPTQ_EXPERT_ERROR;
+  if (request->magic != CORAL_GPTQ_EXPERT_MAGIC ||
+      request->version != CORAL_GPTQ_EXPERT_VERSION ||
+      request->struct_size != sizeof(*request) ||
+      submitted_state != CORAL_GPTQ_EXPERT_PENDING ||
+      request->rows == 0 || request->hidden_columns == 0 ||
+      request->intermediate_columns == 0 || request->group_size == 0) {
+    return false;
+  }
+
+  const uint64_t intermediate_count =
+      static_cast<uint64_t>(request->rows) * request->intermediate_columns;
+  const uint64_t output_count =
+      static_cast<uint64_t>(request->rows) * request->hidden_columns;
+  uint64_t intermediate_bytes = 0;
+  if (!ByteSize(intermediate_count, sizeof(float), &intermediate_bytes) ||
+      !ExtmemRangeValid(request->gate_output_address, intermediate_bytes,
+                        extmem_base, extmem_size) ||
+      !ExtmemRangeValid(request->up_output_address, intermediate_bytes,
+                        extmem_base, extmem_size) ||
+      !ExtmemRangeValid(request->activated_address, intermediate_bytes,
+                        extmem_base, extmem_size)) {
+    request->error = CORAL_OPERATOR_ERROR_ADDRESS;
+    return false;
+  }
+
+  request->state = CORAL_GPTQ_EXPERT_RUNNING;
+  request->error = CORAL_OPERATOR_ERROR_NONE;
+  Gem5GptqKernelStats gate_stats = {};
+  Gem5GptqKernelStats up_stats = {};
+  Gem5GptqKernelStats down_stats = {};
+  if (!RunGptqProjection(
+          extmem, extmem_base, extmem_size, request->rows,
+          request->hidden_columns, request->intermediate_columns,
+          request->group_size, request->zero_bias, request->input_address,
+          request->gate, request->gate_output_address, &gate_stats) ||
+      !RunGptqProjection(
+          extmem, extmem_base, extmem_size, request->rows,
+          request->hidden_columns, request->intermediate_columns,
+          request->group_size, request->zero_bias, request->input_address,
+          request->up, request->up_output_address, &up_stats)) {
+    request->error = CORAL_OPERATOR_ERROR_ADDRESS;
+    request->state = CORAL_GPTQ_EXPERT_ERROR;
+    return false;
+  }
+
+  const auto* gate = reinterpret_cast<const float*>(
+      extmem + request->gate_output_address - extmem_base);
+  const auto* up = reinterpret_cast<const float*>(
+      extmem + request->up_output_address - extmem_base);
+  auto* activated = reinterpret_cast<float*>(
+      extmem + request->activated_address - extmem_base);
+  for (uint64_t index = 0; index < intermediate_count; ++index) {
+    const float sigmoid = 1.0f / (1.0f + std::exp(-gate[index]));
+    activated[index] = gate[index] * sigmoid * up[index];
+    if (!std::isfinite(activated[index])) {
+      request->error = CORAL_OPERATOR_ERROR_EXECUTION;
+      request->state = CORAL_GPTQ_EXPERT_ERROR;
+      return false;
+    }
+  }
+  if (!RunGptqProjection(
+          extmem, extmem_base, extmem_size, request->rows,
+          request->intermediate_columns, request->hidden_columns,
+          request->group_size, request->zero_bias,
+          request->activated_address, request->down,
+          request->output_address, &down_stats)) {
+    request->error = CORAL_OPERATOR_ERROR_ADDRESS;
+    request->state = CORAL_GPTQ_EXPERT_ERROR;
+    return false;
+  }
+
+  if (intermediate_count > UINT64_MAX / 6) {
+    request->error = CORAL_OPERATOR_ERROR_EXECUTION;
+    request->state = CORAL_GPTQ_EXPERT_ERROR;
+    return false;
+  }
+  const uint64_t activation_operations = intermediate_count * 6;
+  const uint64_t activation_bytes_read = intermediate_bytes * 2;
+  const uint64_t activation_bytes_written = intermediate_bytes;
+  request->gate_checksum = FloatChecksum(gate, intermediate_count);
+  request->up_checksum = FloatChecksum(up, intermediate_count);
+  request->activated_checksum = FloatChecksum(activated, intermediate_count);
+  request->output_checksum = FloatChecksum(
+      reinterpret_cast<const float*>(
+          extmem + request->output_address - extmem_base),
+      output_count);
+  request->gate_cycles = gate_stats.modeled_cycles;
+  request->up_cycles = up_stats.modeled_cycles;
+  request->activation_cycles = (activation_operations + 15) / 16 +
+      (activation_bytes_read + activation_bytes_written + 15) / 16;
+  request->down_cycles = down_stats.modeled_cycles;
+  request->operations = gate_stats.operations + up_stats.operations +
+      activation_operations + down_stats.operations;
+  request->bytes_read = gate_stats.bytes_read + up_stats.bytes_read +
+      activation_bytes_read + down_stats.bytes_read;
+  request->bytes_written = gate_stats.bytes_written + up_stats.bytes_written +
+      activation_bytes_written + down_stats.bytes_written;
+  request->modeled_cycles = request->gate_cycles + request->up_cycles +
+      request->activation_cycles + request->down_cycles;
+  descriptor->operation_count = request->operations;
+  descriptor->bytes_read = request->bytes_read;
+  descriptor->bytes_written = request->bytes_written;
+  descriptor->modeled_cycles = request->modeled_cycles;
+  request->error = CORAL_OPERATOR_ERROR_NONE;
+  request->state = CORAL_GPTQ_EXPERT_COMPLETE;
   return true;
 }
 

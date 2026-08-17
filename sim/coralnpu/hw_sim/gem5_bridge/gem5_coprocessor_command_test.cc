@@ -86,10 +86,10 @@ void TestSourceAndNameObservability() {
   }
 }
 
-void TestGptqUsesTensorEngine() {
+void TestGptqOpcodeUsesTensorEngine(uint32_t opcode) {
   Gem5CoprocessorCommandAdapter adapter;
   const coral_operator_descriptor descriptor =
-      ValidDescriptor(CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4);
+      ValidDescriptor(opcode);
   uint32_t tag = 0;
   uint32_t error = UINT32_MAX;
   assert(adapter.Submit(Gem5CommandSource::kCustomInstruction, 0x20400300,
@@ -246,7 +246,8 @@ void TestDynamicLatencyUpdate() {
 int main() {
   TestTwoLevelDecodeAndDependencies();
   TestSourceAndNameObservability();
-  TestGptqUsesTensorEngine();
+  TestGptqOpcodeUsesTensorEngine(CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4);
+  TestGptqOpcodeUsesTensorEngine(CORAL_OPERATOR_OP_GPTQ_GATED_MLP);
   TestBadDescriptorRejected();
   TestFailureStopsDependentCommands();
   TestEngineCreditsAndMultipleSubmissions();

@@ -42,6 +42,7 @@ enum coral_operator_opcode {
     CORAL_OPERATOR_OP_LAYER_NORM = 8,
     CORAL_OPERATOR_OP_QWEN_TINY_INFER = 9,
     CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4 = 10,
+    CORAL_OPERATOR_OP_GPTQ_GATED_MLP = 11,
 };
 
 enum coral_operator_state {

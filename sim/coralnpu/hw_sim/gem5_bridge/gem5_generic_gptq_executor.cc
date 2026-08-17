@@ -85,7 +85,8 @@ bool RunGem5GenericGptqMatMul(
 
   const Gem5GptqMatMulConfig config = {
       rows, parameters.input_features, parameters.output_features,
-      parameters.quantization_group_size, 0, parameters.scale_data_type};
+      parameters.quantization_group_size, parameters.quantized_zero_bias,
+      parameters.scale_data_type};
   return RunGem5GptqInt4MatMul(
       config, static_cast<const float*>(operands.input.data),
       static_cast<const uint32_t*>(operands.qweight.data),

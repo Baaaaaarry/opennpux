@@ -172,11 +172,68 @@ usage(const char *prog)
             "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
+            "  %s mem-load <file> [base]\n"
             "  %s mem-read32 <offset> [base]\n"
             "  %s mem-write32 <offset> <value> [base]\n"
             "features: qwen-run-tcb-v2 qwen-device-run-v1\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog, prog, prog, prog, prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog);
+}
+
+static int
+print_mem_load(struct opennpux_coral_device *dev, const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        perror("mem-load open");
+        return 1;
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        perror("mem-load seek");
+        return 1;
+    }
+    const long file_size = ftell(file);
+    if (file_size <= 0 || (unsigned long)file_size > UINT32_MAX ||
+        fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        errno = EFBIG;
+        perror("mem-load size");
+        return 1;
+    }
+    uint8_t *payload = malloc((size_t)file_size);
+    if (payload == NULL) {
+        fclose(file);
+        return 1;
+    }
+    const size_t bytes = fread(payload, 1, (size_t)file_size, file);
+    const int read_failed = bytes != (size_t)file_size || ferror(file);
+    fclose(file);
+    if (read_failed) {
+        free(payload);
+        errno = EIO;
+        perror("mem-load read");
+        return 1;
+    }
+    struct opennpux_coral_shared_window window = {0};
+    int rc = opennpux_coral_open_shared_window(
+        dev, (uint32_t)file_size, &window);
+    if (rc == 0) {
+        rc = copy_to_shared_window(&window, payload, (uint32_t)file_size);
+    }
+    if (rc == 0) {
+        printf("shared_base=0x%08" PRIx32 "\n", window.base);
+        printf("shared_size=0x%08" PRIx32 "\n", window.size);
+        printf("mem_load_bytes=%ld\n", file_size);
+        printf("mem_load=PASS\n");
+    } else {
+        perror("mem-load");
+    }
+    if (window.bytes != NULL) {
+        opennpux_coral_close_shared_window(&window);
+    }
+    free(payload);
+    return rc == 0 ? 0 : 1;
 }
 
 static int
@@ -1180,6 +1237,7 @@ main(int argc, char **argv)
         strcmp(argv[1], "mobilenet-test") == 0;
     const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
     const int command_mem_clear = strcmp(argv[1], "mem-clear") == 0;
+    const int command_mem_load = strcmp(argv[1], "mem-load") == 0;
     const int command_mem_read32 = strcmp(argv[1], "mem-read32") == 0;
     const int command_mem_write32 = strcmp(argv[1], "mem-write32") == 0;
     if (!command_info && !command_run && !command_dma_test &&
@@ -1189,7 +1247,8 @@ main(int argc, char **argv)
         !command_qwen_stage_tcb && !command_qwen_run_tcb &&
         !command_qwen_device_run &&
         !command_mobilenet_test &&
-        !command_mem_info && !command_mem_clear && !command_mem_read32 &&
+        !command_mem_info && !command_mem_clear && !command_mem_load &&
+        !command_mem_read32 &&
         !command_mem_write32) {
         usage(argv[0]);
         return 2;
@@ -1211,6 +1270,7 @@ main(int argc, char **argv)
         (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
+        (command_mem_load && (argc < 3 || argc > 4)) ||
         (command_mem_read32 && (argc < 3 || argc > 4)) ||
         (command_mem_write32 && (argc < 4 || argc > 5))) {
         usage(argv[0]);
@@ -1252,6 +1312,12 @@ main(int argc, char **argv)
         if (argc > base_arg &&
             opennpux_coral_parse_u64(argv[base_arg], &base) != 0) {
             fprintf(stderr, "invalid base address: %s\n", argv[base_arg]);
+            return 2;
+        }
+    } else if (command_mem_load) {
+        model_path = argv[2];
+        if (argc >= 4 && opennpux_coral_parse_u64(argv[3], &base) != 0) {
+            fprintf(stderr, "invalid base address: %s\n", argv[3]);
             return 2;
         }
     } else if (command_executable_run) {
@@ -1362,6 +1428,12 @@ main(int argc, char **argv)
         }
         opennpux_coral_close(&dev);
         return result == 0 ? 0 : 1;
+    }
+
+    if (command_mem_load) {
+        const int result = print_mem_load(&dev, model_path);
+        opennpux_coral_close(&dev);
+        return result;
     }
 
     if (command_mem_read32) {

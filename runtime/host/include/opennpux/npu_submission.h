@@ -192,7 +192,7 @@ struct opennpux_npu_operator_parameters {
     uint32_t quantization_bits;
     uint32_t quantization_group_size;
     uint32_t scale_data_type;
-    uint32_t reserved;
+    uint32_t quantized_zero_bias;
 };
 
 struct opennpux_npu_completion {

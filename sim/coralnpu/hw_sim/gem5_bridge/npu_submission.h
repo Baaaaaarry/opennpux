@@ -80,7 +80,7 @@ struct opennpux_npu_operator_parameters {
     uint32_t phase, flags, input_features, output_features;
     uint32_t intermediate_features, head_count, kv_head_count, head_dim;
     uint32_t quantization_bits, quantization_group_size, scale_data_type;
-    uint32_t reserved;
+    uint32_t quantized_zero_bias;
 };
 
 struct opennpux_npu_completion {

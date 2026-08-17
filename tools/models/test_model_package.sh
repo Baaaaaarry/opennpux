@@ -22,10 +22,11 @@ root = Path(sys.argv[1])
 for name, tensors in (
     ("model-00001-of-00002.safetensors", {
         "model.language_model.embed_tokens.weight": bytes(range(8)),
-        "model.language_model.layers.0.self_attn.q_proj.qweight": bytes(range(8)),
-        "model.language_model.layers.0.self_attn.q_proj.qzeros": bytes(range(4)),
-        "model.language_model.layers.0.self_attn.q_proj.scales": bytes(range(8)),
-        "model.language_model.layers.0.self_attn.q_proj.g_idx": bytes(range(8)),
+        "model.language_model.layers.0.self_attn.q_proj.qweight": bytes(
+            index % 256 for index in range(288)),
+        "model.language_model.layers.0.self_attn.q_proj.qzeros": bytes(range(12)),
+        "model.language_model.layers.0.self_attn.q_proj.scales": bytes(range(48)),
+        "model.language_model.layers.0.self_attn.q_proj.g_idx": bytes(range(72)),
         "model.language_model.layers.0.self_attn.k_proj.qweight": bytes(range(8)),
         "model.language_model.layers.0.self_attn.q_norm.weight": bytes(range(8)),
     }),
@@ -125,6 +126,17 @@ grep -q '^gptq_binding_incomplete=3$' "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_duplicate=0$' "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_scales_dtypes=float16:1$' \
     "${WORK_DIR}/gptq-bindings.log"
+"${SCRIPT_DIR}/materialize_gptq_projection.py" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/model.npxr" \
+    "${MODEL_DIR}/gptq-projection.bin" --layer 0 --phase qkv_projection \
+    --role attention_q_proj --expert -1 --slot q_proj \
+    | tee "${WORK_DIR}/gptq-projection.log"
+grep -q '^gptq_projection_shape=1x18x24$' \
+    "${WORK_DIR}/gptq-projection.log"
+grep -q '^gptq_projection_scale_dtype=4$' \
+    "${WORK_DIR}/gptq-projection.log"
+grep -q '^gptq_projection_materialize=PASS$' \
+    "${WORK_DIR}/gptq-projection.log"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \

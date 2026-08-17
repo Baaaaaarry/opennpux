@@ -58,7 +58,7 @@ main(int argc, char **argv)
               OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_Q_PROJ,
               OPENNPUX_NPU_WEIGHT_COMPONENT_QWEIGHT,
               OPENNPUX_NPU_WEIGHT_EXPERT_NONE, &qweight) == 0 &&
-              qweight->byte_size == 8,
+              qweight->byte_size == 288,
           "Q projection GPTQ range lookup failed");
     struct opennpux_npu_gptq_weight_ranges gptq;
     check(opennpux_npu_weight_ranges_find_gptq(

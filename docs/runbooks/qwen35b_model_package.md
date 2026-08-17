@@ -218,6 +218,26 @@ current operator-parameter ABI is version 2 and records the GPTQ scale data
 type; stale `model.npxc` and `model.npxr` files must be regenerated so FP16
 scales are not interpreted as FP32.
 
+## Real GPTQ Projection
+
+Build the bridge, external-request firmware, and current guest tool, then run
+one real layer-0 routed-expert gate projection:
+
+```sh
+./tools/coralnpu/build_gptq_matmul_smoke.sh
+./tools/guest_tools/build_coralctl.sh
+
+CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
+  ./tools/coralnpu/run_gptq_projection_test.sh
+```
+
+The first run needs an 8MiB-window checkpoint; set `CORAL_REBUILD_CKPT=1` only
+when that checkpoint does not already exist. The expected verdict includes
+`gptq_projection_scale_dtype=4`, `gptq_projection_state=0x00000002`, a zero
+error, non-zero operation/checksum fields, and `gptq_projection_run=PASS`.
+Select another real projection with `CORAL_GPTQ_LAYER`, `CORAL_GPTQ_EXPERT`
+and `CORAL_GPTQ_SLOT=gate_proj|up_proj|down_proj`.
+
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh

@@ -169,6 +169,7 @@ def quantization_info(config: dict[str, Any]) -> dict[str, Any]:
         "quantization_group_size": group_size,
         "quantization_desc_act": int(bool(quant.get("desc_act", False))),
         "quantization_sym": int(bool(quant.get("sym", False))),
+        "quantization_zero_bias": 1 if method.lower() == "gptq" else 0,
     }
 
 

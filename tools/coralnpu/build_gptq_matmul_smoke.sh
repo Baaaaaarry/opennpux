@@ -7,6 +7,7 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 CORAL_REPO="${CORAL_REPO:-${ROOT_DIR}/thirdparty/coralnpu}"
 BRIDGE_TARGET="//hw_sim:libcoralnpu_gem5_rvv_highmem_bridge.so"
 FIRMWARE_TARGET="//hw_sim:gem5_gptq_matmul_smoke.elf"
+PROJECTION_FIRMWARE_TARGET="//hw_sim:gem5_gptq_projection.elf"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${CORAL_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -37,7 +38,8 @@ mkdir -p "${BAZEL_OUTPUT_ROOT}" "${REPO_CACHE}" "${DISTDIR}" "${OUT_DIR}"
 cd "${CORAL_REPO}"
 "${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" build \
     --repository_cache="${REPO_CACHE}" --distdir="${DISTDIR}" \
-    "${BRIDGE_TARGET}" "${FIRMWARE_TARGET}" "$@"
+    "${BRIDGE_TARGET}" "${FIRMWARE_TARGET}" \
+    "${PROJECTION_FIRMWARE_TARGET}" "$@"
 
 EXEC_ROOT="$("${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" \
     info execution_root)"
@@ -67,6 +69,7 @@ install_output()
 
 BRIDGE="$(resolve_output "${BRIDGE_TARGET}" "$@")"
 FIRMWARE="$(resolve_output "${FIRMWARE_TARGET}" "$@")"
+PROJECTION_FIRMWARE="$(resolve_output "${PROJECTION_FIRMWARE_TARGET}" "$@")"
 [ -f "${BRIDGE}" ] || {
     echo "error: RVV highmem bridge output not found: ${BRIDGE}" >&2
     exit 1
@@ -75,10 +78,16 @@ FIRMWARE="$(resolve_output "${FIRMWARE_TARGET}" "$@")"
     echo "error: GPTQ firmware output not found: ${FIRMWARE}" >&2
     exit 1
 }
+[ -f "${PROJECTION_FIRMWARE}" ] || {
+    echo "error: GPTQ projection firmware output not found: ${PROJECTION_FIRMWARE}" >&2
+    exit 1
+}
 
 install_output "${BRIDGE}" \
     "${OUT_DIR}/libcoralnpu_gem5_rvv_highmem_bridge.so" 0755
 install_output "${FIRMWARE}" "${OUT_DIR}/gem5_gptq_matmul_smoke.elf" 0644
+install_output "${PROJECTION_FIRMWARE}" \
+    "${OUT_DIR}/gem5_gptq_projection.elf" 0644
 
 python3 - "${OUT_DIR}/gem5_gptq_matmul_smoke.elf" <<'PY'
 import struct
@@ -110,3 +119,4 @@ PY
 
 echo "built: ${OUT_DIR}/libcoralnpu_gem5_rvv_highmem_bridge.so"
 echo "built: ${OUT_DIR}/gem5_gptq_matmul_smoke.elf"
+echo "built: ${OUT_DIR}/gem5_gptq_projection.elf"

@@ -16,6 +16,7 @@ opennpux_npu_operator_parameters Parameters() {
   parameters.quantization_bits = 4;
   parameters.quantization_group_size = 2;
   parameters.scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
+  parameters.quantized_zero_bias = 0;
   return parameters;
 }
 

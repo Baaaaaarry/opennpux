@@ -336,6 +336,20 @@ coralnpu_v2_binary(
 )
 
 coralnpu_v2_binary(
+    name = "gem5_gptq_projection",
+    srcs = [
+        "gem5_bridge/coral_gptq_matmul.h",
+        "gem5_bridge/coral_operator.h",
+        "gem5_bridge/coral_operator_client.h",
+        "gem5_bridge/gem5_gptq_projection.cc",
+    ],
+    dtcm_size_kbytes = 64,
+    itcm_size_kbytes = 64,
+    stack_size_bytes = 4096,
+    visibility = ["//visibility:public"],
+)
+
+coralnpu_v2_binary(
     name = "gem5_npu_command_processor_smoke",
     srcs = [
         "gem5_bridge/gem5_npu_command_processor_smoke.c",

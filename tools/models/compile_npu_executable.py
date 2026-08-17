@@ -135,6 +135,7 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
         "quantization_bits": quant_bits,
         "quantization_group_size": group_size,
         "scale_data_type": int(manifest.get("quantization_scale_data_type", 6)),
+        "quantized_zero_bias": int(manifest.get("quantization_zero_bias", 0)),
     }
 
 
@@ -410,7 +411,8 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
             int(command["parameters"]["head_dim"]),
             int(command["parameters"]["quantization_bits"]),
             int(command["parameters"]["quantization_group_size"]),
-            int(command["parameters"]["scale_data_type"]), 0,
+            int(command["parameters"]["scale_data_type"]),
+            int(command["parameters"]["quantized_zero_bias"]),
         )
         for command in commands
     )

@@ -156,6 +156,12 @@ The CUSTOM_0 GPTQ request ABI is now version 2 and carries the scale storage
 type explicitly. Its firmware-to-bridge path validates buffer extents with the
 actual FP16/BF16/FP32 element width before dispatch, closing the last FP32-only
 assumption on the end-to-end custom-instruction path.
+The first real-weight projection harness now materializes one exact
+`qweight/qzeros/scales/g_idx` set plus deterministic input and output buffers
+as an EXTMEM image. `coralctl mem-load` stages that image into the shared DMA
+window, dedicated firmware consumes the externally prepared request, and the
+CUSTOM_0 path reports state, error, operations and output checksum. This is the
+first numerical step beyond metadata probes and sampled weight words.
 
 Generic executables now carry a model-independent, fixed-size numerical
 parameter record for every command. The record preserves static feature sizes,

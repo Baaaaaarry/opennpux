@@ -43,8 +43,8 @@ main(int argc, char **argv)
               OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
               OPENNPUX_NPU_WEIGHT_SLOT_Q_PROJ, 4096, &weights) == 0,
           "GPTQ components load failed");
-    check(weights.qweight.size == 8 && weights.qzeros.size == 4 &&
-              weights.scales.size == 8 && weights.g_idx.size == 8,
+    check(weights.qweight.size == 288 && weights.qzeros.size == 12 &&
+              weights.scales.size == 48 && weights.g_idx.size == 72,
           "GPTQ component sizes mismatch");
     check(weights.qweight.data_type == OPENNPUX_NPU_DTYPE_INT4_PACKED &&
               weights.qzeros.data_type == OPENNPUX_NPU_DTYPE_INT32 &&

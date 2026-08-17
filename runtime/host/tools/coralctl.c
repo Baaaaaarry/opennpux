@@ -2,6 +2,7 @@
 #include "opennpux/model_package.h"
 #include "opennpux/npu_executable.h"
 #include "opennpux/npu_paging_layout.h"
+#include "opennpux/npu_router.h"
 #include "opennpux/npu_weight_queue.h"
 #include "opennpux/qwen_model.h"
 
@@ -51,6 +52,28 @@ load_weight_page(const char *path, uint8_t *page, uint32_t page_size)
     fclose(file);
     if (failed) {
         errno = EIO;
+        return -1;
+    }
+    return 0;
+}
+
+static int
+load_router_logits(const char *path, uint32_t expert_count, float *logits)
+{
+    if (path == NULL || expert_count == 0 || logits == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return -1;
+    }
+    const size_t count = fread(logits, sizeof(*logits), expert_count, file);
+    const int trailing = fgetc(file);
+    const int failed = ferror(file) || count != expert_count || trailing != EOF;
+    fclose(file);
+    if (failed) {
+        errno = EINVAL;
         return -1;
     }
     return 0;
@@ -299,10 +322,13 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct opennpux_npu_weight_cache weight_cache;
     struct opennpux_npu_weight_cache_entry *weight_cache_entries = NULL;
     uint64_t active_experts[8];
+    struct opennpux_npu_route active_routes[8];
+    uint32_t active_route_count = 0;
     memset(&weight_model, 0, sizeof(weight_model));
     memset(&weight_ranges, 0, sizeof(weight_ranges));
     memset(&weight_cache, 0, sizeof(weight_cache));
     memset(active_experts, 0, sizeof(active_experts));
+    memset(active_routes, 0, sizeof(active_routes));
     const uint32_t weight_page_size = paged ?
         paging_layout.transfer_size : NPU_WEIGHT_PAGE_SIZE;
     uint8_t *weight_page = real_weights ? NULL : malloc(weight_page_size);
@@ -422,8 +448,34 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             }
             const uint32_t active_count = weight_model.experts_per_token < 8 ?
                 weight_model.experts_per_token : 8;
-            for (uint32_t index = 0; index < active_count; ++index) {
-                active_experts[index] = index;
+            const char *router_path = getenv("OPENNPUX_ROUTER_LOGITS");
+            float *router_logits = NULL;
+            if (router_path != NULL) {
+                router_logits = malloc(
+                    weight_model.expert_count * sizeof(*router_logits));
+                if (router_logits == NULL ||
+                    load_router_logits(router_path, weight_model.expert_count,
+                                       router_logits) != 0 ||
+                    opennpux_npu_router_topk(
+                        router_logits, weight_model.expert_count,
+                        active_count, active_routes) != 0) {
+                    free(router_logits);
+                    perror("executable-run router logits");
+                    goto out;
+                }
+                active_route_count = active_count;
+                for (uint32_t index = 0; index < active_count; ++index) {
+                    active_experts[index] = active_routes[index].expert_id;
+                }
+                free(router_logits);
+            } else {
+                for (uint32_t index = 0; index < active_count; ++index) {
+                    active_experts[index] = index;
+                    active_routes[index].expert_id = index;
+                    active_routes[index].weight =
+                        1.0f / (float)active_count;
+                }
+                active_route_count = active_count;
             }
             page_service.manifest_path = manifest_path;
             page_service.model = &weight_model;
@@ -474,7 +526,18 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                OPENNPUX_NPU_RUNTIME_FIELD_MASK);
     printf("runtime_active_experts=%" PRIu64 "\n",
            (runtime_shape >> OPENNPUX_NPU_RUNTIME_EXPERT_SHIFT) &
-               OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+           OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    if (active_route_count != 0) {
+        printf("runtime_expert_route_source=%s\n",
+               getenv("OPENNPUX_ROUTER_LOGITS") == NULL ?
+                   "deterministic-fallback" : "runtime-logits");
+        for (uint32_t index = 0; index < active_route_count; ++index) {
+            printf("runtime_expert_route_%" PRIu32 "=id:%" PRIu32
+                   ",weight:%.9g\n", index,
+                   active_routes[index].expert_id,
+                   (double)active_routes[index].weight);
+        }
+    }
     printf("weight_binding=%" PRIu64 "\n",
            resource_bindings & OPENNPUX_NPU_RUNTIME_FIELD_MASK);
     printf("state_binding=%" PRIu64 "\n",

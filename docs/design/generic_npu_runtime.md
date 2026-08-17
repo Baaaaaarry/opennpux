@@ -267,6 +267,17 @@ that mode it resolves the command's first active tensor page, reads the real
 safetensors shard through the model package loader, and fills the shared LRU
 cache rather than repeating a synthetic page. Multi-page command residency and
 prefetch remain separate performance work.
+
+MoE paging no longer requires a hard-coded expert order. The host runtime
+provides `opennpux_npu_router_topk()`, which applies a stable descending Top-K
+selection to runtime router logits, breaks ties by expert ID, and normalizes
+the selected weights. For bring-up, `coralctl executable-run-paged` accepts a
+binary float32 logits vector through `OPENNPUX_ROUTER_LOGITS`; its element count
+must equal the manifest's expert count. The selected IDs drive the weight pager
+and are printed with their normalized weights. Without this variable, the tool
+uses the deterministic `0..K-1` fallback so existing smoke tests remain
+reproducible. The file input is a test transport only; the production path will
+bind the ROUTER operator output buffer directly to the same Top-K API.
 The host runtime exposes nonblocking `start`, `status` and `reset` operations
 plus `opennpux_coral_run_with_service()`. Its callback runs while the device is
 non-terminal, allowing a CPU pager to drain the fault queue without waiting

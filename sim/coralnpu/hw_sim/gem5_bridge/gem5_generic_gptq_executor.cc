@@ -25,6 +25,14 @@ bool BufferFits(const Gem5GenericConstBuffer& buffer, uint64_t required) {
   return buffer.data != nullptr && required <= buffer.size;
 }
 
+uint32_t ScaleElementSize(uint32_t data_type) {
+  if (data_type == OPENNPUX_NPU_DTYPE_FLOAT16 ||
+      data_type == OPENNPUX_NPU_DTYPE_BFLOAT16) {
+    return sizeof(uint16_t);
+  }
+  return data_type == OPENNPUX_NPU_DTYPE_FLOAT32 ? sizeof(float) : 0;
+}
+
 }  // namespace
 
 bool RunGem5GenericGptqMatMul(
@@ -37,7 +45,8 @@ bool RunGem5GenericGptqMatMul(
       (parameters.flags & kGptqFlag) == 0 ||
       parameters.quantization_bits != 4 || rows == 0 ||
       parameters.input_features == 0 || parameters.output_features == 0 ||
-      parameters.quantization_group_size == 0 || stats == nullptr ||
+      parameters.quantization_group_size == 0 ||
+      ScaleElementSize(parameters.scale_data_type) == 0 || stats == nullptr ||
       operands.output.data == nullptr) {
     return false;
   }
@@ -59,7 +68,9 @@ bool RunGem5GenericGptqMatMul(
       !ProductSize(weight_rows, output_columns, sizeof(uint32_t),
                    &qweight_bytes) ||
       !ProductSize(groups, zero_columns, sizeof(uint32_t), &qzeros_bytes) ||
-      !ProductSize(groups, output_columns, sizeof(float), &scales_bytes) ||
+      !ProductSize(groups, output_columns,
+                   ScaleElementSize(parameters.scale_data_type),
+                   &scales_bytes) ||
       !ProductSize(input_columns, 1, sizeof(uint32_t), &g_idx_bytes) ||
       !ProductSize(rows, output_columns, sizeof(float), &output_bytes) ||
       !BufferFits(operands.input, input_bytes) ||
@@ -74,12 +85,12 @@ bool RunGem5GenericGptqMatMul(
 
   const Gem5GptqMatMulConfig config = {
       rows, parameters.input_features, parameters.output_features,
-      parameters.quantization_group_size, 0};
+      parameters.quantization_group_size, 0, parameters.scale_data_type};
   return RunGem5GptqInt4MatMul(
       config, static_cast<const float*>(operands.input.data),
       static_cast<const uint32_t*>(operands.qweight.data),
       static_cast<const uint32_t*>(operands.qzeros.data),
-      static_cast<const float*>(operands.scales.data),
+      operands.scales.data,
       static_cast<const uint32_t*>(operands.g_idx.data),
       static_cast<float*>(operands.output.data), stats);
 }

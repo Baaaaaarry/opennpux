@@ -215,7 +215,10 @@ model tensors without pretending that a 4KiB window contains all GPTQ pages.
 The companion `model.npxr` binary stores every matched tensor range as a fixed
 64-byte record. Records carry command/shard IDs, role and component hashes,
 file offset and size, tensor and parameter-symbol hashes, and the routed-expert
-ID. This compact index is the source for the next bounded page-cache and
+ID. The flags field also carries the projection slot and normalized NPU data
+type, allowing the runtime to distinguish packed int4, int32 metadata and
+FP16/BF16/FP32 scales without model-specific naming rules. This compact index
+is the source for the next bounded page-cache and
 active-expert loading implementation; `model.npxw` retains only inspectable
 per-command summaries and range spans.
 The model-independent host loader in `runtime/host/src/npu_weight_ranges.c`

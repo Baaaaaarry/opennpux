@@ -22,6 +22,9 @@ load_blob(const char *manifest_path,
         return -1;
     }
     blob->size = (size_t)range->byte_size;
+    blob->data_type = (uint32_t)(
+        (range->flags & OPENNPUX_NPU_WEIGHT_DTYPE_MASK) >>
+        OPENNPUX_NPU_WEIGHT_DTYPE_SHIFT);
     if (opennpux_model_package_read_shard_range(
             manifest_path, model, range->shard_index, range->file_offset,
             blob->data, range->byte_size) != 0) {

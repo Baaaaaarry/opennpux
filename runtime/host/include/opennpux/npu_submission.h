@@ -26,7 +26,7 @@ extern "C" {
 #define OPENNPUX_NPU_TRACE_RECORD_SIZE UINT32_C(32)
 #define OPENNPUX_NPU_TRACE_MAX_OPCODE UINT32_C(17)
 #define OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC UINT32_C(0x5058504e)
-#define OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION UINT32_C(1)
+#define OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION UINT32_C(2)
 #define OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE UINT32_C(64)
 
 #define OPENNPUX_NPU_RESOURCE_BINDING_NONE UINT16_C(0xffff)
@@ -191,7 +191,8 @@ struct opennpux_npu_operator_parameters {
     uint32_t head_dim;
     uint32_t quantization_bits;
     uint32_t quantization_group_size;
-    uint32_t reserved[2];
+    uint32_t scale_data_type;
+    uint32_t reserved;
 };
 
 struct opennpux_npu_completion {

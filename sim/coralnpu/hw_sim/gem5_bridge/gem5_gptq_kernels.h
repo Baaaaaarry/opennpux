@@ -4,12 +4,19 @@
 #include <cstddef>
 #include <cstdint>
 
+enum Gem5GptqScaleDataType : uint32_t {
+  kGem5GptqScaleFloat16 = 4,
+  kGem5GptqScaleBfloat16 = 5,
+  kGem5GptqScaleFloat32 = 6,
+};
+
 struct Gem5GptqMatMulConfig {
   uint32_t rows;
   uint32_t input_columns;
   uint32_t output_columns;
   uint32_t group_size;
   uint32_t zero_bias;
+  uint32_t scale_data_type;
 };
 
 struct Gem5GptqKernelStats {
@@ -23,7 +30,7 @@ struct Gem5GptqKernelStats {
 // scales is group-major. g_idx is optional; otherwise k / group_size is used.
 bool RunGem5GptqInt4MatMul(
     const Gem5GptqMatMulConfig& config, const float* input,
-    const uint32_t* qweight, const uint32_t* qzeros, const float* scales,
+    const uint32_t* qweight, const uint32_t* qzeros, const void* scales,
     const uint32_t* g_idx, float* output, Gem5GptqKernelStats* stats);
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_GPTQ_KERNELS_H_

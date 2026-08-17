@@ -40,8 +40,13 @@ for name, tensors in (
     header = {}
     payload = b""
     for tensor_name, data in tensors.items():
+        dtype = "U8"
+        if tensor_name.endswith(".scales"):
+            dtype = "F16"
+        elif tensor_name.endswith(".g_idx") or tensor_name.endswith(".qzeros"):
+            dtype = "I32"
         header[tensor_name] = {
-            "dtype": "U8", "shape": [len(data)],
+            "dtype": dtype, "shape": [len(data)],
             "data_offsets": [offset, offset + len(data)]
         }
         payload += data
@@ -106,10 +111,11 @@ records = [
 ]
 assert any(record[8] == 7 for record in records)
 assert any(
-    record[2] == 0xA3F281BA and record[3] == 0x40406979 and record[9] == 1
+    record[2] == 0xA3F281BA and record[3] == 0x40406979 and
+    record[9] & 0xffff == 1 and record[9] >> 16 & 0xff == 1
     for record in records
 )
-assert any(record[8] == 7 and record[9] == 7 for record in records)
+assert any(record[8] == 7 and record[9] & 0xffff == 7 for record in records)
 print("npu_weight_range_index=PASS")
 PY
 "${SCRIPT_DIR}/inspect_gptq_bindings.py" "${MODEL_DIR}/model.npxr" \

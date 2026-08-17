@@ -46,6 +46,11 @@ main(int argc, char **argv)
     check(weights.qweight.size == 8 && weights.qzeros.size == 4 &&
               weights.scales.size == 8 && weights.g_idx.size == 8,
           "GPTQ component sizes mismatch");
+    check(weights.qweight.data_type == OPENNPUX_NPU_DTYPE_INT4_PACKED &&
+              weights.qzeros.data_type == OPENNPUX_NPU_DTYPE_INT32 &&
+              weights.scales.data_type == OPENNPUX_NPU_DTYPE_FLOAT16 &&
+              weights.g_idx.data_type == OPENNPUX_NPU_DTYPE_INT32,
+          "GPTQ component data types mismatch");
     check(((const unsigned char *)weights.qweight.data)[1] == 1 &&
               ((const unsigned char *)weights.qzeros.data)[3] == 3,
           "GPTQ component payload mismatch");

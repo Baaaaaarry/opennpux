@@ -15,6 +15,7 @@ opennpux_npu_operator_parameters Parameters() {
   parameters.output_features = 1;
   parameters.quantization_bits = 4;
   parameters.quantization_group_size = 2;
+  parameters.scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
   return parameters;
 }
 
@@ -37,8 +38,18 @@ int main() {
   assert(output[0] == 4.0f);
   assert(stats.operations == 4);
 
+  const uint16_t half_scales[] = {UINT16_C(0x3800)};
+  auto half_operands = operands;
+  half_operands.scales = {half_scales, sizeof(half_scales)};
+  parameters.scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT16;
+  output[0] = 0.0f;
+  assert(RunGem5GenericGptqMatMul(
+      parameters, 1, half_operands, &stats));
+  assert(output[0] == 4.0f);
+
   auto truncated = operands;
   truncated.qweight.size = 0;
+  parameters.scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
   assert(!RunGem5GenericGptqMatMul(parameters, 1, truncated, &stats));
   parameters.quantization_bits = 8;
   assert(!RunGem5GenericGptqMatMul(parameters, 1, operands, &stats));

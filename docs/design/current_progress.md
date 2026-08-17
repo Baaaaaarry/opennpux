@@ -128,12 +128,15 @@ requests (15.74x fewer) while padded request volume rises only from roughly
 selected weight-DMA control granularity; it remains independent of the future
 IOMMU page size. A shared single-producer/single-service/single-retire fault
 ring now supports batched PENDING/READY/ERROR page lifecycles, cache slots and
-explicit queue-full backpressure. Numerical GPTQ kernels, shared-window cache
-placement and real command pause/service/resume are the next milestone.
+explicit queue-full backpressure. The complete real model now resolves 30,720
+routed-expert projection groups with no missing or duplicate GPTQ component.
+Shared-window cache placement and real command pause/service/resume are the
+next milestone.
 
 The first model-independent GPTQ data-plane kernel is now implemented for
 packed int4 MatMul. It consumes AutoGPTQ `qweight`, `qzeros`, per-group
-`scales`, and optional `g_idx`, supports batched input rows, and reports
+`scales`, and optional `g_idx`, supports FP16, BF16 and FP32 scale storage,
+supports batched input rows, and reports
 operations, bytes and modeled cycles. The generic operator adapter validates
 numerical command parameters and all operand buffer extents before dispatching
 that kernel. It is independent of Qwen tensor names and is linked into both
@@ -152,15 +155,18 @@ pairing and reject a run with no opcode-10 command submission.
 
 Generic executables now carry a model-independent, fixed-size numerical
 parameter record for every command. The record preserves static feature sizes,
-attention geometry, expert intermediate width and GPTQ bits/group size while
-runtime rows remain dynamic. Instantiation copies these records into the TCB
+attention geometry, expert intermediate width, GPTQ bits/group size and scale
+data type while runtime rows remain dynamic. Safetensors dtype metadata is
+preserved in each binary weight-range record and loaded with every component,
+so real FP16 GPTQ scales are no longer interpreted as FP32. Instantiation copies
+these records into the TCB
 parameter area, relocates each command to its record, and protects the complete
 payload with bounds checks and the invocation checksum. The NPU command
 processor rejects missing, truncated, mismatched-opcode or stale parameter
 records before dependency scheduling. This closes the command-contract gap
-between the existing 524-command Qwen3.5 schedule and the GPTQ tensor engine;
-the next increment maps exact weight components and live input/output bindings
-into the MATMUL request.
+between the existing 524-command Qwen3.5 schedule and the GPTQ tensor engine.
+The next increment stages one real projection's exact components and live
+input/output bindings into the MATMUL request.
 
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not

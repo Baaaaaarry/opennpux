@@ -7,7 +7,8 @@
 namespace {
 
 void TestGroupedMatMul() {
-  const Gem5GptqMatMulConfig config = {1, 4, 2, 2, 1};
+  const Gem5GptqMatMulConfig config = {
+      1, 4, 2, 2, 1, kGem5GptqScaleFloat32};
   const float input[] = {1.0f, 2.0f, 3.0f, 4.0f};
   const uint32_t qweight[] = {UINT32_C(0x00005432),
                               UINT32_C(0x00001234)};
@@ -27,7 +28,8 @@ void TestGroupedMatMul() {
 }
 
 void TestExplicitGroupIndex() {
-  const Gem5GptqMatMulConfig config = {1, 2, 1, 1, 0};
+  const Gem5GptqMatMulConfig config = {
+      1, 2, 1, 1, 0, kGem5GptqScaleFloat32};
   const float input[] = {1.0f, 1.0f};
   const uint32_t qweight[] = {UINT32_C(0x00000021)};
   const uint32_t qzeros[] = {0, 0};
@@ -42,7 +44,8 @@ void TestExplicitGroupIndex() {
 }
 
 void TestRejectsInvalidGroupIndex() {
-  const Gem5GptqMatMulConfig config = {1, 1, 1, 1, 0};
+  const Gem5GptqMatMulConfig config = {
+      1, 1, 1, 1, 0, kGem5GptqScaleFloat32};
   const float input[] = {1.0f};
   const uint32_t packed[] = {1};
   const float scales[] = {1.0f};
@@ -53,11 +56,42 @@ void TestRejectsInvalidGroupIndex() {
                                 g_idx, output, &stats));
 }
 
+void TestFloat16Scales() {
+  const Gem5GptqMatMulConfig config = {
+      1, 2, 1, 1, 0, kGem5GptqScaleFloat16};
+  const float input[] = {1.0f, 1.0f};
+  const uint32_t qweight[] = {UINT32_C(0x21)};
+  const uint32_t qzeros[] = {0, 0};
+  const uint16_t scales[] = {UINT16_C(0x4000), UINT16_C(0x4200)};
+  float output[1] = {};
+  Gem5GptqKernelStats stats = {};
+  assert(RunGem5GptqInt4MatMul(config, input, qweight, qzeros, scales,
+                               nullptr, output, &stats));
+  assert(std::fabs(output[0] - 8.0f) < 1.0e-6f);
+  assert(stats.bytes_read == 24);
+}
+
+void TestBfloat16Scales() {
+  const Gem5GptqMatMulConfig config = {
+      1, 2, 1, 1, 0, kGem5GptqScaleBfloat16};
+  const float input[] = {1.0f, 1.0f};
+  const uint32_t qweight[] = {UINT32_C(0x21)};
+  const uint32_t qzeros[] = {0, 0};
+  const uint16_t scales[] = {UINT16_C(0x4000), UINT16_C(0x4040)};
+  float output[1] = {};
+  Gem5GptqKernelStats stats = {};
+  assert(RunGem5GptqInt4MatMul(config, input, qweight, qzeros, scales,
+                               nullptr, output, &stats));
+  assert(std::fabs(output[0] - 8.0f) < 1.0e-6f);
+}
+
 }  // namespace
 
 int main() {
   TestGroupedMatMul();
   TestExplicitGroupIndex();
   TestRejectsInvalidGroupIndex();
+  TestFloat16Scales();
+  TestBfloat16Scales();
   return 0;
 }

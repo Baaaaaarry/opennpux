@@ -2,6 +2,7 @@
 #define OPENNPUX_NPU_GPTQ_WEIGHTS_H
 
 #include "opennpux/model_package.h"
+#include "opennpux/npu_submission.h"
 #include "opennpux/npu_weight_ranges.h"
 
 #include <stddef.h>
@@ -14,6 +15,7 @@ extern "C" {
 struct opennpux_npu_weight_blob {
     void *data;
     size_t size;
+    uint32_t data_type;
 };
 
 struct opennpux_npu_gptq_weights {

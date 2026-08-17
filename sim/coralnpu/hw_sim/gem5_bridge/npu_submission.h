@@ -40,8 +40,15 @@
 #define OPENNPUX_NPU_BIND_PAGE_CACHE UINT32_C(32)
 #define OPENNPUX_NPU_COMMAND_USES_WEIGHT UINT32_C(1)
 #define OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC UINT32_C(0x5058504e)
-#define OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION UINT32_C(1)
+#define OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION UINT32_C(2)
 #define OPENNPUX_NPU_OPERATOR_PARAMETERS_SIZE UINT32_C(64)
+#define OPENNPUX_NPU_DTYPE_INVALID UINT32_C(0)
+#define OPENNPUX_NPU_DTYPE_INT4_PACKED UINT32_C(1)
+#define OPENNPUX_NPU_DTYPE_INT8 UINT32_C(2)
+#define OPENNPUX_NPU_DTYPE_INT32 UINT32_C(3)
+#define OPENNPUX_NPU_DTYPE_FLOAT16 UINT32_C(4)
+#define OPENNPUX_NPU_DTYPE_BFLOAT16 UINT32_C(5)
+#define OPENNPUX_NPU_DTYPE_FLOAT32 UINT32_C(6)
 
 struct opennpux_npu_invocation_header {
     uint32_t magic, version, header_size, total_size;
@@ -72,7 +79,8 @@ struct opennpux_npu_operator_parameters {
     uint32_t magic, version, struct_size, opcode;
     uint32_t phase, flags, input_features, output_features;
     uint32_t intermediate_features, head_count, kv_head_count, head_dim;
-    uint32_t quantization_bits, quantization_group_size, reserved[2];
+    uint32_t quantization_bits, quantization_group_size, scale_data_type;
+    uint32_t reserved;
 };
 
 struct opennpux_npu_completion {

@@ -60,6 +60,15 @@ TENSOR_SLOTS = {
     "in_proj_qkv": 8,
 }
 
+TENSOR_INDEX_TO_NPU_DTYPE = {
+    2: 2,  # U8 storage for packed/int8 tensors
+    3: 2,  # I8
+    5: 3,  # I32
+    7: 4,  # F16
+    8: 5,  # BF16
+    9: 6,  # F32
+}
+
 
 def load_object(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as source:
@@ -114,6 +123,10 @@ def tensor_records(manifest_path: Path, manifest: dict[str, Any]) -> list[dict[s
                 "role": tensor_role(name),
                 "component": tensor_component(name),
                 "slot": tensor_slot(name),
+                "dtype": (
+                    1 if tensor_component(name) == "qweight"
+                    else TENSOR_INDEX_TO_NPU_DTYPE.get(int(values[2]), 0)
+                ),
                 "shard": str(shards[shard_index]["path"]),
                 "shard_index": shard_index,
                 "offset": int(values[-2]),
@@ -267,7 +280,7 @@ def write_range_index(
             int(str(record["name_hash"]), 16),
             hash64(str(record["parameter_symbol"])),
             UINT64_MAX if record["expert"] is None else int(record["expert"]),
-            int(record["slot"]),
+            int(record["slot"]) | (int(record["dtype"]) << 16),
         )
         for record in ranges
     )

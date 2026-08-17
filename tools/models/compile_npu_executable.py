@@ -134,6 +134,7 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
         "head_dim": head_dim,
         "quantization_bits": quant_bits,
         "quantization_group_size": group_size,
+        "scale_data_type": int(manifest.get("quantization_scale_data_type", 6)),
     }
 
 
@@ -398,7 +399,7 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
     )
     parameter_data = b"".join(
         OPERATOR_PARAMETERS.pack(
-            OPERATOR_PARAMETERS_MAGIC, 1, OPERATOR_PARAMETERS.size,
+            OPERATOR_PARAMETERS_MAGIC, 2, OPERATOR_PARAMETERS.size,
             OPCODE[command["opcode"]], int(command["parameters"]["phase"]),
             int(command["parameters"]["flags"]),
             int(command["parameters"]["input_features"]),
@@ -408,7 +409,8 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
             int(command["parameters"]["kv_head_count"]),
             int(command["parameters"]["head_dim"]),
             int(command["parameters"]["quantization_bits"]),
-            int(command["parameters"]["quantization_group_size"]), 0, 0,
+            int(command["parameters"]["quantization_group_size"]),
+            int(command["parameters"]["scale_data_type"]), 0,
         )
         for command in commands
     )

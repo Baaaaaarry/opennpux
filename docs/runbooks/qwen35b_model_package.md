@@ -213,6 +213,11 @@ Before simulation, validate that every packed GPTQ tensor has an unambiguous
   /data/models/Qwen3.5-35B/model.npxr --require-complete
 ```
 
+Re-run `prepare_hf_model_package.sh` after pulling a runtime ABI update. The
+current operator-parameter ABI is version 2 and records the GPTQ scale data
+type; stale `model.npxc` and `model.npxr` files must be regenerated so FP16
+scales are not interpreted as FP32.
+
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh

@@ -232,7 +232,7 @@ bool RunGem5HybridGptqInt4MatMul(
   Gem5GptqKernelStats stats = {};
   const Gem5GptqMatMulConfig config = {
       request->rows, request->input_columns, request->output_columns,
-      request->group_size, request->zero_bias};
+      request->group_size, request->zero_bias, kGem5GptqScaleFloat32};
   const bool success = RunGem5GptqInt4MatMul(
       config, reinterpret_cast<const float*>(
                   extmem + request->input_address - extmem_base),
@@ -240,8 +240,7 @@ bool RunGem5HybridGptqInt4MatMul(
           extmem + request->qweight_address - extmem_base),
       reinterpret_cast<const uint32_t*>(
           extmem + request->qzeros_address - extmem_base),
-      reinterpret_cast<const float*>(
-          extmem + request->scales_address - extmem_base),
+      extmem + request->scales_address - extmem_base,
       has_g_idx ? reinterpret_cast<const uint32_t*>(
                       extmem + request->g_idx_address - extmem_base) :
                   nullptr,

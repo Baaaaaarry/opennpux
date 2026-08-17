@@ -31,6 +31,8 @@ DTYPES = {
     "F64": 10,
 }
 
+NPU_DTYPES = {"F16": 4, "BF16": 5, "F32": 6}
+
 
 def read_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as source:
@@ -76,8 +78,9 @@ def discover_shards(model_dir: Path) -> tuple[list[Path], int]:
     return [single], sum(name != "__metadata__" for name in header)
 
 
-def build_tensor_index(shards: list[Path], output: Path) -> int:
+def build_tensor_index(shards: list[Path], output: Path) -> tuple[int, int]:
     records: list[bytes] = []
+    scale_dtypes: set[str] = set()
     for shard_index, shard in enumerate(shards):
         header = safetensors_header(shard)
         with shard.open("rb") as source:
@@ -91,6 +94,8 @@ def build_tensor_index(shards: list[Path], output: Path) -> int:
             shape = tensor.get("shape")
             offsets = tensor.get("data_offsets")
             dtype = str(tensor.get("dtype", ""))
+            if name.endswith(".scales"):
+                scale_dtypes.add(dtype)
             if len(encoded_name) >= 160 or not isinstance(shape, list) or len(shape) > 8:
                 raise ValueError(f"unsupported tensor name/rank: {name}")
             if (
@@ -129,7 +134,10 @@ def build_tensor_index(shards: list[Path], output: Path) -> int:
         )
         + b"".join(records)
     )
-    return len(records)
+    if len(scale_dtypes) > 1:
+        raise ValueError(f"mixed GPTQ scale dtypes are unsupported: {scale_dtypes}")
+    scale_dtype = NPU_DTYPES.get(next(iter(scale_dtypes), ""), 0)
+    return len(records), scale_dtype
 
 
 def config_u32(config: dict[str, Any], key: str, fallback: int = 0) -> int:
@@ -170,7 +178,9 @@ def build_manifest(
     config = read_json(model_dir / "config.json")
     model_config = text_model_config(config)
     shards, declared_tensor_count = discover_shards(model_dir)
-    tensor_count = build_tensor_index(shards, model_dir / tensor_index_name)
+    tensor_count, scale_data_type = build_tensor_index(
+        shards, model_dir / tensor_index_name
+    )
     if tensor_count != declared_tensor_count:
         raise ValueError("safetensors index and shard headers disagree")
     shard_entries = []
@@ -241,6 +251,7 @@ def build_manifest(
         "shard_count": len(shard_entries),
         "total_weight_bytes": total_size,
         "required_op_mask": REQUIRED_QWEN_OP_MASK,
+        "quantization_scale_data_type": scale_data_type,
         "shards": shard_entries,
     }
     manifest.update(quantization_info(config))

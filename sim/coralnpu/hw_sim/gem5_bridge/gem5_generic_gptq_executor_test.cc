@@ -137,6 +137,43 @@ int main() {
   fault.component_id = 0;
   assert(!BuildGem5GenericGptqPageSpan(
       fault, page_cache, sizeof(page_cache), &built_span));
+
+  struct {
+    opennpux_npu_weight_residency_header header;
+    opennpux_npu_weight_residency_record records[2];
+  } residency = {};
+  residency.header.magic = OPENNPUX_NPU_WEIGHT_RESIDENCY_MAGIC;
+  residency.header.version = OPENNPUX_NPU_WEIGHT_RESIDENCY_VERSION;
+  residency.header.header_size = sizeof(residency.header);
+  residency.header.record_size = sizeof(residency.records[0]);
+  residency.header.capacity = 2;
+  residency.header.valid_records = 2;
+  for (uint32_t index = 0; index < 2; ++index) {
+    residency.records[index].command_id = 9;
+    residency.records[index].role_id = 10;
+    residency.records[index].component_id =
+        OPENNPUX_NPU_WEIGHT_COMPONENT_QWEIGHT;
+    residency.records[index].expert_id = 11;
+    residency.records[index].range_file_offset = 0x1008;
+    residency.records[index].range_size = 24;
+    residency.records[index].page_file_offset = 0x1000 + index * 16;
+    residency.records[index].cache_slot = index;
+    residency.records[index].page_size = 16;
+    residency.records[index].flags = OPENNPUX_NPU_WEIGHT_RESIDENCY_VALID;
+  }
+  Gem5GenericGptqPageSpan resident_spans[2] = {};
+  size_t resident_span_count = 0;
+  assert(BuildGem5GenericGptqResidentSpans(
+      &residency.header, sizeof(residency), 9, 10, 11, page_cache,
+      sizeof(page_cache), resident_spans, 2, &resident_span_count));
+  assert(resident_span_count == 2);
+  assert(resident_spans[0].tensor_offset == 0 &&
+         resident_spans[0].size == 8);
+  assert(resident_spans[1].tensor_offset == 8 &&
+         resident_spans[1].size == 16);
+  assert(!BuildGem5GenericGptqResidentSpans(
+      &residency.header, sizeof(residency), 9, 10, 12, page_cache,
+      sizeof(page_cache), resident_spans, 2, &resident_span_count));
   parameters.output_features = 1;
 
   const uint16_t half_scales[] = {UINT16_C(0x3800)};

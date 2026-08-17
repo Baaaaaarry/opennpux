@@ -7,6 +7,7 @@
 #include "hw_sim/gem5_bridge/gem5_gptq_kernels.h"
 #include "hw_sim/gem5_bridge/npu_submission.h"
 #include "hw_sim/gem5_bridge/npu_weight_queue.h"
+#include "hw_sim/gem5_bridge/npu_weight_residency.h"
 
 struct Gem5GenericConstBuffer {
   const void* data;
@@ -66,6 +67,13 @@ bool ReadGem5GenericGptqPageSpans(
 bool BuildGem5GenericGptqPageSpan(
     const opennpux_npu_page_fault& fault, const void* cache,
     size_t cache_size, Gem5GenericGptqPageSpan* span);
+
+bool BuildGem5GenericGptqResidentSpans(
+    const opennpux_npu_weight_residency_header* residency,
+    size_t residency_size, uint32_t command_id, uint32_t role_id,
+    uint64_t expert_id, const void* cache, size_t cache_size,
+    Gem5GenericGptqPageSpan* spans, size_t span_capacity,
+    size_t* span_count);
 
 bool RunGem5GenericGptqMatMul(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,

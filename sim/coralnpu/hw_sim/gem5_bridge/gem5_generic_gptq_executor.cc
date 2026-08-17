@@ -164,6 +164,63 @@ bool BuildGem5GenericGptqPageSpan(
   return true;
 }
 
+bool BuildGem5GenericGptqResidentSpans(
+    const opennpux_npu_weight_residency_header* residency,
+    size_t residency_size, uint32_t command_id, uint32_t role_id,
+    uint64_t expert_id, const void* cache, size_t cache_size,
+    Gem5GenericGptqPageSpan* spans, size_t span_capacity,
+    size_t* span_count) {
+  if (residency == nullptr || cache == nullptr || spans == nullptr ||
+      span_count == nullptr || residency->magic !=
+          OPENNPUX_NPU_WEIGHT_RESIDENCY_MAGIC ||
+      residency->version != OPENNPUX_NPU_WEIGHT_RESIDENCY_VERSION ||
+      residency->header_size != sizeof(*residency) ||
+      residency->record_size !=
+          sizeof(opennpux_npu_weight_residency_record) ||
+      residency_size < sizeof(*residency) ||
+      residency->capacity >
+          (residency_size - sizeof(*residency)) /
+              sizeof(opennpux_npu_weight_residency_record)) {
+    return false;
+  }
+  const auto* records =
+      reinterpret_cast<const opennpux_npu_weight_residency_record*>(
+          residency + 1);
+  size_t count = 0;
+  for (uint32_t index = 0; index < residency->capacity; ++index) {
+    const auto& record = records[index];
+    if ((record.flags & OPENNPUX_NPU_WEIGHT_RESIDENCY_VALID) == 0 ||
+        record.command_id != command_id || record.role_id != role_id ||
+        record.expert_id != expert_id) {
+      continue;
+    }
+    if (count >= span_capacity) {
+      return false;
+    }
+    opennpux_npu_page_fault fault = {};
+    fault.command_id = record.command_id;
+    fault.shard_index = record.shard_index;
+    fault.file_offset = record.page_file_offset;
+    fault.expert_id = record.expert_id;
+    fault.role_id = record.role_id;
+    fault.component_id = record.component_id;
+    fault.range_file_offset = record.range_file_offset;
+    fault.range_size = record.range_size;
+    fault.cache_slot = record.cache_slot;
+    fault.page_size = record.page_size;
+    if (!BuildGem5GenericGptqPageSpan(
+            fault, cache, cache_size, &spans[count])) {
+      return false;
+    }
+    ++count;
+  }
+  if (count == 0) {
+    return false;
+  }
+  *span_count = count;
+  return true;
+}
+
 bool RunGem5GenericGptqMatMul(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,
     const Gem5GenericGptqOperands& operands, Gem5GptqKernelStats* stats) {

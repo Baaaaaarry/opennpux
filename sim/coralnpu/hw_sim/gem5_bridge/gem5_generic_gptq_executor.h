@@ -48,6 +48,12 @@ bool RunGem5GenericGptqMatMul(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,
     const Gem5GenericGptqOperands& operands, Gem5GptqKernelStats* stats);
 
+bool RunGem5GenericGptqMatMulStreamed(
+    const opennpux_npu_operator_parameters& parameters, uint32_t rows,
+    Gem5GenericConstBuffer input, Gem5GptqRead reader, void* reader_opaque,
+    uint32_t output_tile_columns, bool has_g_idx,
+    Gem5GenericMutableBuffer output, Gem5GptqKernelStats* stats);
+
 // Executes a generic SwiGLU-style GPTQ expert: down(SiLU(gate(x)) * up(x)).
 // The operator parameters come directly from an executable EXPERT command.
 bool RunGem5GenericGptqExpert(

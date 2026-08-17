@@ -1,6 +1,30 @@
 #include "hw_sim/gem5_bridge/gem5_gptq_kernels.h"
 
 #include <cassert>
+#include <cstring>
+
+namespace {
+
+struct ReaderBuffers {
+  const void* components[4];
+  size_t sizes[4];
+};
+
+bool ReadComponent(void* opaque, Gem5GptqComponent component,
+                   uint64_t offset, void* destination, size_t size) {
+  auto* buffers = static_cast<ReaderBuffers*>(opaque);
+  const size_t index = static_cast<size_t>(component);
+  if (index >= 4 || offset > buffers->sizes[index] ||
+      size > buffers->sizes[index] - offset) {
+    return false;
+  }
+  std::memcpy(destination,
+              static_cast<const uint8_t*>(buffers->components[index]) + offset,
+              size);
+  return true;
+}
+
+}  // namespace
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -125,6 +149,39 @@ void TestHostReferenceVector() {
   assert(checksum == UINT32_C(0x5bea2f85));
 }
 
+void TestStreamedOutputTilesMatchContiguousKernel() {
+  const Gem5GptqMatMulConfig config = {
+      2, 8, 16, 8, 1, kGem5GptqScaleFloat32};
+  float input[16];
+  uint32_t qweight[16];
+  uint32_t qzeros[2] = {};
+  float scales[16];
+  for (size_t index = 0; index < 16; ++index) {
+    input[index] = 1.0f;
+    qweight[index] = UINT32_C(0x76543210);
+    scales[index] = 1.0f;
+  }
+  float expected[32] = {};
+  float streamed[32] = {};
+  Gem5GptqKernelStats expected_stats = {};
+  Gem5GptqKernelStats streamed_stats = {};
+  assert(RunGem5GptqInt4MatMul(config, input, qweight, qzeros, scales,
+                               nullptr, expected, &expected_stats));
+  ReaderBuffers reader = {
+      {qweight, qzeros, scales, nullptr},
+      {sizeof(qweight), sizeof(qzeros), sizeof(scales), 0}};
+  assert(RunGem5GptqInt4MatMulStreamed(
+      config, input, ReadComponent, &reader, 8, false, streamed,
+      &streamed_stats));
+  for (size_t index = 0; index < 32; ++index) {
+    assert(streamed[index] == expected[index]);
+  }
+  assert(streamed_stats.operations == expected_stats.operations);
+  assert(!RunGem5GptqInt4MatMulStreamed(
+      config, input, ReadComponent, &reader, 7, false, streamed,
+      &streamed_stats));
+}
+
 }  // namespace
 
 int main() {
@@ -134,5 +191,6 @@ int main() {
   TestFloat16Scales();
   TestBfloat16Scales();
   TestHostReferenceVector();
+  TestStreamedOutputTilesMatchContiguousKernel();
   return 0;
 }

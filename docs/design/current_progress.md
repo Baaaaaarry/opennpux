@@ -137,8 +137,15 @@ Page-fault ABI version 4 identifies each response by command, tensor role,
 GPTQ component, expert and exact source range. Firmware can therefore rebuild
 generic quantized operands from streamed pages instead of treating a command's
 first sampled word as its weight. Complete per-command range streaming is the
-input contract for tiled MATMUL and EXPERT execution; that tiled numerical
-dispatch remains the next milestone.
+input contract for tiled MATMUL and EXPERT execution. A model-independent
+streamed GPTQ MatMul kernel now removes the contiguous-weight requirement: it
+fetches bounded, output-channel-aligned `qweight`, `qzeros`, and `scales` tiles
+through a caller reader, optionally fetches `g_idx`, and delegates each tile to
+the same exact float32 accumulation kernel used by the projection acceptance
+test. Unit tests require tiled and contiguous outputs to match element for
+element. The generic executable adapter accepts the compiler's numerical
+parameter record directly; the remaining integration step is a reader backed
+by the shared page cache.
 
 The first model-independent GPTQ data-plane kernel is now implemented for
 packed int4 MatMul. It consumes AutoGPTQ `qweight`, `qzeros`, per-group

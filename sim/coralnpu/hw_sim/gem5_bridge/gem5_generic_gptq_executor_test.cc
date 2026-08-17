@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstring>
 
 namespace {
 
@@ -28,6 +29,25 @@ Gem5GenericGptqWeights IdentityWeights(const uint32_t* qweight,
           {scales, sizeof(float) * 2}, {nullptr, 0}};
 }
 
+struct StreamedWeights {
+  const void* components[4];
+  size_t sizes[4];
+};
+
+bool ReadStreamedWeight(void* opaque, Gem5GptqComponent component,
+                        uint64_t offset, void* destination, size_t size) {
+  auto* weights = static_cast<StreamedWeights*>(opaque);
+  const size_t index = static_cast<size_t>(component);
+  if (index >= 4 || offset > weights->sizes[index] ||
+      size > weights->sizes[index] - offset) {
+    return false;
+  }
+  std::memcpy(destination,
+              static_cast<const uint8_t*>(weights->components[index]) + offset,
+              size);
+  return true;
+}
+
 }  // namespace
 
 int main() {
@@ -46,6 +66,27 @@ int main() {
   assert(RunGem5GenericGptqMatMul(parameters, 1, operands, &stats));
   assert(output[0] == 4.0f);
   assert(stats.operations == 4);
+
+  parameters.output_features = 8;
+  const uint32_t streamed_qweight[8] = {
+      UINT32_C(0x21), UINT32_C(0x21), UINT32_C(0x21), UINT32_C(0x21),
+      UINT32_C(0x21), UINT32_C(0x21), UINT32_C(0x21), UINT32_C(0x21)};
+  const uint32_t streamed_qzeros[1] = {};
+  const float streamed_scales[8] = {
+      0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f};
+  float streamed_output[8] = {};
+  StreamedWeights streamed_weights = {
+      {streamed_qweight, streamed_qzeros, streamed_scales, nullptr},
+      {sizeof(streamed_qweight), sizeof(streamed_qzeros),
+       sizeof(streamed_scales), 0}};
+  assert(RunGem5GenericGptqMatMulStreamed(
+      parameters, 1, {input, sizeof(input)}, ReadStreamedWeight,
+      &streamed_weights, 8, false,
+      {streamed_output, sizeof(streamed_output)}, &stats));
+  for (float value : streamed_output) {
+    assert(value == 4.0f);
+  }
+  parameters.output_features = 1;
 
   const uint16_t half_scales[] = {UINT16_C(0x3800)};
   auto half_operands = operands;

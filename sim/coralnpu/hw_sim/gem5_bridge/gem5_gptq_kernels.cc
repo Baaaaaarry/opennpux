@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <vector>
 
 namespace {
 
@@ -159,5 +160,99 @@ bool RunGem5GptqInt4MatMul(
   stats->bytes_written = output_bytes;
   stats->modeled_cycles = stats->operations / 2 +
       (stats->bytes_read + stats->bytes_written + 15) / 16;
+  return true;
+}
+
+bool RunGem5GptqInt4MatMulStreamed(
+    const Gem5GptqMatMulConfig& config, const float* input,
+    Gem5GptqRead reader, void* reader_opaque, uint32_t output_tile_columns,
+    bool has_g_idx, float* output, Gem5GptqKernelStats* stats) {
+  if (input == nullptr || reader == nullptr || output == nullptr ||
+      stats == nullptr || config.rows == 0 || config.input_columns == 0 ||
+      config.output_columns == 0 || output_tile_columns == 0 ||
+      output_tile_columns % 8 != 0 || config.group_size == 0 ||
+      config.zero_bias > 15 || ScaleElementSize(config.scale_data_type) == 0) {
+    return false;
+  }
+  const uint32_t weight_rows = CeilDiv(config.input_columns, 8);
+  const uint32_t groups = CeilDiv(config.input_columns, config.group_size);
+  const uint32_t global_zero_columns = CeilDiv(config.output_columns, 8);
+  std::vector<uint32_t> g_idx(has_g_idx ? config.input_columns : 0);
+  if (has_g_idx && !reader(reader_opaque, kGem5GptqGIdx, 0, g_idx.data(),
+                           g_idx.size() * sizeof(g_idx[0]))) {
+    return false;
+  }
+  *stats = {};
+  for (uint32_t column_base = 0; column_base < config.output_columns;
+       column_base += output_tile_columns) {
+    const uint32_t tile_columns = std::min(
+        output_tile_columns, config.output_columns - column_base);
+    const uint32_t tile_zero_columns = CeilDiv(tile_columns, 8);
+    std::vector<uint32_t> qweight(
+        static_cast<size_t>(weight_rows) * tile_columns);
+    std::vector<uint32_t> qzeros(
+        static_cast<size_t>(groups) * tile_zero_columns);
+    std::vector<uint8_t> scales(
+        static_cast<size_t>(groups) * tile_columns *
+        ScaleElementSize(config.scale_data_type));
+    std::vector<float> tile_output(
+        static_cast<size_t>(config.rows) * tile_columns);
+    for (uint32_t packed_k = 0; packed_k < weight_rows; ++packed_k) {
+      const uint64_t offset =
+          (static_cast<uint64_t>(packed_k) * config.output_columns +
+           column_base) * sizeof(uint32_t);
+      if (!reader(reader_opaque, kGem5GptqQweight, offset,
+                  qweight.data() + static_cast<size_t>(packed_k) * tile_columns,
+                  static_cast<size_t>(tile_columns) * sizeof(uint32_t))) {
+        return false;
+      }
+    }
+    for (uint32_t group = 0; group < groups; ++group) {
+      const uint64_t zero_offset =
+          (static_cast<uint64_t>(group) * global_zero_columns +
+           column_base / 8) * sizeof(uint32_t);
+      if (!reader(reader_opaque, kGem5GptqQzeros, zero_offset,
+                  qzeros.data() + static_cast<size_t>(group) * tile_zero_columns,
+                  static_cast<size_t>(tile_zero_columns) * sizeof(uint32_t))) {
+        return false;
+      }
+      const uint32_t scale_size = ScaleElementSize(config.scale_data_type);
+      const uint64_t scale_offset =
+          (static_cast<uint64_t>(group) * config.output_columns + column_base) *
+          scale_size;
+      if (!reader(reader_opaque, kGem5GptqScales, scale_offset,
+                  scales.data() + static_cast<size_t>(group) * tile_columns *
+                      scale_size,
+                  static_cast<size_t>(tile_columns) * scale_size)) {
+        return false;
+      }
+    }
+    const Gem5GptqMatMulConfig tile_config = {
+        config.rows, config.input_columns, tile_columns, config.group_size,
+        config.zero_bias, config.scale_data_type};
+    Gem5GptqKernelStats tile_stats = {};
+    if (!RunGem5GptqInt4MatMul(
+            tile_config, input, qweight.data(), qzeros.data(), scales.data(),
+            has_g_idx ? g_idx.data() : nullptr, tile_output.data(),
+            &tile_stats)) {
+      return false;
+    }
+    for (uint32_t row = 0; row < config.rows; ++row) {
+      std::copy_n(tile_output.data() + static_cast<size_t>(row) * tile_columns,
+                  tile_columns,
+                  output + static_cast<size_t>(row) * config.output_columns +
+                      column_base);
+    }
+    if (tile_stats.operations > UINT64_MAX - stats->operations ||
+        tile_stats.bytes_read > UINT64_MAX - stats->bytes_read ||
+        tile_stats.bytes_written > UINT64_MAX - stats->bytes_written ||
+        tile_stats.modeled_cycles > UINT64_MAX - stats->modeled_cycles) {
+      return false;
+    }
+    stats->operations += tile_stats.operations;
+    stats->bytes_read += tile_stats.bytes_read;
+    stats->bytes_written += tile_stats.bytes_written;
+    stats->modeled_cycles += tile_stats.modeled_cycles;
+  }
   return true;
 }

@@ -132,6 +132,41 @@ bool RunGem5GenericGptqMatMul(
       static_cast<float*>(operands.output.data), stats);
 }
 
+bool RunGem5GenericGptqMatMulStreamed(
+    const opennpux_npu_operator_parameters& parameters, uint32_t rows,
+    Gem5GenericConstBuffer input, Gem5GptqRead reader, void* reader_opaque,
+    uint32_t output_tile_columns, bool has_g_idx,
+    Gem5GenericMutableBuffer output, Gem5GptqKernelStats* stats) {
+  if (parameters.magic != OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC ||
+      parameters.version != OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION ||
+      parameters.struct_size != sizeof(parameters) ||
+      parameters.opcode != kMatMulOpcode ||
+      (parameters.flags & kGptqFlag) == 0 ||
+      parameters.quantization_bits != 4 || rows == 0 ||
+      parameters.input_features == 0 || parameters.output_features == 0 ||
+      parameters.quantization_group_size == 0 ||
+      ScaleElementSize(parameters.scale_data_type) == 0 || reader == nullptr ||
+      stats == nullptr || output.data == nullptr) {
+    return false;
+  }
+  uint64_t input_bytes = 0;
+  uint64_t output_bytes = 0;
+  if (!ProductSize(rows, parameters.input_features, sizeof(float),
+                   &input_bytes) ||
+      !ProductSize(rows, parameters.output_features, sizeof(float),
+                   &output_bytes) ||
+      !BufferFits(input, input_bytes) || output_bytes > output.size) {
+    return false;
+  }
+  const Gem5GptqMatMulConfig config = {
+      rows, parameters.input_features, parameters.output_features,
+      parameters.quantization_group_size, parameters.quantized_zero_bias,
+      parameters.scale_data_type};
+  return RunGem5GptqInt4MatMulStreamed(
+      config, static_cast<const float*>(input.data), reader, reader_opaque,
+      output_tile_columns, has_g_idx, static_cast<float*>(output.data), stats);
+}
+
 bool RunGem5GenericGptqExpert(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,
     const Gem5GenericGptqExpertOperands& operands,

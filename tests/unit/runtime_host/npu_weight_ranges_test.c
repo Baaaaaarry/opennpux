@@ -25,7 +25,7 @@ main(int argc, char **argv)
     struct opennpux_npu_weight_ranges ranges;
     check(opennpux_npu_weight_ranges_load(argv[2], &ranges) == 0,
           "range index load failed");
-    check(ranges.header->range_count == 11, "range count mismatch");
+    check(ranges.header->range_count == 23, "range count mismatch");
     int found_expert = 0;
     for (uint32_t command = 0; command < ranges.header->command_count; ++command) {
         const struct opennpux_npu_weight_range_record *records;

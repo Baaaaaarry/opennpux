@@ -218,3 +218,203 @@ opennpux_npu_gptq_request_stage(
     memcpy(bytes, &request, sizeof(request));
     return 0;
 }
+
+static int
+place_weight_set(
+    uint32_t input_columns, uint32_t output_columns, uint32_t group_size,
+    const struct opennpux_npu_gptq_weights *weights,
+    struct opennpux_npu_gptq_weight_layout *layout, uint64_t *cursor)
+{
+    const uint32_t scale_size =
+        scale_element_size_for(weights->scales.data_type);
+    const uint32_t groups = ceil_div(input_columns, group_size);
+    const uint64_t qweight_bytes = byte_size(
+        element_count(ceil_div(input_columns, 8), output_columns),
+        sizeof(uint32_t));
+    const uint64_t qzeros_bytes = byte_size(
+        element_count(groups, ceil_div(output_columns, 8)), sizeof(uint32_t));
+    const uint64_t scales_bytes = byte_size(
+        element_count(groups, output_columns), scale_size);
+    const uint64_t g_idx_bytes = byte_size(input_columns, sizeof(uint32_t));
+    if (scale_size == 0 || qweight_bytes == 0 || qzeros_bytes == 0 ||
+        scales_bytes == 0 ||
+        weights->qweight.size != qweight_bytes ||
+        weights->qzeros.size != qzeros_bytes ||
+        weights->scales.size != scales_bytes ||
+        (weights->g_idx.data != NULL && weights->g_idx.size != g_idx_bytes) ||
+        place(qweight_bytes, &layout->qweight_offset, cursor) != 0 ||
+        place(qzeros_bytes, &layout->qzeros_offset, cursor) != 0 ||
+        place(scales_bytes, &layout->scales_offset, cursor) != 0 ||
+        (weights->g_idx.data != NULL &&
+         place(g_idx_bytes, &layout->g_idx_offset, cursor) != 0)) {
+        errno = EPROTO;
+        return -1;
+    }
+    layout->scale_data_type = weights->scales.data_type;
+    return 0;
+}
+
+static int
+copy_weight_set(
+    const struct opennpux_npu_gptq_weights *weights,
+    const struct opennpux_npu_gptq_weight_layout *layout, uint8_t *image)
+{
+    if (copy_component(&weights->qweight, weights->qweight.size, image,
+                       layout->qweight_offset) != 0 ||
+        copy_component(&weights->qzeros, weights->qzeros.size, image,
+                       layout->qzeros_offset) != 0 ||
+        copy_component(&weights->scales, weights->scales.size, image,
+                       layout->scales_offset) != 0 ||
+        (weights->g_idx.data != NULL &&
+         copy_component(&weights->g_idx, weights->g_idx.size, image,
+                        layout->g_idx_offset) != 0)) {
+        return -1;
+    }
+    return 0;
+}
+
+static struct coral_gptq_projection_weights
+device_weight_set(
+    uint32_t device_base,
+    const struct opennpux_npu_gptq_weight_layout *layout)
+{
+    const struct coral_gptq_projection_weights result = {
+        device_base + layout->qweight_offset,
+        device_base + layout->qzeros_offset,
+        device_base + layout->scales_offset,
+        layout->g_idx_offset == 0 ? 0 : device_base + layout->g_idx_offset,
+        layout->scale_data_type,
+        0,
+    };
+    return result;
+}
+
+int
+opennpux_npu_gptq_expert_stage(
+    const char *manifest_path,
+    const struct opennpux_model_package_info *model,
+    const struct opennpux_npu_weight_ranges *ranges,
+    const struct opennpux_npu_gptq_expert_selector *selector,
+    const struct opennpux_npu_gptq_expert_shape *shape,
+    const float *input, size_t input_floats, uint64_t device_base,
+    void *image, size_t image_size,
+    struct opennpux_npu_gptq_expert_layout *layout)
+{
+    if (manifest_path == NULL || model == NULL || ranges == NULL ||
+        selector == NULL || shape == NULL || input == NULL || image == NULL ||
+        layout == NULL || device_base > UINT32_MAX || shape->rows == 0 ||
+        shape->hidden_columns == 0 || shape->intermediate_columns == 0 ||
+        shape->group_size == 0 || shape->zero_bias > 15 ||
+        input_floats != element_count(shape->rows, shape->hidden_columns)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    struct opennpux_npu_gptq_weights gate;
+    struct opennpux_npu_gptq_weights up;
+    struct opennpux_npu_gptq_weights down;
+    memset(&gate, 0, sizeof(gate));
+    memset(&up, 0, sizeof(up));
+    memset(&down, 0, sizeof(down));
+    if (opennpux_npu_gptq_weights_load(
+            manifest_path, model, ranges, selector->command_id,
+            selector->role_id, selector->expert_id,
+            OPENNPUX_NPU_WEIGHT_SLOT_GATE_PROJ, image_size, &gate) != 0 ||
+        opennpux_npu_gptq_weights_load(
+            manifest_path, model, ranges, selector->command_id,
+            selector->role_id, selector->expert_id,
+            OPENNPUX_NPU_WEIGHT_SLOT_UP_PROJ, image_size, &up) != 0 ||
+        opennpux_npu_gptq_weights_load(
+            manifest_path, model, ranges, selector->command_id,
+            selector->role_id, selector->expert_id,
+            OPENNPUX_NPU_WEIGHT_SLOT_DOWN_PROJ, image_size, &down) != 0) {
+        const int saved = errno;
+        opennpux_npu_gptq_weights_unload(&down);
+        opennpux_npu_gptq_weights_unload(&up);
+        opennpux_npu_gptq_weights_unload(&gate);
+        errno = saved;
+        return -1;
+    }
+
+    memset(layout, 0, sizeof(*layout));
+    errno = 0;
+    uint64_t cursor = sizeof(struct coral_gptq_expert_request);
+    const uint64_t input_bytes = byte_size(
+        element_count(shape->rows, shape->hidden_columns), sizeof(float));
+    const uint64_t intermediate_bytes = byte_size(
+        element_count(shape->rows, shape->intermediate_columns),
+        sizeof(float));
+    const uint64_t output_bytes = input_bytes;
+    int status = 0;
+    if (gate.scales.data_type != up.scales.data_type ||
+        gate.scales.data_type != down.scales.data_type ||
+        input_bytes == 0 || intermediate_bytes == 0 ||
+        output_bytes > UINT32_MAX ||
+        place(input_bytes, &layout->input_offset, &cursor) != 0 ||
+        place(intermediate_bytes, &layout->gate_output_offset, &cursor) != 0 ||
+        place(intermediate_bytes, &layout->up_output_offset, &cursor) != 0 ||
+        place(intermediate_bytes, &layout->activated_offset, &cursor) != 0 ||
+        place(output_bytes, &layout->output_offset, &cursor) != 0 ||
+        place_weight_set(shape->hidden_columns, shape->intermediate_columns,
+                         shape->group_size, &gate, &layout->gate,
+                         &cursor) != 0 ||
+        place_weight_set(shape->hidden_columns, shape->intermediate_columns,
+                         shape->group_size, &up, &layout->up, &cursor) != 0 ||
+        place_weight_set(shape->intermediate_columns, shape->hidden_columns,
+                         shape->group_size, &down, &layout->down,
+                         &cursor) != 0 ||
+        cursor > UINT32_MAX || cursor > image_size ||
+        device_base + cursor > UINT32_MAX) {
+        if (errno == 0) {
+            errno = cursor > image_size ? ENOSPC : EOVERFLOW;
+        }
+        status = -1;
+        goto out;
+    }
+    layout->output_bytes = (uint32_t)output_bytes;
+    layout->total_size = (uint32_t)cursor;
+
+    uint8_t *bytes = image;
+    memset(bytes, 0, layout->total_size);
+    memcpy(bytes + layout->input_offset, input, input_bytes);
+    if (copy_weight_set(&gate, &layout->gate, bytes) != 0 ||
+        copy_weight_set(&up, &layout->up, bytes) != 0 ||
+        copy_weight_set(&down, &layout->down, bytes) != 0) {
+        status = -1;
+        goto out;
+    }
+
+    struct coral_gptq_expert_request request;
+    memset(&request, 0, sizeof(request));
+    request.magic = CORAL_GPTQ_EXPERT_MAGIC;
+    request.version = CORAL_GPTQ_EXPERT_VERSION;
+    request.struct_size = sizeof(request);
+    request.state = CORAL_GPTQ_EXPERT_PENDING;
+    request.rows = shape->rows;
+    request.hidden_columns = shape->hidden_columns;
+    request.intermediate_columns = shape->intermediate_columns;
+    request.group_size = shape->group_size;
+    request.zero_bias = shape->zero_bias;
+    request.input_address = (uint32_t)device_base + layout->input_offset;
+    request.gate_output_address =
+        (uint32_t)device_base + layout->gate_output_offset;
+    request.up_output_address =
+        (uint32_t)device_base + layout->up_output_offset;
+    request.activated_address =
+        (uint32_t)device_base + layout->activated_offset;
+    request.output_address = (uint32_t)device_base + layout->output_offset;
+    request.gate = device_weight_set((uint32_t)device_base, &layout->gate);
+    request.up = device_weight_set((uint32_t)device_base, &layout->up);
+    request.down = device_weight_set((uint32_t)device_base, &layout->down);
+    memcpy(bytes, &request, sizeof(request));
+
+out:
+    {
+        const int saved = errno;
+        opennpux_npu_gptq_weights_unload(&down);
+        opennpux_npu_gptq_weights_unload(&up);
+        opennpux_npu_gptq_weights_unload(&gate);
+        errno = saved;
+    }
+    return status;
+}

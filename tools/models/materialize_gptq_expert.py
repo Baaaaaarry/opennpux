@@ -111,8 +111,9 @@ def materialize(args: argparse.Namespace) -> None:
         "output": bytes(args.rows * hidden * 4),
     }
     for slot in SLOTS:
-        for name, payload in components[slot].items():
-            payloads[f"{slot}_{name}"] = payload
+        for name in ("qweight", "qzeros", "scales", "g_idx"):
+            if name in components[slot]:
+                payloads[f"{slot}_{name}"] = components[slot][name]
 
     offsets: dict[str, int] = {}
     cursor = projection.align(REQUEST.size)

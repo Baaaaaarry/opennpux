@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
+weight_map = {}
 for name, tensors in (
     ("model-00001-of-00002.safetensors", {
         "model.language_model.embed_tokens.weight": bytes(range(8)),
@@ -33,6 +34,18 @@ for name, tensors in (
         "model.language_model.layers.0.self_attn.q_norm.weight": bytes(range(8)),
     }),
     ("model-00002-of-00002.safetensors", {
+        "model.language_model.layers.0.mlp.experts.0.gate_proj.qweight": bytes(288),
+        "model.language_model.layers.0.mlp.experts.0.gate_proj.qzeros": bytes(12),
+        "model.language_model.layers.0.mlp.experts.0.gate_proj.scales": bytes(48),
+        "model.language_model.layers.0.mlp.experts.0.gate_proj.g_idx": bytes(72),
+        "model.language_model.layers.0.mlp.experts.0.up_proj.qweight": bytes(288),
+        "model.language_model.layers.0.mlp.experts.0.up_proj.qzeros": bytes(12),
+        "model.language_model.layers.0.mlp.experts.0.up_proj.scales": bytes(48),
+        "model.language_model.layers.0.mlp.experts.0.up_proj.g_idx": bytes(72),
+        "model.language_model.layers.0.mlp.experts.0.down_proj.qweight": bytes(216),
+        "model.language_model.layers.0.mlp.experts.0.down_proj.qzeros": bytes(12),
+        "model.language_model.layers.0.mlp.experts.0.down_proj.scales": bytes(36),
+        "model.language_model.layers.0.mlp.experts.0.down_proj.g_idx": bytes(96),
         "model.language_model.layers.1.mlp.experts.7.down_proj.qweight": bytes(range(10, 18)),
         "model.language_model.layers.1.mlp.router.weight": bytes(range(20, 28)),
         "model.language_model.layers.1.linear_attn.in_proj_qkv.qweight": bytes(range(30, 38)),
@@ -43,6 +56,7 @@ for name, tensors in (
     header = {}
     payload = b""
     for tensor_name, data in tensors.items():
+        weight_map[tensor_name] = name
         dtype = "U8"
         if tensor_name.endswith(".scales"):
             dtype = "F16"
@@ -56,8 +70,10 @@ for name, tensors in (
         offset += len(data)
     encoded = json.dumps(header, separators=(",", ":")).encode()
     (root / name).write_bytes(struct.pack("<Q", len(encoded)) + encoded + payload)
+(root / "model.safetensors.index.json").write_text(
+    json.dumps({"weight_map": weight_map}, separators=(",", ":"))
+)
 PY
-printf '%s\n' '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-00001-of-00002.safetensors","c":"model-00001-of-00002.safetensors","d":"model-00001-of-00002.safetensors","e":"model-00001-of-00002.safetensors","f":"model-00001-of-00002.safetensors","g":"model-00001-of-00002.safetensors","h":"model-00002-of-00002.safetensors","i":"model-00002-of-00002.safetensors","j":"model-00002-of-00002.safetensors","k":"model-00002-of-00002.safetensors"}}' > "${MODEL_DIR}/model.safetensors.index.json"
 
 "${SCRIPT_DIR}/import_hf_model.py" "${MODEL_DIR}" "${MANIFEST}"
 "${SCRIPT_DIR}/build_qwen_execution_plan.py" "${MANIFEST}"
@@ -123,10 +139,10 @@ print("npu_weight_range_index=PASS")
 PY
 "${SCRIPT_DIR}/inspect_gptq_bindings.py" "${MODEL_DIR}/model.npxr" \
     | tee "${WORK_DIR}/gptq-bindings.log"
-grep -q '^gptq_binding_complete=1$' "${WORK_DIR}/gptq-bindings.log"
+grep -q '^gptq_binding_complete=4$' "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_incomplete=3$' "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_duplicate=0$' "${WORK_DIR}/gptq-bindings.log"
-grep -q '^gptq_binding_scales_dtypes=float16:1$' \
+grep -q '^gptq_binding_scales_dtypes=float16:4$' \
     "${WORK_DIR}/gptq-bindings.log"
 "${SCRIPT_DIR}/materialize_gptq_projection.py" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/model.npxr" \
@@ -157,6 +173,23 @@ grep -q '^gptq_projection_materialize=PASS$' \
 "${WORK_DIR}/npu_gptq_request_test" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxr" \
     "${MODEL_DIR}/gptq-projection.bin"
+"${SCRIPT_DIR}/materialize_gptq_expert.py" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/model.npxr" \
+    "${MODEL_DIR}/gptq-expert.bin" --layer 0 --expert 0 \
+    | tee "${WORK_DIR}/gptq-expert.log"
+grep -q '^gptq_expert_shape=1x18x24$' "${WORK_DIR}/gptq-expert.log"
+grep -q '^gptq_expert_materialize=PASS$' "${WORK_DIR}/gptq-expert.log"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 -ffp-contract=off \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/model_package.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_weights.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_request.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_gptq_expert_request_test.c" \
+    -o "${WORK_DIR}/npu_gptq_expert_request_test"
+"${WORK_DIR}/npu_gptq_expert_request_test" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxr" \
+    "${MODEL_DIR}/gptq-expert.bin"
 "${SCRIPT_DIR}/gptq_reference.sh" "${MODEL_DIR}/gptq-projection.bin" \
     | tee "${WORK_DIR}/gptq-reference.log"
 grep -q '^gptq_reference_shape=1x18x24$' "${WORK_DIR}/gptq-reference.log"

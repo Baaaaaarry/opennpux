@@ -283,6 +283,17 @@ expert or token batch with `CORAL_GPTQ_LAYER`, `CORAL_GPTQ_EXPERT`, and
 `CORAL_GPTQ_ROWS`. The implementation is a hybrid functional/timing model of a
 generic gated MLP expert, not a Qwen-specific kernel or dedicated RTL unit.
 
+The CPU runtime can generate the same request online with
+`opennpux_npu_gptq_expert_stage()`. It resolves the selected command, role and
+active expert from `model.npxr`, binds the caller's live input tensor, and
+produces the same 256-byte request plus payload layout as
+`materialize_gptq_expert.py`. `test_model_package.sh` enforces byte-for-byte
+equivalence between these two producers. Run the ABI guard independently with:
+
+```sh
+./tools/coralnpu/check_gptq_expert_abi.sh
+```
+
 ```sh
 ./tools/coralnpu/build_rtl_bridge.sh
 ./tools/guest_tools/build_coralctl.sh

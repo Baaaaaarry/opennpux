@@ -32,6 +32,7 @@ case " $* " in
 esac
 
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
+"${ROOT_DIR}/tools/coralnpu/check_gptq_expert_abi.sh"
 "${ROOT_DIR}/tools/coralnpu/test_coprocessor_command.sh"
 "${ROOT_DIR}/tools/coralnpu/test_hybrid_kernels.sh"
 mkdir -p "${BAZEL_OUTPUT_ROOT}" "${REPO_CACHE}" "${DISTDIR}" "${OUT_DIR}"

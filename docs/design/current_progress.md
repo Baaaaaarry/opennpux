@@ -172,6 +172,16 @@ and operation count, so an addressing, packing, group-index or scale-dtype
 regression can no longer pass. The reference must be compiled with
 `-ffp-contract=off`; a fused multiply-add changes the rounding and breaks the
 exact comparison on FMA-baseline targets.
+Request staging has also moved from the offline Python harness into the CPU
+runtime. `runtime/host/src/npu_gptq_request.c` resolves a command's exact
+components through the binary range index, checks every component against the
+caller-supplied projection shape, lays the operands out on 64-byte boundaries,
+binds live input and output buffers, and writes the CUSTOM_0 request record.
+Projection geometry stays a compiler-frontend input rather than a tensor-name
+rule, so the module carries no Qwen naming. A host test stages the same
+projection the offline materializer emits and requires the two images to be
+byte-identical, which keeps the offline harness and the runtime
+interchangeable while guest-side submission is wired up.
 
 Generic executables now carry a model-independent, fixed-size numerical
 parameter record for every command. The record preserves static feature sizes,

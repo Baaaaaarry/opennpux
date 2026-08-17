@@ -145,6 +145,18 @@ grep -q '^gptq_projection_materialize=PASS$' \
     "${ROOT_DIR}/tests/unit/runtime_host/npu_gptq_reference_test.c" \
     -o "${WORK_DIR}/npu_gptq_reference_test" -lm
 "${WORK_DIR}/npu_gptq_reference_test" "${MODEL_DIR}/gptq-projection.bin"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 -ffp-contract=off \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/model_package.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_weights.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_reference.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_request.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_gptq_request_test.c" \
+    -o "${WORK_DIR}/npu_gptq_request_test" -lm
+"${WORK_DIR}/npu_gptq_request_test" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxr" \
+    "${MODEL_DIR}/gptq-projection.bin"
 "${SCRIPT_DIR}/gptq_reference.sh" "${MODEL_DIR}/gptq-projection.bin" \
     | tee "${WORK_DIR}/gptq-reference.log"
 grep -q '^gptq_reference_shape=1x18x24$' "${WORK_DIR}/gptq-reference.log"

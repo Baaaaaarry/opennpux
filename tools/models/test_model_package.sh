@@ -190,6 +190,13 @@ grep -q '^gptq_expert_materialize=PASS$' "${WORK_DIR}/gptq-expert.log"
 "${WORK_DIR}/npu_gptq_expert_request_test" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxr" \
     "${MODEL_DIR}/gptq-expert.bin"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/npu_router.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_router_test.c" \
+    -o "${WORK_DIR}/npu_router_test" -lm
+"${WORK_DIR}/npu_router_test"
+echo "PASS: NPU stable top-K router tests"
 "${SCRIPT_DIR}/gptq_reference.sh" "${MODEL_DIR}/gptq-projection.bin" \
     | tee "${WORK_DIR}/gptq-reference.log"
 grep -q '^gptq_reference_shape=1x18x24$' "${WORK_DIR}/gptq-reference.log"

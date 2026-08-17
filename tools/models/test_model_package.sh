@@ -123,6 +123,8 @@ PY
 grep -q '^gptq_binding_complete=1$' "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_incomplete=3$' "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_duplicate=0$' "${WORK_DIR}/gptq-bindings.log"
+grep -q '^gptq_binding_scales_dtypes=float16:1$' \
+    "${WORK_DIR}/gptq-bindings.log"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_weight_ranges.c" \

@@ -16,6 +16,10 @@ COMPONENTS = {
     0x76C0006C: "scales",
     0x1B2EDE4B: "g_idx",
 }
+DTYPES = {
+    0: "invalid", 1: "int4_packed", 2: "int8", 3: "int32",
+    4: "float16", 5: "bfloat16", 6: "float32",
+}
 REQUIRED = frozenset({"qweight", "qzeros", "scales"})
 SLOTS = {
     0: "default",
@@ -51,7 +55,8 @@ def load_groups(path: Path):
             continue
         slot = record[9] & 0xFFFF
         key = (record[0], record[2], record[8], slot)
-        groups[key][component].append((record[1], record[4], record[5]))
+        dtype = (record[9] >> 16) & 0xFF
+        groups[key][component].append((record[1], record[4], record[5], dtype))
     return header, groups
 
 
@@ -65,6 +70,7 @@ def main() -> None:
     incomplete = 0
     duplicate = 0
     component_bytes = Counter()
+    component_dtypes = defaultdict(Counter)
     slot_counts = Counter()
     for (_, _, _, slot), components in groups.items():
         missing = REQUIRED - components.keys()
@@ -78,6 +84,7 @@ def main() -> None:
             slot_counts[SLOTS.get(slot, f"slot_{slot}")] += 1
         for name, records in components.items():
             component_bytes[name] += sum(record[2] for record in records)
+            component_dtypes[name].update(record[3] for record in records)
 
     print(f"gptq_binding_range_records={header[5]}")
     print(f"gptq_binding_groups={len(groups)}")
@@ -86,6 +93,13 @@ def main() -> None:
     print(f"gptq_binding_duplicate={duplicate}")
     for name in ("qweight", "qzeros", "scales", "g_idx"):
         print(f"gptq_binding_{name}_bytes={component_bytes[name]}")
+        print(
+            f"gptq_binding_{name}_dtypes="
+            + ",".join(
+                f"{DTYPES.get(dtype, f'dtype_{dtype}')}:{count}"
+                for dtype, count in sorted(component_dtypes[name].items())
+            )
+        )
     print(
         "gptq_binding_slots="
         + ",".join(f"{name}:{slot_counts[name]}" for name in sorted(slot_counts))

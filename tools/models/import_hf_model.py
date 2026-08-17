@@ -282,6 +282,10 @@ def main() -> None:
     print(f"model_experts_per_token={manifest['experts_per_token']}")
     print(f"model_quantization={manifest['quantization_method']}")
     print(f"model_quantization_bits={manifest['quantization_bits']}")
+    print(
+        "model_quantization_scale_data_type="
+        f"{manifest['quantization_scale_data_type']}"
+    )
 
 
 if __name__ == "__main__":

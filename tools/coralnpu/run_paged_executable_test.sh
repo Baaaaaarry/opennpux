@@ -7,6 +7,8 @@ EXECUTABLE="${CORAL_NPU_EXECUTABLE:-${ROOT_DIR}/build/local-tests/model-package/
 FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_npu_command_processor_smoke.elf}"
 CORALCTL="${ROOT_DIR}/build/guest-tools/coralctl-aarch64"
 WEIGHT_PAGE_SOURCE="${CORAL_NPU_WEIGHT_PAGE:-${EXECUTABLE}}"
+SHARED_BASE="${CORAL_PAGED_SHARED_BASE:-0x8f000000}"
+CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_paged_8m_8f000000_ckpt}"
 
 [ -r "$EXECUTABLE" ] || { echo "error: executable missing: $EXECUTABLE" >&2; exit 1; }
 
@@ -80,15 +82,15 @@ exit 0
 EOF
 
 if [ "${CORAL_REBUILD_CKPT:-0}" != 1 ]; then
-    echo "note: use a checkpoint built with an 8MiB NPU shared window" >&2
+    echo "note: using checkpoint with NPU shared window ${SHARED_BASE}/8MiB" >&2
 fi
 
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 cd "$GEM5_ROOT"
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_FIRMWARE="$FIRMWARE" \
-CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_paged_ckpt}" \
-CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB" \
+CORAL_CKPT_ROOT="$CKPT_ROOT" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${SHARED_BASE} --npu-dma-shared-size=8MiB" \
 CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}" \
 CORAL_RESUME_BOOTSCRIPT="$TMP_SCRIPT" \
 ./run_multicore.sh

@@ -97,6 +97,15 @@ fi
 "${ROOT_DIR}/tools/coralnpu/check_rtl_bridge_abi.sh"
 "${ROOT_DIR}/tools/coralnpu/check_command_abi.sh"
 "${ROOT_DIR}/tools/coralnpu/check_npu_submission_abi.sh"
+if ! awk '
+    /name = "gem5_npu_command_processor_smoke"/ { in_target = 1 }
+    in_target && /stack_size_bytes = 4096/ { stack_ok = 1 }
+    in_target && /^\)/ { exit stack_ok ? 0 : 1 }
+    END { if (!in_target || !stack_ok) exit 1 }
+' "${ROOT_DIR}/sim/coralnpu/hw_sim/BUILD"; then
+    echo "error: paged command firmware requires a 4096-byte stack" >&2
+    exit 1
+fi
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
 "${ROOT_DIR}/tools/coralnpu/check_overlay_boundary.sh"
 "${ROOT_DIR}/tools/coralnpu/test_axi_adapter.sh"

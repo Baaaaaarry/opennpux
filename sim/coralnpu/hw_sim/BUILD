@@ -379,6 +379,10 @@ coralnpu_v2_binary(
         "gem5_bridge/npu_weight_queue.h",
         "gem5_bridge/npu_weight_residency.h",
     ],
+    # The paged command path suspends inside page_weight() while the host
+    # services a fault.  Its saved registers, 64-bit temporaries, and stacked
+    # call arguments do not fit in coralnpu_v2_binary's 128-byte default.
+    stack_size_bytes = 4096,
 )
 
 coralnpu_v2_binary(

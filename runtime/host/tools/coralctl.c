@@ -326,6 +326,16 @@ service_executable_page(void *opaque)
         fprintf(stderr, "paged_stage=service-first-page-complete\n");
         fflush(stderr);
     }
+    if (service->faults_serviced <= 10 ||
+        service->faults_serviced % 100 == 0) {
+        fprintf(stderr,
+                "paged_fault_complete=%" PRIu64 " command=%" PRIu32
+                " producer=%" PRIu32 " service=%" PRIu32 " last=%u\n",
+                service->faults_serviced, fault_snapshot.command_id,
+                producer, consumer + 1,
+                (fault_snapshot.flags & OPENNPUX_NPU_PAGE_FAULT_LAST) != 0);
+        fflush(stderr);
+    }
     return 0;
 }
 

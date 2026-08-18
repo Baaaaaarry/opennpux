@@ -141,6 +141,8 @@ int opennpux_coral_write_shared_u32(struct opennpux_coral_device *dev,
                                     uint64_t offset, uint32_t value);
 int opennpux_coral_sync_shared_to_extmem(
     struct opennpux_coral_device *dev, uint32_t offset, uint32_t size);
+int opennpux_coral_sync_extmem_to_shared(
+    struct opennpux_coral_device *dev, uint32_t offset, uint32_t size);
 
 typedef int (*opennpux_coral_service_callback)(void *opaque);
 

@@ -164,6 +164,11 @@ static int
 service_executable_page(void *opaque)
 {
     struct executable_page_service *service = opaque;
+    if (opennpux_coral_sync_extmem_to_shared(
+            service->dev, service->queue_offset,
+            service->queue_size) != 0) {
+        return -1;
+    }
     struct opennpux_npu_weight_queue_header *header = service->queue->header;
     const uint32_t consumer = load_device_u32(&header->service_index);
     const uint32_t producer = load_device_u32(&header->producer_index);

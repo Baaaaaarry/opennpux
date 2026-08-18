@@ -72,6 +72,7 @@ class NPUDevice : public DmaVirtDevice
     void releaseBackendReset();
     void syncLocalExtmemToHost();
     bool syncHostRangeToLocalExtmem(Addr offset, Addr size);
+    bool syncLocalExtmemRangeToHost(Addr offset, Addr size);
 
     std::unique_ptr<CoralBackend> backend;
     MemberEventWrapper<&NPUDevice::processBackendEvent> backendEvent;

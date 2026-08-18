@@ -291,6 +291,27 @@ opennpux_coral_sync_shared_to_extmem(
     return 0;
 }
 
+int
+opennpux_coral_sync_extmem_to_shared(
+    struct opennpux_coral_device *dev, uint32_t offset, uint32_t size)
+{
+    if (dev == NULL || size == 0 ||
+        dev->transport != OPENNPUX_CORAL_TRANSPORT_DEVMEM) {
+        errno = EOPNOTSUPP;
+        return -1;
+    }
+    opennpux_coral_write_reg(dev, RUNTIME_SYNC_OFFSET, offset);
+    opennpux_coral_write_reg(dev, RUNTIME_SYNC_SIZE, size);
+    opennpux_coral_write_reg(dev, RUNTIME_SYNC_CONTROL, 2);
+    const uint32_t status = opennpux_coral_read_reg(
+        dev, RUNTIME_SYNC_STATUS);
+    if (status != 1) {
+        errno = status == 2 ? EINVAL : EIO;
+        return -1;
+    }
+    return 0;
+}
+
 void
 opennpux_coral_get_info(struct opennpux_coral_device *dev,
                         struct opennpux_coral_info *info)

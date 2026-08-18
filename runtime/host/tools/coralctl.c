@@ -550,6 +550,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     const char *inference_prompt = getenv("OPENNPUX_PROMPT");
     struct opennpux_npu_inference_io *inference_request = NULL;
     struct opennpux_npu_inference_io *inference_result = NULL;
+    struct opennpux_npu_inference_io inference_request_image;
+    struct opennpux_npu_inference_io inference_result_image;
     struct opennpux_model_package_info weight_model;
     struct opennpux_npu_weight_ranges weight_ranges;
     struct opennpux_npu_weight_cache weight_cache;
@@ -842,6 +844,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     submission_bindings[5].byte_size = route_size;
     submission_bindings[5].dimensions[0] = active_route_count;
     if (inference_prompt != NULL) {
+        print_paged_stage(paged, "initialize-inference-io");
         const size_t prompt_size = strlen(inference_prompt);
         if (!real_weights || prompt_size == 0 ||
             prompt_size >= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
@@ -851,12 +854,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             perror("executable-run inference request");
             goto out;
         }
-        inference_request =
-            (struct opennpux_npu_inference_io *)(void *)(window.bytes +
-                                                         input_offset);
-        inference_result =
-            (struct opennpux_npu_inference_io *)(void *)(window.bytes +
-                                                        output_offset);
+        inference_request = &inference_request_image;
+        inference_result = &inference_result_image;
         memset(inference_request, 0, sizeof(*inference_request));
         memset(inference_result, 0, sizeof(*inference_result));
         inference_request->magic = OPENNPUX_NPU_INFERENCE_IO_MAGIC;
@@ -874,7 +873,14 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         inference_request->max_new_tokens = 1;
         inference_request->input_token_count = 1;
         memcpy(inference_request->prompt, inference_prompt, prompt_size);
+        copy_to_device_memory(window.bytes + input_offset,
+                              (const uint8_t *)inference_request,
+                              sizeof(*inference_request));
+        clear_device_memory(window.bytes + output_offset,
+                            sizeof(*inference_result));
+        print_paged_stage(paged, "inference-io-published");
     }
+    print_paged_stage(paged, "checksum-submission");
     header->checksum = 0;
     header->checksum = opennpux_npu_submission_checksum(
         submission, submission_size);
@@ -935,6 +941,11 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         fprintf(stderr, "paging_final_sync_bytes=%" PRIu64 "\n",
                 paging_layout.cache_offset);
         fflush(stderr);
+    }
+    if (inference_result != NULL) {
+        copy_from_device_memory((uint8_t *)inference_result,
+                                window.bytes + output_offset,
+                                sizeof(*inference_result));
     }
     __sync_synchronize();
     printf("transport=%s\n", opennpux_coral_transport_name(dev->transport));

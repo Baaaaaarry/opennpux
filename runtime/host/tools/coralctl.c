@@ -119,6 +119,7 @@ struct executable_page_service {
     uint8_t *cursor_initialized;
     uint32_t command_count;
     void *residency;
+    volatile uint8_t *residency_device;
     size_t residency_size;
     uint32_t cache_slots;
     uint32_t transfer_size;
@@ -233,6 +234,22 @@ service_executable_page(void *opaque)
             service->residency, service->residency_size, fault) != 0) {
         errno = EPROTO;
         return -1;
+    }
+    if (service->residency != NULL) {
+        const size_t header_size =
+            sizeof(struct opennpux_npu_weight_residency_header);
+        const size_t record_size =
+            sizeof(struct opennpux_npu_weight_residency_record);
+        const size_t record_offset = header_size +
+            (size_t)fault->cache_slot * record_size;
+        copy_to_device_memory(
+            service->residency_device + record_offset,
+            (const uint8_t *)service->residency + record_offset,
+            record_size);
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+        copy_to_device_memory(
+            service->residency_device,
+            (const uint8_t *)service->residency, header_size);
     }
     if (service->faults_serviced == 0) {
         fprintf(stderr, "paged_stage=service-residency-complete\n");
@@ -626,8 +643,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         page_service.source = weight_page;
         page_service.cache_slots = paging_layout.cache_slots;
         page_service.transfer_size = paging_layout.transfer_size;
-        page_service.residency =
-            (void *)(uintptr_t)(window.bytes + residency_offset);
+        page_service.residency = residency_image;
+        page_service.residency_device = window.bytes + residency_offset;
         page_service.residency_size = residency_size;
         if (real_weights) {
             weight_cache_entries = calloc(
@@ -823,8 +840,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                    weight_cache.stats.bytes_read);
         }
         const struct opennpux_npu_weight_residency_header *residency =
-            (const struct opennpux_npu_weight_residency_header *)(const void *)(
-                window.bytes + residency_offset);
+            (const struct opennpux_npu_weight_residency_header *)(const void *)
+                residency_image;
         printf("paging_residency_generation=%" PRIu64 "\n",
                residency->generation);
         printf("paging_residency_records=%" PRIu32 "\n",

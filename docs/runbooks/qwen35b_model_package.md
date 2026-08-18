@@ -353,3 +353,19 @@ and prefill/decode state management. Parameter symbols are now mapped to real
 safetensors ranges in `model.npxw`; the smoke test materializes the first
 mapped tensor payload by default. Set
 `CORAL_NPU_WEIGHT_PAGE=/path/to/page.bin` to override it.
+
+## Full Paged Control-Plane Acceptance
+
+After the small 30-command paging smoke passes, run the complete 524-command
+Qwen3.5 decode schedule through the same RV32 firmware and shared fault ring:
+
+```sh
+CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
+  ./tools/coralnpu/run_qwen35b_paged_control_test.sh
+```
+
+This gate deliberately uses one repeated 64KiB page per weight-bearing command.
+It validates command-scale control flow, not Qwen numerical correctness. The
+script requires 524 submitted and completed commands, 343 serviced/retired page
+faults, zero queue backpressure, and the final executable PASS verdict. Real
+GPTQ range streaming and numerical kernels are the following data-plane gate.

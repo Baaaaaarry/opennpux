@@ -48,6 +48,27 @@ if [ ! -r "$FIRMWARE" ]; then
     echo "or select an existing image with CORAL_RTL_FIRMWARE=/path/to/firmware.elf" >&2
     exit 1
 fi
+RISCV_READELF="${RISCV_READELF:-riscv64-unknown-elf-readelf}"
+if ! command -v "$RISCV_READELF" >/dev/null 2>&1; then
+    echo "error: $RISCV_READELF is required to validate paged firmware" >&2
+    exit 1
+fi
+FIRMWARE_STACK_SIZE="$($RISCV_READELF -sW "$FIRMWARE" | awk '
+    $8 == "__stack_size" { print $2; found = 1; exit }
+    END { if (!found) exit 1 }
+')" || {
+    echo "error: firmware does not expose __stack_size: $FIRMWARE" >&2
+    exit 1
+}
+case "$FIRMWARE_STACK_SIZE" in
+    0000000000001000|00001000|1000) ;;
+    *)
+        echo "error: stale paged firmware stack size 0x$FIRMWARE_STACK_SIZE (expected 0x1000)" >&2
+        echo "rebuild with: ./tools/coralnpu/build_rtl_bridge.sh" >&2
+        exit 1
+        ;;
+esac
+echo "paged_firmware_stack_size=0x1000" >&2
 coralctl_stale=0
 if [ ! -x "$CORALCTL" ]; then
     coralctl_stale=1

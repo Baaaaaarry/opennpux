@@ -32,6 +32,8 @@ constexpr Addr kMepcOffset = 0x30104;
 constexpr Addr kMtvalOffset = 0x30108;
 constexpr Addr kMcauseOffset = 0x3010c;
 constexpr Addr kCoralExtmemBase = 0x20000000;
+constexpr Addr kCompletionAddressOffset = 112;
+constexpr Addr kCompletionProgressOffset = 96;
 constexpr uint32_t kResetBit = 1u << 0;
 constexpr uint32_t kClockGateBit = 1u << 1;
 
@@ -373,8 +375,22 @@ CoralVerilatedBackend::processEvent()
             mmioRead(modelHandle, kMcauseOffset, &mcause, sizeof(mcause)) == 0;
         fatal_if(!faultCsrsRead,
                  "Coral RTL raised a core fault and fault CSR readback failed");
-        fatal("Coral RTL core fault: mepc=%#x mtval=%#x mcause=%#x",
-              mepc, mtval, mcause);
+        uint64_t completionAddress = 0;
+        uint64_t firmwareProgress = 0;
+        const bool completionRead = localExtmemEnabled &&
+            extmemRead(modelHandle,
+                       kCoralExtmemBase + kCompletionAddressOffset,
+                       &completionAddress, sizeof(completionAddress)) == 0 &&
+            completionAddress >= kCoralExtmemBase &&
+            extmemRead(modelHandle,
+                       completionAddress + kCompletionProgressOffset,
+                       &firmwareProgress, sizeof(firmwareProgress)) == 0;
+        fatal("Coral RTL core fault: mepc=%#x mtval=%#x mcause=%#x "
+              "firmware_progress=%#llx completion=%#llx%s",
+              mepc, mtval, mcause,
+              static_cast<unsigned long long>(firmwareProgress),
+              static_cast<unsigned long long>(completionAddress),
+              completionRead ? "" : " (progress unavailable)");
     }
     if (traceProgress) {
         DPRINTFR(NPUDevice,

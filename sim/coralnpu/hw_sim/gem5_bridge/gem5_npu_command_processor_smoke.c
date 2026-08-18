@@ -21,6 +21,25 @@
 #define PAGING_TRANSFER_SIZE UINT32_C(65536)
 #define EXPERT_NONE UINT64_MAX
 
+#define PAGE_PROGRESS_WAIT_READY UINT64_C(0x50470001)
+#define PAGE_PROGRESS_READY UINT64_C(0x50470002)
+#define PAGE_PROGRESS_RESIDENCY_HEADER UINT64_C(0x50470003)
+#define PAGE_PROGRESS_RESIDENCY_RECORD UINT64_C(0x50470004)
+#define PAGE_PROGRESS_CACHE_LOAD UINT64_C(0x50470005)
+#define PAGE_PROGRESS_RETURN UINT64_C(0x50470006)
+#define PAGE_PROGRESS_CALL_RETURNED UINT64_C(0x50470007)
+
+static volatile struct opennpux_npu_completion *page_completion;
+
+static void
+page_progress(uint64_t marker)
+{
+    if (page_completion != NULL) {
+        page_completion->reserved[0] = marker;
+        __asm__ volatile("" ::: "memory");
+    }
+}
+
 static uint32_t
 align_record(uint32_t value)
 {
@@ -128,9 +147,11 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
     memory_fence();
     queue->producer_index = producer + 1;
     memory_fence();
+    page_progress(PAGE_PROGRESS_WAIT_READY);
     while (fault->state == OPENNPUX_NPU_PAGE_FAULT_PENDING) {
         ++*stall_cycles;
     }
+    page_progress(PAGE_PROGRESS_READY);
     if (fault->state != OPENNPUX_NPU_PAGE_FAULT_READY ||
         fault->error_code != 0 || fault->cache_slot >= cache_slots) {
         return -1;
@@ -144,6 +165,7 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
         fault->cache_slot >= residency->capacity) {
         return -1;
     }
+    page_progress(PAGE_PROGRESS_RESIDENCY_HEADER);
     volatile const struct opennpux_npu_weight_residency_record *resident =
         (volatile const struct opennpux_npu_weight_residency_record *)(
             residency + 1) + fault->cache_slot;
@@ -155,6 +177,7 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
         resident->cache_slot != fault->cache_slot) {
         return -1;
     }
+    page_progress(PAGE_PROGRESS_RESIDENCY_RECORD);
     const uint32_t offset = command_id * sizeof(uint32_t);
     if (offset > PAGING_TRANSFER_SIZE - sizeof(uint32_t)) {
         return -1;
@@ -163,6 +186,7 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
         (const volatile uint32_t *)(cache +
             fault->cache_slot * PAGING_TRANSFER_SIZE + offset);
     *word = *cache_word;
+    page_progress(PAGE_PROGRESS_CACHE_LOAD);
     *last = (fault->flags & OPENNPUX_NPU_PAGE_FAULT_LAST) != 0;
     *role_id = fault->role_id;
     *component_id = fault->component_id;
@@ -170,6 +194,7 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
     memory_fence();
     queue->retire_index = producer + 1;
     memory_fence();
+    page_progress(PAGE_PROGRESS_RETURN);
     return 0;
 }
 
@@ -192,6 +217,7 @@ main(void)
     completion->struct_size = sizeof(*completion);
     completion->sequence = header->sequence;
     completion->state = OPENNPUX_NPU_COMPLETION_RUNNING;
+    page_completion = completion;
 
     const uint32_t trace_offset = align_record(
         (uint32_t)(header->completion_address - EXTMEM_BASE) +
@@ -484,6 +510,7 @@ main(void)
                                ERROR_PAGING, index);
                         return 1;
                     }
+                    page_progress(PAGE_PROGRESS_CALL_RETURNED);
                     trace->weight_checksum ^= word;
                     trace->weight_checksum *= UINT32_C(16777619);
                     trace->weight_checksum ^= role_id;

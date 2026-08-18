@@ -283,6 +283,9 @@ multi-gigabyte model into the boot image or checkpoint. When no explicit
 `CORAL_KERNEL_IMAGE` is supplied, the wrapper selects the kernel recorded in
 `build/kernel/kernel.release`. A rebuilt kernel invalidates the dedicated
 checkpoint; the command above rebuilds it and automatically resumes the test.
+The guest mount supplies both the fixed VirtIO mount tag `gem5` and the host
+export path as the diod `aname`; these identify the device and exported tree,
+respectively.
 Set `CORAL_QWEN_PROMPT` to change the prompt. The default run validates the
 fast functional-model endpoint: CPU prompt -> generic NPU executable -> token
 completion. Set `CORAL_QWEN35B_NUMERICAL=1` to enable incremental GPTQ

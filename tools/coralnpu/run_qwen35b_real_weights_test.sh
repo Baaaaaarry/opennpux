@@ -24,6 +24,12 @@ case "$PROMPT" in
         exit 1
         ;;
 esac
+case "$MODEL_DIR" in
+    *,*)
+        echo "error: CORAL_MODEL_DIR cannot contain a comma (9P mount option separator)" >&2
+        exit 1
+        ;;
+esac
 
 for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
     [ -r "$MODEL_DIR/$asset" ] || {
@@ -94,8 +100,11 @@ if ! grep -qw 9p /proc/filesystems; then
     m5 --inst exit
     exit 1
 fi
-if ! mount -t 9p -o trans=virtio,version=9p2000.L,ro gem5 /mnt/opennpux-model; then
+if ! mount -t 9p \
+    -o 'trans=virtio,version=9p2000.L,ro,aname=$MODEL_DIR' \
+    gem5 /mnt/opennpux-model; then
     echo '[coral-qwen35b-real-weights-test] FAIL: VirtIO 9P model mount failed'
+    dmesg 2>/dev/null | tail -n 20 || true
     m5 --inst exit
     exit 1
 fi

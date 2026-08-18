@@ -36,6 +36,15 @@ copy_to_device_memory(volatile uint8_t *destination, const uint8_t *source,
 }
 
 static void
+copy_from_device_memory(uint8_t *destination,
+                        const volatile uint8_t *source, size_t size)
+{
+    for (size_t index = 0; index < size; ++index) {
+        destination[index] = source[index];
+    }
+}
+
+static void
 clear_device_memory(volatile uint8_t *destination, size_t size)
 {
     for (size_t index = 0; index < size; ++index) {
@@ -145,42 +154,46 @@ service_executable_page(void *opaque)
     }
     struct opennpux_npu_page_fault *fault =
         &service->queue->entries[consumer % header->capacity];
-    if (__atomic_load_n(&fault->state, __ATOMIC_ACQUIRE) !=
-            OPENNPUX_NPU_PAGE_FAULT_PENDING ||
-        fault->magic != OPENNPUX_NPU_PAGE_FAULT_MAGIC ||
-        fault->version != OPENNPUX_NPU_PAGE_FAULT_VERSION ||
-        fault->struct_size != sizeof(*fault) ||
-        fault->page_size != service->transfer_size) {
+    struct opennpux_npu_page_fault fault_snapshot;
+    copy_from_device_memory(
+        (uint8_t *)&fault_snapshot, (const volatile uint8_t *)fault,
+        sizeof(fault_snapshot));
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if (fault_snapshot.state != OPENNPUX_NPU_PAGE_FAULT_PENDING ||
+        fault_snapshot.magic != OPENNPUX_NPU_PAGE_FAULT_MAGIC ||
+        fault_snapshot.version != OPENNPUX_NPU_PAGE_FAULT_VERSION ||
+        fault_snapshot.struct_size != sizeof(fault_snapshot) ||
+        fault_snapshot.page_size != service->transfer_size) {
         errno = EPROTO;
         return -1;
     }
-    uint32_t slot = fault->command_id % service->cache_slots;
+    uint32_t slot = fault_snapshot.command_id % service->cache_slots;
     if (service->faults_serviced == 0) {
         fprintf(stderr,
                 "paged_stage=service-fault-valid command=%" PRIu32
                 " slot=%" PRIu32 " transfer=%" PRIu32 "\n",
-                fault->command_id, slot, service->transfer_size);
+                fault_snapshot.command_id, slot, service->transfer_size);
         fflush(stderr);
     }
     if (service->ranges != NULL) {
         struct opennpux_npu_weight_page_request request;
         const void *page = NULL;
         uint32_t cache_hit = 0;
-        if (fault->command_id >= service->command_count ||
+        if (fault_snapshot.command_id >= service->command_count ||
             service->cursors == NULL || service->cursor_initialized == NULL) {
             errno = EPROTO;
             return -1;
         }
         struct opennpux_npu_weight_page_cursor *cursor =
-            &service->cursors[fault->command_id];
-        if (!service->cursor_initialized[fault->command_id] &&
+            &service->cursors[fault_snapshot.command_id];
+        if (!service->cursor_initialized[fault_snapshot.command_id] &&
             opennpux_npu_weight_page_cursor_begin_sized(
-                service->ranges, fault->command_id,
+                service->ranges, fault_snapshot.command_id,
                 service->active_experts, service->active_expert_count,
                 service->transfer_size, cursor) != 0) {
             return -1;
         }
-        service->cursor_initialized[fault->command_id] = 1;
+        service->cursor_initialized[fault_snapshot.command_id] = 1;
         if (opennpux_npu_weight_page_cursor_next(cursor, &request) != 1 ||
             opennpux_npu_weight_cache_acquire(
                 service->weight_cache, service->manifest_path,
@@ -188,13 +201,13 @@ service_executable_page(void *opaque)
             errno = EIO;
             return -1;
         }
-        fault->shard_index = request.shard_index;
-        fault->file_offset = request.file_offset;
-        fault->expert_id = request.expert_id;
-        fault->role_id = request.role_id;
-        fault->component_id = request.component_id;
-        fault->range_file_offset = request.range_file_offset;
-        fault->range_size = request.range_size;
+        fault_snapshot.shard_index = request.shard_index;
+        fault_snapshot.file_offset = request.file_offset;
+        fault_snapshot.expert_id = request.expert_id;
+        fault_snapshot.role_id = request.role_id;
+        fault_snapshot.component_id = request.component_id;
+        fault_snapshot.range_file_offset = request.range_file_offset;
+        fault_snapshot.range_size = request.range_size;
         struct opennpux_npu_weight_page_cursor probe = *cursor;
         struct opennpux_npu_weight_page_request next_request;
         const int has_next =
@@ -202,7 +215,8 @@ service_executable_page(void *opaque)
         if (has_next < 0) {
             return -1;
         }
-        fault->flags = has_next == 0 ? OPENNPUX_NPU_PAGE_FAULT_LAST : 0;
+        fault_snapshot.flags =
+            has_next == 0 ? OPENNPUX_NPU_PAGE_FAULT_LAST : 0;
         copy_to_device_memory(
             (volatile uint8_t *)service->cache +
                 (size_t)slot * service->transfer_size,
@@ -217,21 +231,22 @@ service_executable_page(void *opaque)
             (volatile uint8_t *)service->cache +
                 (size_t)slot * service->transfer_size,
             service->source, service->transfer_size);
-        fault->flags = OPENNPUX_NPU_PAGE_FAULT_LAST;
+        fault_snapshot.flags = OPENNPUX_NPU_PAGE_FAULT_LAST;
     }
     if (service->faults_serviced == 0) {
         fprintf(stderr, "paged_stage=service-cache-copy-complete\n");
         fflush(stderr);
     }
-    fault->cache_slot = slot;
-    fault->error_code = 0;
+    fault_snapshot.cache_slot = slot;
+    fault_snapshot.error_code = 0;
     if (service->faults_serviced == 0) {
         fprintf(stderr, "paged_stage=service-residency-publish\n");
         fflush(stderr);
     }
     if (service->residency != NULL &&
         opennpux_npu_weight_residency_publish(
-            service->residency, service->residency_size, fault) != 0) {
+            service->residency, service->residency_size,
+            &fault_snapshot) != 0) {
         errno = EPROTO;
         return -1;
     }
@@ -241,7 +256,7 @@ service_executable_page(void *opaque)
         const size_t record_size =
             sizeof(struct opennpux_npu_weight_residency_record);
         const size_t record_offset = header_size +
-            (size_t)fault->cache_slot * record_size;
+            (size_t)fault_snapshot.cache_slot * record_size;
         copy_to_device_memory(
             service->residency_device + record_offset,
             (const uint8_t *)service->residency + record_offset,
@@ -255,6 +270,11 @@ service_executable_page(void *opaque)
         fprintf(stderr, "paged_stage=service-residency-complete\n");
         fflush(stderr);
     }
+    fault_snapshot.state = OPENNPUX_NPU_PAGE_FAULT_PENDING;
+    copy_to_device_memory((volatile uint8_t *)fault,
+                          (const uint8_t *)&fault_snapshot,
+                          sizeof(fault_snapshot));
+    __atomic_thread_fence(__ATOMIC_RELEASE);
     __atomic_store_n(&fault->state, OPENNPUX_NPU_PAGE_FAULT_READY,
                      __ATOMIC_RELEASE);
     __atomic_store_n(&header->service_index, consumer + 1,

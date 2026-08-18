@@ -154,6 +154,13 @@ service_executable_page(void *opaque)
         return -1;
     }
     uint32_t slot = fault->command_id % service->cache_slots;
+    if (service->faults_serviced == 0) {
+        fprintf(stderr,
+                "paged_stage=service-fault-valid command=%" PRIu32
+                " slot=%" PRIu32 " transfer=%" PRIu32 "\n",
+                fault->command_id, slot, service->transfer_size);
+        fflush(stderr);
+    }
     if (service->ranges != NULL) {
         struct opennpux_npu_weight_page_request request;
         const void *page = NULL;
@@ -201,19 +208,35 @@ service_executable_page(void *opaque)
             page, service->transfer_size);
         (void)cache_hit;
     } else {
+        if (service->faults_serviced == 0) {
+            fprintf(stderr, "paged_stage=service-cache-copy\n");
+            fflush(stderr);
+        }
         copy_to_device_memory(
             (volatile uint8_t *)service->cache +
                 (size_t)slot * service->transfer_size,
             service->source, service->transfer_size);
         fault->flags = OPENNPUX_NPU_PAGE_FAULT_LAST;
     }
+    if (service->faults_serviced == 0) {
+        fprintf(stderr, "paged_stage=service-cache-copy-complete\n");
+        fflush(stderr);
+    }
     fault->cache_slot = slot;
     fault->error_code = 0;
+    if (service->faults_serviced == 0) {
+        fprintf(stderr, "paged_stage=service-residency-publish\n");
+        fflush(stderr);
+    }
     if (service->residency != NULL &&
         opennpux_npu_weight_residency_publish(
             service->residency, service->residency_size, fault) != 0) {
         errno = EPROTO;
         return -1;
+    }
+    if (service->faults_serviced == 0) {
+        fprintf(stderr, "paged_stage=service-residency-complete\n");
+        fflush(stderr);
     }
     __atomic_store_n(&fault->state, OPENNPUX_NPU_PAGE_FAULT_READY,
                      __ATOMIC_RELEASE);

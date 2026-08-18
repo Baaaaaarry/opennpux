@@ -9,7 +9,21 @@ CORALCTL="${ROOT_DIR}/build/guest-tools/coralctl-aarch64"
 WEIGHT_PAGE_SOURCE="${CORAL_NPU_WEIGHT_PAGE:-${EXECUTABLE}}"
 
 [ -r "$EXECUTABLE" ] || { echo "error: executable missing: $EXECUTABLE" >&2; exit 1; }
-[ -r "$FIRMWARE" ] || { echo "error: firmware missing: $FIRMWARE" >&2; exit 1; }
+
+if [ ! -r "$FIRMWARE" ] &&
+   [ -z "${CORAL_RTL_FIRMWARE:-}" ] &&
+   [ "${CORAL_AUTO_BUILD_FIRMWARE:-1}" = 1 ]; then
+    echo "[coral-paged-executable-test] command processor firmware missing; building RTL artifacts" >&2
+    "${ROOT_DIR}/tools/coralnpu/build_rtl_bridge.sh"
+fi
+
+if [ ! -r "$FIRMWARE" ]; then
+    echo "error: firmware missing: $FIRMWARE" >&2
+    echo "build the command processor firmware with:" >&2
+    echo "  ./tools/coralnpu/build_rtl_bridge.sh" >&2
+    echo "or select an existing image with CORAL_RTL_FIRMWARE=/path/to/firmware.elf" >&2
+    exit 1
+fi
 [ -x "$CORALCTL" ] || { echo "error: coralctl missing: $CORALCTL" >&2; exit 1; }
 [ -r "$WEIGHT_PAGE_SOURCE" ] || { echo "error: weight page source missing: $WEIGHT_PAGE_SOURCE" >&2; exit 1; }
 

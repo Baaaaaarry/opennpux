@@ -36,9 +36,14 @@ struct opennpux_npu_weight_queue_header {
     uint64_t reserved[2];
 };
 
+#if defined(__cplusplus)
+static_assert(sizeof(struct opennpux_npu_page_fault) == 88);
+static_assert(sizeof(struct opennpux_npu_weight_queue_header) == 64);
+#else
 _Static_assert(sizeof(struct opennpux_npu_page_fault) == 88,
                "NPU page fault ABI size changed");
 _Static_assert(sizeof(struct opennpux_npu_weight_queue_header) == 64,
                "NPU weight queue header ABI size changed");
+#endif
 
 #endif

@@ -16,7 +16,7 @@
 # The symmetric read-only checker is check_gem5_kernel_config.sh.  When
 # options are added or removed here, update that script as well.
 #
-# @kernel-config-spec  v1  2025-07-28
+# @kernel-config-spec  v2  2026-08-18
 # @synchronized-with  tools/kernel/check_gem5_kernel_config.sh
 
 set -eu
@@ -99,6 +99,14 @@ set_config CONFIG_VIRTIO_MMIO y
 set_config CONFIG_VIRTIO_PCI y
 set_config CONFIG_VIRTIO_BLK y
 set_config CONFIG_BLK_MQ_VIRTIO y
+
+# Qwen and other large-model tests expose host model directories through
+# gem5's VirtIO 9P device.  Keep the complete client path built in so it is
+# available before the guest can load modules from its root filesystem.
+set_config CONFIG_NET_9P y
+set_config CONFIG_NET_9P_VIRTIO y
+set_config CONFIG_9P_FS y
+unset_config CONFIG_9P_FS_POSIX_ACL
 
 # ===========================================================================
 # Category 3: Serial console (PL011)

@@ -2,6 +2,7 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)"
+KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
 MODEL_DIR="${CORAL_MODEL_DIR:-/data/models/Qwen3.5-35B}"
 EXECUTABLE_NAME="${CORAL_NPU_EXECUTABLE_NAME:-model.npxc}"
 MANIFEST_NAME="${CORAL_NPU_MANIFEST_NAME:-model.npxm}"
@@ -34,6 +35,21 @@ done
 command -v diod >/dev/null 2>&1 || {
     echo "error: diod is required for the guest model mount" >&2
     echo "Ubuntu: sudo apt-get install diod" >&2
+    exit 1
+}
+
+if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
+    if [ ! -r "$KERNEL_RELEASE_FILE" ]; then
+        echo "error: kernel release metadata missing: $KERNEL_RELEASE_FILE" >&2
+        echo "build the 9P-enabled kernel with: ./tools/kernel/build_arm64_kernel.sh" >&2
+        exit 1
+    fi
+    KERNEL_RELEASE="$(cat "$KERNEL_RELEASE_FILE")"
+    CORAL_KERNEL_IMAGE="${ROOT_DIR}/build/kernel/vmlinux-${KERNEL_RELEASE}"
+fi
+[ -r "$CORAL_KERNEL_IMAGE" ] || {
+    echo "error: kernel image missing: $CORAL_KERNEL_IMAGE" >&2
+    echo "build it with: ./tools/kernel/build_arm64_kernel.sh" >&2
     exit 1
 }
 
@@ -113,6 +129,8 @@ CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_BRIDGE="$BRIDGE" \
 CORAL_RTL_FIRMWARE="$FIRMWARE" \
 CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}" \
+CORAL_KERNEL_IMAGE="$CORAL_KERNEL_IMAGE" \
+CORAL_AUTO_RESUME_AFTER_CKPT="${CORAL_AUTO_RESUME_AFTER_CKPT:-1}" \
 CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_qwen35b_real_9p_ckpt}" \
 CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --vio-9p --vio-9p-root=$MODEL_DIR --npu-operator-mode=hybrid --npu-dma-shared-base=0x8f000000 --npu-dma-shared-size=8MiB --npu-fast-dma --npu-fast-dma-event-batch=${CORAL_FAST_DMA_EVENT_BATCH:-1} --npu-fast-dma-sync-offset=0 --npu-fast-dma-sync-size=64KiB" \
 CORAL_RESUME_BOOTSCRIPT="$TMP_SCRIPT" \

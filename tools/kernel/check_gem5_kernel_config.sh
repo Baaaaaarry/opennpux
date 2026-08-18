@@ -22,7 +22,7 @@
 # When the kernel config requirements change, update both this script and
 # configure_arm64_gem5_kernel.sh together.
 #
-# @kernel-config-spec  v1  2025-07-28
+# @kernel-config-spec  v2  2026-08-18
 # @synchronized-with  tools/kernel/configure_arm64_gem5_kernel.sh
 
 set -eu
@@ -75,6 +75,9 @@ for key in \
     CONFIG_VIRTIO_MMIO \
     CONFIG_VIRTIO_PCI \
     CONFIG_VIRTIO_BLK \
+    CONFIG_NET_9P \
+    CONFIG_NET_9P_VIRTIO \
+    CONFIG_9P_FS \
     CONFIG_MSDOS_PARTITION \
     CONFIG_EFI_PARTITION
 do

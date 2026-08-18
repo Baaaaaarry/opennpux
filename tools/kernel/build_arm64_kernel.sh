@@ -144,6 +144,18 @@ OPENNPUX_PRESERVE_CONFIG_CMDLINE="${OPENNPUX_PRESERVE_CONFIG_CMDLINE}" \
 make -C "${LINUX_SRC}" O="${LINUX_BUILD}" ARCH="${ARCH}" \
     CROSS_COMPILE="${CROSS_COMPILE}" LOCALVERSION="${LOCALVERSION}" \
     olddefconfig
+
+# olddefconfig may silently disable a requested option when a dependency is
+# missing.  Fail before the expensive compile if the built-in VirtIO 9P path
+# required by large-model tests was not retained.
+for key in CONFIG_NET_9P CONFIG_NET_9P_VIRTIO CONFIG_9P_FS; do
+    if ! grep -qx "${key}=y" "${LINUX_BUILD}/.config"; then
+        echo "error: ${key}=y was not retained by olddefconfig" >&2
+        echo "inspect dependencies with: ${SCRIPT_DIR}/check_gem5_kernel_config.sh ${LINUX_BUILD}/.config" >&2
+        exit 1
+    fi
+done
+
 make -C "${LINUX_SRC}" O="${LINUX_BUILD}" ARCH="${ARCH}" \
     CROSS_COMPILE="${CROSS_COMPILE}" LOCALVERSION="${LOCALVERSION}" \
     -j"${JOBS}" Image modules

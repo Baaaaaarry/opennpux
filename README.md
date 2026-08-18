@@ -265,14 +265,24 @@ modeled next token, export the prepared model directory to the guest through
 the read-only VirtIO 9P device:
 
 ```bash
-sudo apt-get install diod
+sudo apt-get install -y diod gcc-aarch64-linux-gnu build-essential \
+  bc bison flex libssl-dev libelf-dev
+./tools/kernel/build_arm64_kernel.sh
+
 CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
+  CORAL_KERNEL_IMAGE="$PWD/build/kernel/vmlinux-$(cat build/kernel/kernel.release)" \
+  CORAL_REBUILD_CKPT=1 \
   ./tools/coralnpu/run_qwen35b_real_weights_test.sh
 ```
 
 The guest kernel must provide `CONFIG_NET_9P`, `CONFIG_NET_9P_VIRTIO`, and
-`CONFIG_9P_FS`. The test deliberately fails before NPU launch when 9P is absent;
-it never copies the multi-gigabyte model into the boot image or checkpoint.
+`CONFIG_9P_FS`. `build_arm64_kernel.sh` now enables all three as built-ins, so
+no 9P modules need to be installed in the minimal guest image. The test
+deliberately fails before NPU launch when 9P is absent; it never copies the
+multi-gigabyte model into the boot image or checkpoint. When no explicit
+`CORAL_KERNEL_IMAGE` is supplied, the wrapper selects the kernel recorded in
+`build/kernel/kernel.release`. A rebuilt kernel invalidates the dedicated
+checkpoint; the command above rebuilds it and automatically resumes the test.
 Set `CORAL_QWEN_PROMPT` to change the prompt. The default run validates the
 fast functional-model endpoint: CPU prompt -> generic NPU executable -> token
 completion. Set `CORAL_QWEN35B_NUMERICAL=1` to enable incremental GPTQ

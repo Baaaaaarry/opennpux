@@ -87,6 +87,10 @@ def attach_9p(parent, bus, root=None):
     viopci = PciVirtIO()
     viopci.vio = VirtIO9PDiod()
     viodir = os.path.realpath(os.path.join(m5.options.outdir, "9p"))
+    # The socket always lives below the output directory, including when an
+    # explicit host export root is used. VirtIO9PDiod reports every bind error
+    # as a stale socket, so create the parent before startup.
+    os.makedirs(viodir, exist_ok=True)
     viopci.vio.root = (
         os.path.realpath(root) if root else os.path.join(viodir, "share")
     )
@@ -96,7 +100,7 @@ def attach_9p(parent, bus, root=None):
             fatal("VirtIO 9P root is not a directory: %s", viopci.vio.root)
     else:
         os.makedirs(viopci.vio.root, exist_ok=True)
-    if os.path.exists(viopci.vio.socketPath):
+    if os.path.lexists(viopci.vio.socketPath):
         os.remove(viopci.vio.socketPath)
     parent.viopci = viopci
     parent.attachPciDevice(viopci, bus)

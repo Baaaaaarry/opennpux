@@ -8,6 +8,21 @@ MANIFEST_NAME="${CORAL_NPU_MANIFEST_NAME:-model.npxm}"
 RANGE_NAME="${CORAL_NPU_RANGE_NAME:-model.npxr}"
 POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
 BASE="${CORAL_NPU_BASE:-0x1d000000}"
+PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
+NUMERICAL_ENV=""
+[ "${CORAL_QWEN35B_NUMERICAL:-0}" = 0 ] ||
+    NUMERICAL_ENV="OPENNPUX_NPU_NUMERICAL=1"
+
+[ "${#PROMPT}" -lt 128 ] || {
+    echo "error: CORAL_QWEN_PROMPT must be shorter than 128 bytes" >&2
+    exit 1
+}
+case "$PROMPT" in
+    *"'"*)
+        echo "error: CORAL_QWEN_PROMPT cannot contain a single quote" >&2
+        exit 1
+        ;;
+esac
 
 for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
     [ -r "$MODEL_DIR/$asset" ] || {
@@ -75,6 +90,8 @@ for asset in '$EXECUTABLE_NAME' '$MANIFEST_NAME' '$RANGE_NAME'; do
         exit 1
     fi
 done
+OPENNPUX_PROMPT='$PROMPT' \
+$NUMERICAL_ENV \
 OPENNPUX_MODEL_ROOT=/mnt/opennpux-model \
 /tmp/coralctl executable-run-paged \
     /mnt/opennpux-model/$EXECUTABLE_NAME decode \

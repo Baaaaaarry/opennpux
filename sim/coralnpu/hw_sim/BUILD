@@ -382,6 +382,7 @@ coralnpu_v2_binary(
         "gem5_bridge/coral_gptq_paged.h",
         "gem5_bridge/coral_operator.h",
         "gem5_bridge/gem5_npu_command_processor_smoke.c",
+        "gem5_bridge/npu_inference_io.h",
         "gem5_bridge/npu_route_table.h",
         "gem5_bridge/npu_submission.h",
         "gem5_bridge/npu_weight_queue.h",

@@ -260,8 +260,9 @@ it and executes MobileNet. See
 ### Qwen3.5 real-weight paging
 
 The control-only acceptance repeats one synthetic page. To stream the actual
-GPTQ shards through the CPU-owned pager, export the prepared model directory to
-the guest through the read-only VirtIO 9P device:
+GPTQ shards through the CPU-owned pager, accept a CPU prompt, and return a
+modeled next token, export the prepared model directory to the guest through
+the read-only VirtIO 9P device:
 
 ```bash
 sudo apt-get install diod
@@ -272,3 +273,8 @@ CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
 The guest kernel must provide `CONFIG_NET_9P`, `CONFIG_NET_9P_VIRTIO`, and
 `CONFIG_9P_FS`. The test deliberately fails before NPU launch when 9P is absent;
 it never copies the multi-gigabyte model into the boot image or checkpoint.
+Set `CORAL_QWEN_PROMPT` to change the prompt. The default run validates the
+fast functional-model endpoint: CPU prompt -> generic NPU executable -> token
+completion. Set `CORAL_QWEN35B_NUMERICAL=1` to enable incremental GPTQ
+numerical kernels; that stricter mode is complete only when every required
+operator has a numerical backend.

@@ -90,6 +90,7 @@ enum opennpux_npu_invocation_flags {
     OPENNPUX_NPU_INVOKE_PROFILE = 1u << 0,
     OPENNPUX_NPU_INVOKE_ALLOW_FALLBACK = 1u << 1,
     OPENNPUX_NPU_INVOKE_NUMERICAL = 1u << 2,
+    OPENNPUX_NPU_INVOKE_INFERENCE_IO = 1u << 3,
 };
 
 enum opennpux_npu_command_flags {

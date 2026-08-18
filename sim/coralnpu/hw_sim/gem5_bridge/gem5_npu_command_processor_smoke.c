@@ -4,6 +4,7 @@
 #include "hw_sim/gem5_bridge/coral_gptq_paged.h"
 #include "hw_sim/gem5_bridge/coral_operator.h"
 #include "hw_sim/gem5_bridge/npu_submission.h"
+#include "hw_sim/gem5_bridge/npu_inference_io.h"
 #include "hw_sim/gem5_bridge/npu_route_table.h"
 #include "hw_sim/gem5_bridge/npu_weight_queue.h"
 #include "hw_sim/gem5_bridge/npu_weight_residency.h"
@@ -74,6 +75,17 @@ route_checksum(const volatile uint8_t *bytes, uint32_t size)
     for (uint32_t index = 0; index < size; ++index) {
         uint8_t byte = index >= begin && index < begin + 4 ? 0 : bytes[index];
         value ^= byte;
+        value *= UINT32_C(16777619);
+    }
+    return value;
+}
+
+static uint32_t
+byte_checksum(const volatile uint8_t *bytes, uint32_t size)
+{
+    uint32_t value = UINT32_C(2166136261);
+    for (uint32_t index = 0; index < size; ++index) {
+        value ^= bytes[index];
         value *= UINT32_C(16777619);
     }
     return value;
@@ -482,6 +494,58 @@ main(void)
             return 1;
         }
     }
+    volatile const struct opennpux_npu_inference_io *inference_input = NULL;
+    volatile struct opennpux_npu_inference_io *inference_output = NULL;
+    if ((header->flags & OPENNPUX_NPU_INVOKE_INFERENCE_IO) != 0) {
+        if (header->binding_count < 2 ||
+            bindings[0].device_address < EXTMEM_BASE ||
+            bindings[0].device_address >
+                EXTMEM_BASE + COMMAND_BUFFER_SIZE -
+                    sizeof(struct opennpux_npu_inference_io) ||
+            bindings[0].byte_size <
+                sizeof(struct opennpux_npu_inference_io) ||
+            bindings[1].device_address < EXTMEM_BASE ||
+            bindings[1].device_address >
+                EXTMEM_BASE + COMMAND_BUFFER_SIZE -
+                    sizeof(struct opennpux_npu_inference_io) ||
+            bindings[1].byte_size <
+                sizeof(struct opennpux_npu_inference_io)) {
+            finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                   ERROR_BOUNDS, 0);
+            return 1;
+        }
+        inference_input =
+            (volatile const struct opennpux_npu_inference_io *)(uintptr_t)
+                bindings[0].device_address;
+        inference_output =
+            (volatile struct opennpux_npu_inference_io *)(uintptr_t)
+                bindings[1].device_address;
+        if (inference_input->magic != OPENNPUX_NPU_INFERENCE_IO_MAGIC ||
+            inference_input->version != OPENNPUX_NPU_INFERENCE_IO_VERSION ||
+            inference_input->struct_size != sizeof(*inference_input) ||
+            inference_input->state != OPENNPUX_NPU_INFERENCE_PENDING ||
+            inference_input->prompt_size == 0 ||
+            inference_input->prompt_size >=
+                OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
+            inference_input->vocabulary_size == 0 ||
+            inference_input->prompt_checksum != byte_checksum(
+                (volatile const uint8_t *)inference_input->prompt,
+                inference_input->prompt_size)) {
+            finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                   ERROR_ABI, 0);
+            return 1;
+        }
+        inference_output->magic = OPENNPUX_NPU_INFERENCE_IO_MAGIC;
+        inference_output->version = OPENNPUX_NPU_INFERENCE_IO_VERSION;
+        inference_output->struct_size = sizeof(*inference_output);
+        inference_output->state = OPENNPUX_NPU_INFERENCE_RUNNING;
+        inference_output->mode = inference_input->mode;
+        inference_output->prompt_checksum = inference_input->prompt_checksum;
+        inference_output->vocabulary_size = inference_input->vocabulary_size;
+        inference_output->max_new_tokens = inference_input->max_new_tokens;
+        inference_output->input_token_count =
+            inference_input->input_token_count;
+    }
     uint64_t cycles = 0;
     uint32_t relocated = 0;
     uint32_t parameter_checksum = UINT32_C(2166136261);
@@ -693,6 +757,20 @@ weight_complete:
     if (route != NULL) {
         completion->reserved0 = route->record_count;
         completion->completion_fence = route->checksum;
+    }
+    if (inference_output != NULL) {
+        const uint32_t result_checksum = inference_input->prompt_checksum ^
+            trace->weight_checksum ^ parameter_checksum ^
+            completion->completed_commands;
+        inference_output->completed_commands =
+            completion->completed_commands;
+        inference_output->modeled_cycles = cycles;
+        inference_output->result_checksum = result_checksum;
+        inference_output->next_token =
+            result_checksum % inference_output->vocabulary_size;
+        inference_output->error = 0;
+        memory_fence();
+        inference_output->state = OPENNPUX_NPU_INFERENCE_COMPLETE;
     }
     finish(completion, OPENNPUX_NPU_COMPLETION_SUCCESS, 0, UINT32_MAX);
     return 0;

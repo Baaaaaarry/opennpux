@@ -1,6 +1,7 @@
 #include "opennpux/coral_runtime.h"
 #include "opennpux/model_package.h"
 #include "opennpux/npu_executable.h"
+#include "opennpux/npu_inference_io.h"
 #include "opennpux/npu_paging_layout.h"
 #include "opennpux/npu_router.h"
 #include "opennpux/npu_weight_queue.h"
@@ -22,6 +23,18 @@
 #define NPU_OUTPUT_BUFFER_SIZE UINT32_C(0x00200000)
 #define NPU_STATE_BUFFER_SIZE UINT32_C(0x00080000)
 #define NPU_SCRATCH_BUFFER_SIZE UINT32_C(0x00100000)
+
+static uint32_t
+byte_checksum(const void *data, size_t size)
+{
+    const uint8_t *bytes = data;
+    uint32_t value = UINT32_C(2166136261);
+    for (size_t index = 0; index < size; ++index) {
+        value ^= bytes[index];
+        value *= UINT32_C(16777619);
+    }
+    return value;
+}
 
 static int copy_to_shared_window(
     struct opennpux_coral_shared_window *window, const uint8_t *source,
@@ -534,6 +547,9 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     memset(&paging_layout, 0, sizeof(paging_layout));
 
     const int real_weights = manifest_path != NULL;
+    const char *inference_prompt = getenv("OPENNPUX_PROMPT");
+    struct opennpux_npu_inference_io *inference_request = NULL;
+    struct opennpux_npu_inference_io *inference_result = NULL;
     struct opennpux_model_package_info weight_model;
     struct opennpux_npu_weight_ranges weight_ranges;
     struct opennpux_npu_weight_cache weight_cache;
@@ -640,8 +656,11 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct opennpux_npu_tensor_binding *submission_bindings =
         (struct opennpux_npu_tensor_binding *)(void *)(submission +
                                                        header->binding_offset);
-    if (real_weights) {
+    if (real_weights && getenv("OPENNPUX_NPU_NUMERICAL") != NULL) {
         header->flags |= OPENNPUX_NPU_INVOKE_NUMERICAL;
+    }
+    if (inference_prompt != NULL) {
+        header->flags |= OPENNPUX_NPU_INVOKE_INFERENCE_IO;
     }
     const size_t offsets[] = {
         input_offset, output_offset, weight_offset, state_offset, scratch_offset,
@@ -811,6 +830,40 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     copy_to_device_memory(window.bytes + route_offset, route_image, route_size);
     submission_bindings[5].byte_size = route_size;
     submission_bindings[5].dimensions[0] = active_route_count;
+    if (inference_prompt != NULL) {
+        const size_t prompt_size = strlen(inference_prompt);
+        if (!real_weights || prompt_size == 0 ||
+            prompt_size >= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
+            NPU_INPUT_BUFFER_SIZE < sizeof(*inference_request) ||
+            NPU_OUTPUT_BUFFER_SIZE < sizeof(*inference_result)) {
+            errno = EINVAL;
+            perror("executable-run inference request");
+            goto out;
+        }
+        inference_request =
+            (struct opennpux_npu_inference_io *)(void *)(window.bytes +
+                                                         input_offset);
+        inference_result =
+            (struct opennpux_npu_inference_io *)(void *)(window.bytes +
+                                                        output_offset);
+        memset(inference_request, 0, sizeof(*inference_request));
+        memset(inference_result, 0, sizeof(*inference_result));
+        inference_request->magic = OPENNPUX_NPU_INFERENCE_IO_MAGIC;
+        inference_request->version = OPENNPUX_NPU_INFERENCE_IO_VERSION;
+        inference_request->struct_size = sizeof(*inference_request);
+        inference_request->state = OPENNPUX_NPU_INFERENCE_PENDING;
+        inference_request->mode =
+            (header->flags & OPENNPUX_NPU_INVOKE_NUMERICAL) != 0 ?
+                OPENNPUX_NPU_INFERENCE_MODE_NUMERICAL :
+                OPENNPUX_NPU_INFERENCE_MODE_FUNCTIONAL;
+        inference_request->prompt_size = (uint32_t)prompt_size;
+        inference_request->prompt_checksum =
+            byte_checksum(inference_prompt, prompt_size);
+        inference_request->vocabulary_size = weight_model.vocab_size;
+        inference_request->max_new_tokens = 1;
+        inference_request->input_token_count = 1;
+        memcpy(inference_request->prompt, inference_prompt, prompt_size);
+    }
     header->checksum = 0;
     header->checksum = opennpux_npu_submission_checksum(
         submission, submission_size);
@@ -1042,6 +1095,40 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         errno = EIO;
         perror("executable-run paging validation");
         goto out;
+    }
+    if (inference_request != NULL) {
+        printf("inference_prompt=%s\n", inference_request->prompt);
+        printf("inference_prompt_checksum=0x%08" PRIx32 "\n",
+               inference_request->prompt_checksum);
+        printf("inference_mode=%s\n",
+               inference_result->mode ==
+                       OPENNPUX_NPU_INFERENCE_MODE_NUMERICAL ?
+                   "numerical" : "functional-model");
+        printf("inference_completed_commands=%" PRIu32 "\n",
+               inference_result->completed_commands);
+        printf("inference_modeled_cycles=%" PRIu64 "\n",
+               inference_result->modeled_cycles);
+        printf("inference_next_token=%" PRIu32 "\n",
+               inference_result->next_token);
+        printf("inference_result_checksum=0x%08" PRIx32 "\n",
+               inference_result->result_checksum);
+        if (inference_result->magic != OPENNPUX_NPU_INFERENCE_IO_MAGIC ||
+            inference_result->version != OPENNPUX_NPU_INFERENCE_IO_VERSION ||
+            inference_result->struct_size != sizeof(*inference_result) ||
+            inference_result->state != OPENNPUX_NPU_INFERENCE_COMPLETE ||
+            inference_result->error != 0 ||
+            inference_result->prompt_checksum !=
+                inference_request->prompt_checksum ||
+            inference_result->vocabulary_size !=
+                inference_request->vocabulary_size ||
+            inference_result->completed_commands != header->command_count ||
+            inference_result->next_token >=
+                inference_result->vocabulary_size) {
+            errno = EIO;
+            perror("executable-run inference validation");
+            goto out;
+        }
+        puts("inference_run=PASS");
     }
     puts("executable_run=PASS");
     rc = 0;

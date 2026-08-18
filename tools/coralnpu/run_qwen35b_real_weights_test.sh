@@ -62,7 +62,17 @@ fi
 CORALCTL="${ROOT_DIR}/build/guest-tools/coralctl-aarch64"
 FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_npu_command_processor_smoke.elf}"
 BRIDGE="${CORAL_RTL_BRIDGE:-${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_bridge.so}"
-[ -x "$CORALCTL" ] || "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
+coralctl_stale=0
+if [ ! -x "$CORALCTL" ]; then
+    coralctl_stale=1
+elif find "${ROOT_DIR}/runtime/host" -type f -newer "$CORALCTL" \
+     -print -quit | grep -q .; then
+    coralctl_stale=1
+fi
+if [ "$coralctl_stale" -eq 1 ]; then
+    echo "[coral-qwen35b-real-weights-test] coralctl missing or stale; rebuilding" >&2
+    "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
+fi
 [ -r "$FIRMWARE" ] || "${ROOT_DIR}/tools/coralnpu/build_rtl_bridge.sh"
 [ -r "$BRIDGE" ] || { echo "error: RTL bridge missing: $BRIDGE" >&2; exit 1; }
 

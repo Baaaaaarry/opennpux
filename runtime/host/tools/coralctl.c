@@ -819,6 +819,12 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         goto out;
     }
     print_paged_stage(paged, "build-route-table");
+    if (paged) {
+        fprintf(stderr, "paged_route_count=%" PRIu32
+                " capacity=%zu offset=0x%zx\n",
+                active_route_count, route_capacity, route_offset);
+        fflush(stderr);
+    }
     if (opennpux_npu_route_table_build(
             active_routes, active_route_count,
             route_image, route_capacity,
@@ -827,7 +833,12 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         perror("executable-run route table");
         goto out;
     }
+    if (paged) {
+        fprintf(stderr, "paged_route_table_bytes=%zu\n", route_size);
+        fflush(stderr);
+    }
     copy_to_device_memory(window.bytes + route_offset, route_image, route_size);
+    print_paged_stage(paged, "route-table-published");
     submission_bindings[5].byte_size = route_size;
     submission_bindings[5].dimensions[0] = active_route_count;
     if (inference_prompt != NULL) {

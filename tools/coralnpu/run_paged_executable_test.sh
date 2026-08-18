@@ -10,6 +10,18 @@ CORALCTL="${ROOT_DIR}/build/guest-tools/coralctl-aarch64"
 WEIGHT_PAGE_SOURCE="${CORAL_NPU_WEIGHT_PAGE:-${EXECUTABLE}}"
 SHARED_BASE="${CORAL_PAGED_SHARED_BASE:-0x8f000000}"
 CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_paged_8m_8f000000_ckpt}"
+POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-1000000}"
+
+case "$POLL_COUNT" in
+    ''|*[!0-9]*)
+        echo "error: CORAL_PAGED_POLL_COUNT must be a positive integer" >&2
+        exit 1
+        ;;
+    0)
+        echo "error: CORAL_PAGED_POLL_COUNT must be greater than zero" >&2
+        exit 1
+        ;;
+esac
 
 [ -r "$EXECUTABLE" ] || { echo "error: executable missing: $EXECUTABLE" >&2; exit 1; }
 
@@ -58,8 +70,11 @@ trap 'rm -f "$TMP_SCRIPT" "$TMP_WEIGHT_PAGE"' EXIT
 dd if="$WEIGHT_PAGE_SOURCE" of="$TMP_WEIGHT_PAGE" \
     bs=65536 count=1 conv=sync 2>/dev/null
 
-cat >"$TMP_SCRIPT" <<'EOF'
+cat >"$TMP_SCRIPT" <<EOF
 #!/bin/sh
+CORAL_PAGED_POLL_COUNT=$POLL_COUNT
+EOF
+cat >>"$TMP_SCRIPT" <<'EOF'
 mkdir -p /proc /sys /tmp /dev
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
@@ -94,7 +109,7 @@ base64 "$EXECUTABLE" >>"$TMP_SCRIPT"
 cat >>"$TMP_SCRIPT" <<'EOF'
 OPENNPUX_EXECUTABLE_EOF
 echo '[coral-paged-executable-test] started'
-/tmp/coralctl executable-run-paged /tmp/model.npxc decode /tmp/weight-page.bin || {
+/tmp/coralctl executable-run-paged /tmp/model.npxc decode /tmp/weight-page.bin 0x1d000000 ${CORAL_PAGED_POLL_COUNT:-1000000} || {
     echo '[coral-paged-executable-test] FAIL: paged executable submission failed'
     m5 --inst exit
     exit 1
@@ -113,6 +128,7 @@ cd "$GEM5_ROOT"
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_RTL_BRIDGE="$BRIDGE" \
 CORAL_RTL_FIRMWARE="$FIRMWARE" \
+CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}" \
 CORAL_CKPT_ROOT="$CKPT_ROOT" \
 CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${SHARED_BASE} --npu-dma-shared-size=8MiB" \
 CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}" \

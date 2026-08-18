@@ -52,6 +52,25 @@ clear_device_memory(volatile uint8_t *destination, size_t size)
     }
 }
 
+static uint32_t
+load_device_u32(const volatile uint32_t *source)
+{
+    uint32_t value = 0;
+    copy_from_device_memory((uint8_t *)&value,
+                            (const volatile uint8_t *)source,
+                            sizeof(value));
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    return value;
+}
+
+static void
+store_device_u32(volatile uint32_t *destination, uint32_t value)
+{
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    copy_to_device_memory((volatile uint8_t *)destination,
+                          (const uint8_t *)&value, sizeof(value));
+}
+
 static size_t
 align_npu_record(size_t value)
 {
@@ -141,10 +160,8 @@ service_executable_page(void *opaque)
 {
     struct executable_page_service *service = opaque;
     struct opennpux_npu_weight_queue_header *header = service->queue->header;
-    const uint32_t consumer = __atomic_load_n(
-        &header->service_index, __ATOMIC_ACQUIRE);
-    const uint32_t producer = __atomic_load_n(
-        &header->producer_index, __ATOMIC_ACQUIRE);
+    const uint32_t consumer = load_device_u32(&header->service_index);
+    const uint32_t producer = load_device_u32(&header->producer_index);
     if (consumer == producer) {
         return 0;
     }
@@ -275,10 +292,8 @@ service_executable_page(void *opaque)
                           (const uint8_t *)&fault_snapshot,
                           sizeof(fault_snapshot));
     __atomic_thread_fence(__ATOMIC_RELEASE);
-    __atomic_store_n(&fault->state, OPENNPUX_NPU_PAGE_FAULT_READY,
-                     __ATOMIC_RELEASE);
-    __atomic_store_n(&header->service_index, consumer + 1,
-                     __ATOMIC_RELEASE);
+    store_device_u32(&fault->state, OPENNPUX_NPU_PAGE_FAULT_READY);
+    store_device_u32(&header->service_index, consumer + 1);
     ++service->faults_serviced;
     service->transfer_bytes += service->transfer_size;
     if (service->faults_serviced == 1) {
@@ -775,6 +790,18 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             &page_service, &device_status) :
         opennpux_coral_run(dev, firmware_entry, polls, &device_status);
     if (run_result != 0) {
+        if (paged) {
+            fprintf(stderr,
+                    "paged_failure_faults=%" PRIu64
+                    " producer=%" PRIu32 " service=%" PRIu32
+                    " retire=%" PRIu32 " backpressure=%" PRIu32 "\n",
+                    page_service.faults_serviced,
+                    load_device_u32(&page_queue.header->producer_index),
+                    load_device_u32(&page_queue.header->service_index),
+                    load_device_u32(&page_queue.header->retire_index),
+                    load_device_u32(&page_queue.header->backpressure_count));
+            fflush(stderr);
+        }
         perror("executable-run device");
         goto out;
     }

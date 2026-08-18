@@ -36,6 +36,9 @@ class NPUDevice : public DmaVirtDevice
     uint32_t fastDmaEventBatch;
     Addr fastDmaSyncOffset;
     Addr fastDmaSyncSize;
+    Addr runtimeSyncOffset;
+    Addr runtimeSyncSize;
+    uint32_t runtimeSyncStatus;
     uint32_t backendId;
     uint32_t firmwareEntry;
     bool dmaActive;
@@ -68,6 +71,7 @@ class NPUDevice : public DmaVirtDevice
     void completeHostToLocalExtmemSync();
     void releaseBackendReset();
     void syncLocalExtmemToHost();
+    bool syncHostRangeToLocalExtmem(Addr offset, Addr size);
 
     std::unique_ptr<CoralBackend> backend;
     MemberEventWrapper<&NPUDevice::processBackendEvent> backendEvent;

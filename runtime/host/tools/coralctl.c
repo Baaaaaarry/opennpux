@@ -134,6 +134,7 @@ load_router_logits(const char *path, uint32_t expert_count, float *logits)
 }
 
 struct executable_page_service {
+    struct opennpux_coral_device *dev;
     struct opennpux_npu_weight_queue *queue;
     uint8_t *cache;
     const uint8_t *source;
@@ -151,6 +152,10 @@ struct executable_page_service {
     size_t residency_size;
     uint32_t cache_slots;
     uint32_t transfer_size;
+    uint32_t queue_offset;
+    uint32_t queue_size;
+    uint32_t cache_offset;
+    uint32_t residency_offset;
     uint64_t faults_serviced;
     uint64_t transfer_bytes;
 };
@@ -250,6 +255,12 @@ service_executable_page(void *opaque)
             service->source, service->transfer_size);
         fault_snapshot.flags = OPENNPUX_NPU_PAGE_FAULT_LAST;
     }
+    if (opennpux_coral_sync_shared_to_extmem(
+            service->dev,
+            service->cache_offset + slot * service->transfer_size,
+            service->transfer_size) != 0) {
+        return -1;
+    }
     if (service->faults_serviced == 0) {
         fprintf(stderr, "paged_stage=service-cache-copy-complete\n");
         fflush(stderr);
@@ -282,6 +293,11 @@ service_executable_page(void *opaque)
         copy_to_device_memory(
             service->residency_device,
             (const uint8_t *)service->residency, header_size);
+        if (opennpux_coral_sync_shared_to_extmem(
+                service->dev, service->residency_offset,
+                service->residency_size) != 0) {
+            return -1;
+        }
     }
     if (service->faults_serviced == 0) {
         fprintf(stderr, "paged_stage=service-residency-complete\n");
@@ -294,6 +310,11 @@ service_executable_page(void *opaque)
     __atomic_thread_fence(__ATOMIC_RELEASE);
     store_device_u32(&fault->state, OPENNPUX_NPU_PAGE_FAULT_READY);
     store_device_u32(&header->service_index, consumer + 1);
+    if (opennpux_coral_sync_shared_to_extmem(
+            service->dev, service->queue_offset,
+            service->queue_size) != 0) {
+        return -1;
+    }
     ++service->faults_serviced;
     service->transfer_bytes += service->transfer_size;
     if (service->faults_serviced == 1) {
@@ -673,11 +694,16 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             goto out;
         }
         page_service.queue = &page_queue;
+        page_service.dev = dev;
         page_service.cache = (uint8_t *)(uintptr_t)window.bytes +
             paging_layout.cache_offset;
         page_service.source = weight_page;
         page_service.cache_slots = paging_layout.cache_slots;
         page_service.transfer_size = paging_layout.transfer_size;
+        page_service.queue_offset = (uint32_t)paging_layout.queue_offset;
+        page_service.queue_size = (uint32_t)paging_layout.queue_size;
+        page_service.cache_offset = (uint32_t)paging_layout.cache_offset;
+        page_service.residency_offset = (uint32_t)residency_offset;
         page_service.residency = residency_image;
         page_service.residency_device = window.bytes + residency_offset;
         page_service.residency_size = residency_size;

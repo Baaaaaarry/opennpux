@@ -25,6 +25,10 @@
 #define DMA_STATE UINT64_C(0x30fec)
 #define SHARED_BASE UINT64_C(0x30ff0)
 #define SHARED_SIZE UINT64_C(0x30ff4)
+#define RUNTIME_SYNC_OFFSET UINT64_C(0x30fd0)
+#define RUNTIME_SYNC_SIZE UINT64_C(0x30fd4)
+#define RUNTIME_SYNC_CONTROL UINT64_C(0x30fd8)
+#define RUNTIME_SYNC_STATUS UINT64_C(0x30fdc)
 #define FIRMWARE_ENTRY UINT64_C(0x30ff8)
 #define BACKEND_ID UINT64_C(0x30ffc)
 
@@ -264,6 +268,27 @@ opennpux_coral_write_reg(struct opennpux_coral_device *dev, uint64_t offset,
     }
     *reg = value;
     __sync_synchronize();
+}
+
+int
+opennpux_coral_sync_shared_to_extmem(
+    struct opennpux_coral_device *dev, uint32_t offset, uint32_t size)
+{
+    if (dev == NULL || size == 0 ||
+        dev->transport != OPENNPUX_CORAL_TRANSPORT_DEVMEM) {
+        errno = EOPNOTSUPP;
+        return -1;
+    }
+    opennpux_coral_write_reg(dev, RUNTIME_SYNC_OFFSET, offset);
+    opennpux_coral_write_reg(dev, RUNTIME_SYNC_SIZE, size);
+    opennpux_coral_write_reg(dev, RUNTIME_SYNC_CONTROL, 1);
+    const uint32_t status = opennpux_coral_read_reg(
+        dev, RUNTIME_SYNC_STATUS);
+    if (status != 1) {
+        errno = status == 2 ? EINVAL : EIO;
+        return -1;
+    }
+    return 0;
 }
 
 void

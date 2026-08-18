@@ -31,6 +31,10 @@ constexpr Addr kDmaStateOffset = 0x30fec;
 constexpr Addr kDmaCompletionsOffset = 0x30fe8;
 constexpr Addr kDmaRequestsOffset = 0x30fe4;
 constexpr Addr kDmaErrorsOffset = 0x30fe0;
+constexpr Addr kRuntimeSyncOffsetOffset = 0x30fd0;
+constexpr Addr kRuntimeSyncSizeOffset = 0x30fd4;
+constexpr Addr kRuntimeSyncControlOffset = 0x30fd8;
+constexpr Addr kRuntimeSyncStatusOffset = 0x30fdc;
 constexpr Addr kResetControlOffset = 0x30000;
 constexpr uint32_t kStageABackendId = 0x4e505501;
 constexpr uint32_t kVerilatedCoralBackendId = 0x4e505502;
@@ -50,6 +54,9 @@ NPUDevice::NPUDevice(const Params &p)
     fastDmaEventBatch(p.fastDmaEventBatch),
     fastDmaSyncOffset(p.fastDmaSyncOffset),
     fastDmaSyncSize(p.fastDmaSyncSize),
+    runtimeSyncOffset(0),
+    runtimeSyncSize(0),
+    runtimeSyncStatus(0),
     backendId(0),
     firmwareEntry(0),
     dmaActive(false),
@@ -406,6 +413,28 @@ NPUDevice::syncLocalExtmemToHost()
              static_cast<unsigned long long>(fastDmaSyncSize));
 }
 
+bool
+NPUDevice::syncHostRangeToLocalExtmem(Addr offset, Addr size)
+{
+    if (!fastDma || !backend->hasLocalExtmem() || size == 0 ||
+        offset > dmaSharedSize || size > dmaSharedSize - offset) {
+        return false;
+    }
+
+    std::vector<uint8_t> data(size);
+    functionalMemoryRange(MemCmd::ReadReq, dmaSharedBase + offset,
+                          data.size(), data.data());
+    backend->writeLocalExtmem(dmaExtmemBase + offset, data.data(), data.size());
+    invalidateFastDmaCache();
+    ++dmaRequests;
+    ++dmaCompletions;
+    DPRINTFR(NPUDevice,
+             "Coral runtime host-to-EXTMEM sync offset=%#x size=%#x "
+             "count=%u\n",
+             offset, size, dmaCompletions);
+    return true;
+}
+
 void
 NPUDevice::completeBackendDma(
     const std::array<uint8_t, CORAL_GEM5_DMA_DATA_BYTES> &data)
@@ -482,6 +511,18 @@ NPUDevice::read(PacketPtr pkt)
         pkt->getSize() == sizeof(uint32_t)) {
         pkt->setLE<uint32_t>(dmaErrors);
         pkt->makeAtomicResponse();
+    } else if (offset == kRuntimeSyncOffsetOffset &&
+        pkt->getSize() == sizeof(uint32_t)) {
+        pkt->setLE<uint32_t>(runtimeSyncOffset);
+        pkt->makeAtomicResponse();
+    } else if (offset == kRuntimeSyncSizeOffset &&
+        pkt->getSize() == sizeof(uint32_t)) {
+        pkt->setLE<uint32_t>(runtimeSyncSize);
+        pkt->makeAtomicResponse();
+    } else if (offset == kRuntimeSyncStatusOffset &&
+        pkt->getSize() == sizeof(uint32_t)) {
+        pkt->setLE<uint32_t>(runtimeSyncStatus);
+        pkt->makeAtomicResponse();
     } else if (offset == kSharedBaseOffset &&
         pkt->getSize() == sizeof(uint32_t)) {
         pkt->setLE<uint32_t>(dmaSharedBase);
@@ -516,6 +557,29 @@ NPUDevice::write(PacketPtr pkt)
              backend->name(), pkt->getAddr(), pkt->getSize());
 
     const Addr offset = pkt->getAddr() - pioAddr;
+    if (pkt->getSize() == sizeof(uint32_t) &&
+        offset == kRuntimeSyncOffsetOffset) {
+        runtimeSyncOffset = pkt->getLE<uint32_t>();
+        pkt->makeAtomicResponse();
+        return pioDelay;
+    }
+    if (pkt->getSize() == sizeof(uint32_t) &&
+        offset == kRuntimeSyncSizeOffset) {
+        runtimeSyncSize = pkt->getLE<uint32_t>();
+        pkt->makeAtomicResponse();
+        return pioDelay;
+    }
+    if (pkt->getSize() == sizeof(uint32_t) &&
+        offset == kRuntimeSyncControlOffset) {
+        runtimeSyncStatus = 0;
+        if ((pkt->getLE<uint32_t>() & 0x1) != 0) {
+            runtimeSyncStatus = syncHostRangeToLocalExtmem(
+                runtimeSyncOffset, runtimeSyncSize) ? 1 : 2;
+        }
+        pkt->makeAtomicResponse();
+        syncBackendEvent();
+        return pioDelay;
+    }
     if (fastDma && backend->hasLocalExtmem() &&
         offset == kResetControlOffset &&
         pkt->getSize() == sizeof(uint32_t) &&

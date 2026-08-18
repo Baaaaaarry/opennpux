@@ -151,7 +151,7 @@ CORAL_RTL_BRIDGE="$BRIDGE" \
 CORAL_RTL_FIRMWARE="$FIRMWARE" \
 CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}" \
 CORAL_CKPT_ROOT="$CKPT_ROOT" \
-CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${SHARED_BASE} --npu-dma-shared-size=8MiB" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${SHARED_BASE} --npu-dma-shared-size=8MiB --npu-fast-dma --npu-fast-dma-sync-offset=0 --npu-fast-dma-sync-size=64KiB" \
 CORAL_REBUILD_CKPT="${CORAL_REBUILD_CKPT:-0}" \
 CORAL_RESUME_BOOTSCRIPT="$TMP_SCRIPT" \
 ./run_multicore.sh

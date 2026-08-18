@@ -1,10 +1,15 @@
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
 #include "hw_sim/gem5_bridge/coral_gptq_expert.h"
 #include "hw_sim/gem5_bridge/coral_gptq_matmul.h"
+#include "hw_sim/gem5_bridge/coral_gptq_paged.h"
+#include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
+#include "hw_sim/gem5_bridge/npu_weight_queue.h"
+#include "hw_sim/gem5_bridge/npu_weight_residency.h"
 #include "hw_sim/gem5_bridge/qwen_device_inference.h"
 
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <cstdint>
 #include <vector>
@@ -412,6 +417,116 @@ void TestGptqGatedMlpDispatch() {
   assert(descriptor.modeled_cycles == request->modeled_cycles);
 }
 
+void TestGptqPagedMatMulDispatch() {
+  std::vector<uint8_t> memory(4096, 0);
+  auto descriptor = Descriptor(CORAL_OPERATOR_OP_GPTQ_PAGED_MATMUL);
+  descriptor.tensor_count = 1;
+  SetTensor(&descriptor.tensors[0], kBase,
+            sizeof(coral_gptq_paged_request), 1,
+            sizeof(coral_gptq_paged_request), 0, 0, 0,
+            CORAL_OPERATOR_ELEMENT_INT8);
+  auto* request = reinterpret_cast<coral_gptq_paged_request*>(memory.data());
+  request->magic = CORAL_GPTQ_PAGED_MAGIC;
+  request->version = CORAL_GPTQ_PAGED_VERSION;
+  request->struct_size = sizeof(*request);
+  request->state = CORAL_GPTQ_PAGED_PENDING;
+  request->command_id = 7;
+  request->role_id = 8;
+  request->expert_id = 9;
+  request->rows = 1;
+  request->parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  request->parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  request->parameters.struct_size = sizeof(request->parameters);
+  request->parameters.opcode = OPENNPUX_NPU_OP_MATMUL;
+  request->parameters.flags = OPENNPUX_NPU_PARAMETER_GPTQ;
+  request->parameters.input_features = 2;
+  request->parameters.output_features = 8;
+  request->parameters.quantization_bits = 4;
+  request->parameters.quantization_group_size = 2;
+  request->parameters.scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
+  request->input_address = kBase + 256;
+  request->input_size = 2 * sizeof(float);
+  request->output_address = kBase + 320;
+  request->output_size = 8 * sizeof(float);
+  request->residency_address = kBase + 512;
+  request->cache_address = kBase + 1024;
+  request->cache_size = 3 * 32;
+  request->output_tile_columns = 8;
+  WriteFloat(&memory, 256, 2.0f);
+  WriteFloat(&memory, 260, 3.0f);
+
+  struct ResidencyImage {
+    opennpux_npu_weight_residency_header header;
+    opennpux_npu_weight_residency_record records[3];
+  };
+  auto* residency = reinterpret_cast<ResidencyImage*>(memory.data() + 512);
+  residency->header.magic = OPENNPUX_NPU_WEIGHT_RESIDENCY_MAGIC;
+  residency->header.version = OPENNPUX_NPU_WEIGHT_RESIDENCY_VERSION;
+  residency->header.header_size = sizeof(residency->header);
+  residency->header.record_size = sizeof(residency->records[0]);
+  residency->header.capacity = 3;
+  residency->header.valid_records = 3;
+  request->residency_size = sizeof(*residency);
+  const uint32_t components[] = {
+      OPENNPUX_NPU_WEIGHT_COMPONENT_QWEIGHT,
+      OPENNPUX_NPU_WEIGHT_COMPONENT_QZEROS,
+      OPENNPUX_NPU_WEIGHT_COMPONENT_SCALES,
+  };
+  for (uint32_t index = 0; index < 3; ++index) {
+    auto& record = residency->records[index];
+    record.command_id = request->command_id;
+    record.role_id = request->role_id;
+    record.expert_id = request->expert_id;
+    record.component_id = components[index];
+    record.range_file_offset = 0x1000 + index * 0x100;
+    record.range_size = index == 1 ? sizeof(uint32_t) : 8 * sizeof(uint32_t);
+    record.page_file_offset = record.range_file_offset;
+    record.cache_slot = index;
+    record.page_size = 32;
+    record.flags = OPENNPUX_NPU_WEIGHT_RESIDENCY_VALID;
+  }
+  for (uint32_t index = 0; index < 8; ++index) {
+    Write32(&memory, 1024 + index * sizeof(uint32_t), 0x21);
+  }
+  Write32(&memory, 1056, 0);
+  for (uint32_t index = 0; index < 8; ++index) {
+    WriteFloat(&memory, 1088 + index * sizeof(float), 0.5f);
+  }
+
+  Gem5GenericGptqPageSpan spans[3] = {};
+  size_t span_count = 0;
+  assert(BuildGem5GenericGptqResidentSpans(
+      &residency->header, sizeof(*residency), request->command_id,
+      request->role_id, request->expert_id, memory.data() + 1024,
+      request->cache_size, spans, 3, &span_count));
+  assert(span_count == 3);
+  Gem5GenericGptqPageReader reader = {spans, span_count};
+  Gem5GptqKernelStats direct_stats = {};
+  assert(RunGem5GenericGptqMatMulStreamed(
+      request->parameters, request->rows,
+      {memory.data() + 256, request->input_size},
+      ReadGem5GenericGptqPageSpans, &reader, request->output_tile_columns,
+      false, {memory.data() + 320, request->output_size}, &direct_stats));
+
+  Gem5HybridOperatorResult result = {};
+  const bool paged_dispatched = DispatchGem5HybridOperator(
+      &descriptor, memory.data(), kBase, memory.size(), &result);
+  if (!paged_dispatched) {
+    std::fprintf(stderr, "paged GPTQ dispatch failed request_error=%u "
+                         "descriptor_error=%u spans=%u\n",
+                 request->error, descriptor.error, request->span_count);
+  }
+  assert(paged_dispatched);
+  assert(request->state == CORAL_GPTQ_PAGED_COMPLETE);
+  assert(request->error == CORAL_OPERATOR_ERROR_NONE);
+  assert(request->span_count == 3);
+  for (uint32_t index = 0; index < 8; ++index) {
+    assert(std::fabs(ReadFloat(memory, 320 + index * sizeof(float)) - 4.0f) <
+           1.0e-6f);
+  }
+  assert(request->operations == 32);
+}
+
 }  // namespace
 
 int main() {
@@ -426,5 +541,6 @@ int main() {
   TestQwenTinyInfer();
   TestGptqMatMulDispatch();
   TestGptqGatedMlpDispatch();
+  TestGptqPagedMatMulDispatch();
   return 0;
 }

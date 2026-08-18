@@ -141,6 +141,7 @@ cc_binary(
         "gem5_bridge/coral_gptq_matmul.h",
         "gem5_bridge/coral_gptq_expert.h",
         "gem5_bridge/coral_operator.h",
+        "gem5_bridge/coral_gptq_paged.h",
         "gem5_bridge/gem5_axi_master_drivers.h",
         "gem5_bridge/gem5_core_mini_axi_wrapper.h",
         "gem5_bridge/gem5_coprocessor_command.cc",
@@ -177,6 +178,7 @@ cc_binary(
         "gem5_bridge/coral_gptq_matmul.h",
         "gem5_bridge/coral_gptq_expert.h",
         "gem5_bridge/coral_operator.h",
+        "gem5_bridge/coral_gptq_paged.h",
         "gem5_bridge/gem5_axi_master_drivers.h",
         "gem5_bridge/gem5_core_mini_axi_wrapper.h",
         "gem5_bridge/gem5_coprocessor_command.cc",
@@ -259,7 +261,10 @@ cc_test(
     srcs = [
         "gem5_bridge/coral_gptq_expert.h",
         "gem5_bridge/coral_gptq_matmul.h",
+        "gem5_bridge/coral_gptq_paged.h",
         "gem5_bridge/coral_operator.h",
+        "gem5_bridge/gem5_generic_gptq_executor.cc",
+        "gem5_bridge/gem5_generic_gptq_executor.h",
         "gem5_bridge/gem5_gptq_kernels.cc",
         "gem5_bridge/gem5_gptq_kernels.h",
         "gem5_bridge/gem5_hybrid_kernels.cc",
@@ -269,6 +274,7 @@ cc_test(
         "gem5_bridge/gem5_hybrid_operator.h",
         "gem5_bridge/qwen_device_inference.h",
     ],
+    deps = [":gem5_npu_submission_headers"],
 )
 
 cc_test(
@@ -373,6 +379,8 @@ coralnpu_v2_binary(
 coralnpu_v2_binary(
     name = "gem5_npu_command_processor_smoke",
     srcs = [
+        "gem5_bridge/coral_gptq_paged.h",
+        "gem5_bridge/coral_operator.h",
         "gem5_bridge/gem5_npu_command_processor_smoke.c",
         "gem5_bridge/npu_route_table.h",
         "gem5_bridge/npu_submission.h",

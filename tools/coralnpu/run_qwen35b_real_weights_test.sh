@@ -1,0 +1,102 @@
+#!/bin/sh
+set -eu
+
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)"
+MODEL_DIR="${CORAL_MODEL_DIR:-/data/models/Qwen3.5-35B}"
+EXECUTABLE_NAME="${CORAL_NPU_EXECUTABLE_NAME:-model.npxc}"
+MANIFEST_NAME="${CORAL_NPU_MANIFEST_NAME:-model.npxm}"
+RANGE_NAME="${CORAL_NPU_RANGE_NAME:-model.npxr}"
+POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
+BASE="${CORAL_NPU_BASE:-0x1d000000}"
+
+for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
+    [ -r "$MODEL_DIR/$asset" ] || {
+        echo "error: Qwen model asset missing: $MODEL_DIR/$asset" >&2
+        echo "prepare it with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2
+        exit 1
+    }
+done
+command -v diod >/dev/null 2>&1 || {
+    echo "error: diod is required for the guest model mount" >&2
+    echo "Ubuntu: sudo apt-get install diod" >&2
+    exit 1
+}
+
+CORALCTL="${ROOT_DIR}/build/guest-tools/coralctl-aarch64"
+FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_npu_command_processor_smoke.elf}"
+BRIDGE="${CORAL_RTL_BRIDGE:-${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_bridge.so}"
+[ -x "$CORALCTL" ] || "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
+[ -r "$FIRMWARE" ] || "${ROOT_DIR}/tools/coralnpu/build_rtl_bridge.sh"
+[ -r "$BRIDGE" ] || { echo "error: RTL bridge missing: $BRIDGE" >&2; exit 1; }
+
+TMP_SCRIPT="$(mktemp)"
+trap 'rm -f "$TMP_SCRIPT"' EXIT
+
+cat >"$TMP_SCRIPT" <<EOF
+#!/bin/sh
+set -u
+mkdir -p /proc /sys /dev /tmp /mnt/opennpux-model
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+decode_base64()
+{
+    if command -v base64 >/dev/null 2>&1; then
+        base64 -d
+    elif [ -x /bin/busybox ]; then
+        /bin/busybox base64 -d
+    elif [ -x /tmp/busybox ]; then
+        /tmp/busybox base64 -d
+    else
+        return 1
+    fi
+}
+decode_base64 >/tmp/coralctl <<'OPENNPUX_CORALCTL_EOF'
+EOF
+base64 "$CORALCTL" >>"$TMP_SCRIPT"
+cat >>"$TMP_SCRIPT" <<EOF
+OPENNPUX_CORALCTL_EOF
+chmod 0755 /tmp/coralctl
+echo '[coral-qwen35b-real-weights-test] started'
+if ! grep -qw 9p /proc/filesystems; then
+    echo '[coral-qwen35b-real-weights-test] FAIL: kernel lacks CONFIG_9P_FS'
+    m5 --inst exit
+    exit 1
+fi
+if ! mount -t 9p -o trans=virtio,version=9p2000.L,ro gem5 /mnt/opennpux-model; then
+    echo '[coral-qwen35b-real-weights-test] FAIL: VirtIO 9P model mount failed'
+    m5 --inst exit
+    exit 1
+fi
+for asset in '$EXECUTABLE_NAME' '$MANIFEST_NAME' '$RANGE_NAME'; do
+    if [ ! -r "/mnt/opennpux-model/\$asset" ]; then
+        echo "[coral-qwen35b-real-weights-test] FAIL: mounted asset missing: \$asset"
+        m5 --inst exit
+        exit 1
+    fi
+done
+OPENNPUX_MODEL_ROOT=/mnt/opennpux-model \
+/tmp/coralctl executable-run-paged \
+    /mnt/opennpux-model/$EXECUTABLE_NAME decode \
+    /mnt/opennpux-model/$MANIFEST_NAME \
+    /mnt/opennpux-model/$RANGE_NAME \
+    $BASE $POLL_COUNT || {
+    echo '[coral-qwen35b-real-weights-test] FAIL: real weight execution failed'
+    m5 --inst exit
+    exit 1
+}
+echo '[coral-qwen35b-real-weights-test] PASS'
+m5 --inst exit
+exit 0
+EOF
+
+"${ROOT_DIR}/sim/gem5/apply_patchset.sh"
+cd "${ROOT_DIR}/thirdparty/gem5"
+CORAL_NPU_BACKEND=verilated-coral \
+CORAL_RTL_BRIDGE="$BRIDGE" \
+CORAL_RTL_FIRMWARE="$FIRMWARE" \
+CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}" \
+CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_qwen35b_real_9p_ckpt}" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --vio-9p --vio-9p-root=$MODEL_DIR --npu-operator-mode=hybrid --npu-dma-shared-base=0x8f000000 --npu-dma-shared-size=8MiB --npu-fast-dma --npu-fast-dma-event-batch=${CORAL_FAST_DMA_EVENT_BATCH:-1} --npu-fast-dma-sync-offset=0 --npu-fast-dma-sync-size=64KiB" \
+CORAL_RESUME_BOOTSCRIPT="$TMP_SCRIPT" \
+./run_multicore.sh

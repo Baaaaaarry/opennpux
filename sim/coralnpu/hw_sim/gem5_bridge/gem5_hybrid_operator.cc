@@ -135,6 +135,10 @@ bool DispatchGem5HybridOperator(
       success = RunGem5HybridGptqGatedMlp(
           descriptor, extmem, extmem_base, extmem_size);
       break;
+    case CORAL_OPERATOR_OP_GPTQ_PAGED_MATMUL:
+      success = RunGem5HybridGptqPagedMatMul(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
     default:
       descriptor->error = CORAL_OPERATOR_ERROR_UNSUPPORTED;
       break;

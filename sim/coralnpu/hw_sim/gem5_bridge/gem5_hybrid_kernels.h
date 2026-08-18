@@ -46,4 +46,8 @@ bool RunGem5HybridGptqGatedMlp(
     coral_operator_descriptor* descriptor, uint8_t* extmem,
     uint32_t extmem_base, size_t extmem_size);
 
+bool RunGem5HybridGptqPagedMatMul(
+    coral_operator_descriptor* descriptor, uint8_t* extmem,
+    uint32_t extmem_base, size_t extmem_size);
+
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_HYBRID_KERNELS_H_

@@ -1,6 +1,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "hw_sim/gem5_bridge/coral_gptq_paged.h"
+#include "hw_sim/gem5_bridge/coral_operator.h"
 #include "hw_sim/gem5_bridge/npu_submission.h"
 #include "hw_sim/gem5_bridge/npu_route_table.h"
 #include "hw_sim/gem5_bridge/npu_weight_queue.h"
@@ -20,6 +22,8 @@
 #define MODELED_BYTES_PER_CYCLE UINT64_C(32)
 #define PAGING_TRANSFER_SIZE UINT32_C(65536)
 #define EXPERT_NONE UINT64_MAX
+#define OPERATOR_BASE UINT32_C(0x30000100)
+#define OPERATOR_STATUS UINT32_C(0x30000108)
 
 #define PAGE_PROGRESS_WAIT_READY UINT64_C(0x50470001)
 #define PAGE_PROGRESS_READY UINT64_C(0x50470002)
@@ -105,7 +109,8 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
             volatile const struct opennpux_npu_weight_residency_header *residency,
             uint32_t command_id, uint32_t *word,
             volatile uint64_t *stall_cycles, uint32_t *last,
-            uint32_t *role_id, uint32_t *component_id)
+            uint32_t *role_id, uint32_t *component_id,
+            uint64_t *expert_id)
 {
     if (queue->magic != OPENNPUX_NPU_WEIGHT_QUEUE_MAGIC ||
         queue->version != OPENNPUX_NPU_WEIGHT_QUEUE_VERSION ||
@@ -190,12 +195,115 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
     *last = (fault->flags & OPENNPUX_NPU_PAGE_FAULT_LAST) != 0;
     *role_id = fault->role_id;
     *component_id = fault->component_id;
+    *expert_id = fault->expert_id;
     fault->state = OPENNPUX_NPU_PAGE_FAULT_EMPTY;
     memory_fence();
     queue->retire_index = producer + 1;
     memory_fence();
     page_progress(PAGE_PROGRESS_RETURN);
     return 0;
+}
+
+static int
+execute_paged_matmul(
+    uint32_t command_id,
+    volatile const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t rows, uint32_t role_id, uint64_t expert_id,
+    volatile const struct opennpux_npu_tensor_binding *input,
+    volatile const struct opennpux_npu_tensor_binding *output,
+    volatile const struct opennpux_npu_tensor_binding *scratch,
+    volatile const struct opennpux_npu_tensor_binding *residency,
+    volatile const struct opennpux_npu_tensor_binding *cache)
+{
+    const uint32_t descriptor_size = align_record(
+        sizeof(struct coral_operator_descriptor));
+    const uint32_t required = descriptor_size +
+        sizeof(struct coral_gptq_paged_request);
+    if (parameters == NULL || input == NULL || output == NULL ||
+        scratch == NULL || residency == NULL || cache == NULL ||
+        scratch->device_address < EXTMEM_BASE ||
+        scratch->device_address > UINT32_MAX || scratch->byte_size < required ||
+        input->device_address > UINT32_MAX || input->byte_size > UINT32_MAX ||
+        output->device_address > UINT32_MAX || output->byte_size > UINT32_MAX ||
+        residency->device_address > UINT32_MAX ||
+        residency->byte_size > UINT32_MAX || cache->device_address > UINT32_MAX ||
+        cache->byte_size > UINT32_MAX ||
+        parameters->output_features == 0) {
+        return -1;
+    }
+
+    const uint32_t descriptor_address = (uint32_t)scratch->device_address;
+    const uint32_t request_address = descriptor_address + descriptor_size;
+    volatile struct coral_operator_descriptor *descriptor =
+        (volatile struct coral_operator_descriptor *)(uintptr_t)
+            descriptor_address;
+    volatile struct coral_gptq_paged_request *request =
+        (volatile struct coral_gptq_paged_request *)(uintptr_t)request_address;
+    volatile uint32_t *descriptor_words = (volatile uint32_t *)descriptor;
+    volatile uint32_t *request_words = (volatile uint32_t *)request;
+    for (uint32_t index = 0; index < sizeof(*descriptor) / sizeof(uint32_t);
+         ++index) {
+        descriptor_words[index] = 0;
+    }
+    for (uint32_t index = 0; index < sizeof(*request) / sizeof(uint32_t);
+         ++index) {
+        request_words[index] = 0;
+    }
+
+    request->magic = CORAL_GPTQ_PAGED_MAGIC;
+    request->version = CORAL_GPTQ_PAGED_VERSION;
+    request->struct_size = sizeof(*request);
+    request->state = CORAL_GPTQ_PAGED_PENDING;
+    request->command_id = command_id;
+    request->role_id = role_id;
+    request->rows = rows;
+    request->expert_id = expert_id;
+    volatile uint32_t *parameter_destination =
+        (volatile uint32_t *)&request->parameters;
+    const volatile uint32_t *parameter_source =
+        (const volatile uint32_t *)parameters;
+    for (uint32_t index = 0;
+         index < sizeof(request->parameters) / sizeof(uint32_t); ++index) {
+        parameter_destination[index] = parameter_source[index];
+    }
+    request->input_address = (uint32_t)input->device_address;
+    request->input_size = (uint32_t)input->byte_size;
+    request->output_address = (uint32_t)output->device_address;
+    request->output_size = (uint32_t)output->byte_size;
+    request->residency_address = (uint32_t)residency->device_address;
+    request->residency_size = (uint32_t)residency->byte_size;
+    request->cache_address = (uint32_t)cache->device_address;
+    request->cache_size = (uint32_t)cache->byte_size;
+    request->output_tile_columns = 64;
+
+    descriptor->magic = CORAL_OPERATOR_ABI_MAGIC;
+    descriptor->version = CORAL_OPERATOR_ABI_VERSION;
+    descriptor->descriptor_size = sizeof(*descriptor);
+    descriptor->opcode = CORAL_OPERATOR_OP_GPTQ_PAGED_MATMUL;
+    descriptor->state = CORAL_OPERATOR_STATE_SUBMITTED;
+    descriptor->flags = CORAL_OPERATOR_FLAG_CUSTOM_INSTRUCTION;
+    descriptor->execution_mode = CORAL_OPERATOR_MODE_HYBRID;
+    descriptor->tensor_count = 1;
+    descriptor->tensors[0].address = request_address;
+    descriptor->tensors[0].size = sizeof(*request);
+    descriptor->tensors[0].rank = 1;
+    descriptor->tensors[0].dimensions[0] = sizeof(*request);
+    descriptor->tensors[0].element_type = CORAL_OPERATOR_ELEMENT_INT8;
+    memory_fence();
+    __asm__ volatile(".insn r 0x0b, 0, 0, x0, %0, %1"
+                     :
+                     : "r"(OPERATOR_BASE), "r"(descriptor_address)
+                     : "memory");
+    volatile uint32_t *status = (volatile uint32_t *)OPERATOR_STATUS;
+    while (*status == CORAL_OPERATOR_STATE_RUNNING) {
+        __asm__ volatile("nop");
+    }
+    memory_fence();
+    return *status == CORAL_OPERATOR_STATE_COMPLETE &&
+        descriptor->state == CORAL_OPERATOR_STATE_COMPLETE &&
+        descriptor->error == CORAL_OPERATOR_ERROR_NONE &&
+        request->state == CORAL_GPTQ_PAGED_COMPLETE &&
+        request->error == CORAL_OPERATOR_ERROR_NONE ? 0 : -1;
 }
 
 int
@@ -494,6 +602,7 @@ main(void)
                 uint32_t pages = 0;
                 uint32_t role_id = 0;
                 uint32_t component_id = 0;
+                uint64_t expert_id = EXPERT_NONE;
                 volatile struct opennpux_npu_weight_queue_header *queue =
                     (volatile struct opennpux_npu_weight_queue_header *)(uintptr_t)
                         queue_binding->device_address;
@@ -505,7 +614,7 @@ main(void)
                     if (page_weight(queue, cache, cache_slots, residency,
                                     commands[index].command_id, &word,
                                     &completion->stall_cycles, &last,
-                                    &role_id, &component_id) != 0) {
+                                    &role_id, &component_id, &expert_id) != 0) {
                         finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
                                ERROR_PAGING, index);
                         return 1;
@@ -525,6 +634,18 @@ main(void)
                 if (!last) {
                     finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
                            ERROR_PAGING, index);
+                    return 1;
+                }
+                if ((header->flags & OPENNPUX_NPU_INVOKE_NUMERICAL) != 0 &&
+                    commands[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
+                    execute_paged_matmul(
+                        commands[index].command_id, parameters,
+                        batch_size * sequence_length, role_id, expert_id,
+                        &bindings[0], &bindings[1],
+                        &bindings[scratch_binding], residency_binding,
+                        cache_binding) != 0) {
+                    finish(completion, OPENNPUX_NPU_COMPLETION_ERROR,
+                           ERROR_COMMAND, index);
                     return 1;
                 }
                 goto weight_complete;

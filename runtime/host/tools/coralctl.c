@@ -18,9 +18,10 @@
 #define NPU_WEIGHT_PAGE_SIZE UINT32_C(4096)
 #define NPU_PAGING_WINDOW_SIZE UINT32_C(0x00800000)
 #define NPU_EXECUTABLE_WINDOW_SIZE NPU_PAGING_WINDOW_SIZE
-#define NPU_IO_BUFFER_SIZE UINT32_C(128)
-#define NPU_STATE_BUFFER_SIZE UINT32_C(256)
-#define NPU_SCRATCH_BUFFER_SIZE UINT32_C(256)
+#define NPU_INPUT_BUFFER_SIZE UINT32_C(0x00010000)
+#define NPU_OUTPUT_BUFFER_SIZE UINT32_C(0x00200000)
+#define NPU_STATE_BUFFER_SIZE UINT32_C(0x00080000)
+#define NPU_SCRATCH_BUFFER_SIZE UINT32_C(0x00100000)
 
 static int copy_to_shared_window(
     struct opennpux_coral_shared_window *window, const uint8_t *source,
@@ -481,7 +482,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         bindings[index].tensor_id = index;
         bindings[index].flags = index == 1 ? OPENNPUX_NPU_BIND_WRITE :
                                              OPENNPUX_NPU_BIND_READ;
-        bindings[index].data_type = OPENNPUX_NPU_DTYPE_BFLOAT16;
+        bindings[index].data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
         bindings[index].rank = 1;
         bindings[index].byte_size = 64;
         bindings[index].dimensions[0] = 32;
@@ -592,9 +593,9 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             sizeof(struct opennpux_npu_trace_record);
     size_t data_offset = align_npu_record(trace_offset + trace_size);
     const size_t input_offset = data_offset;
-    data_offset += NPU_IO_BUFFER_SIZE;
+    data_offset += NPU_INPUT_BUFFER_SIZE;
     const size_t output_offset = data_offset;
-    data_offset += NPU_IO_BUFFER_SIZE;
+    data_offset += NPU_OUTPUT_BUFFER_SIZE;
     const size_t weight_offset = data_offset;
     data_offset += NPU_WEIGHT_PAGE_SIZE;
     const size_t state_offset = data_offset;
@@ -639,11 +640,14 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct opennpux_npu_tensor_binding *submission_bindings =
         (struct opennpux_npu_tensor_binding *)(void *)(submission +
                                                        header->binding_offset);
+    if (real_weights) {
+        header->flags |= OPENNPUX_NPU_INVOKE_NUMERICAL;
+    }
     const size_t offsets[] = {
         input_offset, output_offset, weight_offset, state_offset, scratch_offset,
     };
     const uint64_t sizes[] = {
-        NPU_IO_BUFFER_SIZE, NPU_IO_BUFFER_SIZE, NPU_WEIGHT_PAGE_SIZE,
+        NPU_INPUT_BUFFER_SIZE, NPU_OUTPUT_BUFFER_SIZE, NPU_WEIGHT_PAGE_SIZE,
         NPU_STATE_BUFFER_SIZE, NPU_SCRATCH_BUFFER_SIZE,
     };
     for (uint32_t index = 0; index < 5; ++index) {

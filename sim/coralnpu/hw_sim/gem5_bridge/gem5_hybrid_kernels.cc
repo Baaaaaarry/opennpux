@@ -2,6 +2,8 @@
 
 #include "hw_sim/gem5_bridge/coral_gptq_expert.h"
 #include "hw_sim/gem5_bridge/coral_gptq_matmul.h"
+#include "hw_sim/gem5_bridge/coral_gptq_paged.h"
+#include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
 #include "hw_sim/gem5_bridge/gem5_gptq_kernels.h"
 #include "hw_sim/gem5_bridge/qwen_device_inference.h"
 
@@ -332,6 +334,91 @@ bool RunGem5HybridGptqInt4MatMul(
       output_count);
   request->error = CORAL_OPERATOR_ERROR_NONE;
   request->state = CORAL_GPTQ_MATMUL_COMPLETE;
+  descriptor->operation_count = stats.operations;
+  descriptor->bytes_read = stats.bytes_read;
+  descriptor->bytes_written = stats.bytes_written;
+  descriptor->modeled_cycles = stats.modeled_cycles;
+  return true;
+}
+
+bool RunGem5HybridGptqPagedMatMul(
+    coral_operator_descriptor* descriptor, uint8_t* extmem,
+    uint32_t extmem_base, size_t extmem_size) {
+  if (descriptor == nullptr || descriptor->tensor_count != 1 ||
+      descriptor->tensors[0].element_type != CORAL_OPERATOR_ELEMENT_INT8 ||
+      descriptor->tensors[0].rank != 1 ||
+      descriptor->tensors[0].size != sizeof(coral_gptq_paged_request) ||
+      descriptor->tensors[0].dimensions[0] !=
+          sizeof(coral_gptq_paged_request)) {
+    return false;
+  }
+  auto* request = reinterpret_cast<coral_gptq_paged_request*>(
+      extmem + descriptor->tensors[0].address - extmem_base);
+  request->state = CORAL_GPTQ_PAGED_ERROR;
+  request->error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
+  request->span_count = 0;
+  if (request->magic != CORAL_GPTQ_PAGED_MAGIC ||
+      request->version != CORAL_GPTQ_PAGED_VERSION ||
+      request->struct_size != sizeof(*request) || request->rows == 0 ||
+      request->parameters.opcode != OPENNPUX_NPU_OP_MATMUL ||
+      request->output_tile_columns == 0 ||
+      !ExtmemRangeValid(request->input_address, request->input_size,
+                        extmem_base, extmem_size) ||
+      !ExtmemRangeValid(request->output_address, request->output_size,
+                        extmem_base, extmem_size) ||
+      !ExtmemRangeValid(request->residency_address, request->residency_size,
+                        extmem_base, extmem_size) ||
+      !ExtmemRangeValid(request->cache_address, request->cache_size,
+                        extmem_base, extmem_size)) {
+    request->error = CORAL_OPERATOR_ERROR_ADDRESS;
+    return false;
+  }
+
+  Gem5GenericGptqPageSpan spans[CORAL_GPTQ_PAGED_MAX_SPANS] = {};
+  size_t span_count = 0;
+  const auto* residency =
+      reinterpret_cast<const opennpux_npu_weight_residency_header*>(
+          extmem + request->residency_address - extmem_base);
+  const void* cache = extmem + request->cache_address - extmem_base;
+  if (!BuildGem5GenericGptqResidentSpans(
+          residency, request->residency_size, request->command_id,
+          request->role_id, request->expert_id, cache, request->cache_size,
+          spans, CORAL_GPTQ_PAGED_MAX_SPANS, &span_count)) {
+    request->error = CORAL_OPERATOR_ERROR_EXECUTION;
+    return false;
+  }
+  request->span_count = static_cast<uint32_t>(span_count);
+  bool has_g_idx = false;
+  for (size_t index = 0; index < span_count; ++index) {
+    has_g_idx = has_g_idx || spans[index].component == kGem5GptqGIdx;
+  }
+  Gem5GenericGptqPageReader reader = {spans, span_count};
+  Gem5GptqKernelStats stats = {};
+  request->state = CORAL_GPTQ_PAGED_RUNNING;
+  const bool success = RunGem5GenericGptqMatMulStreamed(
+      request->parameters, request->rows,
+      {extmem + request->input_address - extmem_base, request->input_size},
+      ReadGem5GenericGptqPageSpans, &reader, request->output_tile_columns,
+      has_g_idx,
+      {extmem + request->output_address - extmem_base, request->output_size},
+      &stats);
+  if (!success) {
+    request->state = CORAL_GPTQ_PAGED_ERROR;
+    request->error = CORAL_OPERATOR_ERROR_EXECUTION;
+    return false;
+  }
+  const uint64_t output_count = static_cast<uint64_t>(request->rows) *
+                                request->parameters.output_features;
+  request->output_checksum = FloatChecksum(
+      reinterpret_cast<const float*>(
+          extmem + request->output_address - extmem_base),
+      output_count);
+  request->operations = stats.operations;
+  request->bytes_read = stats.bytes_read;
+  request->bytes_written = stats.bytes_written;
+  request->modeled_cycles = stats.modeled_cycles;
+  request->error = CORAL_OPERATOR_ERROR_NONE;
+  request->state = CORAL_GPTQ_PAGED_COMPLETE;
   descriptor->operation_count = stats.operations;
   descriptor->bytes_read = stats.bytes_read;
   descriptor->bytes_written = stats.bytes_written;

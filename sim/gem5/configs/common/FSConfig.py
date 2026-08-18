@@ -83,13 +83,19 @@ class MemBus(SystemXBar):
     default = Self.badaddr_responder.pio
 
 
-def attach_9p(parent, bus):
+def attach_9p(parent, bus, root=None):
     viopci = PciVirtIO()
     viopci.vio = VirtIO9PDiod()
     viodir = os.path.realpath(os.path.join(m5.options.outdir, "9p"))
-    viopci.vio.root = os.path.join(viodir, "share")
+    viopci.vio.root = (
+        os.path.realpath(root) if root else os.path.join(viodir, "share")
+    )
     viopci.vio.socketPath = os.path.join(viodir, "socket")
-    os.makedirs(viopci.vio.root, exist_ok=True)
+    if root:
+        if not os.path.isdir(viopci.vio.root):
+            fatal("VirtIO 9P root is not a directory: %s", viopci.vio.root)
+    else:
+        os.makedirs(viopci.vio.root, exist_ok=True)
     if os.path.exists(viopci.vio.socketPath):
         os.remove(viopci.vio.socketPath)
     parent.viopci = viopci

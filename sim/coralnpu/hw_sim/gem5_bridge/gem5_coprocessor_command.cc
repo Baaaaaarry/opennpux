@@ -147,6 +147,7 @@ Gem5CommandEngine Gem5CoprocessorCommandAdapter::OperatorEngine(
     case CORAL_OPERATOR_OP_QWEN_TINY_INFER:
     case CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4:
     case CORAL_OPERATOR_OP_GPTQ_GATED_MLP:
+    case CORAL_OPERATOR_OP_GPTQ_PAGED_MATMUL:
       return Gem5CommandEngine::kTensor;
     case CORAL_OPERATOR_OP_ADD_INT8:
     case CORAL_OPERATOR_OP_LAYER_NORM:

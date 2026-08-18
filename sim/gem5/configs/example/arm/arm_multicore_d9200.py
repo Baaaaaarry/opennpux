@@ -401,6 +401,12 @@ def addOptions(parser):
         "--vio-9p", action="store_true", help=Options.vio_9p_help
     )
     parser.add_argument(
+        "--vio-9p-root",
+        type=str,
+        default=None,
+        help="Host directory exported by the VirtIO 9P device",
+    )
+    parser.add_argument(
         "--dtb-gen",
         action="store_true",
         help="Doesn't run simulation, it generates a DTB only",
@@ -829,7 +835,9 @@ def build(options):
         )
 
     if options.vio_9p:
-        FSConfig.attach_9p(system.realview, system.iobus)
+        FSConfig.attach_9p(
+            system.realview, system.iobus, root=options.vio_9p_root
+        )
 
     return root
 

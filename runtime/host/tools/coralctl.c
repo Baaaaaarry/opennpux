@@ -858,6 +858,16 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         goto out;
     }
     print_paged_stage(paged, "device-complete");
+    if (paged && opennpux_coral_sync_extmem_to_shared(
+            dev, 0, (uint32_t)paging_layout.cache_offset) != 0) {
+        perror("executable-run final control sync");
+        goto out;
+    }
+    if (paged) {
+        fprintf(stderr, "paging_final_sync_bytes=%" PRIu64 "\n",
+                paging_layout.cache_offset);
+        fflush(stderr);
+    }
     __sync_synchronize();
     printf("transport=%s\n", opennpux_coral_transport_name(dev->transport));
     printf("executable_id=0x%016" PRIx64 "\n", header->executable_id);

@@ -823,6 +823,17 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     clear_device_memory((volatile uint8_t *)(volatile void *)completion,
                         sizeof(*completion));
     __sync_synchronize();
+    if (paged && (paging_layout.cache_offset > UINT32_MAX ||
+        opennpux_coral_sync_shared_to_extmem(
+            dev, 0, (uint32_t)paging_layout.cache_offset) != 0)) {
+        perror("executable-run initial control sync");
+        goto out;
+    }
+    if (paged) {
+        fprintf(stderr, "paging_initial_sync_bytes=%" PRIu64 "\n",
+                paging_layout.cache_offset);
+        fflush(stderr);
+    }
     uint32_t device_status = 0;
     print_paged_stage(paged, "device-run-and-page-service");
     const int run_result = paged ?

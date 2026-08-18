@@ -5,6 +5,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)"
 GEM5_ROOT="${ROOT_DIR}/thirdparty/gem5"
 EXECUTABLE="${CORAL_NPU_EXECUTABLE:-${ROOT_DIR}/build/local-tests/model-package/hf-model/model.npxc}"
 FIRMWARE="${CORAL_RTL_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_npu_command_processor_smoke.elf}"
+BRIDGE="${CORAL_RTL_BRIDGE:-${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_bridge.so}"
 CORALCTL="${ROOT_DIR}/build/guest-tools/coralctl-aarch64"
 WEIGHT_PAGE_SOURCE="${CORAL_NPU_WEIGHT_PAGE:-${EXECUTABLE}}"
 SHARED_BASE="${CORAL_PAGED_SHARED_BASE:-0x8f000000}"
@@ -12,10 +13,19 @@ CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_paged_8m_8f000000_
 
 [ -r "$EXECUTABLE" ] || { echo "error: executable missing: $EXECUTABLE" >&2; exit 1; }
 
-if [ ! -r "$FIRMWARE" ] &&
+rtl_stale=0
+if [ ! -r "$FIRMWARE" ] || [ ! -r "$BRIDGE" ]; then
+    rtl_stale=1
+elif [ -z "${CORAL_RTL_FIRMWARE:-}" ] &&
+     find "${ROOT_DIR}/sim/coralnpu" -type f \( -newer "$FIRMWARE" -o -newer "$BRIDGE" \) \
+         -print -quit | grep -q .; then
+    rtl_stale=1
+fi
+if [ "$rtl_stale" -eq 1 ] &&
    [ -z "${CORAL_RTL_FIRMWARE:-}" ] &&
+   [ -z "${CORAL_RTL_BRIDGE:-}" ] &&
    [ "${CORAL_AUTO_BUILD_FIRMWARE:-1}" = 1 ]; then
-    echo "[coral-paged-executable-test] command processor firmware missing; building RTL artifacts" >&2
+    echo "[coral-paged-executable-test] RTL artifacts missing or stale; rebuilding" >&2
     "${ROOT_DIR}/tools/coralnpu/build_rtl_bridge.sh"
 fi
 
@@ -26,7 +36,20 @@ if [ ! -r "$FIRMWARE" ]; then
     echo "or select an existing image with CORAL_RTL_FIRMWARE=/path/to/firmware.elf" >&2
     exit 1
 fi
+coralctl_stale=0
+if [ ! -x "$CORALCTL" ]; then
+    coralctl_stale=1
+elif find "${ROOT_DIR}/runtime/host" -type f -newer "$CORALCTL" -print -quit |
+     grep -q .; then
+    coralctl_stale=1
+fi
+if [ "$coralctl_stale" -eq 1 ] &&
+   [ "${CORAL_AUTO_BUILD_GUEST_TOOLS:-1}" = 1 ]; then
+    echo "[coral-paged-executable-test] coralctl missing or stale; rebuilding" >&2
+    "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
+fi
 [ -x "$CORALCTL" ] || { echo "error: coralctl missing: $CORALCTL" >&2; exit 1; }
+[ -r "$BRIDGE" ] || { echo "error: RTL bridge missing: $BRIDGE" >&2; exit 1; }
 [ -r "$WEIGHT_PAGE_SOURCE" ] || { echo "error: weight page source missing: $WEIGHT_PAGE_SOURCE" >&2; exit 1; }
 
 TMP_SCRIPT="$(mktemp)"
@@ -88,6 +111,7 @@ fi
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 cd "$GEM5_ROOT"
 CORAL_NPU_BACKEND=verilated-coral \
+CORAL_RTL_BRIDGE="$BRIDGE" \
 CORAL_RTL_FIRMWARE="$FIRMWARE" \
 CORAL_CKPT_ROOT="$CKPT_ROOT" \
 CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${SHARED_BASE} --npu-dma-shared-size=8MiB" \

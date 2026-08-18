@@ -26,11 +26,37 @@ static int copy_to_shared_window(
     struct opennpux_coral_shared_window *window, const uint8_t *source,
     uint32_t size);
 
+static void
+copy_to_device_memory(volatile uint8_t *destination, const uint8_t *source,
+                      size_t size)
+{
+    for (size_t index = 0; index < size; ++index) {
+        destination[index] = source[index];
+    }
+}
+
+static void
+clear_device_memory(volatile uint8_t *destination, size_t size)
+{
+    for (size_t index = 0; index < size; ++index) {
+        destination[index] = 0;
+    }
+}
+
 static size_t
 align_npu_record(size_t value)
 {
     return (value + OPENNPUX_NPU_RECORD_ALIGNMENT - 1) &
         ~(size_t)(OPENNPUX_NPU_RECORD_ALIGNMENT - 1);
+}
+
+static void
+print_paged_stage(int paged, const char *stage)
+{
+    if (paged) {
+        fprintf(stderr, "paged_stage=%s\n", stage);
+        fflush(stderr);
+    }
 }
 
 static int
@@ -112,6 +138,10 @@ service_executable_page(void *opaque)
     if (consumer == producer) {
         return 0;
     }
+    if (service->faults_serviced == 0) {
+        fprintf(stderr, "paged_stage=service-first-page-fault\n");
+        fflush(stderr);
+    }
     struct opennpux_npu_page_fault *fault =
         &service->queue->entries[consumer % header->capacity];
     if (__atomic_load_n(&fault->state, __ATOMIC_ACQUIRE) !=
@@ -165,11 +195,16 @@ service_executable_page(void *opaque)
             return -1;
         }
         fault->flags = has_next == 0 ? OPENNPUX_NPU_PAGE_FAULT_LAST : 0;
-        (void)page;
+        copy_to_device_memory(
+            (volatile uint8_t *)service->cache +
+                (size_t)slot * service->transfer_size,
+            page, service->transfer_size);
         (void)cache_hit;
     } else {
-        memcpy(service->cache + (size_t)slot * service->transfer_size,
-               service->source, service->transfer_size);
+        copy_to_device_memory(
+            (volatile uint8_t *)service->cache +
+                (size_t)slot * service->transfer_size,
+            service->source, service->transfer_size);
         fault->flags = OPENNPUX_NPU_PAGE_FAULT_LAST;
     }
     fault->cache_slot = slot;
@@ -186,6 +221,10 @@ service_executable_page(void *opaque)
                      __ATOMIC_RELEASE);
     ++service->faults_serviced;
     service->transfer_bytes += service->transfer_size;
+    if (service->faults_serviced == 1) {
+        fprintf(stderr, "paged_stage=service-first-page-complete\n");
+        fflush(stderr);
+    }
     return 0;
 }
 
@@ -300,6 +339,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                      uint32_t firmware_entry, int paged,
                      uint64_t polls)
 {
+    print_paged_stage(paged, "load-executable");
     struct opennpux_npu_executable executable;
     if (opennpux_npu_executable_load(path, &executable) != 0) {
         if (errno == EPROTONOSUPPORT) {
@@ -310,12 +350,19 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         perror("executable-run load");
         return 1;
     }
+    print_paged_stage(paged, "open-shared-window");
     struct opennpux_coral_shared_window window;
     const uint32_t window_size = paged ? NPU_PAGING_WINDOW_SIZE :
                                          NPU_EXECUTABLE_WINDOW_SIZE;
     if (opennpux_coral_open_shared_window(dev, window_size, &window) != 0) {
         opennpux_npu_executable_unload(&executable);
         return 1;
+    }
+    if (paged) {
+        fprintf(stderr, "paged_shared_base=0x%08" PRIx32
+                " paged_shared_size=0x%08" PRIx32 "\n",
+                window.base, window.size);
+        fflush(stderr);
     }
     struct opennpux_npu_tensor_binding bindings[9];
     memset(bindings, 0, sizeof(bindings));
@@ -379,8 +426,12 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct opennpux_npu_weight_ranges weight_ranges;
     struct opennpux_npu_weight_cache weight_cache;
     struct opennpux_npu_weight_cache_entry *weight_cache_entries = NULL;
+    uint8_t *weight_cache_storage = NULL;
     struct opennpux_npu_weight_page_cursor *page_cursors = NULL;
     uint8_t *page_cursor_initialized = NULL;
+    uint8_t *residency_image = NULL;
+    uint8_t *queue_image = NULL;
+    uint8_t *route_image = NULL;
     uint64_t active_experts[8];
     opennpux_npu_route active_routes[8];
     uint32_t active_route_count = 0;
@@ -420,6 +471,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         perror("executable-run instantiate");
         goto out;
     }
+    print_paged_stage(paged, "plan-layout");
     const size_t completion_offset =
         align_npu_record(submission_size);
     const size_t trace_offset = align_npu_record(
@@ -463,6 +515,13 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         paging_layout.queue_offset < data_offset)) {
         perror("executable-run paging layout");
         goto out;
+    }
+    if (paged) {
+        fprintf(stderr, "paged_layout_control=0x%zx queue=0x%" PRIx64
+                " cache=0x%" PRIx64 " required=0x%" PRIx64 "\n",
+                data_offset, paging_layout.queue_offset,
+                paging_layout.cache_offset, paging_layout.required_size);
+        fflush(stderr);
     }
     struct opennpux_npu_invocation_header *header =
         (struct opennpux_npu_invocation_header *)(void *)submission;
@@ -508,17 +567,34 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct executable_page_service page_service;
     memset(&page_service, 0, sizeof(page_service));
     if (paged) {
+        residency_image = calloc(1, residency_size);
+        queue_image = calloc(1, (size_t)paging_layout.queue_size);
+        if (residency_image == NULL || queue_image == NULL) {
+            perror("executable-run paging metadata allocation");
+            goto out;
+        }
+        print_paged_stage(paged, "initialize-residency-and-queue");
         if (opennpux_npu_weight_residency_init(
-                (void *)(uintptr_t)(window.bytes + residency_offset),
+                residency_image,
                 residency_size,
                 OPENNPUX_NPU_PAGING_CACHE_SLOTS_DEFAULT) != 0) {
             perror("executable-run residency table");
             goto out;
         }
-        if (opennpux_npu_paging_layout_init_queue(
-                (void *)(uintptr_t)window.bytes, window.size,
-                &paging_layout, &page_queue) != 0) {
+        if (opennpux_npu_weight_queue_init(
+                queue_image, (size_t)paging_layout.queue_size,
+                paging_layout.queue_capacity, &page_queue) != 0) {
             perror("executable-run paging queue");
+            goto out;
+        }
+        copy_to_device_memory(window.bytes + residency_offset,
+                              residency_image, residency_size);
+        copy_to_device_memory(window.bytes + paging_layout.queue_offset,
+                              queue_image, (size_t)paging_layout.queue_size);
+        if (opennpux_npu_weight_queue_attach(
+                (void *)(uintptr_t)(window.bytes + paging_layout.queue_offset),
+                (size_t)paging_layout.queue_size, &page_queue) != 0) {
+            perror("executable-run paging queue attach");
             goto out;
         }
         page_service.queue = &page_queue;
@@ -533,12 +609,14 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         if (real_weights) {
             weight_cache_entries = calloc(
                 paging_layout.cache_slots, sizeof(*weight_cache_entries));
+            weight_cache_storage = malloc((size_t)paging_layout.cache_size);
             page_cursors = calloc(executable.header->command_count,
                                   sizeof(*page_cursors));
             page_cursor_initialized = calloc(
                 executable.header->command_count,
                 sizeof(*page_cursor_initialized));
-            if (weight_cache_entries == NULL || page_cursors == NULL ||
+            if (weight_cache_entries == NULL || weight_cache_storage == NULL ||
+                page_cursors == NULL ||
                 page_cursor_initialized == NULL || range_path == NULL ||
                 opennpux_model_package_load(
                     manifest_path, &weight_model) != 0 ||
@@ -548,7 +626,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                     executable.header->executable_id ||
                 opennpux_npu_weight_cache_init_sized(
                     &weight_cache, weight_cache_entries,
-                    page_service.cache, paging_layout.cache_slots,
+                    weight_cache_storage, paging_layout.cache_slots,
                     paging_layout.transfer_size) != 0) {
                 perror("executable-run real weight pager");
                 goto out;
@@ -596,14 +674,21 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         }
     }
     size_t route_size = 0;
+    route_image = calloc(1, route_capacity);
+    if (route_image == NULL) {
+        perror("executable-run route table allocation");
+        goto out;
+    }
+    print_paged_stage(paged, "build-route-table");
     if (opennpux_npu_route_table_build(
             active_routes, active_route_count,
-            (void *)(uintptr_t)(window.bytes + route_offset), route_capacity,
+            route_image, route_capacity,
             &route_size) != 0) {
         errno = EINVAL;
         perror("executable-run route table");
         goto out;
     }
+    copy_to_device_memory(window.bytes + route_offset, route_image, route_size);
     submission_bindings[5].byte_size = route_size;
     submission_bindings[5].dimensions[0] = active_route_count;
     header->checksum = 0;
@@ -615,12 +700,15 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         perror("executable-run stage");
         goto out;
     }
+    print_paged_stage(paged, "submission-staged");
     volatile struct opennpux_npu_completion *completion =
         (volatile struct opennpux_npu_completion *)(volatile void *)(
             window.bytes + completion_offset);
-    memset((void *)(uintptr_t)completion, 0, sizeof(*completion));
+    clear_device_memory((volatile uint8_t *)(volatile void *)completion,
+                        sizeof(*completion));
     __sync_synchronize();
     uint32_t device_status = 0;
+    print_paged_stage(paged, "device-run-and-page-service");
     const int run_result = paged ?
         opennpux_coral_run_with_service(
             dev, firmware_entry, polls, service_executable_page,
@@ -630,6 +718,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         perror("executable-run device");
         goto out;
     }
+    print_paged_stage(paged, "device-complete");
     __sync_synchronize();
     printf("transport=%s\n", opennpux_coral_transport_name(dev->transport));
     printf("executable_id=0x%016" PRIx64 "\n", header->executable_id);
@@ -806,8 +895,12 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
 out:
     opennpux_npu_weight_ranges_unload(&weight_ranges);
     free(weight_cache_entries);
+    free(weight_cache_storage);
     free(page_cursors);
     free(page_cursor_initialized);
+    free(residency_image);
+    free(queue_image);
+    free(route_image);
     free(weight_page);
     free(submission);
     opennpux_coral_close_shared_window(&window);
@@ -965,9 +1058,7 @@ copy_to_shared_window(struct opennpux_coral_shared_window *window,
         errno = ERANGE;
         return -1;
     }
-    for (uint32_t index = 0; index < size; ++index) {
-        window->bytes[index] = source[index];
-    }
+    copy_to_device_memory(window->bytes, source, size);
     // Publish shared-memory payload stores before the MMIO doorbell.
     __atomic_thread_fence(__ATOMIC_RELEASE);
     return 0;

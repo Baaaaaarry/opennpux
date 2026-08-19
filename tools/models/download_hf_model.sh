@@ -90,6 +90,24 @@ then
     exit 1
 fi
 
+MULTIMODAL="$(python3 - "${DESTINATION}/config.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    config = json.load(source)
+architectures = config.get("architectures", [])
+is_multimodal = "vision_config" in config or any(
+    str(name).endswith("ForConditionalGeneration") for name in architectures
+)
+print(1 if is_multimodal else 0)
+PY
+)"
+if [ "${MULTIMODAL}" = 1 ]; then
+    download_file preprocessor_config.json
+    download_optional video_preprocessor_config.json
+fi
+
 if ! download_file model.safetensors.index.json; then
     rm -f "${DESTINATION}/model.safetensors.index.json.part"
     echo "[hf-model] sharded index unavailable; trying single safetensors file"
@@ -135,6 +153,8 @@ for asset in \
     tokenizer_config.json \
     special_tokens_map.json \
     generation_config.json \
+    configuration.json \
+    chat_template.jinja \
     merges.txt \
     vocab.json
 do

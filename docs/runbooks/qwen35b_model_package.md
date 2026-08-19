@@ -274,6 +274,9 @@ rerun the setup script; it installs Optimum and GPTQModel by default. Set
 interpreter used by the simulation with `CORAL_HF_PYTHON=/path/to/python`.
 Qwen3.5 imports vision utilities even for the text next-token path, so the
 setup also installs a `torchvision` build from the same PyTorch wheel index.
+The model directory must also contain `preprocessor_config.json`; the runner
+detects old downloads missing that file and uses `download_hf_model.sh` to add
+the processor metadata without downloading existing weight shards again.
 The real-token generator defaults GPTQ loading to the portable
 `gptq_torch` backend because Qwen3.5 contains projections whose output width is
 not divisible by 64 and therefore cannot use Marlin. Override it only after

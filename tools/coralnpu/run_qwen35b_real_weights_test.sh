@@ -41,6 +41,23 @@ for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
         exit 1
     }
 done
+if [ ! -r "$MODEL_DIR/preprocessor_config.json" ] &&
+   python3 - "$MODEL_DIR/config.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    config = json.load(source)
+architectures = config.get("architectures", [])
+if not ("vision_config" in config or any(
+    str(name).endswith("ForConditionalGeneration") for name in architectures
+)):
+    raise SystemExit(1)
+PY
+then
+    echo "[coral-qwen35b-real-weights-test] completing multimodal processor assets" >&2
+    "${ROOT_DIR}/tools/models/download_hf_model.sh" "$MODEL_DIR"
+fi
 if [ "$SIM_HOST_NUMERICAL" != 0 ] && [ "$SIM_HOST_PAGING" = 0 ]; then
     echo "error: sim-host numerical inference requires sim-host paging" >&2
     exit 1

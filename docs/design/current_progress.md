@@ -612,7 +612,7 @@ Norm/RoPE 等设备 kernel 逐步替换 host numerical kernel。
 
 ## 2026-08-19 Qwen35B 多 token 自回归解码
 
-真实数值结果通路由单次 forward 扩展为最多 32 token 的贪心自回归解码，默认生成
+真实数值结果通路由单次 forward 扩展为最多 32 token 的自回归解码，默认生成
 8 token，并启用 Hugging Face KV cache。`.npxo` v2 扩展为 256 字节，新增最多 32 个
 真实 token ID、实际生成 token 数和停止原因；解码文本通过 inference I/O 的 128 字节返回区
 交给 Guest。`coralctl` 将 `OPENNPUX_MAX_NEW_TOKENS` 写入请求并严格校验返回数量，
@@ -647,7 +647,7 @@ backend 中的固定权重驻留，不再生成重复 page fault。该策略仅�
 ## 2026-08-19 Qwen Instruct prompt 与 token golden 验收
 
 真实 token 生成默认由 Qwen tokenizer 的 `chat_template` 将 CPU 原始 prompt 包装为
-user message 和 assistant generation prompt，再执行确定性的 greedy decode。此前直接
+user message 和 assistant generation prompt，再执行可复现的模型采样。此前直接
 tokenize 裸字符串属于文本续写语义，可能重复生成看似无意义但数值上自洽的 token；
 这不能作为 Instruct 模型的端到端正确性验收。
 
@@ -664,3 +664,9 @@ GB10 的 16-token 验收暴露 inference I/O 只在 256 字节 header 的 `reser
 现保留 256 字节主 ABI，在 output binding 紧邻区域发布最多 32 个 token ID，并在
 header 中记录 offset/bytes。Bridge、Guest runtime 和单测均校验数组边界、完整序列、
 词表范围及首 token，一次返回不再出现 `,...` 截断。
+
+完整序列返回后确认旧 golden 本身为 16 次重复 token。根因是 host generator 显式
+指定 `do_sample=False`，覆盖了 Qwen3.5 模型随包提供的 `generation_config.json`。
+默认数值 golden 现改为使用模型自带的 sampling/temperature/top-k/top-p，并以固定 seed
+保证可复现；`greedy` 仅作为显式回归模式保留。模型采样模式若仍生成全相同 token，
+generator 将直接失败，避免再次把退化输出标记为端到端 PASS。

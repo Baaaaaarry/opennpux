@@ -246,8 +246,8 @@ services the firmware page-fault queue directly in Local EXTMEM. The NPU still
 publishes and retires the same queue records, but the simulated ARM CPU no
 longer reads safetensors over 9P or copies each 64KiB page.
 
-The default acceptance path also runs real Hugging Face autoregressive greedy
-decode on the simulation host. By default it applies the tokenizer's own chat
+The default acceptance path also runs real Hugging Face autoregressive decode
+on the simulation host. By default it applies the tokenizer's own chat
 template with a user message and generation prompt before tokenization; set
 `CORAL_QWEN_PROMPT_FORMAT=raw` only when deliberately testing plain-text
 continuation. It uses the model KV cache and defaults to eight new tokens. The
@@ -267,6 +267,16 @@ The complete token-ID sequence is published in the output binding at
 byte length. This supports all 32 result tokens without truncating Guest output
 to the former 12 inline IDs. `coralctl` validates the external array bounds,
 every token against the vocabulary, and the first token against `next_token`.
+
+The numerical generator also honors the model's local `generation_config.json`
+by default. For the pinned Qwen3.5 GPTQ package this enables sampling with the
+model-provided temperature, top-k and top-p values. A fixed seed, default 42,
+makes the resulting golden reproducible. Set
+`CORAL_QWEN_GENERATION_SEED=<n>` to select another deterministic sample or
+`CORAL_QWEN_DECODE_MODE=greedy` for a strict argmax regression. Decode mode and
+seed are part of the cache key. Model-mode generation rejects an all-identical
+multi-token result instead of accepting a degenerate loop as a golden; use
+`OPENNPUX_ALLOW_DEGENERATE_OUTPUT=1` only for diagnosis.
 
 Install a recent model-compatible `torch`, `transformers`, `accelerate` and
 `numpy` environment before the first run. The GPTQ model may additionally need
@@ -312,6 +322,8 @@ from implemented NPU firmware/RTL kernels.
 CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
   CORAL_QWEN_PROMPT='Explain heterogeneous computing in one sentence.' \
   CORAL_QWEN_PROMPT_FORMAT=chat \
+  CORAL_QWEN_DECODE_MODE=model \
+  CORAL_QWEN_GENERATION_SEED=42 \
   CORAL_QWEN_MAX_NEW_TOKENS=8 \
   CORAL_SIM_HOST_PAGING=1 \
   CORAL_SIM_HOST_NUMERICAL=1 \
@@ -326,7 +338,7 @@ The first run prints `sim_host_bundle=PASS`; later runs reuse
 `CORAL_SIM_HOST_PAGING=0` to retain the cycle-slow Guest paging reference.
 Set `CORAL_REBUILD_SIM_HOST_RESULT=1` to rerun the real model forward, or
 `CORAL_SIM_HOST_NUMERICAL=0` to disable host numerical publication.
-Set `CORAL_QWEN_MAX_NEW_TOKENS=1..32` to control greedy decode length. The token
+Set `CORAL_QWEN_MAX_NEW_TOKENS=1..32` to control decode length. The token
 count is part of the cache filename, so results for different lengths cannot be
 reused accidentally. The prompt format is also part of the cache filename, so a
 legacy raw-continuation result cannot be reused by the default chat path. The

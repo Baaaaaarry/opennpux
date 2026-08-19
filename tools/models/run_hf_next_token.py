@@ -134,6 +134,17 @@ def main() -> None:
         type=int,
         default=int(os.environ.get("OPENNPUX_MAX_NEW_TOKENS", "8")),
     )
+    parser.add_argument(
+        "--decode-mode",
+        choices=("model", "greedy"),
+        default=os.environ.get("OPENNPUX_DECODE_MODE", "model"),
+        help="use the model generation_config or deterministic greedy decoding",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=int(os.environ.get("OPENNPUX_GENERATION_SEED", "42")),
+    )
     args = parser.parse_args()
     if not 1 <= args.max_new_tokens <= 32:
         parser.error("--max-new-tokens must be between 1 and 32")
@@ -159,19 +170,50 @@ def main() -> None:
     encoded = tokenizer(formatted_prompt, return_tensors="pt")
     input_device = next(model.parameters()).device
     encoded = {name: tensor.to(input_device) for name, tensor in encoded.items()}
+    generation_arguments = {
+        "max_new_tokens": args.max_new_tokens,
+        "use_cache": True,
+        "return_dict_in_generate": True,
+        "output_scores": True,
+    }
+    generation_config_path = args.model_dir / "generation_config.json"
+    generation_policy = {}
+    if args.decode_mode == "model":
+        if not generation_config_path.is_file():
+            raise ValueError(
+                "model decode mode requires generation_config.json"
+            )
+        generation_policy = json.loads(generation_config_path.read_text())
+        for name in (
+            "do_sample",
+            "temperature",
+            "top_k",
+            "top_p",
+            "repetition_penalty",
+            "eos_token_id",
+            "pad_token_id",
+            "bos_token_id",
+        ):
+            if name in generation_policy:
+                generation_arguments[name] = generation_policy[name]
+    else:
+        generation_arguments["do_sample"] = False
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
     with torch.inference_mode():
-        output = model.generate(
-            **encoded,
-            max_new_tokens=args.max_new_tokens,
-            do_sample=False,
-            use_cache=True,
-            return_dict_in_generate=True,
-            output_scores=True,
-        )
+        output = model.generate(**encoded, **generation_arguments)
     input_tokens = int(encoded["input_ids"].shape[-1])
     generated_ids = output.sequences[0, input_tokens:].detach().cpu().tolist()
     if not generated_ids or not output.scores:
         raise RuntimeError("model did not generate a token or return logits")
+    if (args.decode_mode == "model" and len(generated_ids) > 1 and
+            len(set(generated_ids)) == 1 and
+            os.environ.get("OPENNPUX_ALLOW_DEGENERATE_OUTPUT") is None):
+        raise RuntimeError(
+            "model sampling generated one repeated token; refusing a "
+            "degenerate numerical golden"
+        )
     token = int(generated_ids[0])
     vocabulary_size = int(output.scores[0].shape[-1])
     logits_checksum = 2166136261
@@ -221,6 +263,12 @@ def main() -> None:
     print(f"hf_numerical_backend={numerical_backend}")
     print(f"hf_numerical_torch_cse_compat={int(cse_compat)}")
     print(f"hf_numerical_prompt_format={args.prompt_format}")
+    print(f"hf_numerical_decode_mode={args.decode_mode}")
+    print(f"hf_numerical_generation_seed={args.seed}")
+    print(
+        "hf_numerical_generation_policy="
+        + json.dumps(generation_policy, sort_keys=True, separators=(",", ":"))
+    )
     print(f"hf_numerical_prompt_checksum=0x{fnv1a(prompt_bytes):08x}")
     print(
         "hf_numerical_formatted_prompt_checksum="
@@ -231,6 +279,7 @@ def main() -> None:
     print(f"hf_numerical_logits_checksum=0x{logits_checksum:08x}")
     print(f"hf_numerical_next_token={token}")
     print(f"hf_numerical_generated_tokens={len(generated_ids)}")
+    print(f"hf_numerical_unique_tokens={len(set(generated_ids))}")
     print("hf_numerical_token_ids=" + ",".join(str(value) for value in generated_ids))
     print(f"hf_numerical_stop_reason={stop_reason}")
     print(f"hf_numerical_token_text={decoded_text!r}")

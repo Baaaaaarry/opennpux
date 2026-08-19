@@ -274,6 +274,10 @@ rerun the setup script; it installs Optimum and GPTQModel by default. Set
 interpreter used by the simulation with `CORAL_HF_PYTHON=/path/to/python`.
 Qwen3.5 imports vision utilities even for the text next-token path, so the
 setup also installs a `torchvision` build from the same PyTorch wheel index.
+The real-token generator defaults GPTQ loading to the portable
+`gptq_torch` backend because Qwen3.5 contains projections whose output width is
+not divisible by 64 and therefore cannot use Marlin. Override it only after
+validating every model shape with `OPENNPUX_GPTQ_BACKEND=<backend>`.
 
 CUDA is not a gem5, Verilator, Coral RTL, AXI or DMA dependency. It is used only
 to accelerate the optional host-side Hugging Face forward that creates the

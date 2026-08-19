@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import struct
 import sys
@@ -33,18 +34,61 @@ def executable_id(path: Path) -> int:
     return struct.unpack_from("<Q", data, 48)[0]
 
 
+def load_model(model_dir: Path, backend_name: str):
+    config = json.loads((model_dir / "config.json").read_text())
+    quantization = config.get("quantization_config", {})
+    quant_method = str(
+        quantization.get("quant_method", quantization.get("method", ""))
+    ).lower()
+    if quant_method == "gptq":
+        from gptqmodel import BACKEND, GPTQModel
+
+        try:
+            backend = BACKEND(backend_name)
+        except ValueError as error:
+            choices = ", ".join(item.value for item in BACKEND)
+            raise ValueError(
+                f"unknown GPTQ backend {backend_name!r}; choose one of: {choices}"
+            ) from error
+        loaded = GPTQModel.load(
+            str(model_dir),
+            backend=backend,
+            device_map="auto",
+            trust_remote_code=True,
+            local_files_only=True,
+        )
+        model = getattr(loaded, "model", loaded)
+        return model, backend.value
+
+    from transformers import AutoModelForCausalLM
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir,
+        trust_remote_code=True,
+        local_files_only=True,
+        device_map="auto",
+        torch_dtype="auto",
+        low_cpu_mem_usage=True,
+    )
+    return model, "transformers-auto"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("model_dir", type=Path)
     parser.add_argument("executable", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--prompt", required=True)
+    parser.add_argument(
+        "--gptq-backend",
+        default=os.environ.get("OPENNPUX_GPTQ_BACKEND", "gptq_torch"),
+    )
     args = parser.parse_args()
 
     try:
         import numpy as np
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoTokenizer
     except ImportError as error:
         raise SystemExit(
             "real-token generation requires torch, transformers, accelerate "
@@ -54,14 +98,7 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_dir, trust_remote_code=True, local_files_only=True
     )
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_dir,
-        trust_remote_code=True,
-        local_files_only=True,
-        device_map="auto",
-        torch_dtype="auto",
-        low_cpu_mem_usage=True,
-    )
+    model, numerical_backend = load_model(args.model_dir, args.gptq_backend)
     model.eval()
     encoded = tokenizer(args.prompt, return_tensors="pt")
     input_device = next(model.parameters()).device
@@ -97,6 +134,7 @@ def main() -> None:
     temporary.write_bytes(record)
     temporary.replace(args.output)
     print(f"hf_numerical_executable_id=0x{executable_id(args.executable):016x}")
+    print(f"hf_numerical_backend={numerical_backend}")
     print(f"hf_numerical_prompt_checksum=0x{fnv1a(prompt_bytes):08x}")
     print(f"hf_numerical_input_tokens={encoded['input_ids'].shape[-1]}")
     print(f"hf_numerical_logits={logits.shape[0]}")

@@ -16,6 +16,7 @@
 #include "hw_sim/gem5_bridge/gem5_coprocessor_command.h"
 #include "hw_sim/gem5_bridge/gem5_custom_mac.h"
 #include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
+#include "hw_sim/gem5_bridge/gem5_sim_host_pager.h"
 #include "hw_sim/gem5_bridge/npu_weight_queue.h"
 #ifdef CORAL_GEM5_RVV_HIGHMEM
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
@@ -258,6 +259,7 @@ struct coral_gem5_handle {
   Gem5CoreMiniAxiWrapper wrapper;
   Gem5CustomMac custom_mac;
   Gem5CoprocessorCommandAdapter command_adapter;
+  Gem5SimHostPager sim_host_pager;
   std::array<AsyncOperatorSubmission,
              Gem5CoprocessorCommandAdapter::kSubmissionCapacity>
       async_submissions;
@@ -1088,6 +1090,7 @@ coral_gem5_reset(coral_gem5_handle* handle)
   handle->wrapper.Reset();
   handle->custom_mac.Reset();
   handle->command_adapter.Reset();
+  handle->sim_host_pager.Reset();
   handle->async_submissions.fill({});
   handle->firmware_progress = 0;
   handle->hybrid_status = 0;
@@ -1136,6 +1139,14 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
   if (handle == nullptr || cycles == 0) {
     return CORAL_GEM5_STEP_ERROR;
   }
+  const int initial_page = handle->sim_host_pager.Service(
+      &handle->local_extmem);
+  if (initial_page < 0) {
+    return CORAL_GEM5_STEP_ERROR;
+  }
+  if (initial_page > 0) {
+    handle->NotifyExtmemWrite();
+  }
   if (handle->dma_pending) {
     return CORAL_GEM5_STEP_DMA_WAIT;
   }
@@ -1153,6 +1164,14 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
     handle->wrapper.Step();
     handle->custom_mac.StepIfActive();
     handle->StepCommandPipeline();
+    const int serviced_page = handle->sim_host_pager.Service(
+        &handle->local_extmem);
+    if (serviced_page < 0) {
+      return CORAL_GEM5_STEP_ERROR;
+    }
+    if (serviced_page > 0) {
+      handle->NotifyExtmemWrite();
+    }
     if (handle->external_wait) {
       return CORAL_GEM5_STEP_EXTERNAL_WAIT;
     }

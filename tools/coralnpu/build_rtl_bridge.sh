@@ -111,6 +111,7 @@ fi
 "${ROOT_DIR}/tools/coralnpu/test_axi_adapter.sh"
 "${ROOT_DIR}/tools/coralnpu/test_coprocessor_command.sh"
 "${ROOT_DIR}/tools/coralnpu/test_custom_rtl.sh"
+"${ROOT_DIR}/tools/coralnpu/test_sim_host_pager.sh"
 
 # ---------------------------------------------------------------------------
 # Ensure Bazel cache and output directories exist.

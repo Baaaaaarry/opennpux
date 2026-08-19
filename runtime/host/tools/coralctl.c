@@ -468,6 +468,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                      uint32_t firmware_entry, int paged,
                      uint64_t polls)
 {
+    const int sim_host_paging = paged &&
+        getenv("OPENNPUX_SIM_HOST_PAGING") != NULL;
     print_paged_stage(paged, "load-executable");
     struct opennpux_npu_executable executable;
     if (opennpux_npu_executable_load(path, &executable) != 0) {
@@ -916,7 +918,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     }
     uint32_t device_status = 0;
     print_paged_stage(paged, "device-run-and-page-service");
-    const int run_result = paged ?
+    const int run_result = paged && !sim_host_paging ?
         opennpux_coral_run_with_service(
             dev, firmware_entry, polls, service_executable_page,
             &page_service, &device_status) :
@@ -1010,9 +1012,14 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         printf("paging_transfer_size=%" PRIu32 "\n",
                paging_layout.transfer_size);
         printf("paging_faults_serviced=%" PRIu64 "\n",
-               page_service.faults_serviced);
+               sim_host_paging ?
+                   (uint64_t)page_queue.header->service_index :
+                   page_service.faults_serviced);
         printf("paging_transfer_bytes=%" PRIu64 "\n",
-               page_service.transfer_bytes);
+               sim_host_paging ?
+                   (uint64_t)page_queue.header->service_index *
+                       paging_layout.transfer_size :
+                   page_service.transfer_bytes);
         printf("paging_queue_producer=%" PRIu32 "\n",
                page_queue.header->producer_index);
         printf("paging_queue_service=%" PRIu32 "\n",
@@ -1022,7 +1029,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         printf("paging_queue_backpressure=%" PRIu32 "\n",
                page_queue.header->backpressure_count);
         printf("paging_source=%s\n",
-               real_weights ? "model-ranges" : "repeated-page");
+               sim_host_paging ? "sim-host-direct" :
+               (real_weights ? "model-ranges" : "repeated-page"));
         if (real_weights) {
             printf("paging_weight_policy=%s\n",
                    page_service.max_pages_per_record == 0 ?
@@ -1117,12 +1125,17 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         perror("executable-run completion validation");
         goto out;
     }
+    const uint64_t observed_faults = sim_host_paging ?
+        page_queue.header->service_index : page_service.faults_serviced;
+    const uint64_t observed_transfer_bytes = sim_host_paging ?
+        observed_faults * paging_layout.transfer_size :
+        page_service.transfer_bytes;
     if (paged &&
-        (page_service.faults_serviced != trace->weight_page_requests ||
+        (observed_faults != trace->weight_page_requests ||
          page_queue.header->producer_index != trace->weight_page_requests ||
          page_queue.header->service_index != trace->weight_page_requests ||
          page_queue.header->retire_index != trace->weight_page_requests ||
-         page_service.transfer_bytes != trace->weight_dma_bytes)) {
+         observed_transfer_bytes != trace->weight_dma_bytes)) {
         errno = EIO;
         perror("executable-run paging validation");
         goto out;

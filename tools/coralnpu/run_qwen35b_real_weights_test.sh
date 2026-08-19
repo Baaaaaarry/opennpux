@@ -11,6 +11,7 @@ POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
 BASE="${CORAL_NPU_BASE:-0x1d000000}"
 PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
 NUMERICAL_ENV=""
+SIM_HOST_PAGING="${CORAL_SIM_HOST_PAGING:-1}"
 [ "${CORAL_QWEN35B_NUMERICAL:-0}" = 0 ] ||
     NUMERICAL_ENV="OPENNPUX_NPU_NUMERICAL=1"
 
@@ -43,6 +44,40 @@ command -v diod >/dev/null 2>&1 || {
     echo "Ubuntu: sudo apt-get install diod" >&2
     exit 1
 }
+
+SIM_HOST_ENV=""
+SIM_HOST_BUNDLE=""
+if [ "$SIM_HOST_PAGING" != 0 ]; then
+    if [ "${CORAL_QWEN35B_NUMERICAL:-0}" = 0 ]; then
+        BUNDLE_MODE="functional"
+        BUNDLE_MAX_PAGES=1
+    else
+        BUNDLE_MODE="numerical"
+        BUNDLE_MAX_PAGES=0
+    fi
+    SIM_HOST_BUNDLE="${CORAL_SIM_HOST_PAGE_BUNDLE:-${ROOT_DIR}/build/model-pages/qwen35b-${BUNDLE_MODE}-64k.npxb}"
+    bundle_stale=0
+    [ -r "$SIM_HOST_BUNDLE" ] || bundle_stale=1
+    if [ "$bundle_stale" -eq 0 ] &&
+       { [ "$MODEL_DIR/$MANIFEST_NAME" -nt "$SIM_HOST_BUNDLE" ] ||
+         [ "$MODEL_DIR/$RANGE_NAME" -nt "$SIM_HOST_BUNDLE" ]; }; then
+        bundle_stale=1
+    fi
+    if [ "$bundle_stale" -eq 0 ] &&
+       find "$MODEL_DIR" -maxdepth 1 -type f -name '*.safetensors' \
+           -newer "$SIM_HOST_BUNDLE" -print -quit | grep -q .; then
+        bundle_stale=1
+    fi
+    if [ "$bundle_stale" -eq 1 ] ||
+       [ "${CORAL_REBUILD_SIM_HOST_BUNDLE:-0}" != 0 ]; then
+        echo "[coral-qwen35b-real-weights-test] building sim-host page bundle" >&2
+        "${ROOT_DIR}/tools/models/build_sim_host_page_bundle.sh" \
+            "$MODEL_DIR/$MANIFEST_NAME" "$MODEL_DIR/$RANGE_NAME" \
+            "$SIM_HOST_BUNDLE" 65536 "$BUNDLE_MAX_PAGES"
+    fi
+    SIM_HOST_ENV="OPENNPUX_SIM_HOST_PAGING=1"
+    echo "[coral-qwen35b-real-weights-test] sim-host bundle: $SIM_HOST_BUNDLE" >&2
+fi
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
     if [ ! -r "$KERNEL_RELEASE_FILE" ]; then
@@ -125,10 +160,10 @@ for asset in '$EXECUTABLE_NAME' '$MANIFEST_NAME' '$RANGE_NAME'; do
         exit 1
     fi
 done
-OPENNPUX_PROMPT='$PROMPT' \
-$NUMERICAL_ENV \
-OPENNPUX_MODEL_ROOT=/mnt/opennpux-model \
-/tmp/coralctl executable-run-paged \
+env $NUMERICAL_ENV $SIM_HOST_ENV \
+    OPENNPUX_PROMPT='$PROMPT' \
+    OPENNPUX_MODEL_ROOT=/mnt/opennpux-model \
+    /tmp/coralctl executable-run-paged \
     /mnt/opennpux-model/$EXECUTABLE_NAME decode \
     /mnt/opennpux-model/$MANIFEST_NAME \
     /mnt/opennpux-model/$RANGE_NAME \
@@ -145,6 +180,7 @@ EOF
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 cd "${ROOT_DIR}/thirdparty/gem5"
 CORAL_NPU_BACKEND=verilated-coral \
+CORAL_SIM_HOST_PAGE_BUNDLE="$SIM_HOST_BUNDLE" \
 CORAL_RTL_BRIDGE="$BRIDGE" \
 CORAL_RTL_FIRMWARE="$FIRMWARE" \
 CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}" \

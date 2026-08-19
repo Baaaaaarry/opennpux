@@ -578,3 +578,16 @@ QKV/attention、residual、SwiGLU、LM head 和 TopK 数值计算；最终 logit
 数值集成测试、严格 coralctl 编译。GB10 待执行 Verilator + full-system 验收：
 `./tools/coralnpu/build_qwen_device.sh` 后运行
 `./tools/coralnpu/run_qwen_e2e_test.sh`。
+
+## 2026-08-19 Qwen35B sim-host direct paging
+
+为消除真实权重分页在模拟 D9300 上执行 9P 文件读取、range 解析和 64KiB 逐字节
+拷贝造成的数小时开销，新增宿主机直接分页模式。宿主预生成流式 `.npxb` 页包；
+Coral Verilated bridge 直接监听固件 page-fault queue，将权重页写入 Local EXTMEM，
+发布 residency record，并完成 `PENDING -> READY` 与 service index 更新。固件、NPU
+命令处理器、producer/retire 和完成校验协议保持不变，Guest 分页保留为参考回退。
+
+本地已通过页包生成、跳过未请求 command、cache/residency/queue 原子更新单测，
+严格 native coralctl 编译及完整 model-package 回归。GB10 验收运行
+`CORAL_SIM_HOST_PAGING=1 ./tools/coralnpu/run_qwen35b_real_weights_test.sh`，预期输出
+`paging_source=sim-host-direct` 和最终 PASS。

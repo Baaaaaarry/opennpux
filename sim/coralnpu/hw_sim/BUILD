@@ -127,6 +127,7 @@ cc_library(
     name = "gem5_npu_submission_headers",
     hdrs = [
         "gem5_bridge/npu_submission.h",
+        "gem5_bridge/npu_page_bundle.h",
         "gem5_bridge/npu_weight_queue.h",
         "gem5_bridge/npu_weight_residency.h",
     ],
@@ -156,6 +157,8 @@ cc_binary(
         "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_operator.cc",
         "gem5_bridge/gem5_hybrid_operator.h",
+        "gem5_bridge/gem5_sim_host_pager.cc",
+        "gem5_bridge/gem5_sim_host_pager.h",
         "gem5_bridge/qwen_device_inference.h",
     ],
     linkshared = True,
@@ -193,6 +196,8 @@ cc_binary(
         "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_operator.cc",
         "gem5_bridge/gem5_hybrid_operator.h",
+        "gem5_bridge/gem5_sim_host_pager.cc",
+        "gem5_bridge/gem5_sim_host_pager.h",
         "gem5_bridge/qwen_device_inference.h",
     ],
     copts = ["-DCORAL_GEM5_RVV_HIGHMEM"],
@@ -215,6 +220,16 @@ cc_test(
         "gem5_bridge/gem5_coprocessor_command.h",
         "gem5_bridge/gem5_coprocessor_command_test.cc",
     ],
+)
+
+cc_test(
+    name = "gem5_sim_host_pager_test",
+    srcs = [
+        "gem5_bridge/gem5_sim_host_pager.cc",
+        "gem5_bridge/gem5_sim_host_pager.h",
+        "gem5_bridge/gem5_sim_host_pager_test.cc",
+    ],
+    deps = [":gem5_npu_submission_headers"],
 )
 
 cc_test(

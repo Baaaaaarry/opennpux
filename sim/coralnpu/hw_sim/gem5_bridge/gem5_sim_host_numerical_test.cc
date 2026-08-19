@@ -71,6 +71,7 @@ int main() {
   input->prompt_checksum = result.prompt_checksum;
   input->vocabulary_size = result.vocabulary_size;
   input->max_new_tokens = 3;
+  input->input_token_count = result.input_token_count;
   auto* output = At<opennpux_npu_inference_io>(&extmem, 0x2000);
   output->magic = OPENNPUX_NPU_INFERENCE_IO_MAGIC;
   output->version = OPENNPUX_NPU_INFERENCE_IO_VERSION;

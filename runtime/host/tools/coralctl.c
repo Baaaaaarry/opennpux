@@ -38,18 +38,19 @@ byte_checksum(const void *data, size_t size)
 }
 
 static int
-inference_max_new_tokens(uint32_t *value)
+inference_u32_env(const char *name, uint32_t default_value,
+                  uint32_t maximum, uint32_t *value)
 {
-    const char *text = getenv("OPENNPUX_MAX_NEW_TOKENS");
+    const char *text = getenv(name);
     if (text == NULL || text[0] == '\0') {
-        *value = 1;
+        *value = default_value;
         return 0;
     }
     char *end = NULL;
     errno = 0;
     const unsigned long parsed = strtoul(text, &end, 0);
     if (errno != 0 || end == text || *end != '\0' || parsed == 0 ||
-        parsed > 32) {
+        parsed > maximum) {
         errno = EINVAL;
         return -1;
     }
@@ -582,6 +583,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct opennpux_npu_inference_io inference_request_image;
     struct opennpux_npu_inference_io inference_result_image;
     uint32_t max_new_tokens = 1;
+    uint32_t input_token_count = 1;
     struct opennpux_model_package_info weight_model;
     struct opennpux_npu_weight_ranges weight_ranges;
     struct opennpux_npu_weight_cache weight_cache;
@@ -625,9 +627,27 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     uint8_t *submission = malloc(window.size);
     size_t submission_size = 0;
     int rc = 1;
-    if (submission == NULL || opennpux_npu_executable_instantiate(
-            &executable, entry_point, 1, 1, bindings, paged ? 9 : 6, submission,
-            window.size, &submission_size) != 0) {
+    if (inference_prompt != NULL &&
+        (inference_u32_env("OPENNPUX_MAX_NEW_TOKENS", 1, 32,
+                           &max_new_tokens) != 0 ||
+         inference_u32_env("OPENNPUX_INPUT_TOKEN_COUNT", 1,
+                           (uint32_t)OPENNPUX_NPU_RUNTIME_FIELD_MASK - 31,
+                           &input_token_count) != 0)) {
+        perror("executable-run inference shape");
+        goto out;
+    }
+    const struct opennpux_npu_invocation_parameters invocation_parameters = {
+        .batch_size = 1,
+        .sequence_length = input_token_count,
+        .kv_length = entry_point == OPENNPUX_NPU_ENTRY_DECODE ?
+            input_token_count + max_new_tokens - 1 : 0,
+        .active_experts = active_route_count,
+    };
+    if (submission == NULL ||
+        opennpux_npu_executable_instantiate_with_parameters(
+            &executable, entry_point, 1, 1, &invocation_parameters,
+            bindings, paged ? 9 : 6, submission, window.size,
+            &submission_size) != 0) {
         perror("executable-run instantiate");
         goto out;
     }
@@ -878,8 +898,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     if (inference_prompt != NULL) {
         print_paged_stage(paged, "initialize-inference-io");
         const size_t prompt_size = strlen(inference_prompt);
-        if (inference_max_new_tokens(&max_new_tokens) != 0 ||
-            !real_weights || prompt_size == 0 ||
+        if (!real_weights || prompt_size == 0 ||
             prompt_size >= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
             NPU_INPUT_BUFFER_SIZE < sizeof(*inference_request) ||
             NPU_OUTPUT_BUFFER_SIZE < sizeof(*inference_result)) {
@@ -905,7 +924,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             byte_checksum(inference_prompt, prompt_size);
         inference_request->vocabulary_size = weight_model.vocab_size;
         inference_request->max_new_tokens = max_new_tokens;
-        inference_request->input_token_count = 1;
+        inference_request->input_token_count = input_token_count;
         memcpy(inference_request->prompt, inference_prompt, prompt_size);
         copy_to_device_memory(window.bytes + input_offset,
                               (const uint8_t *)inference_request,
@@ -1008,6 +1027,9 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     printf("runtime_kv=%" PRIu64 "\n",
            (runtime_shape >> OPENNPUX_NPU_RUNTIME_KV_SHIFT) &
                OPENNPUX_NPU_RUNTIME_FIELD_MASK);
+    if (inference_prompt != NULL) {
+        printf("runtime_generation_tokens=%" PRIu32 "\n", max_new_tokens);
+    }
     printf("runtime_active_experts=%" PRIu64 "\n",
            (runtime_shape >> OPENNPUX_NPU_RUNTIME_EXPERT_SHIFT) &
            OPENNPUX_NPU_RUNTIME_FIELD_MASK);

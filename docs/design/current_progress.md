@@ -597,7 +597,7 @@ Coral Verilated bridge 直接监听固件 page-fault queue，将权重页写入 
 在 sim-host direct paging 基础上新增真实数值结果通路。宿主机使用原始 Hugging Face
 Qwen3.5-35B GPTQ 权重和 CPU 侧输入 prompt 执行一次真实 forward，对最后位置 logits
 执行 argmax，并将 token id、token text、logits checksum、prompt checksum 和 executable
-ID 写入固定 128 字节 `.npxo` 记录。结果按 prompt 缓存在 `build/model-results/`。
+ID 写入 `.npxo` 记录。结果按 prompt 缓存在 `build/model-results/`。
 
 Verilated bridge 只在 NPU firmware 完成全部 invocation command 后发布该结果，并严格
 校验 executable ID、prompt checksum、vocabulary size、输出 ABI 和 completed command
@@ -618,3 +618,9 @@ Norm/RoPE 等设备 kernel 逐步替换 host numerical kernel。
 交给 Guest。`coralctl` 将 `OPENNPUX_MAX_NEW_TOKENS` 写入请求并严格校验返回数量，
 bridge 仍只在 524-command NPU invocation 完成后发布数值结果。该增量验证连续生成的
 系统协议与生命周期，数值计算仍属于 Hybrid sim-host kernel。
+
+运行脚本同时从 `.npxo` v2 提取 tokenizer 产生的真实输入 token 数，并写入通用
+invocation runtime shape。Decode 的 `sequence_length` 为 prompt token 数，
+`kv_length` 为 prompt token 数加生成 token 数减一，替代此前固定的 `1/1`；bridge
+严格校验 inference request 与数值结果的 input-token 数一致。这使调度、统计和后续
+逐 token/KV page 实现建立在真实动态 shape 上。

@@ -120,6 +120,7 @@ fi
 
 SIM_HOST_NUMERICAL_ENV=""
 SIM_HOST_RESULT=""
+INPUT_TOKEN_COUNT=1
 if [ "$SIM_HOST_NUMERICAL" != 0 ]; then
     PROMPT_TAG="$(python3 - "$PROMPT" <<'PY'
 import sys
@@ -164,7 +165,21 @@ PY
             --max-new-tokens "$MAX_NEW_TOKENS"
     fi
     SIM_HOST_NUMERICAL_ENV="OPENNPUX_SIM_HOST_NUMERICAL=1"
+    INPUT_TOKEN_COUNT="$(python3 - "$SIM_HOST_RESULT" <<'PY'
+import struct
+import sys
+
+data = open(sys.argv[1], "rb").read()
+if len(data) != 256 or struct.unpack_from("<III", data) != (0x5258504e, 2, 256):
+    raise SystemExit("invalid OpenNPUX numerical result v2")
+value = struct.unpack_from("<I", data, 40)[0]
+if value == 0 or value > 65504:
+    raise SystemExit("invalid numerical input token count")
+print(value)
+PY
+)"
     echo "[coral-qwen35b-real-weights-test] numerical result: $SIM_HOST_RESULT" >&2
+    echo "[coral-qwen35b-real-weights-test] input tokens: $INPUT_TOKEN_COUNT" >&2
 fi
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
@@ -251,6 +266,7 @@ done
 env $NUMERICAL_ENV $SIM_HOST_ENV $SIM_HOST_NUMERICAL_ENV \
     OPENNPUX_PROMPT='$PROMPT' \
     OPENNPUX_MAX_NEW_TOKENS='$MAX_NEW_TOKENS' \
+    OPENNPUX_INPUT_TOKEN_COUNT='$INPUT_TOKEN_COUNT' \
     OPENNPUX_MODEL_ROOT=/mnt/opennpux-model \
     /tmp/coralctl executable-run-paged \
     /mnt/opennpux-model/$EXECUTABLE_NAME decode \

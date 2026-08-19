@@ -317,6 +317,13 @@ Set `CORAL_QWEN_MAX_NEW_TOKENS=1..32` to control greedy decode length. The token
 count is part of the cache filename, so results for different lengths cannot be
 reused accidentally.
 
+The runner reads the tokenizer-derived input length from `.npxo` v2 and passes
+it to Guest runtime as `OPENNPUX_INPUT_TOKEN_COUNT`. Decode invocation metadata
+therefore reports `runtime_sequence=<prompt tokens>` and
+`runtime_kv=<prompt tokens + generated tokens - 1>` instead of the former
+fixed `1/1` shape. The bridge rejects a numerical result whose input-token
+count differs from the submitted inference request.
+
 Acceptance requires `paging_source=sim-host-direct`, equal
 `paging_queue_producer/service/retire` values, `inference_mode=numerical`,
 `inference_result_source=sim-host-numerical`, a nonempty

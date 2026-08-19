@@ -125,6 +125,7 @@ int Gem5SimHostNumerical::Publish(std::vector<uint8_t>* extmem) {
       input->struct_size != sizeof(*input) ||
       input->prompt_checksum != result_.prompt_checksum ||
       input->vocabulary_size != result_.vocabulary_size ||
+      input->input_token_count != result_.input_token_count ||
       input->max_new_tokens == 0 ||
       result_.generated_token_count > input->max_new_tokens ||
       output->magic != OPENNPUX_NPU_INFERENCE_IO_MAGIC ||

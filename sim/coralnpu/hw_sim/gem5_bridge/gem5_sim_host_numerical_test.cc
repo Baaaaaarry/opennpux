@@ -77,7 +77,7 @@ int main() {
   output->version = OPENNPUX_NPU_INFERENCE_IO_VERSION;
   output->struct_size = sizeof(*output);
   output->state = OPENNPUX_NPU_INFERENCE_COMPLETE;
-  output->completed_commands = 524;
+  output->completed_commands = 524 * input->max_new_tokens;
 
   Gem5SimHostNumerical numerical;
   assert(numerical.enabled());

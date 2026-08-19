@@ -116,8 +116,13 @@ int Gem5SimHostNumerical::Publish(std::vector<uint8_t>* extmem) {
       extmem, bindings[0].device_address);
   auto* output = At<opennpux_npu_inference_io>(
       extmem, bindings[1].device_address);
+  const uint64_t expected_commands =
+      static_cast<uint64_t>(invocation->command_count) * input->max_new_tokens;
+  if (expected_commands > UINT32_MAX) {
+    return -1;
+  }
   if (output->state != OPENNPUX_NPU_INFERENCE_COMPLETE ||
-      output->completed_commands != invocation->command_count) {
+      output->completed_commands != expected_commands) {
     return 0;
   }
   if (input->magic != OPENNPUX_NPU_INFERENCE_IO_MAGIC ||

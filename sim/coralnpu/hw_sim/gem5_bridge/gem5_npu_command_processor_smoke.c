@@ -536,6 +536,9 @@ main(void)
             inference_input->prompt_size >=
                 OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
             inference_input->vocabulary_size == 0 ||
+            inference_input->max_new_tokens == 0 ||
+            inference_input->max_new_tokens > 32 ||
+            inference_input->input_token_count == 0 ||
             inference_input->prompt_checksum != byte_checksum(
                 (volatile const uint8_t *)inference_input->prompt,
                 inference_input->prompt_size)) {
@@ -557,9 +560,18 @@ main(void)
     uint64_t cycles = 0;
     uint32_t relocated = 0;
     uint32_t parameter_checksum = UINT32_C(2166136261);
-    uint32_t retired_token = 0;
+    const uint32_t execution_steps = inference_input == NULL ? 1 :
+        inference_input->max_new_tokens;
+    if (header->command_count > UINT32_MAX / execution_steps) {
+        finish(completion, OPENNPUX_NPU_COMPLETION_ERROR, ERROR_BOUNDS, 0);
+        return 1;
+    }
+    const uint32_t executed_commands =
+        header->command_count * execution_steps;
     trace->weight_checksum = UINT32_C(2166136261);
-    for (uint32_t index = 0; index < header->command_count; ++index) {
+    for (uint32_t step = 0; step < execution_steps; ++step) {
+      uint32_t retired_token = 0;
+      for (uint32_t index = 0; index < header->command_count; ++index) {
         if (commands[index].opcode == 0 ||
             commands[index].opcode > OPENNPUX_NPU_TRACE_MAX_OPCODE ||
             commands[index].capability_id == 0 ||
@@ -590,10 +602,12 @@ main(void)
         }
         const uint32_t batch_size =
             commands[index].runtime_shape & OPENNPUX_NPU_RUNTIME_FIELD_MASK;
-        const uint32_t sequence_length =
+        const uint32_t invocation_sequence_length =
             (commands[index].runtime_shape >>
              OPENNPUX_NPU_RUNTIME_SEQUENCE_SHIFT) &
             OPENNPUX_NPU_RUNTIME_FIELD_MASK;
+        const uint32_t sequence_length = step == 0 ?
+            invocation_sequence_length : 1;
         const uint32_t active_expert_count =
             (commands[index].runtime_shape >>
              OPENNPUX_NPU_RUNTIME_EXPERT_SHIFT) &
@@ -609,7 +623,8 @@ main(void)
              OPENNPUX_NPU_RESOURCE_SCRATCH_SHIFT) &
             OPENNPUX_NPU_RUNTIME_FIELD_MASK;
         if (commands[index].parameter_symbol == 0 || batch_size == 0 ||
-            sequence_length == 0 || weight_binding >= header->binding_count ||
+            invocation_sequence_length == 0 ||
+            weight_binding >= header->binding_count ||
             state_binding >= header->binding_count ||
             scratch_binding >= header->binding_count ||
             (bindings[weight_binding].flags &
@@ -755,9 +770,11 @@ weight_complete:
         trace->capability_mask |= UINT64_C(1) << commands[index].opcode;
         trace->estimated_operations += operations;
         trace->estimated_bytes += command_bytes;
-        completion->completed_commands = index + 1;
+        completion->completed_commands =
+            step * header->command_count + index + 1;
+      }
     }
-    trace->command_count = header->command_count;
+    trace->command_count = executed_commands;
     completion->npu_cycles = cycles;
     completion->dma_bytes_read = trace->weight_dma_bytes;
     completion->reserved[0] = relocated;

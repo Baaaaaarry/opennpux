@@ -624,3 +624,10 @@ invocation runtime shape。Decode 的 `sequence_length` 为 prompt token 数，
 `kv_length` 为 prompt token 数加生成 token 数减一，替代此前固定的 `1/1`；bridge
 严格校验 inference request 与数值结果的 input-token 数一致。这使调度、统计和后续
 逐 token/KV page 实现建立在真实动态 shape 上。
+
+RV32 command processor 已将 inference invocation 从单次模板遍历扩展为逐 token
+状态机：第 0 步以真实 prompt sequence 执行 prefill，后续步骤以 sequence=1 执行
+decode。每一步重新建立 dependency retirement 边界，并累计 command completion、
+operator trace、分页请求、operations/bytes 和 modeled cycles。默认 8-token 请求对
+524-command 模板产生 4192 个已执行 command；Host runtime、bridge 和 Guest 验证均
+拒绝只完成单步模板的旧结果。

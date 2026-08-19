@@ -1001,12 +1001,24 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                                 sizeof(*inference_result));
     }
     __sync_synchronize();
+    const uint32_t execution_steps = inference_request == NULL ? 1 :
+        inference_request->max_new_tokens;
+    if (header->command_count > UINT32_MAX / execution_steps) {
+        errno = EOVERFLOW;
+        perror("executable-run executed command count");
+        goto out;
+    }
+    const uint32_t expected_executed_commands =
+        header->command_count * execution_steps;
     printf("transport=%s\n", opennpux_coral_transport_name(dev->transport));
     printf("executable_id=0x%016" PRIx64 "\n", header->executable_id);
     printf("entry_point=%" PRIu32 "\n", entry_point);
     printf("submission_bytes=%zu\n", submission_size);
     printf("completion_offset=0x%zx\n", completion_offset);
     printf("submitted_commands=%" PRIu32 "\n", header->command_count);
+    printf("execution_steps=%" PRIu32 "\n", execution_steps);
+    printf("expected_executed_commands=%" PRIu32 "\n",
+           expected_executed_commands);
     printf("device_status=0x%08" PRIx32 "\n", device_status);
     printf("completion_state=%" PRIu32 "\n", completion->state);
     printf("completion_error=%" PRIu32 "\n", completion->error_code);
@@ -1162,13 +1174,13 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         completion->sequence != header->sequence ||
         completion->state != OPENNPUX_NPU_COMPLETION_SUCCESS ||
         completion->error_code != 0 ||
-        completion->completed_commands != header->command_count ||
-        completion->reserved[0] != header->command_count ||
+        completion->completed_commands != expected_executed_commands ||
+        completion->reserved[0] != expected_executed_commands ||
         completion->reserved[1] == 0 ||
         completion->reserved0 != active_route_count ||
         completion->completion_fence != route_table->checksum ||
         trace == NULL ||
-        trace->command_count != header->command_count) {
+        trace->command_count != expected_executed_commands) {
         errno = EIO;
         perror("executable-run completion validation");
         goto out;
@@ -1239,7 +1251,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                 inference_request->prompt_checksum ||
             inference_result->vocabulary_size !=
                 inference_request->vocabulary_size ||
-            inference_result->completed_commands != header->command_count ||
+            inference_result->completed_commands !=
+                expected_executed_commands ||
             inference_result->next_token >=
                 inference_result->vocabulary_size ||
             (sim_host_numerical &&

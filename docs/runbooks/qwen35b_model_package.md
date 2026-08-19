@@ -324,6 +324,15 @@ therefore reports `runtime_sequence=<prompt tokens>` and
 fixed `1/1` shape. The bridge rejects a numerical result whose input-token
 count differs from the submitted inference request.
 
+The RV32 command processor replays the executable command template once per
+requested output token. Step zero is the prefill step and uses the submitted
+prompt sequence length; subsequent steps use sequence length one while retaining
+the final KV length in runtime metadata. For the current 524-command template
+and eight generated tokens, acceptance therefore requires
+`execution_steps=8`, `expected_executed_commands=4192`, and
+`completed_commands=4192`. Trace command counts, page requests and modeled
+cycles cover all eight steps rather than one template traversal.
+
 Acceptance requires `paging_source=sim-host-direct`, equal
 `paging_queue_producer/service/retire` values, `inference_mode=numerical`,
 `inference_result_source=sim-host-numerical`, a nonempty

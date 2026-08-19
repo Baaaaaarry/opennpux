@@ -93,18 +93,6 @@ fi
 SIM_HOST_NUMERICAL_ENV=""
 SIM_HOST_RESULT=""
 if [ "$SIM_HOST_NUMERICAL" != 0 ]; then
-    if [ ! -x "$HF_PYTHON" ]; then
-        echo "error: HF numerical Python environment is missing: $HF_PYTHON" >&2
-        echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2
-        exit 1
-    fi
-    if ! "$HF_PYTHON" -c \
-        'import accelerate, numpy, safetensors, torch, transformers' \
-        >/dev/null 2>&1; then
-        echo "error: HF numerical Python dependencies are incomplete" >&2
-        echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2
-        exit 1
-    fi
     PROMPT_TAG="$(python3 - "$PROMPT" <<'PY'
 import sys
 value = 2166136261
@@ -128,6 +116,18 @@ PY
     fi
     if [ "$result_stale" -eq 1 ] ||
        [ "${CORAL_REBUILD_SIM_HOST_RESULT:-0}" != 0 ]; then
+        if [ ! -x "$HF_PYTHON" ]; then
+            echo "error: HF numerical Python environment is missing: $HF_PYTHON" >&2
+            echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2
+            exit 1
+        fi
+        if ! "$HF_PYTHON" -c \
+            'import accelerate, numpy, safetensors, torch, transformers' \
+            >/dev/null 2>&1; then
+            echo "error: HF numerical Python dependencies are incomplete" >&2
+            echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2
+            exit 1
+        fi
         echo "[coral-qwen35b-real-weights-test] running real HF numerical forward" >&2
         "$HF_PYTHON" "${ROOT_DIR}/tools/models/run_hf_next_token.py" \
             "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \

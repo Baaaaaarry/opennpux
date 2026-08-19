@@ -272,6 +272,14 @@ PyTorch wheel index. If Transformers reports that the GPTQ backend is missing,
 rerun with `OPENNPUX_INSTALL_GPTQMODEL=1`. Override the interpreter used by the
 simulation with `CORAL_HF_PYTHON=/path/to/python`.
 
+CUDA is not a gem5, Verilator, Coral RTL, AXI or DMA dependency. It is used only
+to accelerate the optional host-side Hugging Face forward that creates the
+real-token `.npxo` reference. CPU-only PyTorch is valid but substantially
+slower for the 35B model. Once an `.npxo` record exists, subsequent runs reuse
+it without importing PyTorch or requiring CUDA. Full-RTL runs can disable this
+path with `CORAL_SIM_HOST_NUMERICAL=0`; their numerical result must then come
+from implemented NPU firmware/RTL kernels.
+
 ```sh
 CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
   CORAL_SIM_HOST_PAGING=1 \

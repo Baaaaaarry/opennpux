@@ -676,3 +676,8 @@ Host 数值结果不可信。生成器默认加载路径现由直接 `GPTQModel.
 模型卡指定的 `AutoModelForMultimodalLM + AutoProcessor`，文本 prompt 也通过官方
 多模态 processor 的 chat template/tokenize 接口构造。旧 `gptqmodel` loader 仅保留为
 诊断回退，loader 名进入缓存键；运行脚本还会在复用任何缓存前拒绝全相同 token golden。
+
+官方 Transformers 路径原先未显式传递 GPTQ kernel，自动选择的 Marlin 要求输出宽度
+按 64 对齐，而模型包含 `out_features=32` 的窄投影，因而在 forward 前即失败。当前
+加载器以模型原始量化参数构造 `GPTQConfig`，但强制默认 backend 为便携的
+`gptq_torch`；backend 同时进入结果缓存键，避免复用由其它 kernel 生成的 golden。

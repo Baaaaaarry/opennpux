@@ -285,7 +285,7 @@ under a conditional-generation architecture. The former direct
 `GPTQModel.load` path bypassed the official processor/model pairing and produced
 multilingual token fragments despite a valid transport golden. It remains
 available as `CORAL_QWEN_MODEL_LOADER=gptqmodel` for backend diagnosis only.
-The loader name is part of the result cache key.
+The loader name and quantization backend are part of the result cache key.
 
 Install a recent model-compatible `torch`, `transformers`, `accelerate` and
 `numpy` environment before the first run. The GPTQ model may additionally need
@@ -311,8 +311,13 @@ detects old downloads missing that file and uses `download_hf_model.sh` to add
 the processor metadata without downloading existing weight shards again.
 The real-token generator defaults GPTQ loading to the portable
 `gptq_torch` backend because Qwen3.5 contains projections whose output width is
-not divisible by 64 and therefore cannot use Marlin. Override it only after
-validating every model shape with `OPENNPUX_GPTQ_BACKEND=<backend>`.
+not divisible by 64 and therefore cannot use Marlin. The official Transformers
+loader receives this setting through an explicit `GPTQConfig`; relying on auto
+selection can instantiate `MarlinLinear` and fail on an `out_features=32`
+projection. Override it only after validating every model shape with
+`CORAL_QWEN_GPTQ_BACKEND=<backend>`. A successful load reports
+`hf_numerical_backend=transformers-multimodal:gptq_torch` and
+`hf_numerical_quant_backend=gptq_torch`.
 PyTorch 2.10.0 has a known Python 3.12 TorchInductor `CSE` generic annotation
 regression and has no 2.10.1 bug-fix release. The generator detects that exact
 API mismatch and applies a process-local second-parameter default before

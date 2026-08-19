@@ -66,7 +66,19 @@ def load_model(model_dir: Path, loader_name: str, backend_name: str):
         quantization.get("quant_method", quantization.get("method", ""))
     ).lower()
     if loader_name == "transformers":
-        from transformers import AutoModelForMultimodalLM
+        from transformers import AutoModelForMultimodalLM, GPTQConfig
+
+        model_arguments = {}
+        if quant_method == "gptq":
+            # Do not let Transformers silently select Marlin. Qwen3.5 has
+            # narrow projections that violate Marlin's output-width rules.
+            quantization_arguments = dict(quantization)
+            quantization_arguments.pop("quant_method", None)
+            quantization_arguments.pop("method", None)
+            quantization_arguments["backend"] = backend_name
+            model_arguments["quantization_config"] = GPTQConfig(
+                **quantization_arguments
+            )
 
         model = AutoModelForMultimodalLM.from_pretrained(
             model_dir,
@@ -75,8 +87,10 @@ def load_model(model_dir: Path, loader_name: str, backend_name: str):
             device_map="auto",
             torch_dtype="auto",
             low_cpu_mem_usage=True,
+            **model_arguments,
         )
-        return model, "transformers-multimodal", False
+        backend = backend_name if quant_method == "gptq" else "native"
+        return model, f"transformers-multimodal:{backend}", False
 
     if quant_method == "gptq":
         cse_compat = patch_torch_cse_generic()
@@ -299,6 +313,7 @@ def main() -> None:
     print(f"hf_numerical_executable_id=0x{executable_id(args.executable):016x}")
     print(f"hf_numerical_backend={numerical_backend}")
     print(f"hf_numerical_model_loader={args.model_loader}")
+    print(f"hf_numerical_quant_backend={args.gptq_backend}")
     print(f"hf_numerical_torch_cse_compat={int(cse_compat)}")
     print(f"hf_numerical_prompt_format={args.prompt_format}")
     print(f"hf_numerical_decode_mode={args.decode_mode}")

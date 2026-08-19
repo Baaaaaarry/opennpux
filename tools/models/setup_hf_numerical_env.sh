@@ -58,11 +58,14 @@ import safetensors
 import torch
 import torchvision
 import transformers
+from transformers import AutoModelForMultimodalLM, AutoProcessor
 
 print(f"hf_env_python={__import__('sys').executable}")
 print(f"hf_env_torch={torch.__version__}")
 print(f"hf_env_torchvision={torchvision.__version__}")
 print(f"hf_env_transformers={transformers.__version__}")
+print(f"hf_env_multimodal_loader={AutoModelForMultimodalLM.__name__}")
+print(f"hf_env_processor={AutoProcessor.__name__}")
 print(f"hf_env_numpy={numpy.__version__}")
 print(f"hf_env_accelerate={accelerate.__version__}")
 print(f"hf_env_optimum={getattr(optimum, '__version__', 'installed')}")

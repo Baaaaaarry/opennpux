@@ -278,6 +278,15 @@ seed are part of the cache key. Model-mode generation rejects an all-identical
 multi-token result instead of accepting a degenerate loop as a golden; use
 `OPENNPUX_ALLOW_DEGENERATE_OUTPUT=1` only for diagnosis.
 
+The default `CORAL_QWEN_MODEL_LOADER=transformers` follows the model card's
+multimodal text path with `AutoModelForMultimodalLM` and `AutoProcessor`, even
+for a text-only prompt. This matters because Qwen3.5 packages text and vision
+under a conditional-generation architecture. The former direct
+`GPTQModel.load` path bypassed the official processor/model pairing and produced
+multilingual token fragments despite a valid transport golden. It remains
+available as `CORAL_QWEN_MODEL_LOADER=gptqmodel` for backend diagnosis only.
+The loader name is part of the result cache key.
+
 Install a recent model-compatible `torch`, `transformers`, `accelerate` and
 `numpy` environment before the first run. The GPTQ model may additionally need
 the quantization backend required by the selected Transformers release.
@@ -323,6 +332,7 @@ CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
   CORAL_QWEN_PROMPT='Explain heterogeneous computing in one sentence.' \
   CORAL_QWEN_PROMPT_FORMAT=chat \
   CORAL_QWEN_DECODE_MODE=model \
+  CORAL_QWEN_MODEL_LOADER=transformers \
   CORAL_QWEN_GENERATION_SEED=42 \
   CORAL_QWEN_MAX_NEW_TOKENS=8 \
   CORAL_SIM_HOST_PAGING=1 \

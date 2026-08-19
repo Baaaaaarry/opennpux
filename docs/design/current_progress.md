@@ -670,3 +670,9 @@ header 中记录 offset/bytes。Bridge、Guest runtime 和单测均校验数组�
 默认数值 golden 现改为使用模型自带的 sampling/temperature/top-k/top-p，并以固定 seed
 保证可复现；`greedy` 仅作为显式回归模式保留。模型采样模式若仍生成全相同 token，
 generator 将直接失败，避免再次把退化输出标记为端到端 PASS。
+
+官方 sampling 消除单 token 循环后仍产生多语言碎片，说明 transport 与 golden 一致但
+Host 数值结果不可信。生成器默认加载路径现由直接 `GPTQModel.load` 切换为 Qwen3.5
+模型卡指定的 `AutoModelForMultimodalLM + AutoProcessor`，文本 prompt 也通过官方
+多模态 processor 的 chat template/tokenize 接口构造。旧 `gptqmodel` loader 仅保留为
+诊断回退，loader 名进入缓存键；运行脚本还会在复用任何缓存前拒绝全相同 token golden。

@@ -59,12 +59,25 @@ def patch_torch_cse_generic() -> bool:
     return True
 
 
-def load_model(model_dir: Path, backend_name: str):
+def load_model(model_dir: Path, loader_name: str, backend_name: str):
     config = json.loads((model_dir / "config.json").read_text())
     quantization = config.get("quantization_config", {})
     quant_method = str(
         quantization.get("quant_method", quantization.get("method", ""))
     ).lower()
+    if loader_name == "transformers":
+        from transformers import AutoModelForMultimodalLM
+
+        model = AutoModelForMultimodalLM.from_pretrained(
+            model_dir,
+            trust_remote_code=True,
+            local_files_only=True,
+            device_map="auto",
+            torch_dtype="auto",
+            low_cpu_mem_usage=True,
+        )
+        return model, "transformers-multimodal", False
+
     if quant_method == "gptq":
         cse_compat = patch_torch_cse_generic()
         from gptqmodel import BACKEND, GPTQModel
@@ -86,17 +99,7 @@ def load_model(model_dir: Path, backend_name: str):
         model = getattr(loaded, "model", loaded)
         return model, backend.value, cse_compat
 
-    from transformers import AutoModelForCausalLM
-
-    model = AutoModelForCausalLM.from_pretrained(
-        model_dir,
-        trust_remote_code=True,
-        local_files_only=True,
-        device_map="auto",
-        torch_dtype="auto",
-        low_cpu_mem_usage=True,
-    )
-    return model, "transformers-auto", False
+    raise ValueError("gptqmodel loader requires a GPTQ model package")
 
 
 def format_prompt(tokenizer, prompt: str, prompt_format: str) -> str:
@@ -111,6 +114,36 @@ def format_prompt(tokenizer, prompt: str, prompt_format: str) -> str:
         tokenize=False,
         add_generation_prompt=True,
     )
+
+
+def prepare_inputs(model_dir: Path, prompt: str, prompt_format: str):
+    from transformers import AutoProcessor
+
+    processor = AutoProcessor.from_pretrained(
+        model_dir, trust_remote_code=True, local_files_only=True
+    )
+    tokenizer = processor.tokenizer
+    if prompt_format == "raw":
+        formatted_prompt = prompt
+        encoded = processor(text=prompt, return_tensors="pt")
+    else:
+        messages = [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}],
+            }
+        ]
+        formatted_prompt = processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        encoded = processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt",
+        )
+    return processor, tokenizer, formatted_prompt, encoded
 
 
 def main() -> None:
@@ -128,6 +161,12 @@ def main() -> None:
     parser.add_argument(
         "--gptq-backend",
         default=os.environ.get("OPENNPUX_GPTQ_BACKEND", "gptq_torch"),
+    )
+    parser.add_argument(
+        "--model-loader",
+        choices=("transformers", "gptqmodel"),
+        default=os.environ.get("OPENNPUX_MODEL_LOADER", "transformers"),
+        help="use the official Transformers multimodal loader or GPTQModel",
     )
     parser.add_argument(
         "--max-new-tokens",
@@ -152,22 +191,20 @@ def main() -> None:
     try:
         import numpy as np
         import torch
-        from transformers import AutoTokenizer
     except ImportError as error:
         raise SystemExit(
             "real-token generation requires torch, transformers, accelerate "
             f"and numpy: {error}"
         )
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_dir, trust_remote_code=True, local_files_only=True
-    )
-    formatted_prompt = format_prompt(tokenizer, args.prompt, args.prompt_format)
     model, numerical_backend, cse_compat = load_model(
-        args.model_dir, args.gptq_backend
+        args.model_dir, args.model_loader, args.gptq_backend
     )
     model.eval()
-    encoded = tokenizer(formatted_prompt, return_tensors="pt")
+    processor, tokenizer, formatted_prompt, encoded = prepare_inputs(
+        args.model_dir, args.prompt, args.prompt_format
+    )
+    del processor
     input_device = next(model.parameters()).device
     encoded = {name: tensor.to(input_device) for name, tensor in encoded.items()}
     generation_arguments = {
@@ -261,6 +298,7 @@ def main() -> None:
     temporary.replace(args.output)
     print(f"hf_numerical_executable_id=0x{executable_id(args.executable):016x}")
     print(f"hf_numerical_backend={numerical_backend}")
+    print(f"hf_numerical_model_loader={args.model_loader}")
     print(f"hf_numerical_torch_cse_compat={int(cse_compat)}")
     print(f"hf_numerical_prompt_format={args.prompt_format}")
     print(f"hf_numerical_decode_mode={args.decode_mode}")

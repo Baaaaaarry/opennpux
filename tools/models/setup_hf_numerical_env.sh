@@ -34,13 +34,18 @@ fi
 
 "$VENV/bin/python" -m pip install -r "$REQUIREMENTS"
 
-if [ "${OPENNPUX_INSTALL_GPTQMODEL:-0}" != 0 ]; then
-    "$VENV/bin/python" -m pip install gptqmodel
+if [ "${OPENNPUX_INSTALL_GPTQMODEL:-1}" != 0 ] &&
+   ! "$VENV/bin/python" -c \
+       'import importlib.util; assert importlib.util.find_spec("gptqmodel")' \
+       >/dev/null 2>&1; then
+    echo "[hf-env] installing the GPTQModel backend" >&2
+    "$VENV/bin/python" -m pip install --no-build-isolation gptqmodel
 fi
 
 "$VENV/bin/python" - <<'PY'
 import accelerate
 import numpy
+import optimum
 import safetensors
 import torch
 import transformers
@@ -50,6 +55,7 @@ print(f"hf_env_torch={torch.__version__}")
 print(f"hf_env_transformers={transformers.__version__}")
 print(f"hf_env_numpy={numpy.__version__}")
 print(f"hf_env_accelerate={accelerate.__version__}")
+print(f"hf_env_optimum={getattr(optimum, '__version__', 'installed')}")
 print(f"hf_env_safetensors={safetensors.__version__}")
 print(f"hf_env_cuda={torch.cuda.is_available()}")
 print("hf_env=PASS")

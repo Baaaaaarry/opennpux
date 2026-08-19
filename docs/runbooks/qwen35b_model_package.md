@@ -269,8 +269,9 @@ The setup uses `--system-site-packages`, so an optimized PyTorch already
 installed on GB10 is reused. If PyTorch is absent, it installs the default pip
 build. Set `OPENNPUX_TORCH_INDEX_URL` when the platform requires a specific
 PyTorch wheel index. If Transformers reports that the GPTQ backend is missing,
-rerun with `OPENNPUX_INSTALL_GPTQMODEL=1`. Override the interpreter used by the
-simulation with `CORAL_HF_PYTHON=/path/to/python`.
+rerun the setup script; it installs Optimum and GPTQModel by default. Set
+`OPENNPUX_INSTALL_GPTQMODEL=0` only for non-GPTQ models. Override the
+interpreter used by the simulation with `CORAL_HF_PYTHON=/path/to/python`.
 
 CUDA is not a gem5, Verilator, Coral RTL, AXI or DMA dependency. It is used only
 to accelerate the optional host-side Hugging Face forward that creates the

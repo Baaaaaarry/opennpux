@@ -12,6 +12,7 @@ BASE="${CORAL_NPU_BASE:-0x1d000000}"
 PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
 NUMERICAL_ENV=""
 SIM_HOST_PAGING="${CORAL_SIM_HOST_PAGING:-1}"
+SIM_HOST_NUMERICAL="${CORAL_SIM_HOST_NUMERICAL:-1}"
 [ "${CORAL_QWEN35B_NUMERICAL:-0}" = 0 ] ||
     NUMERICAL_ENV="OPENNPUX_NPU_NUMERICAL=1"
 
@@ -39,6 +40,15 @@ for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
         exit 1
     }
 done
+if [ "$SIM_HOST_NUMERICAL" != 0 ] && [ "$SIM_HOST_PAGING" = 0 ]; then
+    echo "error: sim-host numerical inference requires sim-host paging" >&2
+    exit 1
+fi
+if [ "$SIM_HOST_NUMERICAL" != 0 ] &&
+   [ "${CORAL_QWEN35B_NUMERICAL:-0}" != 0 ]; then
+    echo "error: select sim-host numerical or firmware numerical, not both" >&2
+    exit 1
+fi
 command -v diod >/dev/null 2>&1 || {
     echo "error: diod is required for the guest model mount" >&2
     echo "Ubuntu: sudo apt-get install diod" >&2
@@ -77,6 +87,41 @@ if [ "$SIM_HOST_PAGING" != 0 ]; then
     fi
     SIM_HOST_ENV="OPENNPUX_SIM_HOST_PAGING=1"
     echo "[coral-qwen35b-real-weights-test] sim-host bundle: $SIM_HOST_BUNDLE" >&2
+fi
+
+SIM_HOST_NUMERICAL_ENV=""
+SIM_HOST_RESULT=""
+if [ "$SIM_HOST_NUMERICAL" != 0 ]; then
+    PROMPT_TAG="$(python3 - "$PROMPT" <<'PY'
+import sys
+value = 2166136261
+for byte in sys.argv[1].encode():
+    value = ((value ^ byte) * 16777619) & 0xffffffff
+print(f"{value:08x}")
+PY
+)"
+    SIM_HOST_RESULT="${CORAL_SIM_HOST_INFERENCE_RESULT:-${ROOT_DIR}/build/model-results/qwen35b-${PROMPT_TAG}.npxo}"
+    result_stale=0
+    [ -r "$SIM_HOST_RESULT" ] || result_stale=1
+    if [ "$result_stale" -eq 0 ] &&
+       { [ "$MODEL_DIR/config.json" -nt "$SIM_HOST_RESULT" ] ||
+         [ "$MODEL_DIR/$EXECUTABLE_NAME" -nt "$SIM_HOST_RESULT" ]; }; then
+        result_stale=1
+    fi
+    if [ "$result_stale" -eq 0 ] &&
+       find "$MODEL_DIR" -maxdepth 1 -type f -name '*.safetensors' \
+           -newer "$SIM_HOST_RESULT" -print -quit | grep -q .; then
+        result_stale=1
+    fi
+    if [ "$result_stale" -eq 1 ] ||
+       [ "${CORAL_REBUILD_SIM_HOST_RESULT:-0}" != 0 ]; then
+        echo "[coral-qwen35b-real-weights-test] running real HF numerical forward" >&2
+        python3 "${ROOT_DIR}/tools/models/run_hf_next_token.py" \
+            "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \
+            "$SIM_HOST_RESULT" --prompt "$PROMPT"
+    fi
+    SIM_HOST_NUMERICAL_ENV="OPENNPUX_SIM_HOST_NUMERICAL=1"
+    echo "[coral-qwen35b-real-weights-test] numerical result: $SIM_HOST_RESULT" >&2
 fi
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
@@ -160,7 +205,7 @@ for asset in '$EXECUTABLE_NAME' '$MANIFEST_NAME' '$RANGE_NAME'; do
         exit 1
     fi
 done
-env $NUMERICAL_ENV $SIM_HOST_ENV \
+env $NUMERICAL_ENV $SIM_HOST_ENV $SIM_HOST_NUMERICAL_ENV \
     OPENNPUX_PROMPT='$PROMPT' \
     OPENNPUX_MODEL_ROOT=/mnt/opennpux-model \
     /tmp/coralctl executable-run-paged \
@@ -181,6 +226,7 @@ EOF
 cd "${ROOT_DIR}/thirdparty/gem5"
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_SIM_HOST_PAGE_BUNDLE="$SIM_HOST_BUNDLE" \
+CORAL_SIM_HOST_INFERENCE_RESULT="$SIM_HOST_RESULT" \
 CORAL_RTL_BRIDGE="$BRIDGE" \
 CORAL_RTL_FIRMWARE="$FIRMWARE" \
 CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}" \

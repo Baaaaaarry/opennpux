@@ -238,7 +238,7 @@ error, `gptq_projection_reference=PASS`, and `gptq_projection_run=PASS`.
 Select another real projection with `CORAL_GPTQ_LAYER`, `CORAL_GPTQ_EXPERT`
 and `CORAL_GPTQ_SLOT=gate_proj|up_proj|down_proj`.
 
-## Fast Full-System Paging
+## Fast Full-System Paging And Real Token
 
 The Qwen35B full-system test defaults to sim-host direct paging. The host
 materializes a streaming `.npxb` page bundle once; the Verilated bridge then
@@ -246,18 +246,39 @@ services the firmware page-fault queue directly in Local EXTMEM. The NPU still
 publishes and retires the same queue records, but the simulated ARM CPU no
 longer reads safetensors over 9P or copies each 64KiB page.
 
+The default acceptance path also runs one real Hugging Face numerical forward
+pass on the simulation host. It caches the logits argmax and decoded token in a
+128-byte `.npxo` result record. The bridge validates the executable ID, prompt
+checksum and vocabulary size, then publishes that result only after the NPU
+firmware has completed the entire 524-command invocation. This is a hybrid
+numerical path: command scheduling, paging and completion remain NPU-visible,
+while the current full-model numerical kernel runs on the host. It must not be
+reported as full-RTL numerical execution.
+
+Install a recent model-compatible `torch`, `transformers`, `accelerate` and
+`numpy` environment before the first run. The GPTQ model may additionally need
+the quantization backend required by the selected Transformers release.
+
 ```sh
 CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
   CORAL_SIM_HOST_PAGING=1 \
+  CORAL_SIM_HOST_NUMERICAL=1 \
   ./tools/coralnpu/run_qwen35b_real_weights_test.sh
 ```
 
 The first run prints `sim_host_bundle=PASS`; later runs reuse
-`build/model-pages/qwen35b-functional-64k.npxb`. Set
+`build/model-pages/qwen35b-functional-64k.npxb`. It also prints
+`hf_numerical=PASS` and caches the prompt-specific result under
+`build/model-results/`. Set
 `CORAL_REBUILD_SIM_HOST_BUNDLE=1` to force regeneration, or
 `CORAL_SIM_HOST_PAGING=0` to retain the cycle-slow Guest paging reference.
+Set `CORAL_REBUILD_SIM_HOST_RESULT=1` to rerun the real model forward, or
+`CORAL_SIM_HOST_NUMERICAL=0` to disable host numerical publication.
+
 Acceptance requires `paging_source=sim-host-direct`, equal
-`paging_queue_producer/service/retire` values, `executable_run=PASS`, and
+`paging_queue_producer/service/retire` values, `inference_mode=numerical`,
+`inference_result_source=sim-host-numerical`, a nonempty
+`inference_token_text`, `inference_run=PASS`, `executable_run=PASS`, and
 `[coral-qwen35b-real-weights-test] PASS`.
 
 Before booting, the runner recomputes the staged image on the host and injects

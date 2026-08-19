@@ -2,6 +2,7 @@
 #include "opennpux/model_package.h"
 #include "opennpux/npu_executable.h"
 #include "opennpux/npu_inference_io.h"
+#include "opennpux/npu_numerical_result.h"
 #include "opennpux/npu_paging_layout.h"
 #include "opennpux/npu_router.h"
 #include "opennpux/npu_weight_queue.h"
@@ -470,6 +471,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
 {
     const int sim_host_paging = paged &&
         getenv("OPENNPUX_SIM_HOST_PAGING") != NULL;
+    const int sim_host_numerical =
+        getenv("OPENNPUX_SIM_HOST_NUMERICAL") != NULL;
     print_paged_stage(paged, "load-executable");
     struct opennpux_npu_executable executable;
     if (opennpux_npu_executable_load(path, &executable) != 0) {
@@ -871,6 +874,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         inference_request->struct_size = sizeof(*inference_request);
         inference_request->state = OPENNPUX_NPU_INFERENCE_PENDING;
         inference_request->mode =
+            sim_host_numerical ||
             (header->flags & OPENNPUX_NPU_INVOKE_NUMERICAL) != 0 ?
                 OPENNPUX_NPU_INFERENCE_MODE_NUMERICAL :
                 OPENNPUX_NPU_INFERENCE_MODE_FUNCTIONAL;
@@ -1156,6 +1160,15 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                inference_result->next_token);
         printf("inference_result_checksum=0x%08" PRIx32 "\n",
                inference_result->result_checksum);
+        if (inference_result->reserved[0] ==
+            OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST) {
+            const uint32_t text_size = inference_result->reserved[1];
+            printf("inference_result_source=sim-host-numerical\n");
+            if (text_size <= 14 * sizeof(uint32_t)) {
+                printf("inference_token_text=%.*s\n", (int)text_size,
+                       (const char *)&inference_result->reserved[2]);
+            }
+        }
         if (inference_result->magic != OPENNPUX_NPU_INFERENCE_IO_MAGIC ||
             inference_result->version != OPENNPUX_NPU_INFERENCE_IO_VERSION ||
             inference_result->struct_size != sizeof(*inference_result) ||
@@ -1167,7 +1180,15 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                 inference_request->vocabulary_size ||
             inference_result->completed_commands != header->command_count ||
             inference_result->next_token >=
-                inference_result->vocabulary_size) {
+                inference_result->vocabulary_size ||
+            (sim_host_numerical &&
+             (inference_result->mode !=
+                  OPENNPUX_NPU_INFERENCE_MODE_NUMERICAL ||
+              inference_result->reserved[0] !=
+                  OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST ||
+              inference_result->reserved[1] == 0 ||
+              inference_result->reserved[1] >
+                  14 * sizeof(uint32_t)))) {
             errno = EIO;
             perror("executable-run inference validation");
             goto out;

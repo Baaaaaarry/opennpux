@@ -591,3 +591,21 @@ Coral Verilated bridge 直接监听固件 page-fault queue，将权重页写入 
 严格 native coralctl 编译及完整 model-package 回归。GB10 验收运行
 `CORAL_SIM_HOST_PAGING=1 ./tools/coralnpu/run_qwen35b_real_weights_test.sh`，预期输出
 `paging_source=sim-host-direct` 和最终 PASS。
+
+## 2026-08-19 Qwen35B 真实 next-token 混合验收
+
+在 sim-host direct paging 基础上新增真实数值结果通路。宿主机使用原始 Hugging Face
+Qwen3.5-35B GPTQ 权重和 CPU 侧输入 prompt 执行一次真实 forward，对最后位置 logits
+执行 argmax，并将 token id、token text、logits checksum、prompt checksum 和 executable
+ID 写入固定 128 字节 `.npxo` 记录。结果按 prompt 缓存在 `build/model-results/`。
+
+Verilated bridge 只在 NPU firmware 完成全部 invocation command 后发布该结果，并严格
+校验 executable ID、prompt checksum、vocabulary size、输出 ABI 和 completed command
+数量。Guest `coralctl` 要求 `inference_mode=numerical`、
+`inference_result_source=sim-host-numerical`，并输出真实的
+`inference_next_token` 与 `inference_token_text`。
+
+该路径用于尽快完成“CPU 输入 prompt -> NPU 控制/分页/执行完成 -> CPU 收到真实
+token”的系统级验收。数值 forward 当前属于 Hybrid sim-host kernel，不代表 35B 模型
+已在 Coral RTL 内逐算子完成数值执行；后续仍需以 MatMul/GPTQ、Attention、MoE、
+Norm/RoPE 等设备 kernel 逐步替换 host numerical kernel。

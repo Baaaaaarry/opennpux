@@ -63,6 +63,7 @@ class CoralVerilatedBackend : public CoralBackend
     uint32_t firmwareEntry;
     bool dmaRequestPending;
     bool wfiObserved;
+    bool externalWait;
     uint64_t rtlEventCount;
     uint64_t rtlDmaRequestCount;
     CoralDmaRequest pendingDmaRequest;
@@ -89,6 +90,7 @@ class CoralVerilatedBackend : public CoralBackend
     bool hasPendingEvent() const override;
     Tick nextEventTick() const override;
     void processEvent() override;
+    bool externallyBlocked() const override { return externalWait; }
     uint32_t entryPoint() const { return firmwareEntry; }
     bool hasDmaRequest() const override { return dmaRequestPending; }
     const CoralDmaRequest &dmaRequest() const override;

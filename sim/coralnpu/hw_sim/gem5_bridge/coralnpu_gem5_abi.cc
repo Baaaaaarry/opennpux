@@ -16,6 +16,7 @@
 #include "hw_sim/gem5_bridge/gem5_coprocessor_command.h"
 #include "hw_sim/gem5_bridge/gem5_custom_mac.h"
 #include "hw_sim/gem5_bridge/gem5_dma_request_builder.h"
+#include "hw_sim/gem5_bridge/npu_weight_queue.h"
 #ifdef CORAL_GEM5_RVV_HIGHMEM
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
 #endif
@@ -30,6 +31,8 @@ constexpr uint32_t kFirmwareProgressAddr =
     OPENNPUX_CORAL_MOBILENET_PROGRESS_ADDR;
 constexpr uint32_t kExtmemBase = 0x20000000;
 constexpr uint32_t kExtmemSize = 8 * 1024 * 1024;
+constexpr uint32_t kExternalPollThreshold = 32;
+constexpr uint32_t kExternalPendingState = 1;
 #ifdef CORAL_GEM5_RVV_HIGHMEM
 constexpr uint32_t kShellCsrBase = 0x00030000;
 constexpr uint32_t kCsrSize = 0x00001000;
@@ -268,6 +271,9 @@ struct coral_gem5_handle {
   uint64_t local_extmem_writes;
   uint64_t local_extmem_bytes;
   std::array<uint64_t, 6> local_extmem_widths;
+  uint32_t external_poll_addr;
+  uint32_t external_poll_count;
+  bool external_wait;
   uint64_t rtl_cycles;
   uint64_t hybrid_ops_per_cycle;
   uint64_t hybrid_bytes_per_cycle;
@@ -287,6 +293,56 @@ struct coral_gem5_handle {
   // the channel handshake levels to pinpoint the stall.
   uint64_t last_activity_cycles;
   uint64_t watchdog_cycles;
+
+  void ObserveExtmemRead(uint32_t addr, uint32_t size,
+                         const uint8_t* data) {
+    uint32_t value = 0;
+    if (size != sizeof(value) || data == nullptr) {
+      external_poll_addr = 0;
+      external_poll_count = 0;
+      return;
+    }
+    std::memcpy(&value, data, sizeof(value));
+    const uint32_t state_offset = static_cast<uint32_t>(
+        offsetof(opennpux_npu_page_fault, state));
+    if (value != kExternalPendingState ||
+        addr < kExtmemBase + state_offset) {
+      external_poll_addr = 0;
+      external_poll_count = 0;
+      return;
+    }
+    const size_t fault_offset = addr - kExtmemBase - state_offset;
+    if (fault_offset >
+        local_extmem.size() - sizeof(opennpux_npu_page_fault)) {
+      external_poll_addr = 0;
+      external_poll_count = 0;
+      return;
+    }
+    opennpux_npu_page_fault fault = {};
+    std::memcpy(&fault, local_extmem.data() + fault_offset, sizeof(fault));
+    if (fault.magic != OPENNPUX_NPU_PAGE_FAULT_MAGIC ||
+        fault.version != OPENNPUX_NPU_PAGE_FAULT_VERSION ||
+        fault.struct_size != sizeof(fault)) {
+      external_poll_addr = 0;
+      external_poll_count = 0;
+      return;
+    }
+    if (external_poll_addr == addr) {
+      ++external_poll_count;
+    } else {
+      external_poll_addr = addr;
+      external_poll_count = 1;
+    }
+    if (external_poll_count >= kExternalPollThreshold) {
+      external_wait = true;
+    }
+  }
+
+  void NotifyExtmemWrite() {
+    external_poll_addr = 0;
+    external_poll_count = 0;
+    external_wait = false;
+  }
 
   AsyncOperatorSubmission* FindAsyncSubmission(uint32_t tag) {
     for (AsyncOperatorSubmission& submission : async_submissions) {
@@ -585,6 +641,9 @@ struct coral_gem5_handle {
         local_extmem_writes(0),
         local_extmem_bytes(0),
         local_extmem_widths(),
+        external_poll_addr(0),
+        external_poll_count(0),
+        external_wait(false),
         rtl_cycles(0),
         hybrid_ops_per_cycle(ReadEnvU64("CORAL_HYBRID_OPS_PER_CYCLE", 1)),
         hybrid_bytes_per_cycle(
@@ -703,6 +762,7 @@ struct coral_gem5_handle {
           response.read_data_bits_last = beat + 1 == dma_beat_count;
           wrapper.QueueReadResponse(response);
         }
+        ObserveExtmemRead(pending_dma.addr, pending_dma.size, source);
         ++local_extmem_reads;
         local_extmem_bytes += pending_dma.size;
         ++local_extmem_widths[AccessWidthBucket(pending_dma.size)];
@@ -926,6 +986,7 @@ struct coral_gem5_handle {
                 }
               }
             }
+            NotifyExtmemWrite();
             ++local_extmem_writes;
             local_extmem_bytes += total_bytes;
             ++local_extmem_widths[
@@ -972,6 +1033,7 @@ struct coral_gem5_handle {
             std::memcpy(local_extmem.data() +
                             (pending_dma.addr - kExtmemBase),
                         pending_dma.data, pending_dma.size);
+            NotifyExtmemWrite();
             ++local_extmem_writes;
             local_extmem_bytes += pending_dma.size;
             ++local_extmem_widths[AccessWidthBucket(pending_dma.size)];
@@ -1029,6 +1091,9 @@ coral_gem5_reset(coral_gem5_handle* handle)
   handle->async_submissions.fill({});
   handle->firmware_progress = 0;
   handle->hybrid_status = 0;
+  handle->external_poll_addr = 0;
+  handle->external_poll_count = 0;
+  handle->external_wait = false;
   handle->rtl_cycles = 0;
   handle->progress_cycles = 0;
   handle->progress_accesses = 0;
@@ -1069,22 +1134,28 @@ extern "C" int
 coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
 {
   if (handle == nullptr || cycles == 0) {
-    return -1;
+    return CORAL_GEM5_STEP_ERROR;
   }
   if (handle->dma_pending) {
-    return 2;
+    return CORAL_GEM5_STEP_DMA_WAIT;
+  }
+  if (handle->external_wait) {
+    return CORAL_GEM5_STEP_EXTERNAL_WAIT;
   }
   for (uint32_t i = 0; i < cycles; ++i) {
     if (handle->wrapper.HasFault()) {
-      return 4;
+      return CORAL_GEM5_STEP_FAULT;
     }
     if (handle->wrapper.IsHalted()) {
-      return 1;
+      return CORAL_GEM5_STEP_HALTED;
     }
     ++handle->rtl_cycles;
     handle->wrapper.Step();
     handle->custom_mac.StepIfActive();
     handle->StepCommandPipeline();
+    if (handle->external_wait) {
+      return CORAL_GEM5_STEP_EXTERNAL_WAIT;
+    }
     if (handle->rtl_cycles - handle->last_activity_cycles >=
         handle->watchdog_cycles) {
       // No AXI master activity for a full watchdog window: dump the channel
@@ -1093,16 +1164,17 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
       handle->wrapper.DumpMasterChannels(handle->rtl_cycles);
     }
     if (handle->dma_pending) {
-      return 2;
+      return CORAL_GEM5_STEP_DMA_WAIT;
     }
     if (handle->wrapper.HasFault()) {
-      return 4;
+      return CORAL_GEM5_STEP_FAULT;
     }
     if (handle->wrapper.IsHalted()) {
-      return 1;
+      return CORAL_GEM5_STEP_HALTED;
     }
   }
-  return handle->wrapper.IsWfi() ? 3 : 0;
+  return handle->wrapper.IsWfi() ? CORAL_GEM5_STEP_WFI :
+                                   CORAL_GEM5_STEP_RUNNING;
 }
 
 extern "C" uint64_t
@@ -1186,6 +1258,7 @@ coral_gem5_extmem_enable(coral_gem5_handle* handle, int enable)
     return -1;
   }
   handle->local_extmem_enabled = enable != 0;
+  handle->NotifyExtmemWrite();
   if (handle->local_extmem_enabled) {
     std::fill(handle->local_extmem.begin(), handle->local_extmem.end(), 0);
     handle->local_extmem_reads = 0;
@@ -1219,6 +1292,7 @@ coral_gem5_extmem_write(
     return -1;
   }
   std::memcpy(handle->local_extmem.data() + (addr - kExtmemBase), data, size);
+  handle->NotifyExtmemWrite();
   return 0;
 }
 

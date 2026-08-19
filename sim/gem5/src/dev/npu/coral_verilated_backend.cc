@@ -34,6 +34,7 @@ constexpr Addr kMcauseOffset = 0x3010c;
 constexpr Addr kCoralExtmemBase = 0x20000000;
 constexpr Addr kCompletionAddressOffset = 112;
 constexpr Addr kCompletionProgressOffset = 96;
+constexpr uint64_t kExternalWaitPollCycles = 1000000;
 constexpr uint32_t kResetBit = 1u << 0;
 constexpr uint32_t kClockGateBit = 1u << 1;
 
@@ -93,6 +94,7 @@ CoralVerilatedBackend::CoralVerilatedBackend(const std::string &coral_repo,
     firmwareEntry(0),
     dmaRequestPending(false),
     wfiObserved(false),
+    externalWait(false),
     rtlEventCount(0),
     rtlDmaRequestCount(0),
     pendingDmaRequest()
@@ -307,6 +309,7 @@ CoralVerilatedBackend::write(PacketPtr pkt, Addr pio_addr)
         resetControl = pkt->getLE<uint32_t>() &
             (kResetBit | kClockGateBit);
         running = !(resetControl & (kResetBit | kClockGateBit));
+        externalWait = false;
         if (running && !wasRunning) {
             rtlEventCount = 0;
             rtlDmaRequestCount = 0;
@@ -365,7 +368,7 @@ CoralVerilatedBackend::processEvent()
     const Tick stepDelay = executedCycles == 0 ? rtlTickPeriod :
         executedCycles * rtlTickPeriod;
     fatal_if(result < 0, "Coral RTL bridge failed while stepping model");
-    if (result == 4) {
+    if (result == CORAL_GEM5_STEP_FAULT) {
         uint32_t mepc = 0;
         uint32_t mtval = 0;
         uint32_t mcause = 0;
@@ -402,14 +405,25 @@ CoralVerilatedBackend::processEvent()
                  result);
     }
 
-    if (result == 3) {
+    if (result == CORAL_GEM5_STEP_EXTERNAL_WAIT) {
+        wfiObserved = false;
+        externalWait = true;
+        fatal_if(rtlTickPeriod > MaxTick / kExternalWaitPollCycles,
+                 "Coral external-wait delay overflows gem5 Tick");
+        const Tick waitDelay = rtlTickPeriod * kExternalWaitPollCycles;
+        fatal_if(curTick() > MaxTick - waitDelay,
+                 "Coral external-wait event overflows gem5 Tick");
+        pendingEventTick = curTick() + waitDelay;
+        DPRINTFR(NPUDevice,
+                 "Coral RTL suspended on external EXTMEM wait\n");
+    } else if (result == CORAL_GEM5_STEP_WFI) {
         if (!wfiObserved) {
             DPRINTFR(NPUDevice,
                      "Coral RTL entered WFI; keeping backend scheduled\n");
             wfiObserved = true;
         }
         pendingEventTick = curTick() + stepDelay;
-    } else if (result == 2) {
+    } else if (result == CORAL_GEM5_STEP_DMA_WAIT) {
         wfiObserved = false;
         coral_gem5_dma_request request = {};
         fatal_if(dmaRequestGet(modelHandle, &request) != 1,
@@ -492,6 +506,12 @@ CoralVerilatedBackend::writeLocalExtmem(
                  || extmemWrite(modelHandle, addr, data, size) != 0,
              "Unable to write Coral bridge-local EXTMEM at %#x size=%llu",
              addr, static_cast<unsigned long long>(size));
+    if (externalWait && running) {
+        externalWait = false;
+        pendingEventTick = curTick() + rtlTickPeriod;
+        DPRINTFR(NPUDevice,
+                 "Coral RTL resumed after host EXTMEM synchronization\n");
+    }
 }
 
 } // namespace gem5

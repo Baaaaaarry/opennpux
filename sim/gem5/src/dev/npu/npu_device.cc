@@ -171,7 +171,8 @@ NPUDevice::processBackendEvent()
     for (unsigned batch = 0; batch < batchBudget; ++batch) {
         backend->processEvent();
         startBackendDma();
-        if (!fastDma || dmaActive || !backend->hasPendingEvent()) {
+        if (!fastDma || dmaActive || !backend->hasPendingEvent() ||
+            backend->externallyBlocked()) {
             break;
         }
         if (backendEvent.scheduled()) {

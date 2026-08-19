@@ -8,9 +8,19 @@
 extern "C" {
 #endif
 
-#define CORAL_GEM5_ABI_VERSION 6u
+#define CORAL_GEM5_ABI_VERSION 7u
 #define CORAL_GEM5_AXI_DATA_BYTES 16u
 #define CORAL_GEM5_DMA_DATA_BYTES 4096u
+
+enum coral_gem5_step_result {
+    CORAL_GEM5_STEP_ERROR = -1,
+    CORAL_GEM5_STEP_RUNNING = 0,
+    CORAL_GEM5_STEP_HALTED = 1,
+    CORAL_GEM5_STEP_DMA_WAIT = 2,
+    CORAL_GEM5_STEP_WFI = 3,
+    CORAL_GEM5_STEP_FAULT = 4,
+    CORAL_GEM5_STEP_EXTERNAL_WAIT = 5,
+};
 
 enum coral_gem5_dma_type {
     CORAL_GEM5_DMA_READ = 0,

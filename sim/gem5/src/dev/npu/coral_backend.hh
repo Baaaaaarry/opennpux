@@ -48,6 +48,7 @@ class CoralBackend
     virtual bool hasPendingEvent() const = 0;
     virtual Tick nextEventTick() const = 0;
     virtual void processEvent() = 0;
+    virtual bool externallyBlocked() const { return false; }
 
     virtual bool hasDmaRequest() const { return false; }
     virtual const CoralDmaRequest &dmaRequest() const;

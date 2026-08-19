@@ -686,3 +686,6 @@ Host 数值结果不可信。生成器默认加载路径现由直接 `GPTQModel.
 `auto/cuda/cpu` 显式 placement，并将 placement 纳入缓存键。GPU 错误可通过
 `CUDA_LAUNCH_BLOCKING=1` 定位；CPU 诊断/兜底路径使用 `gptq_torch_aten`。该选择只影响
 Hybrid sim-host golden 生成，不改变 gem5、Coral RTL、分页和 Guest 端到端协议。
+CPU placement 在独立生成器进程内清空 `CUDA_VISIBLE_DEVICES`，防止 GPTQ/Triton
+再次自动选中 CUDA；量化权重加载信息中的 `qweight/qzeros/scales/g_idx` 缺失项升级为
+硬失败，禁止以随机初始化参数生成伪 golden。

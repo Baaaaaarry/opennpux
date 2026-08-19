@@ -335,6 +335,10 @@ CORAL_REBUILD_SIM_HOST_RESULT=1 \
 
 This fallback affects only generation of the host numerical reference; gem5,
 the Coral bridge, NPU firmware, paging and Guest validation are unchanged.
+CPU mode clears `CUDA_VISIBLE_DEVICES` in the generator subprocess so GPTQModel
+and Triton cannot silently select a CUDA kernel. The loader also treats missing
+`qweight`, `qzeros`, `scales` or `g_idx` parameters as fatal: such parameters
+must never be randomly initialized for a numerical golden.
 PyTorch 2.10.0 has a known Python 3.12 TorchInductor `CSE` generic annotation
 regression and has no 2.10.1 bug-fix release. The generator detects that exact
 API mismatch and applies a process-local second-parameter default before

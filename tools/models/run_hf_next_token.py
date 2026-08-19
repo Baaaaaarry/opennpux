@@ -74,6 +74,7 @@ def load_model(
         device_map_name if device_map_name == "auto" else {"": device_map_name}
     )
     if loader_name == "transformers":
+        cse_compat = quant_method == "gptq" and patch_torch_cse_generic()
         from transformers import AutoModelForMultimodalLM, GPTQConfig
 
         model_arguments = {}
@@ -88,17 +89,31 @@ def load_model(
                 **quantization_arguments
             )
 
-        model = AutoModelForMultimodalLM.from_pretrained(
+        loaded = AutoModelForMultimodalLM.from_pretrained(
             model_dir,
             trust_remote_code=True,
             local_files_only=True,
             device_map=device_map,
             torch_dtype="auto",
             low_cpu_mem_usage=True,
+            output_loading_info=True,
             **model_arguments,
         )
+        model, loading_info = loaded
+        critical_suffixes = (".qweight", ".qzeros", ".scales", ".g_idx")
+        missing_quantized = [
+            name
+            for name in loading_info.get("missing_keys", ())
+            if name.endswith(critical_suffixes)
+        ]
+        if missing_quantized:
+            sample = ", ".join(missing_quantized[:4])
+            raise RuntimeError(
+                f"quantized checkpoint is missing {len(missing_quantized)} "
+                f"required parameters; first entries: {sample}"
+            )
         backend = backend_name if quant_method == "gptq" else "native"
-        return model, f"transformers-multimodal:{backend}", False
+        return model, f"transformers-multimodal:{backend}", bool(cse_compat)
 
     if quant_method == "gptq":
         cse_compat = patch_torch_cse_generic()

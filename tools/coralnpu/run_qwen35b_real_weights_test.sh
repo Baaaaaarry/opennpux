@@ -210,16 +210,23 @@ PY
             exit 1
         fi
         echo "[coral-qwen35b-real-weights-test] running real HF numerical forward" >&2
-        "$HF_PYTHON" "${ROOT_DIR}/tools/models/run_hf_next_token.py" \
-            "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \
-            "$SIM_HOST_RESULT" --prompt "$PROMPT" \
-            --prompt-format "$PROMPT_FORMAT" \
-            --model-loader "$MODEL_LOADER" \
-            --gptq-backend "$GPTQ_BACKEND" \
-            --device-map "$HF_DEVICE" \
-            --decode-mode "$DECODE_MODE" \
-            --seed "$GENERATION_SEED" \
-            --max-new-tokens "$MAX_NEW_TOKENS"
+        (
+            if [ "$HF_DEVICE" = cpu ]; then
+                CUDA_VISIBLE_DEVICES=
+                export CUDA_VISIBLE_DEVICES
+            fi
+            exec "$HF_PYTHON" \
+                "${ROOT_DIR}/tools/models/run_hf_next_token.py" \
+                "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \
+                "$SIM_HOST_RESULT" --prompt "$PROMPT" \
+                --prompt-format "$PROMPT_FORMAT" \
+                --model-loader "$MODEL_LOADER" \
+                --gptq-backend "$GPTQ_BACKEND" \
+                --device-map "$HF_DEVICE" \
+                --decode-mode "$DECODE_MODE" \
+                --seed "$GENERATION_SEED" \
+                --max-new-tokens "$MAX_NEW_TOKENS"
+        )
     fi
     SIM_HOST_NUMERICAL_ENV="OPENNPUX_SIM_HOST_NUMERICAL=1"
     INPUT_TOKEN_COUNT="$(python3 - "$SIM_HOST_RESULT" <<'PY'

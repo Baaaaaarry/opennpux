@@ -13,6 +13,7 @@ PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
 NUMERICAL_ENV=""
 SIM_HOST_PAGING="${CORAL_SIM_HOST_PAGING:-1}"
 SIM_HOST_NUMERICAL="${CORAL_SIM_HOST_NUMERICAL:-1}"
+HF_PYTHON="${CORAL_HF_PYTHON:-${ROOT_DIR}/.venv/hf-numerical/bin/python}"
 [ "${CORAL_QWEN35B_NUMERICAL:-0}" = 0 ] ||
     NUMERICAL_ENV="OPENNPUX_NPU_NUMERICAL=1"
 
@@ -92,6 +93,18 @@ fi
 SIM_HOST_NUMERICAL_ENV=""
 SIM_HOST_RESULT=""
 if [ "$SIM_HOST_NUMERICAL" != 0 ]; then
+    if [ ! -x "$HF_PYTHON" ]; then
+        echo "error: HF numerical Python environment is missing: $HF_PYTHON" >&2
+        echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2
+        exit 1
+    fi
+    if ! "$HF_PYTHON" -c \
+        'import accelerate, numpy, safetensors, torch, transformers' \
+        >/dev/null 2>&1; then
+        echo "error: HF numerical Python dependencies are incomplete" >&2
+        echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2
+        exit 1
+    fi
     PROMPT_TAG="$(python3 - "$PROMPT" <<'PY'
 import sys
 value = 2166136261
@@ -116,7 +129,7 @@ PY
     if [ "$result_stale" -eq 1 ] ||
        [ "${CORAL_REBUILD_SIM_HOST_RESULT:-0}" != 0 ]; then
         echo "[coral-qwen35b-real-weights-test] running real HF numerical forward" >&2
-        python3 "${ROOT_DIR}/tools/models/run_hf_next_token.py" \
+        "$HF_PYTHON" "${ROOT_DIR}/tools/models/run_hf_next_token.py" \
             "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \
             "$SIM_HOST_RESULT" --prompt "$PROMPT"
     fi

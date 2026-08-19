@@ -259,6 +259,19 @@ Install a recent model-compatible `torch`, `transformers`, `accelerate` and
 `numpy` environment before the first run. The GPTQ model may additionally need
 the quantization backend required by the selected Transformers release.
 
+Create the repository-local environment once:
+
+```sh
+./tools/models/setup_hf_numerical_env.sh
+```
+
+The setup uses `--system-site-packages`, so an optimized PyTorch already
+installed on GB10 is reused. If PyTorch is absent, it installs the default pip
+build. Set `OPENNPUX_TORCH_INDEX_URL` when the platform requires a specific
+PyTorch wheel index. If Transformers reports that the GPTQ backend is missing,
+rerun with `OPENNPUX_INSTALL_GPTQMODEL=1`. Override the interpreter used by the
+simulation with `CORAL_HF_PYTHON=/path/to/python`.
+
 ```sh
 CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
   CORAL_SIM_HOST_PAGING=1 \

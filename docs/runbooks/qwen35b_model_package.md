@@ -247,10 +247,14 @@ publishes and retires the same queue records, but the simulated ARM CPU no
 longer reads safetensors over 9P or copies each 64KiB page.
 
 The default acceptance path also runs real Hugging Face autoregressive greedy
-decode on the simulation host. It uses the model KV cache and defaults to eight
-new tokens. The generated token IDs, text and per-step logits checksum are
+decode on the simulation host. By default it applies the tokenizer's own chat
+template with a user message and generation prompt before tokenization; set
+`CORAL_QWEN_PROMPT_FORMAT=raw` only when deliberately testing plain-text
+continuation. It uses the model KV cache and defaults to eight new tokens. The
+generated token IDs, text and per-step logits checksum are
 cached in a 256-byte `.npxo` v2 result record. The bridge validates the executable
-ID, prompt checksum, vocabulary size and requested token limit, then publishes
+ID, checksum of the original CPU prompt, vocabulary size and requested token
+limit, then publishes
 that result only after the NPU firmware has completed the entire 524-command
 invocation. This is a hybrid
 numerical path: command scheduling, paging and completion remain NPU-visible,
@@ -299,6 +303,8 @@ from implemented NPU firmware/RTL kernels.
 
 ```sh
 CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
+  CORAL_QWEN_PROMPT='Explain heterogeneous computing in one sentence.' \
+  CORAL_QWEN_PROMPT_FORMAT=chat \
   CORAL_QWEN_MAX_NEW_TOKENS=8 \
   CORAL_SIM_HOST_PAGING=1 \
   CORAL_SIM_HOST_NUMERICAL=1 \
@@ -315,7 +321,10 @@ Set `CORAL_REBUILD_SIM_HOST_RESULT=1` to rerun the real model forward, or
 `CORAL_SIM_HOST_NUMERICAL=0` to disable host numerical publication.
 Set `CORAL_QWEN_MAX_NEW_TOKENS=1..32` to control greedy decode length. The token
 count is part of the cache filename, so results for different lengths cannot be
-reused accidentally.
+reused accidentally. The prompt format is also part of the cache filename, so a
+legacy raw-continuation result cannot be reused by the default chat path. The
+generator reports both `hf_numerical_prompt_checksum` for the original CPU ABI
+payload and `hf_numerical_formatted_prompt_checksum` for the actual model input.
 
 The runner reads the tokenizer-derived input length from `.npxo` v2 and passes
 it to Guest runtime as `OPENNPUX_INPUT_TOKEN_COUNT`. Decode invocation metadata
@@ -347,8 +356,13 @@ Acceptance requires `paging_source=sim-host-direct`, equal
 `inference_token_text`, a nonzero `inference_generated_tokens`,
 an `inference_token_ids` sequence whose first element equals
 `inference_next_token`,
+and token IDs/text equal to the Hugging Face golden printed when the `.npxo`
+record was generated,
 `inference_run=PASS`, `executable_run=PASS`, and
-`[coral-qwen35b-real-weights-test] PASS`.
+`[coral-qwen35b-real-weights-test] PASS`. The generated Guest script now
+compares the complete returned token-ID sequence and generated-token count with
+the host `.npxo` record; successful automated comparison prints
+`[coral-qwen35b-real-weights-test] token_golden=PASS`.
 
 Before booting, the runner recomputes the staged image on the host and injects
 the result into the guest script, so the device must match

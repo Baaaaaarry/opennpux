@@ -99,12 +99,32 @@ def load_model(model_dir: Path, backend_name: str):
     return model, "transformers-auto", False
 
 
+def format_prompt(tokenizer, prompt: str, prompt_format: str) -> str:
+    if prompt_format == "raw":
+        return prompt
+    if not getattr(tokenizer, "chat_template", None):
+        raise ValueError(
+            "chat prompt format requested, but the tokenizer has no chat template"
+        )
+    return tokenizer.apply_chat_template(
+        [{"role": "user", "content": prompt}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("model_dir", type=Path)
     parser.add_argument("executable", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--prompt", required=True)
+    parser.add_argument(
+        "--prompt-format",
+        choices=("chat", "raw"),
+        default=os.environ.get("OPENNPUX_PROMPT_FORMAT", "chat"),
+        help="format the CPU prompt with the model chat template or use it verbatim",
+    )
     parser.add_argument(
         "--gptq-backend",
         default=os.environ.get("OPENNPUX_GPTQ_BACKEND", "gptq_torch"),
@@ -131,11 +151,12 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_dir, trust_remote_code=True, local_files_only=True
     )
+    formatted_prompt = format_prompt(tokenizer, args.prompt, args.prompt_format)
     model, numerical_backend, cse_compat = load_model(
         args.model_dir, args.gptq_backend
     )
     model.eval()
-    encoded = tokenizer(args.prompt, return_tensors="pt")
+    encoded = tokenizer(formatted_prompt, return_tensors="pt")
     input_device = next(model.parameters()).device
     encoded = {name: tensor.to(input_device) for name, tensor in encoded.items()}
     with torch.inference_mode():
@@ -159,10 +180,13 @@ def main() -> None:
         if int(logits.shape[0]) != vocabulary_size:
             raise RuntimeError("generation score vocabulary size changed")
         logits_checksum = fnv1a(logits.tobytes(), logits_checksum)
-    decoded_text = tokenizer.decode(generated_ids, skip_special_tokens=False)
+    decoded_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+    if not decoded_text:
+        decoded_text = tokenizer.decode(generated_ids, skip_special_tokens=False)
     token_text = decoded_text.encode("utf-8")[:64]
     token_text = token_text.decode("utf-8", errors="ignore").encode("utf-8")
-    eos_token_ids = getattr(model.generation_config, "eos_token_id", None)
+    generation_config = getattr(model, "generation_config", None)
+    eos_token_ids = getattr(generation_config, "eos_token_id", None)
     if eos_token_ids is None:
         eos_token_ids = tokenizer.eos_token_id
     if isinstance(eos_token_ids, int):
@@ -196,7 +220,12 @@ def main() -> None:
     print(f"hf_numerical_executable_id=0x{executable_id(args.executable):016x}")
     print(f"hf_numerical_backend={numerical_backend}")
     print(f"hf_numerical_torch_cse_compat={int(cse_compat)}")
+    print(f"hf_numerical_prompt_format={args.prompt_format}")
     print(f"hf_numerical_prompt_checksum=0x{fnv1a(prompt_bytes):08x}")
+    print(
+        "hf_numerical_formatted_prompt_checksum="
+        f"0x{fnv1a(formatted_prompt.encode('utf-8')):08x}"
+    )
     print(f"hf_numerical_input_tokens={input_tokens}")
     print(f"hf_numerical_logits={vocabulary_size}")
     print(f"hf_numerical_logits_checksum=0x{logits_checksum:08x}")

@@ -10,6 +10,7 @@ RANGE_NAME="${CORAL_NPU_RANGE_NAME:-model.npxr}"
 POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
 BASE="${CORAL_NPU_BASE:-0x1d000000}"
 PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
+PROMPT_FORMAT="${CORAL_QWEN_PROMPT_FORMAT:-chat}"
 MAX_NEW_TOKENS="${CORAL_QWEN_MAX_NEW_TOKENS:-8}"
 NUMERICAL_ENV=""
 SIM_HOST_PAGING="${CORAL_SIM_HOST_PAGING:-1}"
@@ -36,6 +37,13 @@ esac
 case "$PROMPT" in
     *"'"*)
         echo "error: CORAL_QWEN_PROMPT cannot contain a single quote" >&2
+        exit 1
+        ;;
+esac
+case "$PROMPT_FORMAT" in
+    chat|raw) ;;
+    *)
+        echo "error: CORAL_QWEN_PROMPT_FORMAT must be chat or raw" >&2
         exit 1
         ;;
 esac
@@ -126,6 +134,8 @@ fi
 SIM_HOST_NUMERICAL_ENV=""
 SIM_HOST_RESULT=""
 INPUT_TOKEN_COUNT=1
+EXPECTED_GENERATED_TOKENS=0
+EXPECTED_TOKEN_IDS=""
 if [ "$SIM_HOST_NUMERICAL" != 0 ]; then
     PROMPT_TAG="$(python3 - "$PROMPT" <<'PY'
 import sys
@@ -135,7 +145,7 @@ for byte in sys.argv[1].encode():
 print(f"{value:08x}")
 PY
 )"
-    SIM_HOST_RESULT="${CORAL_SIM_HOST_INFERENCE_RESULT:-${ROOT_DIR}/build/model-results/qwen35b-${PROMPT_TAG}-t${MAX_NEW_TOKENS}.npxo}"
+    SIM_HOST_RESULT="${CORAL_SIM_HOST_INFERENCE_RESULT:-${ROOT_DIR}/build/model-results/qwen35b-${PROMPT_TAG}-${PROMPT_FORMAT}-t${MAX_NEW_TOKENS}.npxo}"
     result_stale=0
     [ -r "$SIM_HOST_RESULT" ] || result_stale=1
     if [ "$result_stale" -eq 0 ] &&
@@ -167,6 +177,7 @@ PY
         "$HF_PYTHON" "${ROOT_DIR}/tools/models/run_hf_next_token.py" \
             "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \
             "$SIM_HOST_RESULT" --prompt "$PROMPT" \
+            --prompt-format "$PROMPT_FORMAT" \
             --max-new-tokens "$MAX_NEW_TOKENS"
     fi
     SIM_HOST_NUMERICAL_ENV="OPENNPUX_SIM_HOST_NUMERICAL=1"
@@ -183,8 +194,30 @@ if value == 0 or value > 65504:
 print(value)
 PY
 )"
+    EXPECTED_GENERATED_TOKENS="$(python3 - "$SIM_HOST_RESULT" <<'PY'
+import struct
+import sys
+
+data = open(sys.argv[1], "rb").read()
+print(struct.unpack_from("<I", data, 120)[0])
+PY
+)"
+    EXPECTED_TOKEN_IDS="$(python3 - "$SIM_HOST_RESULT" <<'PY'
+import struct
+import sys
+
+data = open(sys.argv[1], "rb").read()
+count = struct.unpack_from("<I", data, 120)[0]
+if count == 0 or count > 32:
+    raise SystemExit("invalid numerical generated token count")
+values = struct.unpack_from(f"<{count}I", data, 128)
+print(",".join(str(value) for value in values))
+PY
+)"
     echo "[coral-qwen35b-real-weights-test] numerical result: $SIM_HOST_RESULT" >&2
+    echo "[coral-qwen35b-real-weights-test] prompt format: $PROMPT_FORMAT" >&2
     echo "[coral-qwen35b-real-weights-test] input tokens: $INPUT_TOKEN_COUNT" >&2
+    echo "[coral-qwen35b-real-weights-test] expected token ids: $EXPECTED_TOKEN_IDS" >&2
 fi
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
@@ -268,7 +301,7 @@ for asset in '$EXECUTABLE_NAME' '$MANIFEST_NAME' '$RANGE_NAME'; do
         exit 1
     fi
 done
-env $NUMERICAL_ENV $SIM_HOST_ENV $SIM_HOST_NUMERICAL_ENV \
+if env $NUMERICAL_ENV $SIM_HOST_ENV $SIM_HOST_NUMERICAL_ENV \
     $REUSE_DECODE_WEIGHTS_ENV \
     OPENNPUX_PROMPT='$PROMPT' \
     OPENNPUX_MAX_NEW_TOKENS='$MAX_NEW_TOKENS' \
@@ -278,11 +311,32 @@ env $NUMERICAL_ENV $SIM_HOST_ENV $SIM_HOST_NUMERICAL_ENV \
     /mnt/opennpux-model/$EXECUTABLE_NAME decode \
     /mnt/opennpux-model/$MANIFEST_NAME \
     /mnt/opennpux-model/$RANGE_NAME \
-    $BASE $POLL_COUNT || {
+    $BASE $POLL_COUNT >/tmp/opennpux-inference.log 2>&1; then
+    inference_rc=0
+else
+    inference_rc=\$?
+fi
+cat /tmp/opennpux-inference.log
+if [ "\$inference_rc" -ne 0 ]; then
     echo '[coral-qwen35b-real-weights-test] FAIL: real weight execution failed'
     m5 --inst exit
     exit 1
-}
+fi
+if [ '$SIM_HOST_NUMERICAL' != 0 ]; then
+    if ! grep -Fqx 'inference_generated_tokens=$EXPECTED_GENERATED_TOKENS' \
+        /tmp/opennpux-inference.log; then
+        echo '[coral-qwen35b-real-weights-test] FAIL: generated token count differs from HF golden'
+        m5 --inst exit
+        exit 1
+    fi
+    if ! grep -Fqx 'inference_token_ids=$EXPECTED_TOKEN_IDS' \
+        /tmp/opennpux-inference.log; then
+        echo '[coral-qwen35b-real-weights-test] FAIL: token IDs differ from HF golden'
+        m5 --inst exit
+        exit 1
+    fi
+    echo '[coral-qwen35b-real-weights-test] token_golden=PASS'
+fi
 echo '[coral-qwen35b-real-weights-test] PASS'
 m5 --inst exit
 exit 0

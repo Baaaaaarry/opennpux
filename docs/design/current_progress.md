@@ -643,3 +643,18 @@ GB10 逐 token 验收的 35872 次 page fault 等于每步 4484 次乘 8，说�
 后续 decode step 继续执行 524-command 调度并累计 operations/cycles，但复用 modeling
 backend 中的固定权重驻留，不再生成重复 page fault。该策略仅是快速仿真默认值；设置
 `CORAL_REUSE_DECODE_WEIGHTS=0` 可恢复每 token 全量分页，用于内存系统压力评估。
+
+## 2026-08-19 Qwen Instruct prompt 与 token golden 验收
+
+真实 token 生成默认由 Qwen tokenizer 的 `chat_template` 将 CPU 原始 prompt 包装为
+user message 和 assistant generation prompt，再执行确定性的 greedy decode。此前直接
+tokenize 裸字符串属于文本续写语义，可能重复生成看似无意义但数值上自洽的 token；
+这不能作为 Instruct 模型的端到端正确性验收。
+
+原始 CPU prompt 的 checksum 继续作为 Guest/bridge ABI 一致性检查，格式化后的模型
+输入另行输出 checksum，不改变已有 inference request。结果缓存键加入 `chat|raw`，
+避免复用旧 raw 结果。验收要求 Guest 返回的 token ID 序列和文本与生成 `.npxo` 时
+打印的 Hugging Face golden 完全一致。运行脚本已自动提取 golden 中的生成数量和完整
+token ID 序列，并对 Guest `coralctl` 输出做逐行精确比较，成功时打印
+`token_golden=PASS`，不再依赖人工核对日志。该 golden 仍属于 Hybrid sim-host 数值实现，
+后续由设备 MatMul/GPTQ、Attention、MoE 和归一化 kernel 逐项替换。

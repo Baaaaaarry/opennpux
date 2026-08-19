@@ -122,7 +122,7 @@ PY
             exit 1
         fi
         if ! "$HF_PYTHON" -c \
-            'import accelerate, importlib.util, numpy, optimum, safetensors, torch, transformers; assert importlib.util.find_spec("gptqmodel")' \
+            'import accelerate, importlib.util, numpy, optimum, safetensors, torch, torchvision, transformers; assert importlib.util.find_spec("gptqmodel")' \
             >/dev/null 2>&1; then
             echo "error: HF numerical Python dependencies are incomplete" >&2
             echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2

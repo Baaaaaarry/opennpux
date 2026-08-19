@@ -23,12 +23,20 @@ fi
 "$VENV/bin/python" -m pip install --upgrade pip setuptools wheel
 
 if ! "$VENV/bin/python" -c 'import torch' >/dev/null 2>&1; then
-    echo "[hf-env] PyTorch not found; installing torch" >&2
+    echo "[hf-env] PyTorch not found; installing torch and torchvision" >&2
     if [ -n "${OPENNPUX_TORCH_INDEX_URL:-}" ]; then
         "$VENV/bin/python" -m pip install \
-            --index-url "$OPENNPUX_TORCH_INDEX_URL" torch
+            --index-url "$OPENNPUX_TORCH_INDEX_URL" torch torchvision
     else
-        "$VENV/bin/python" -m pip install torch
+        "$VENV/bin/python" -m pip install torch torchvision
+    fi
+elif ! "$VENV/bin/python" -c 'import torchvision' >/dev/null 2>&1; then
+    echo "[hf-env] torchvision not found; installing a torch-compatible build" >&2
+    if [ -n "${OPENNPUX_TORCH_INDEX_URL:-}" ]; then
+        "$VENV/bin/python" -m pip install \
+            --index-url "$OPENNPUX_TORCH_INDEX_URL" torchvision
+    else
+        "$VENV/bin/python" -m pip install torchvision
     fi
 fi
 
@@ -48,10 +56,12 @@ import numpy
 import optimum
 import safetensors
 import torch
+import torchvision
 import transformers
 
 print(f"hf_env_python={__import__('sys').executable}")
 print(f"hf_env_torch={torch.__version__}")
+print(f"hf_env_torchvision={torchvision.__version__}")
 print(f"hf_env_transformers={transformers.__version__}")
 print(f"hf_env_numpy={numpy.__version__}")
 print(f"hf_env_accelerate={accelerate.__version__}")

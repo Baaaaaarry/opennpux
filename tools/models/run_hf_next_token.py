@@ -59,12 +59,20 @@ def patch_torch_cse_generic() -> bool:
     return True
 
 
-def load_model(model_dir: Path, loader_name: str, backend_name: str):
+def load_model(
+    model_dir: Path,
+    loader_name: str,
+    backend_name: str,
+    device_map_name: str,
+):
     config = json.loads((model_dir / "config.json").read_text())
     quantization = config.get("quantization_config", {})
     quant_method = str(
         quantization.get("quant_method", quantization.get("method", ""))
     ).lower()
+    device_map = (
+        device_map_name if device_map_name == "auto" else {"": device_map_name}
+    )
     if loader_name == "transformers":
         from transformers import AutoModelForMultimodalLM, GPTQConfig
 
@@ -84,7 +92,7 @@ def load_model(model_dir: Path, loader_name: str, backend_name: str):
             model_dir,
             trust_remote_code=True,
             local_files_only=True,
-            device_map="auto",
+            device_map=device_map,
             torch_dtype="auto",
             low_cpu_mem_usage=True,
             **model_arguments,
@@ -106,7 +114,7 @@ def load_model(model_dir: Path, loader_name: str, backend_name: str):
         loaded = GPTQModel.load(
             str(model_dir),
             backend=backend,
-            device_map="auto",
+            device_map=device_map,
             trust_remote_code=True,
             local_files_only=True,
         )
@@ -183,6 +191,12 @@ def main() -> None:
         help="use the official Transformers multimodal loader or GPTQModel",
     )
     parser.add_argument(
+        "--device-map",
+        choices=("auto", "cuda", "cpu"),
+        default=os.environ.get("OPENNPUX_HF_DEVICE_MAP", "auto"),
+        help="place the host numerical reference model automatically or on one device",
+    )
+    parser.add_argument(
         "--max-new-tokens",
         type=int,
         default=int(os.environ.get("OPENNPUX_MAX_NEW_TOKENS", "8")),
@@ -212,7 +226,10 @@ def main() -> None:
         )
 
     model, numerical_backend, cse_compat = load_model(
-        args.model_dir, args.model_loader, args.gptq_backend
+        args.model_dir,
+        args.model_loader,
+        args.gptq_backend,
+        args.device_map,
     )
     model.eval()
     processor, tokenizer, formatted_prompt, encoded = prepare_inputs(
@@ -314,6 +331,7 @@ def main() -> None:
     print(f"hf_numerical_backend={numerical_backend}")
     print(f"hf_numerical_model_loader={args.model_loader}")
     print(f"hf_numerical_quant_backend={args.gptq_backend}")
+    print(f"hf_numerical_device_map={args.device_map}")
     print(f"hf_numerical_torch_cse_compat={int(cse_compat)}")
     print(f"hf_numerical_prompt_format={args.prompt_format}")
     print(f"hf_numerical_decode_mode={args.decode_mode}")
@@ -344,4 +362,12 @@ if __name__ == "__main__":
         main()
     except Exception as error:
         print(f"hf_numerical=FAIL: {error}", file=sys.stderr)
+        if "illegal memory access" in str(error).lower():
+            print(
+                "hf_numerical_hint=CUDA kernel failed; rerun with "
+                "CORAL_QWEN_HF_DEVICE=cpu and "
+                "CORAL_QWEN_GPTQ_BACKEND=gptq_torch_aten, or diagnose with "
+                "CUDA_LAUNCH_BLOCKING=1",
+                file=sys.stderr,
+            )
         raise

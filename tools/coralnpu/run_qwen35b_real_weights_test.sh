@@ -16,6 +16,7 @@ DECODE_MODE="${CORAL_QWEN_DECODE_MODE:-model}"
 GENERATION_SEED="${CORAL_QWEN_GENERATION_SEED:-42}"
 MODEL_LOADER="${CORAL_QWEN_MODEL_LOADER:-transformers}"
 GPTQ_BACKEND="${CORAL_QWEN_GPTQ_BACKEND:-${OPENNPUX_GPTQ_BACKEND:-gptq_torch}}"
+HF_DEVICE="${CORAL_QWEN_HF_DEVICE:-auto}"
 NUMERICAL_ENV=""
 SIM_HOST_PAGING="${CORAL_SIM_HOST_PAGING:-1}"
 SIM_HOST_NUMERICAL="${CORAL_SIM_HOST_NUMERICAL:-1}"
@@ -69,6 +70,13 @@ esac
     echo "error: CORAL_QWEN_GPTQ_BACKEND cannot be empty" >&2
     exit 1
 }
+case "$HF_DEVICE" in
+    auto|cuda|cpu) ;;
+    *)
+        echo "error: CORAL_QWEN_HF_DEVICE must be auto, cuda or cpu" >&2
+        exit 1
+        ;;
+esac
 case "$GENERATION_SEED" in
     ''|*[!0-9]*)
         echo "error: CORAL_QWEN_GENERATION_SEED must be a non-negative integer" >&2
@@ -173,7 +181,7 @@ for byte in sys.argv[1].encode():
 print(f"{value:08x}")
 PY
 )"
-    SIM_HOST_RESULT="${CORAL_SIM_HOST_INFERENCE_RESULT:-${ROOT_DIR}/build/model-results/qwen35b-${PROMPT_TAG}-${PROMPT_FORMAT}-${MODEL_LOADER}-${GPTQ_BACKEND}-${DECODE_MODE}-s${GENERATION_SEED}-t${MAX_NEW_TOKENS}.npxo}"
+    SIM_HOST_RESULT="${CORAL_SIM_HOST_INFERENCE_RESULT:-${ROOT_DIR}/build/model-results/qwen35b-${PROMPT_TAG}-${PROMPT_FORMAT}-${MODEL_LOADER}-${GPTQ_BACKEND}-${HF_DEVICE}-${DECODE_MODE}-s${GENERATION_SEED}-t${MAX_NEW_TOKENS}.npxo}"
     result_stale=0
     [ -r "$SIM_HOST_RESULT" ] || result_stale=1
     if [ "$result_stale" -eq 0 ] &&
@@ -208,6 +216,7 @@ PY
             --prompt-format "$PROMPT_FORMAT" \
             --model-loader "$MODEL_LOADER" \
             --gptq-backend "$GPTQ_BACKEND" \
+            --device-map "$HF_DEVICE" \
             --decode-mode "$DECODE_MODE" \
             --seed "$GENERATION_SEED" \
             --max-new-tokens "$MAX_NEW_TOKENS"
@@ -253,6 +262,7 @@ PY
     echo "[coral-qwen35b-real-weights-test] decode mode: $DECODE_MODE seed=$GENERATION_SEED" >&2
     echo "[coral-qwen35b-real-weights-test] model loader: $MODEL_LOADER" >&2
     echo "[coral-qwen35b-real-weights-test] GPTQ backend: $GPTQ_BACKEND" >&2
+    echo "[coral-qwen35b-real-weights-test] HF device: $HF_DEVICE" >&2
     echo "[coral-qwen35b-real-weights-test] input tokens: $INPUT_TOKEN_COUNT" >&2
     echo "[coral-qwen35b-real-weights-test] expected token ids: $EXPECTED_TOKEN_IDS" >&2
 fi

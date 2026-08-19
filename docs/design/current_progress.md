@@ -681,3 +681,8 @@ Host 数值结果不可信。生成器默认加载路径现由直接 `GPTQModel.
 按 64 对齐，而模型包含 `out_features=32` 的窄投影，因而在 forward 前即失败。当前
 加载器以模型原始量化参数构造 `GPTQConfig`，但强制默认 backend 为便携的
 `gptq_torch`；backend 同时进入结果缓存键，避免复用由其它 kernel 生成的 golden。
+
+针对新 GPU 上 host GPTQ kernel 可能出现的 CUDA illegal-address，数值生成器新增
+`auto/cuda/cpu` 显式 placement，并将 placement 纳入缓存键。GPU 错误可通过
+`CUDA_LAUNCH_BLOCKING=1` 定位；CPU 诊断/兜底路径使用 `gptq_torch_aten`。该选择只影响
+Hybrid sim-host golden 生成，不改变 gem5、Coral RTL、分页和 Guest 端到端协议。

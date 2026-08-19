@@ -71,6 +71,10 @@ print(f"hf_env_accelerate={accelerate.__version__}")
 print(f"hf_env_optimum={getattr(optimum, '__version__', 'installed')}")
 print(f"hf_env_safetensors={safetensors.__version__}")
 print(f"hf_env_cuda={torch.cuda.is_available()}")
+print(f"hf_env_torch_cuda={torch.version.cuda}")
+if torch.cuda.is_available():
+    print(f"hf_env_cuda_device={torch.cuda.get_device_name(0)}")
+    print(f"hf_env_cuda_capability={torch.cuda.get_device_capability(0)}")
 print("hf_env=PASS")
 PY
 

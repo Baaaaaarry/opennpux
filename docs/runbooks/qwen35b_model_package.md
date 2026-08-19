@@ -318,6 +318,23 @@ projection. Override it only after validating every model shape with
 `CORAL_QWEN_GPTQ_BACKEND=<backend>`. A successful load reports
 `hf_numerical_backend=transformers-multimodal:gptq_torch` and
 `hf_numerical_quant_backend=gptq_torch`.
+
+Host numerical placement is explicit through `CORAL_QWEN_HF_DEVICE=auto|cuda|cpu`
+and is part of the result cache key. If a CUDA kernel reports an illegal memory
+access, terminate that generator process before retrying because its CUDA
+context is no longer usable. Use `CUDA_LAUNCH_BLOCKING=1` once to identify the
+failing operation. To bypass the CUDA kernel while preserving a real-weight
+golden, use the GPTQModel CPU ATen implementation:
+
+```sh
+CORAL_QWEN_HF_DEVICE=cpu \
+CORAL_QWEN_GPTQ_BACKEND=gptq_torch_aten \
+CORAL_REBUILD_SIM_HOST_RESULT=1 \
+./tools/coralnpu/run_qwen35b_real_weights_test.sh
+```
+
+This fallback affects only generation of the host numerical reference; gem5,
+the Coral bridge, NPU firmware, paging and Guest validation are unchanged.
 PyTorch 2.10.0 has a known Python 3.12 TorchInductor `CSE` generic annotation
 regression and has no 2.10.1 bug-fix release. The generator detects that exact
 API mismatch and applies a process-local second-parameter default before

@@ -13,11 +13,12 @@ from typing import Any
 
 
 MAGIC = 0x5258504E
-VERSION = 1
-HEADER = struct.Struct("<IIIIQIIIIIIII64sII")
+VERSION = 2
+MAX_RESULT_TOKENS = 32
+HEADER = struct.Struct("<IIIIQIIIIIIII64sII32I")
 EXECUTABLE_MAGIC = 0x4558504E
 
-assert HEADER.size == 128
+assert HEADER.size == 256
 
 
 def fnv1a(data: bytes, value: int = 2166136261) -> int:
@@ -186,6 +187,7 @@ def main() -> None:
         token_text.ljust(64, b"\0"),
         len(generated_ids),
         stop_reason,
+        *(generated_ids + [0] * (MAX_RESULT_TOKENS - len(generated_ids))),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.output.with_name(args.output.name + f".tmp.{os.getpid()}")

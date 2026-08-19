@@ -1190,6 +1190,19 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                    inference_result->reserved[2]);
             printf("inference_stop_reason=%" PRIu32 "\n",
                    inference_result->reserved[3]);
+            const uint32_t inline_tokens = inference_result->reserved[2] <
+                OPENNPUX_NPU_INFERENCE_INLINE_TOKENS ?
+                inference_result->reserved[2] :
+                OPENNPUX_NPU_INFERENCE_INLINE_TOKENS;
+            printf("inference_token_ids=");
+            for (uint32_t index = 0; index < inline_tokens; ++index) {
+                printf("%s%" PRIu32, index == 0 ? "" : ",",
+                       inference_result->reserved[4 + index]);
+            }
+            if (inline_tokens < inference_result->reserved[2]) {
+                printf(",...");
+            }
+            putchar('\n');
             if (text_size <= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES) {
                 printf("inference_token_text=%.*s\n", (int)text_size,
                        inference_result->prompt);
@@ -1217,7 +1230,9 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                   OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
               inference_result->reserved[2] == 0 ||
               inference_result->reserved[2] >
-                  inference_request->max_new_tokens))) {
+                  inference_request->max_new_tokens ||
+              inference_result->reserved[4] !=
+                  inference_result->next_token))) {
             errno = EIO;
             perror("executable-run inference validation");
             goto out;

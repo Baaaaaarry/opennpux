@@ -248,8 +248,8 @@ longer reads safetensors over 9P or copies each 64KiB page.
 
 The default acceptance path also runs real Hugging Face autoregressive greedy
 decode on the simulation host. It uses the model KV cache and defaults to eight
-new tokens. The generated token sequence, text and per-step logits checksum are
-cached in a 128-byte `.npxo` result record. The bridge validates the executable
+new tokens. The generated token IDs, text and per-step logits checksum are
+cached in a 256-byte `.npxo` v2 result record. The bridge validates the executable
 ID, prompt checksum, vocabulary size and requested token limit, then publishes
 that result only after the NPU firmware has completed the entire 524-command
 invocation. This is a hybrid
@@ -321,6 +321,8 @@ Acceptance requires `paging_source=sim-host-direct`, equal
 `paging_queue_producer/service/retire` values, `inference_mode=numerical`,
 `inference_result_source=sim-host-numerical`, a nonempty
 `inference_token_text`, a nonzero `inference_generated_tokens`,
+an `inference_token_ids` sequence whose first element equals
+`inference_next_token`,
 `inference_run=PASS`, `executable_run=PASS`, and
 `[coral-qwen35b-real-weights-test] PASS`.
 

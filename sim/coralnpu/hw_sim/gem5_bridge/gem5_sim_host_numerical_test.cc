@@ -42,6 +42,9 @@ int main() {
   std::memcpy(result.token_text, " npux", 5);
   result.logits_count = 16;
   result.generated_token_count = 3;
+  result.generated_token_ids[0] = 7;
+  result.generated_token_ids[1] = 8;
+  result.generated_token_ids[2] = 9;
   assert(fwrite(&result, 1, sizeof(result), file) == sizeof(result));
   assert(fclose(file) == 0);
   assert(setenv("CORAL_SIM_HOST_INFERENCE_RESULT", path, 1) == 0);
@@ -86,6 +89,9 @@ int main() {
   assert(output->reserved[1] == result.token_text_size);
   assert(output->reserved[2] == result.generated_token_count);
   assert(output->reserved[3] == result.stop_reason);
+  assert(output->reserved[4] == 7);
+  assert(output->reserved[5] == 8);
+  assert(output->reserved[6] == 9);
   assert(std::memcmp(output->prompt, " npux", 5) == 0);
   assert(numerical.Publish(&extmem) == 0);
   assert(unlink(path) == 0);

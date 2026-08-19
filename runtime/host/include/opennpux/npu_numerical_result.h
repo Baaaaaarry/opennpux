@@ -4,8 +4,9 @@
 #include <stdint.h>
 
 #define OPENNPUX_NPU_NUMERICAL_RESULT_MAGIC UINT32_C(0x5258504e)
-#define OPENNPUX_NPU_NUMERICAL_RESULT_VERSION UINT32_C(1)
+#define OPENNPUX_NPU_NUMERICAL_RESULT_VERSION UINT32_C(2)
 #define OPENNPUX_NPU_NUMERICAL_RESULT_TEXT_BYTES UINT32_C(64)
+#define OPENNPUX_NPU_NUMERICAL_RESULT_MAX_TOKENS UINT32_C(32)
 #define OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST UINT32_C(0x48534e55)
 
 struct opennpux_npu_numerical_result {
@@ -16,12 +17,13 @@ struct opennpux_npu_numerical_result {
     char token_text[OPENNPUX_NPU_NUMERICAL_RESULT_TEXT_BYTES];
     uint32_t generated_token_count;
     uint32_t stop_reason;
+    uint32_t generated_token_ids[OPENNPUX_NPU_NUMERICAL_RESULT_MAX_TOKENS];
 };
 
 #if defined(__cplusplus)
-static_assert(sizeof(struct opennpux_npu_numerical_result) == 128);
+static_assert(sizeof(struct opennpux_npu_numerical_result) == 256);
 #else
-_Static_assert(sizeof(struct opennpux_npu_numerical_result) == 128,
+_Static_assert(sizeof(struct opennpux_npu_numerical_result) == 256,
                "NPU numerical result ABI size changed");
 #endif
 

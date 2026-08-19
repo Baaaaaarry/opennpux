@@ -40,8 +40,17 @@ Gem5SimHostNumerical::Gem5SimHostNumerical() {
       result_.next_token < result_.vocabulary_size &&
       result_.logits_count == result_.vocabulary_size &&
       result_.generated_token_count != 0 &&
+      result_.generated_token_count <=
+          OPENNPUX_NPU_NUMERICAL_RESULT_MAX_TOKENS &&
       result_.token_text_size != 0 &&
       result_.token_text_size <= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES;
+  if (valid_) {
+    for (uint32_t index = 0; index < result_.generated_token_count; ++index) {
+      valid_ = valid_ &&
+          result_.generated_token_ids[index] < result_.vocabulary_size;
+    }
+    valid_ = valid_ && result_.generated_token_ids[0] == result_.next_token;
+  }
   if (file != nullptr) {
     std::fclose(file);
   }
@@ -136,6 +145,12 @@ int Gem5SimHostNumerical::Publish(std::vector<uint8_t>* extmem) {
   output->reserved[1] = result_.token_text_size;
   output->reserved[2] = result_.generated_token_count;
   output->reserved[3] = result_.stop_reason;
+  const uint32_t inline_tokens = result_.generated_token_count <
+      OPENNPUX_NPU_INFERENCE_INLINE_TOKENS ? result_.generated_token_count :
+      OPENNPUX_NPU_INFERENCE_INLINE_TOKENS;
+  for (uint32_t index = 0; index < inline_tokens; ++index) {
+    output->reserved[4 + index] = result_.generated_token_ids[index];
+  }
   std::memset(output->prompt, 0, sizeof(output->prompt));
   std::memcpy(output->prompt, result_.token_text, result_.token_text_size);
   __atomic_thread_fence(__ATOMIC_RELEASE);

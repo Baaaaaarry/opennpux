@@ -124,6 +124,8 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
             uint32_t *role_id, uint32_t *component_id,
             uint64_t *expert_id)
 {
+    uint32_t local_backpressure_count = 0;
+    uint64_t local_stall_cycles = 0;
     if (queue->magic != OPENNPUX_NPU_WEIGHT_QUEUE_MAGIC ||
         queue->version != OPENNPUX_NPU_WEIGHT_QUEUE_VERSION ||
         queue->header_size != sizeof(*queue) ||
@@ -133,15 +135,18 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
     }
     uint32_t producer = queue->producer_index;
     while (producer - queue->retire_index >= queue->capacity) {
-        ++queue->backpressure_count;
-        ++*stall_cycles;
+        ++local_backpressure_count;
+        ++local_stall_cycles;
+    }
+    if (local_backpressure_count != 0) {
+        queue->backpressure_count += local_backpressure_count;
     }
     volatile struct opennpux_npu_page_fault *entries =
         (volatile struct opennpux_npu_page_fault *)(queue + 1);
     volatile struct opennpux_npu_page_fault *fault =
         &entries[producer % queue->capacity];
     while (fault->state != OPENNPUX_NPU_PAGE_FAULT_EMPTY) {
-        ++*stall_cycles;
+        ++local_stall_cycles;
     }
     fault->magic = OPENNPUX_NPU_PAGE_FAULT_MAGIC;
     fault->version = OPENNPUX_NPU_PAGE_FAULT_VERSION;
@@ -166,7 +171,10 @@ page_weight(volatile struct opennpux_npu_weight_queue_header *queue,
     memory_fence();
     page_progress(PAGE_PROGRESS_WAIT_READY);
     while (fault->state == OPENNPUX_NPU_PAGE_FAULT_PENDING) {
-        ++*stall_cycles;
+        ++local_stall_cycles;
+    }
+    if (local_stall_cycles != 0) {
+        *stall_cycles += local_stall_cycles;
     }
     page_progress(PAGE_PROGRESS_READY);
     if (fault->state != OPENNPUX_NPU_PAGE_FAULT_READY ||

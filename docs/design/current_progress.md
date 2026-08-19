@@ -689,3 +689,9 @@ Hybrid sim-host golden 生成，不改变 gem5、Coral RTL、分页和 Guest 端
 CPU placement 在独立生成器进程内清空 `CUDA_VISIBLE_DEVICES`，防止 GPTQ/Triton
 再次自动选中 CUDA；量化权重加载信息中的 `qweight/qzeros/scales/g_idx` 缺失项升级为
 硬失败，禁止以随机初始化参数生成伪 golden。
+
+直接 GPTQModel CPU 路径已验证系统链路一致，但仍生成无语义的多语言碎片，因此
+`token_golden=PASS` 被明确限定为 Host/Guest transport golden，而不是模型语义正确。
+新增 vLLM offline reference provider，采用 Qwen3.5 官方建议的 `moe_wna16` 路径并直接
+获取 `CompletionOutput.token_ids`，再通过既有 `.npxo`、NPU command completion 和
+Guest 校验链路返回。最终语义验收必须使用可信 reference provider 并人工检查文本。

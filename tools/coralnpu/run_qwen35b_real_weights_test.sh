@@ -60,9 +60,9 @@ case "$DECODE_MODE" in
         ;;
 esac
 case "$MODEL_LOADER" in
-    transformers|gptqmodel) ;;
+    transformers|gptqmodel|vllm) ;;
     *)
-        echo "error: CORAL_QWEN_MODEL_LOADER must be transformers or gptqmodel" >&2
+        echo "error: CORAL_QWEN_MODEL_LOADER must be transformers, gptqmodel or vllm" >&2
         exit 1
         ;;
 esac
@@ -187,7 +187,8 @@ PY
     if [ "$result_stale" -eq 0 ] &&
        { [ "$MODEL_DIR/config.json" -nt "$SIM_HOST_RESULT" ] ||
          [ "$MODEL_DIR/$EXECUTABLE_NAME" -nt "$SIM_HOST_RESULT" ] ||
-         [ "${ROOT_DIR}/tools/models/run_hf_next_token.py" -nt "$SIM_HOST_RESULT" ]; }; then
+         [ "${ROOT_DIR}/tools/models/run_hf_next_token.py" -nt "$SIM_HOST_RESULT" ] ||
+         [ "${ROOT_DIR}/tools/models/run_vllm_next_token.py" -nt "$SIM_HOST_RESULT" ]; }; then
         result_stale=1
     fi
     if [ "$result_stale" -eq 0 ] &&
@@ -203,10 +204,22 @@ PY
             exit 1
         fi
         if ! "$HF_PYTHON" -c \
-            'import accelerate, importlib.util, numpy, optimum, safetensors, torch, torchvision, transformers; from transformers import AutoModelForMultimodalLM, AutoProcessor; assert importlib.util.find_spec("gptqmodel")' \
+            'import accelerate, numpy, optimum, safetensors, torch, torchvision, transformers; from transformers import AutoModelForMultimodalLM, AutoProcessor' \
             >/dev/null 2>&1; then
             echo "error: HF numerical Python dependencies are incomplete" >&2
             echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2
+            exit 1
+        fi
+        if [ "$MODEL_LOADER" != vllm ] &&
+           ! "$HF_PYTHON" -c 'import gptqmodel' >/dev/null 2>&1; then
+            echo "error: GPTQModel is required for $MODEL_LOADER loading" >&2
+            echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2
+            exit 1
+        fi
+        if [ "$MODEL_LOADER" = vllm ] &&
+           ! "$HF_PYTHON" -c 'import vllm' >/dev/null 2>&1; then
+            echo "error: vLLM is required for CORAL_QWEN_MODEL_LOADER=vllm" >&2
+            echo "install the latest Qwen3.5-compatible vLLM build" >&2
             exit 1
         fi
         echo "[coral-qwen35b-real-weights-test] running real HF numerical forward" >&2
@@ -215,17 +228,23 @@ PY
                 CUDA_VISIBLE_DEVICES=
                 export CUDA_VISIBLE_DEVICES
             fi
-            exec "$HF_PYTHON" \
-                "${ROOT_DIR}/tools/models/run_hf_next_token.py" \
-                "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \
+            if [ "$MODEL_LOADER" = vllm ]; then
+                GENERATOR="${ROOT_DIR}/tools/models/run_vllm_next_token.py"
+            else
+                GENERATOR="${ROOT_DIR}/tools/models/run_hf_next_token.py"
+            fi
+            set -- "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \
                 "$SIM_HOST_RESULT" --prompt "$PROMPT" \
                 --prompt-format "$PROMPT_FORMAT" \
-                --model-loader "$MODEL_LOADER" \
-                --gptq-backend "$GPTQ_BACKEND" \
-                --device-map "$HF_DEVICE" \
                 --decode-mode "$DECODE_MODE" \
                 --seed "$GENERATION_SEED" \
                 --max-new-tokens "$MAX_NEW_TOKENS"
+            if [ "$MODEL_LOADER" != vllm ]; then
+                set -- "$@" --model-loader "$MODEL_LOADER" \
+                    --gptq-backend "$GPTQ_BACKEND" \
+                    --device-map "$HF_DEVICE"
+            fi
+            exec "$HF_PYTHON" "$GENERATOR" "$@"
         )
     fi
     SIM_HOST_NUMERICAL_ENV="OPENNPUX_SIM_HOST_NUMERICAL=1"
@@ -409,6 +428,7 @@ if [ '$SIM_HOST_NUMERICAL' != 0 ]; then
         m5 --inst exit
         exit 1
     fi
+    echo '[coral-qwen35b-real-weights-test] token_reference=$MODEL_LOADER'
     echo '[coral-qwen35b-real-weights-test] token_golden=PASS'
 fi
 echo '[coral-qwen35b-real-weights-test] PASS'

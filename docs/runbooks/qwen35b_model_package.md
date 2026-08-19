@@ -278,6 +278,11 @@ The real-token generator defaults GPTQ loading to the portable
 `gptq_torch` backend because Qwen3.5 contains projections whose output width is
 not divisible by 64 and therefore cannot use Marlin. Override it only after
 validating every model shape with `OPENNPUX_GPTQ_BACKEND=<backend>`.
+PyTorch 2.10.0 has a known Python 3.12 TorchInductor `CSE` generic annotation
+regression and has no 2.10.1 bug-fix release. The generator detects that exact
+API mismatch and applies a process-local second-parameter default before
+GPTQModel imports TorchInductor; it reports
+`hf_numerical_torch_cse_compat=1` when the workaround is active.
 
 CUDA is not a gem5, Verilator, Coral RTL, AXI or DMA dependency. It is used only
 to accelerate the optional host-side Hugging Face forward that creates the

@@ -9,6 +9,7 @@ import os
 import struct
 import sys
 from pathlib import Path
+from typing import Any
 
 
 MAGIC = 0x5258504E
@@ -34,6 +35,30 @@ def executable_id(path: Path) -> int:
     return struct.unpack_from("<Q", data, 48)[0]
 
 
+def patch_torch_cse_generic() -> bool:
+    """Work around the PyTorch 2.10 CSE one-vs-two generic parameter bug."""
+    from torch._inductor.codegen.common import CSE
+
+    try:
+        CSE[Any]
+        return False
+    except TypeError as error:
+        if "Too few arguments" not in str(error):
+            raise
+
+    original = CSE.__class_getitem__
+
+    def compatible_class_getitem(cls, parameters):
+        del cls
+        if not isinstance(parameters, tuple):
+            parameters = (parameters, Any)
+        return original(parameters)
+
+    CSE.__class_getitem__ = classmethod(compatible_class_getitem)
+    CSE[Any]
+    return True
+
+
 def load_model(model_dir: Path, backend_name: str):
     config = json.loads((model_dir / "config.json").read_text())
     quantization = config.get("quantization_config", {})
@@ -41,6 +66,7 @@ def load_model(model_dir: Path, backend_name: str):
         quantization.get("quant_method", quantization.get("method", ""))
     ).lower()
     if quant_method == "gptq":
+        cse_compat = patch_torch_cse_generic()
         from gptqmodel import BACKEND, GPTQModel
 
         try:
@@ -58,7 +84,7 @@ def load_model(model_dir: Path, backend_name: str):
             local_files_only=True,
         )
         model = getattr(loaded, "model", loaded)
-        return model, backend.value
+        return model, backend.value, cse_compat
 
     from transformers import AutoModelForCausalLM
 
@@ -70,7 +96,7 @@ def load_model(model_dir: Path, backend_name: str):
         torch_dtype="auto",
         low_cpu_mem_usage=True,
     )
-    return model, "transformers-auto"
+    return model, "transformers-auto", False
 
 
 def main() -> None:
@@ -98,7 +124,9 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_dir, trust_remote_code=True, local_files_only=True
     )
-    model, numerical_backend = load_model(args.model_dir, args.gptq_backend)
+    model, numerical_backend, cse_compat = load_model(
+        args.model_dir, args.gptq_backend
+    )
     model.eval()
     encoded = tokenizer(args.prompt, return_tensors="pt")
     input_device = next(model.parameters()).device
@@ -135,6 +163,7 @@ def main() -> None:
     temporary.replace(args.output)
     print(f"hf_numerical_executable_id=0x{executable_id(args.executable):016x}")
     print(f"hf_numerical_backend={numerical_backend}")
+    print(f"hf_numerical_torch_cse_compat={int(cse_compat)}")
     print(f"hf_numerical_prompt_checksum=0x{fnv1a(prompt_bytes):08x}")
     print(f"hf_numerical_input_tokens={encoded['input_ids'].shape[-1]}")
     print(f"hf_numerical_logits={logits.shape[0]}")

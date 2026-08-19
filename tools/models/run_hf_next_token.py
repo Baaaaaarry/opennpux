@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one real Hugging Face forward pass and emit an OpenNPUX result record."""
+"""Run Hugging Face autoregressive decode and emit an OpenNPUX result record."""
 
 from __future__ import annotations
 
@@ -14,14 +14,13 @@ from typing import Any
 
 MAGIC = 0x5258504E
 VERSION = 1
-HEADER = struct.Struct("<IIIIQIIIIIIII64sQ")
+HEADER = struct.Struct("<IIIIQIIIIIIII64sII")
 EXECUTABLE_MAGIC = 0x4558504E
 
 assert HEADER.size == 128
 
 
-def fnv1a(data: bytes) -> int:
-    value = 2166136261
+def fnv1a(data: bytes, value: int = 2166136261) -> int:
     for byte in data:
         value ^= byte
         value = (value * 16777619) & 0xFFFFFFFF
@@ -109,7 +108,14 @@ def main() -> None:
         "--gptq-backend",
         default=os.environ.get("OPENNPUX_GPTQ_BACKEND", "gptq_torch"),
     )
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=int(os.environ.get("OPENNPUX_MAX_NEW_TOKENS", "8")),
+    )
     args = parser.parse_args()
+    if not 1 <= args.max_new_tokens <= 32:
+        parser.error("--max-new-tokens must be between 1 and 32")
 
     try:
         import numpy as np
@@ -132,12 +138,35 @@ def main() -> None:
     input_device = next(model.parameters()).device
     encoded = {name: tensor.to(input_device) for name, tensor in encoded.items()}
     with torch.inference_mode():
-        output = model(**encoded, use_cache=False)
-    logits = output.logits[0, -1].detach().float().cpu().numpy().astype("<f4")
-    token = int(np.argmax(logits))
-    token_text = tokenizer.decode([token], skip_special_tokens=False).encode("utf-8")
-    if len(token_text) > 56:
-        token_text = token_text[:56]
+        output = model.generate(
+            **encoded,
+            max_new_tokens=args.max_new_tokens,
+            do_sample=False,
+            use_cache=True,
+            return_dict_in_generate=True,
+            output_scores=True,
+        )
+    input_tokens = int(encoded["input_ids"].shape[-1])
+    generated_ids = output.sequences[0, input_tokens:].detach().cpu().tolist()
+    if not generated_ids or not output.scores:
+        raise RuntimeError("model did not generate a token or return logits")
+    token = int(generated_ids[0])
+    vocabulary_size = int(output.scores[0].shape[-1])
+    logits_checksum = 2166136261
+    for score in output.scores:
+        logits = score[0].detach().float().cpu().numpy().astype("<f4")
+        if int(logits.shape[0]) != vocabulary_size:
+            raise RuntimeError("generation score vocabulary size changed")
+        logits_checksum = fnv1a(logits.tobytes(), logits_checksum)
+    decoded_text = tokenizer.decode(generated_ids, skip_special_tokens=False)
+    token_text = decoded_text.encode("utf-8")[:64]
+    token_text = token_text.decode("utf-8", errors="ignore").encode("utf-8")
+    eos_token_ids = getattr(model.generation_config, "eos_token_id", None)
+    if eos_token_ids is None:
+        eos_token_ids = tokenizer.eos_token_id
+    if isinstance(eos_token_ids, int):
+        eos_token_ids = [eos_token_ids]
+    stop_reason = int(bool(eos_token_ids) and generated_ids[-1] in eos_token_ids)
     prompt_bytes = args.prompt.encode("utf-8")
     model_checksum = fnv1a((args.model_dir / "config.json").read_bytes())
     record = HEADER.pack(
@@ -148,14 +177,15 @@ def main() -> None:
         executable_id(args.executable),
         fnv1a(prompt_bytes),
         token,
-        int(logits.shape[0]),
-        fnv1a(logits.tobytes()),
-        int(encoded["input_ids"].shape[-1]),
+        vocabulary_size,
+        logits_checksum,
+        input_tokens,
         len(token_text),
         model_checksum,
-        int(logits.shape[0]),
+        vocabulary_size,
         token_text.ljust(64, b"\0"),
-        0,
+        len(generated_ids),
+        stop_reason,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.output.with_name(args.output.name + f".tmp.{os.getpid()}")
@@ -165,11 +195,14 @@ def main() -> None:
     print(f"hf_numerical_backend={numerical_backend}")
     print(f"hf_numerical_torch_cse_compat={int(cse_compat)}")
     print(f"hf_numerical_prompt_checksum=0x{fnv1a(prompt_bytes):08x}")
-    print(f"hf_numerical_input_tokens={encoded['input_ids'].shape[-1]}")
-    print(f"hf_numerical_logits={logits.shape[0]}")
-    print(f"hf_numerical_logits_checksum=0x{fnv1a(logits.tobytes()):08x}")
+    print(f"hf_numerical_input_tokens={input_tokens}")
+    print(f"hf_numerical_logits={vocabulary_size}")
+    print(f"hf_numerical_logits_checksum=0x{logits_checksum:08x}")
     print(f"hf_numerical_next_token={token}")
-    print(f"hf_numerical_token_text={tokenizer.decode([token], skip_special_tokens=False)!r}")
+    print(f"hf_numerical_generated_tokens={len(generated_ids)}")
+    print("hf_numerical_token_ids=" + ",".join(str(value) for value in generated_ids))
+    print(f"hf_numerical_stop_reason={stop_reason}")
+    print(f"hf_numerical_token_text={decoded_text!r}")
     print("hf_numerical=PASS")
 
 

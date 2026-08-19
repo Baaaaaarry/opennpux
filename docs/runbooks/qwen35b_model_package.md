@@ -246,11 +246,13 @@ services the firmware page-fault queue directly in Local EXTMEM. The NPU still
 publishes and retires the same queue records, but the simulated ARM CPU no
 longer reads safetensors over 9P or copies each 64KiB page.
 
-The default acceptance path also runs one real Hugging Face numerical forward
-pass on the simulation host. It caches the logits argmax and decoded token in a
-128-byte `.npxo` result record. The bridge validates the executable ID, prompt
-checksum and vocabulary size, then publishes that result only after the NPU
-firmware has completed the entire 524-command invocation. This is a hybrid
+The default acceptance path also runs real Hugging Face autoregressive greedy
+decode on the simulation host. It uses the model KV cache and defaults to eight
+new tokens. The generated token sequence, text and per-step logits checksum are
+cached in a 128-byte `.npxo` result record. The bridge validates the executable
+ID, prompt checksum, vocabulary size and requested token limit, then publishes
+that result only after the NPU firmware has completed the entire 524-command
+invocation. This is a hybrid
 numerical path: command scheduling, paging and completion remain NPU-visible,
 while the current full-model numerical kernel runs on the host. It must not be
 reported as full-RTL numerical execution.
@@ -297,6 +299,7 @@ from implemented NPU firmware/RTL kernels.
 
 ```sh
 CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
+  CORAL_QWEN_MAX_NEW_TOKENS=8 \
   CORAL_SIM_HOST_PAGING=1 \
   CORAL_SIM_HOST_NUMERICAL=1 \
   ./tools/coralnpu/run_qwen35b_real_weights_test.sh
@@ -310,11 +313,15 @@ The first run prints `sim_host_bundle=PASS`; later runs reuse
 `CORAL_SIM_HOST_PAGING=0` to retain the cycle-slow Guest paging reference.
 Set `CORAL_REBUILD_SIM_HOST_RESULT=1` to rerun the real model forward, or
 `CORAL_SIM_HOST_NUMERICAL=0` to disable host numerical publication.
+Set `CORAL_QWEN_MAX_NEW_TOKENS=1..32` to control greedy decode length. The token
+count is part of the cache filename, so results for different lengths cannot be
+reused accidentally.
 
 Acceptance requires `paging_source=sim-host-direct`, equal
 `paging_queue_producer/service/retire` values, `inference_mode=numerical`,
 `inference_result_source=sim-host-numerical`, a nonempty
-`inference_token_text`, `inference_run=PASS`, `executable_run=PASS`, and
+`inference_token_text`, a nonzero `inference_generated_tokens`,
+`inference_run=PASS`, `executable_run=PASS`, and
 `[coral-qwen35b-real-weights-test] PASS`.
 
 Before booting, the runner recomputes the staged image on the host and injects

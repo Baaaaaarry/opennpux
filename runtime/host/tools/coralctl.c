@@ -37,6 +37,26 @@ byte_checksum(const void *data, size_t size)
     return value;
 }
 
+static int
+inference_max_new_tokens(uint32_t *value)
+{
+    const char *text = getenv("OPENNPUX_MAX_NEW_TOKENS");
+    if (text == NULL || text[0] == '\0') {
+        *value = 1;
+        return 0;
+    }
+    char *end = NULL;
+    errno = 0;
+    const unsigned long parsed = strtoul(text, &end, 0);
+    if (errno != 0 || end == text || *end != '\0' || parsed == 0 ||
+        parsed > 32) {
+        errno = EINVAL;
+        return -1;
+    }
+    *value = (uint32_t)parsed;
+    return 0;
+}
+
 static int copy_to_shared_window(
     struct opennpux_coral_shared_window *window, const uint8_t *source,
     uint32_t size);
@@ -561,6 +581,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct opennpux_npu_inference_io *inference_result = NULL;
     struct opennpux_npu_inference_io inference_request_image;
     struct opennpux_npu_inference_io inference_result_image;
+    uint32_t max_new_tokens = 1;
     struct opennpux_model_package_info weight_model;
     struct opennpux_npu_weight_ranges weight_ranges;
     struct opennpux_npu_weight_cache weight_cache;
@@ -857,7 +878,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     if (inference_prompt != NULL) {
         print_paged_stage(paged, "initialize-inference-io");
         const size_t prompt_size = strlen(inference_prompt);
-        if (!real_weights || prompt_size == 0 ||
+        if (inference_max_new_tokens(&max_new_tokens) != 0 ||
+            !real_weights || prompt_size == 0 ||
             prompt_size >= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
             NPU_INPUT_BUFFER_SIZE < sizeof(*inference_request) ||
             NPU_OUTPUT_BUFFER_SIZE < sizeof(*inference_result)) {
@@ -882,7 +904,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         inference_request->prompt_checksum =
             byte_checksum(inference_prompt, prompt_size);
         inference_request->vocabulary_size = weight_model.vocab_size;
-        inference_request->max_new_tokens = 1;
+        inference_request->max_new_tokens = max_new_tokens;
         inference_request->input_token_count = 1;
         memcpy(inference_request->prompt, inference_prompt, prompt_size);
         copy_to_device_memory(window.bytes + input_offset,
@@ -1164,9 +1186,13 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST) {
             const uint32_t text_size = inference_result->reserved[1];
             printf("inference_result_source=sim-host-numerical\n");
-            if (text_size <= 14 * sizeof(uint32_t)) {
+            printf("inference_generated_tokens=%" PRIu32 "\n",
+                   inference_result->reserved[2]);
+            printf("inference_stop_reason=%" PRIu32 "\n",
+                   inference_result->reserved[3]);
+            if (text_size <= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES) {
                 printf("inference_token_text=%.*s\n", (int)text_size,
-                       (const char *)&inference_result->reserved[2]);
+                       inference_result->prompt);
             }
         }
         if (inference_result->magic != OPENNPUX_NPU_INFERENCE_IO_MAGIC ||
@@ -1188,7 +1214,10 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                   OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST ||
               inference_result->reserved[1] == 0 ||
               inference_result->reserved[1] >
-                  14 * sizeof(uint32_t)))) {
+                  OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
+              inference_result->reserved[2] == 0 ||
+              inference_result->reserved[2] >
+                  inference_request->max_new_tokens))) {
             errno = EIO;
             perror("executable-run inference validation");
             goto out;

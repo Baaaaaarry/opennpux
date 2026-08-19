@@ -41,6 +41,7 @@ int main() {
   result.token_text_size = 5;
   std::memcpy(result.token_text, " npux", 5);
   result.logits_count = 16;
+  result.generated_token_count = 3;
   assert(fwrite(&result, 1, sizeof(result), file) == sizeof(result));
   assert(fclose(file) == 0);
   assert(setenv("CORAL_SIM_HOST_INFERENCE_RESULT", path, 1) == 0);
@@ -66,6 +67,7 @@ int main() {
   input->struct_size = sizeof(*input);
   input->prompt_checksum = result.prompt_checksum;
   input->vocabulary_size = result.vocabulary_size;
+  input->max_new_tokens = 3;
   auto* output = At<opennpux_npu_inference_io>(&extmem, 0x2000);
   output->magic = OPENNPUX_NPU_INFERENCE_IO_MAGIC;
   output->version = OPENNPUX_NPU_INFERENCE_IO_VERSION;
@@ -82,7 +84,9 @@ int main() {
   assert(output->input_token_count == result.input_token_count);
   assert(output->reserved[0] == OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST);
   assert(output->reserved[1] == result.token_text_size);
-  assert(std::memcmp(&output->reserved[2], " npux", 5) == 0);
+  assert(output->reserved[2] == result.generated_token_count);
+  assert(output->reserved[3] == result.stop_reason);
+  assert(std::memcmp(output->prompt, " npux", 5) == 0);
   assert(numerical.Publish(&extmem) == 0);
   assert(unlink(path) == 0);
   puts("gem5_sim_host_numerical=PASS");

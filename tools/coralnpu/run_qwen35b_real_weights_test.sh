@@ -10,6 +10,7 @@ RANGE_NAME="${CORAL_NPU_RANGE_NAME:-model.npxr}"
 POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
 BASE="${CORAL_NPU_BASE:-0x1d000000}"
 PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
+MAX_NEW_TOKENS="${CORAL_QWEN_MAX_NEW_TOKENS:-8}"
 NUMERICAL_ENV=""
 SIM_HOST_PAGING="${CORAL_SIM_HOST_PAGING:-1}"
 SIM_HOST_NUMERICAL="${CORAL_SIM_HOST_NUMERICAL:-1}"
@@ -19,6 +20,16 @@ HF_PYTHON="${CORAL_HF_PYTHON:-${ROOT_DIR}/.venv/hf-numerical/bin/python}"
 
 [ "${#PROMPT}" -lt 128 ] || {
     echo "error: CORAL_QWEN_PROMPT must be shorter than 128 bytes" >&2
+    exit 1
+}
+case "$MAX_NEW_TOKENS" in
+    ''|*[!0-9]*)
+        echo "error: CORAL_QWEN_MAX_NEW_TOKENS must be an integer from 1 to 32" >&2
+        exit 1
+        ;;
+esac
+[ "$MAX_NEW_TOKENS" -ge 1 ] && [ "$MAX_NEW_TOKENS" -le 32 ] || {
+    echo "error: CORAL_QWEN_MAX_NEW_TOKENS must be an integer from 1 to 32" >&2
     exit 1
 }
 case "$PROMPT" in
@@ -118,12 +129,13 @@ for byte in sys.argv[1].encode():
 print(f"{value:08x}")
 PY
 )"
-    SIM_HOST_RESULT="${CORAL_SIM_HOST_INFERENCE_RESULT:-${ROOT_DIR}/build/model-results/qwen35b-${PROMPT_TAG}.npxo}"
+    SIM_HOST_RESULT="${CORAL_SIM_HOST_INFERENCE_RESULT:-${ROOT_DIR}/build/model-results/qwen35b-${PROMPT_TAG}-t${MAX_NEW_TOKENS}.npxo}"
     result_stale=0
     [ -r "$SIM_HOST_RESULT" ] || result_stale=1
     if [ "$result_stale" -eq 0 ] &&
        { [ "$MODEL_DIR/config.json" -nt "$SIM_HOST_RESULT" ] ||
-         [ "$MODEL_DIR/$EXECUTABLE_NAME" -nt "$SIM_HOST_RESULT" ]; }; then
+         [ "$MODEL_DIR/$EXECUTABLE_NAME" -nt "$SIM_HOST_RESULT" ] ||
+         [ "${ROOT_DIR}/tools/models/run_hf_next_token.py" -nt "$SIM_HOST_RESULT" ]; }; then
         result_stale=1
     fi
     if [ "$result_stale" -eq 0 ] &&
@@ -148,7 +160,8 @@ PY
         echo "[coral-qwen35b-real-weights-test] running real HF numerical forward" >&2
         "$HF_PYTHON" "${ROOT_DIR}/tools/models/run_hf_next_token.py" \
             "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \
-            "$SIM_HOST_RESULT" --prompt "$PROMPT"
+            "$SIM_HOST_RESULT" --prompt "$PROMPT" \
+            --max-new-tokens "$MAX_NEW_TOKENS"
     fi
     SIM_HOST_NUMERICAL_ENV="OPENNPUX_SIM_HOST_NUMERICAL=1"
     echo "[coral-qwen35b-real-weights-test] numerical result: $SIM_HOST_RESULT" >&2
@@ -237,6 +250,7 @@ for asset in '$EXECUTABLE_NAME' '$MANIFEST_NAME' '$RANGE_NAME'; do
 done
 env $NUMERICAL_ENV $SIM_HOST_ENV $SIM_HOST_NUMERICAL_ENV \
     OPENNPUX_PROMPT='$PROMPT' \
+    OPENNPUX_MAX_NEW_TOKENS='$MAX_NEW_TOKENS' \
     OPENNPUX_MODEL_ROOT=/mnt/opennpux-model \
     /tmp/coralctl executable-run-paged \
     /mnt/opennpux-model/$EXECUTABLE_NAME decode \

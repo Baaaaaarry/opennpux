@@ -10,8 +10,6 @@
 namespace {
 
 constexpr uint64_t kExtmemBase = UINT64_C(0x20000000);
-constexpr uint32_t kResultTextCapacity = 14 * sizeof(uint32_t);
-
 bool RangeValid(uint64_t address, uint64_t size,
                 const std::vector<uint8_t>& extmem) {
   return address >= kExtmemBase && address - kExtmemBase <= extmem.size() &&
@@ -41,8 +39,9 @@ Gem5SimHostNumerical::Gem5SimHostNumerical() {
       result_.vocabulary_size != 0 &&
       result_.next_token < result_.vocabulary_size &&
       result_.logits_count == result_.vocabulary_size &&
+      result_.generated_token_count != 0 &&
       result_.token_text_size != 0 &&
-      result_.token_text_size <= kResultTextCapacity;
+      result_.token_text_size <= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES;
   if (file != nullptr) {
     std::fclose(file);
   }
@@ -52,9 +51,10 @@ Gem5SimHostNumerical::Gem5SimHostNumerical() {
   } else {
     std::fprintf(stderr,
                  "Coral sim-host numerical loaded executable=0x%016llx "
-                 "prompt=0x%08x token=%u logits=0x%08x\n",
+                 "prompt=0x%08x token=%u generated=%u logits=0x%08x\n",
                  static_cast<unsigned long long>(result_.executable_id),
                  result_.prompt_checksum, result_.next_token,
+                 result_.generated_token_count,
                  result_.logits_checksum);
   }
   std::fflush(stderr);
@@ -116,6 +116,8 @@ int Gem5SimHostNumerical::Publish(std::vector<uint8_t>* extmem) {
       input->struct_size != sizeof(*input) ||
       input->prompt_checksum != result_.prompt_checksum ||
       input->vocabulary_size != result_.vocabulary_size ||
+      input->max_new_tokens == 0 ||
+      result_.generated_token_count > input->max_new_tokens ||
       output->magic != OPENNPUX_NPU_INFERENCE_IO_MAGIC ||
       output->version != OPENNPUX_NPU_INFERENCE_IO_VERSION ||
       output->struct_size != sizeof(*output)) {
@@ -132,14 +134,16 @@ int Gem5SimHostNumerical::Publish(std::vector<uint8_t>* extmem) {
   output->result_checksum = result_.logits_checksum;
   output->reserved[0] = OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST;
   output->reserved[1] = result_.token_text_size;
-  std::memcpy(&output->reserved[2], result_.token_text,
-              result_.token_text_size);
+  output->reserved[2] = result_.generated_token_count;
+  output->reserved[3] = result_.stop_reason;
+  std::memset(output->prompt, 0, sizeof(output->prompt));
+  std::memcpy(output->prompt, result_.token_text, result_.token_text_size);
   __atomic_thread_fence(__ATOMIC_RELEASE);
   published_ = true;
   std::fprintf(stderr,
-               "Coral sim-host numerical publish token=%u logits=0x%08x "
-               "commands=%u\n",
-               output->next_token, output->result_checksum,
+               "Coral sim-host numerical publish token=%u generated=%u "
+               "logits=0x%08x commands=%u\n",
+               output->next_token, output->reserved[2], output->result_checksum,
                output->completed_commands);
   std::fflush(stderr);
   return 1;

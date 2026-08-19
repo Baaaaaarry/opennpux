@@ -14,7 +14,8 @@ struct opennpux_npu_numerical_result {
   uint32_t prompt_checksum, next_token, vocabulary_size, logits_checksum;
   uint32_t input_token_count, token_text_size, model_checksum, logits_count;
   char token_text[OPENNPUX_NPU_NUMERICAL_RESULT_TEXT_BYTES];
-  uint64_t reserved;
+  uint32_t generated_token_count;
+  uint32_t stop_reason;
 };
 
 static_assert(sizeof(opennpux_npu_numerical_result) == 128);

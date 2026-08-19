@@ -609,3 +609,12 @@ Verilated bridge 只在 NPU firmware 完成全部 invocation command 后发布�
 token”的系统级验收。数值 forward 当前属于 Hybrid sim-host kernel，不代表 35B 模型
 已在 Coral RTL 内逐算子完成数值执行；后续仍需以 MatMul/GPTQ、Attention、MoE、
 Norm/RoPE 等设备 kernel 逐步替换 host numerical kernel。
+
+## 2026-08-19 Qwen35B 多 token 自回归解码
+
+真实数值结果通路由单次 forward 扩展为最多 32 token 的贪心自回归解码，默认生成
+8 token，并启用 Hugging Face KV cache。固定 128 字节 `.npxo` ABI 保持尺寸兼容，
+新增实际生成 token 数和停止原因；完整解码文本通过 inference I/O 的 128 字节返回区
+交给 Guest。`coralctl` 将 `OPENNPUX_MAX_NEW_TOKENS` 写入请求并严格校验返回数量，
+bridge 仍只在 524-command NPU invocation 完成后发布数值结果。该增量验证连续生成的
+系统协议与生命周期，数值计算仍属于 Hybrid sim-host kernel。

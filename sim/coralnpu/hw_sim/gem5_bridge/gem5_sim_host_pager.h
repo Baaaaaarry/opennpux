@@ -23,6 +23,7 @@ class Gem5SimHostPager {
  private:
   bool RangeValid(uint64_t address, uint64_t size,
                   const std::vector<uint8_t>& extmem) const;
+  int RewindBundle();
   int Fail(const char* reason);
 
   FILE* bundle_ = nullptr;
@@ -31,6 +32,8 @@ class Gem5SimHostPager {
   uint64_t serviced_ = 0;
   uint64_t consumed_ = 0;
   uint64_t transferred_ = 0;
+  uint32_t last_command_id_ = 0;
+  bool have_last_command_ = false;
   bool failed_ = false;
 };
 

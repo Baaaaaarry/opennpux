@@ -58,12 +58,24 @@ void Gem5SimHostPager::Reset() {
   serviced_ = 0;
   consumed_ = 0;
   transferred_ = 0;
+  last_command_id_ = 0;
+  have_last_command_ = false;
   failed_ = false;
   if (bundle_ != nullptr) {
     if (std::fseek(bundle_, sizeof(header_), SEEK_SET) != 0) {
       Fail("cannot rewind page bundle");
     }
   }
+}
+
+int Gem5SimHostPager::RewindBundle() {
+  if (bundle_ == nullptr ||
+      std::fseek(bundle_, sizeof(header_), SEEK_SET) != 0) {
+    return Fail("cannot rewind page bundle for next execution step");
+  }
+  consumed_ = 0;
+  have_last_command_ = false;
+  return 0;
 }
 
 bool Gem5SimHostPager::RangeValid(
@@ -153,9 +165,14 @@ int Gem5SimHostPager::Service(std::vector<uint8_t>* extmem) {
   if (fault->magic != OPENNPUX_NPU_PAGE_FAULT_MAGIC ||
       fault->version != OPENNPUX_NPU_PAGE_FAULT_VERSION ||
       fault->struct_size != sizeof(*fault) ||
-      fault->page_size != header_.transfer_size ||
-      consumed_ >= header_.record_count) {
+      fault->page_size != header_.transfer_size) {
     return Fail("page fault does not match bundle ABI");
+  }
+  if (consumed_ >= header_.record_count ||
+      (have_last_command_ && fault->command_id < last_command_id_)) {
+    if (RewindBundle() != 0) {
+      return -1;
+    }
   }
   opennpux_npu_page_bundle_record record = {};
   for (;;) {
@@ -238,6 +255,8 @@ int Gem5SimHostPager::Service(std::vector<uint8_t>* extmem) {
   fault->state = OPENNPUX_NPU_PAGE_FAULT_READY;
   queue->service_index += 1;
   ++serviced_;
+  last_command_id_ = fault->command_id;
+  have_last_command_ = true;
   transferred_ += header_.transfer_size;
   if (serviced_ <= 10 || serviced_ % 100 == 0) {
     std::fprintf(stderr,

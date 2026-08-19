@@ -631,3 +631,9 @@ decode。每一步重新建立 dependency retirement 边界，并累计 command 
 operator trace、分页请求、operations/bytes 和 modeled cycles。默认 8-token 请求对
 524-command 模板产生 4192 个已执行 command；Host runtime、bridge 和 Guest 验证均
 拒绝只完成单步模板的旧结果。
+
+逐 token 首次 GB10 验证暴露 sim-host page bundle 原先只能顺序消费一次：第二个
+decode step 重复请求 command 0 后 `consumed == record_count`，pager 返回错误并导致
+bridge step fatal。Pager 现按 command ID 回退或 bundle 消耗完毕识别新执行 step，
+回卷记录流但保留累计 service/transfer 统计；单测覆盖同一 command graph 的第二轮
+权重页请求。

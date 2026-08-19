@@ -117,6 +117,17 @@ int main() {
   assert(residency->valid_records == 1);
   assert(records[7].command_id == 7);
   assert((records[7].flags & OPENNPUX_NPU_WEIGHT_RESIDENCY_VALID) != 0);
+
+  // A new decode step reuses the same sorted bundle from its beginning.
+  queue->producer_index = 2;
+  auto* second_fault = fault + 1;
+  *second_fault = *fault;
+  second_fault->state = OPENNPUX_NPU_PAGE_FAULT_PENDING;
+  assert(pager.Service(&extmem) == 1);
+  assert(pager.serviced() == 2);
+  assert(queue->service_index == 2);
+  assert(second_fault->state == OPENNPUX_NPU_PAGE_FAULT_READY);
+  assert(second_fault->cache_slot == 7);
   assert(unlink(path) == 0);
   puts("gem5_sim_host_pager=PASS");
   return 0;

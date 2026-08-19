@@ -333,6 +333,14 @@ and eight generated tokens, acceptance therefore requires
 `completed_commands=4192`. Trace command counts, page requests and modeled
 cycles cover all eight steps rather than one template traversal.
 
+Hybrid sim-host numerical runs default to immutable decode-weight reuse. The
+prefill step services the complete page-fault stream once; later decode steps
+reuse that modeled weight residency while still executing and accounting every
+command. This avoids seven redundant transfers of identical read-only weights.
+Set `CORAL_REUSE_DECODE_WEIGHTS=0` to retain the hardware-reference behavior
+that pages weights on every token. The Guest reports
+`inference_decode_weight_policy=reuse-after-prefill|page-every-step`.
+
 Acceptance requires `paging_source=sim-host-direct`, equal
 `paging_queue_producer/service/retire` values, `inference_mode=numerical`,
 `inference_result_source=sim-host-numerical`, a nonempty

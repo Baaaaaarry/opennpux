@@ -683,6 +683,11 @@ main(void)
         record->estimated_bytes += command_bytes;
         if ((commands[index].flags &
              OPENNPUX_NPU_COMMAND_USES_WEIGHT) != 0) {
+            if (step != 0 && inference_input != NULL &&
+                (inference_input->reserved[0] &
+                 OPENNPUX_NPU_INFERENCE_REUSE_DECODE_WEIGHTS) != 0) {
+                goto weight_complete;
+            }
             if (queue_binding != NULL) {
                 uint32_t word = 0;
                 uint32_t last = 0;

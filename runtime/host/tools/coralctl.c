@@ -925,6 +925,10 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         inference_request->vocabulary_size = weight_model.vocab_size;
         inference_request->max_new_tokens = max_new_tokens;
         inference_request->input_token_count = input_token_count;
+        if (getenv("OPENNPUX_REUSE_DECODE_WEIGHTS") != NULL) {
+            inference_request->reserved[0] |=
+                OPENNPUX_NPU_INFERENCE_REUSE_DECODE_WEIGHTS;
+        }
         memcpy(inference_request->prompt, inference_prompt, prompt_size);
         copy_to_device_memory(window.bytes + input_offset,
                               (const uint8_t *)inference_request,
@@ -1204,6 +1208,10 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         printf("inference_prompt=%s\n", inference_request->prompt);
         printf("inference_prompt_checksum=0x%08" PRIx32 "\n",
                inference_request->prompt_checksum);
+        printf("inference_decode_weight_policy=%s\n",
+               (inference_request->reserved[0] &
+                OPENNPUX_NPU_INFERENCE_REUSE_DECODE_WEIGHTS) != 0 ?
+                   "reuse-after-prefill" : "page-every-step");
         printf("inference_mode=%s\n",
                inference_result->mode ==
                        OPENNPUX_NPU_INFERENCE_MODE_NUMERICAL ?

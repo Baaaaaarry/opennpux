@@ -637,3 +637,9 @@ decode step 重复请求 command 0 后 `consumed == record_count`，pager 返回
 bridge step fatal。Pager 现按 command ID 回退或 bundle 消耗完毕识别新执行 step，
 回卷记录流但保留累计 service/transfer 统计；单测覆盖同一 command graph 的第二轮
 权重页请求。
+
+GB10 逐 token 验收的 35872 次 page fault 等于每步 4484 次乘 8，说明 Hybrid 路径
+重复搬运完全相同的只读权重。新增 decode-weight reuse 策略：prefill 保留完整分页，
+后续 decode step 继续执行 524-command 调度并累计 operations/cycles，但复用 modeling
+backend 中的固定权重驻留，不再生成重复 page fault。该策略仅是快速仿真默认值；设置
+`CORAL_REUSE_DECODE_WEIGHTS=0` 可恢复每 token 全量分页，用于内存系统压力评估。

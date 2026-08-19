@@ -126,6 +126,7 @@ cc_binary(
 cc_library(
     name = "gem5_npu_submission_headers",
     hdrs = [
+        "gem5_bridge/npu_inference_io.h",
         "gem5_bridge/npu_submission.h",
         "gem5_bridge/npu_numerical_result.h",
         "gem5_bridge/npu_page_bundle.h",

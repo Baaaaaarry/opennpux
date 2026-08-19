@@ -41,10 +41,10 @@ int main() {
   result.token_text_size = 5;
   std::memcpy(result.token_text, " npux", 5);
   result.logits_count = 16;
-  result.generated_token_count = 3;
-  result.generated_token_ids[0] = 7;
-  result.generated_token_ids[1] = 8;
-  result.generated_token_ids[2] = 9;
+  result.generated_token_count = OPENNPUX_NPU_INFERENCE_MAX_RESULT_TOKENS;
+  for (uint32_t index = 0; index < result.generated_token_count; ++index) {
+    result.generated_token_ids[index] = (7 + index) % result.vocabulary_size;
+  }
   assert(fwrite(&result, 1, sizeof(result), file) == sizeof(result));
   assert(fclose(file) == 0);
   assert(setenv("CORAL_SIM_HOST_INFERENCE_RESULT", path, 1) == 0);
@@ -63,14 +63,15 @@ int main() {
   bindings[0].device_address = kBase + 0x1000;
   bindings[0].byte_size = sizeof(opennpux_npu_inference_io);
   bindings[1].device_address = kBase + 0x2000;
-  bindings[1].byte_size = sizeof(opennpux_npu_inference_io);
+  bindings[1].byte_size = sizeof(opennpux_npu_inference_io) +
+      OPENNPUX_NPU_INFERENCE_MAX_RESULT_TOKENS * sizeof(uint32_t);
   auto* input = At<opennpux_npu_inference_io>(&extmem, 0x1000);
   input->magic = OPENNPUX_NPU_INFERENCE_IO_MAGIC;
   input->version = OPENNPUX_NPU_INFERENCE_IO_VERSION;
   input->struct_size = sizeof(*input);
   input->prompt_checksum = result.prompt_checksum;
   input->vocabulary_size = result.vocabulary_size;
-  input->max_new_tokens = 3;
+  input->max_new_tokens = OPENNPUX_NPU_INFERENCE_MAX_RESULT_TOKENS;
   input->input_token_count = result.input_token_count;
   auto* output = At<opennpux_npu_inference_io>(&extmem, 0x2000);
   output->magic = OPENNPUX_NPU_INFERENCE_IO_MAGIC;
@@ -86,13 +87,23 @@ int main() {
   assert(output->next_token == result.next_token);
   assert(output->result_checksum == result.logits_checksum);
   assert(output->input_token_count == result.input_token_count);
-  assert(output->reserved[0] == OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST);
-  assert(output->reserved[1] == result.token_text_size);
-  assert(output->reserved[2] == result.generated_token_count);
-  assert(output->reserved[3] == result.stop_reason);
-  assert(output->reserved[4] == 7);
-  assert(output->reserved[5] == 8);
-  assert(output->reserved[6] == 9);
+  assert(output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_IDS_SOURCE_INDEX] ==
+         OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST);
+  assert(output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX] ==
+         result.token_text_size);
+  assert(output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_COUNT_INDEX] ==
+         result.generated_token_count);
+  assert(output->reserved[OPENNPUX_NPU_INFERENCE_STOP_REASON_INDEX] ==
+         result.stop_reason);
+  assert(output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET_INDEX] ==
+         OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET);
+  assert(output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_IDS_BYTES_INDEX] ==
+         result.generated_token_count * sizeof(uint32_t));
+  const auto* token_ids = At<uint32_t>(
+      &extmem, 0x2000 + OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET);
+  for (uint32_t index = 0; index < result.generated_token_count; ++index) {
+    assert(token_ids[index] == result.generated_token_ids[index]);
+  }
   assert(std::memcmp(output->prompt, " npux", 5) == 0);
   assert(numerical.Publish(&extmem) == 0);
   assert(unlink(path) == 0);

@@ -261,6 +261,13 @@ numerical path: command scheduling, paging and completion remain NPU-visible,
 while the current full-model numerical kernel runs on the host. It must not be
 reported as full-RTL numerical execution.
 
+The fixed 256-byte inference I/O header carries result metadata and token text.
+The complete token-ID sequence is published in the output binding at
+`OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET`; header fields describe its offset and
+byte length. This supports all 32 result tokens without truncating Guest output
+to the former 12 inline IDs. `coralctl` validates the external array bounds,
+every token against the vocabulary, and the first token against `next_token`.
+
 Install a recent model-compatible `torch`, `transformers`, `accelerate` and
 `numpy` environment before the first run. The GPTQ model may additionally need
 the quantization backend required by the selected Transformers release.
@@ -354,7 +361,7 @@ Acceptance requires `paging_source=sim-host-direct`, equal
 `paging_queue_producer/service/retire` values, `inference_mode=numerical`,
 `inference_result_source=sim-host-numerical`, a nonempty
 `inference_token_text`, a nonzero `inference_generated_tokens`,
-an `inference_token_ids` sequence whose first element equals
+an untruncated `inference_token_ids` sequence whose first element equals
 `inference_next_token`,
 and token IDs/text equal to the Hugging Face golden printed when the `.npxo`
 record was generated,

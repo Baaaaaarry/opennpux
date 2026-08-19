@@ -658,3 +658,9 @@ tokenize 裸字符串属于文本续写语义，可能重复生成看似无意�
 token ID 序列，并对 Guest `coralctl` 输出做逐行精确比较，成功时打印
 `token_golden=PASS`，不再依赖人工核对日志。该 golden 仍属于 Hybrid sim-host 数值实现，
 后续由设备 MatMul/GPTQ、Attention、MoE 和归一化 kernel 逐项替换。
+
+GB10 的 16-token 验收暴露 inference I/O 只在 256 字节 header 的 `reserved[]`
+中内联返回前 12 个 token，导致设备推理本身 PASS、最终完整 golden 比较却失败。
+现保留 256 字节主 ABI，在 output binding 紧邻区域发布最多 32 个 token ID，并在
+header 中记录 offset/bytes。Bridge、Guest runtime 和单测均校验数组边界、完整序列、
+词表范围及首 token，一次返回不再出现 `,...` 截断。

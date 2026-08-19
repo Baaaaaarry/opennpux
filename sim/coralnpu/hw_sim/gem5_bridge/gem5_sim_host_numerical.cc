@@ -106,10 +106,17 @@ int Gem5SimHostNumerical::Publish(std::vector<uint8_t>* extmem) {
   }
   const auto* bindings = reinterpret_cast<const opennpux_npu_tensor_binding*>(
       extmem->data() + invocation->binding_offset);
+  const uint64_t token_ids_bytes =
+      static_cast<uint64_t>(result_.generated_token_count) * sizeof(uint32_t);
   if (!RangeValid(bindings[0].device_address,
                   sizeof(opennpux_npu_inference_io), *extmem) ||
       !RangeValid(bindings[1].device_address,
-                  sizeof(opennpux_npu_inference_io), *extmem)) {
+                  sizeof(opennpux_npu_inference_io), *extmem) ||
+      bindings[1].byte_size <
+          OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET + token_ids_bytes ||
+      !RangeValid(bindings[1].device_address +
+                      OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET,
+                  token_ids_bytes, *extmem)) {
     return -1;
   }
   const auto* input = At<opennpux_npu_inference_io>(
@@ -147,16 +154,22 @@ int Gem5SimHostNumerical::Publish(std::vector<uint8_t>* extmem) {
   output->input_token_count = result_.input_token_count;
   output->next_token = result_.next_token;
   output->result_checksum = result_.logits_checksum;
-  output->reserved[0] = OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST;
-  output->reserved[1] = result_.token_text_size;
-  output->reserved[2] = result_.generated_token_count;
-  output->reserved[3] = result_.stop_reason;
-  const uint32_t inline_tokens = result_.generated_token_count <
-      OPENNPUX_NPU_INFERENCE_INLINE_TOKENS ? result_.generated_token_count :
-      OPENNPUX_NPU_INFERENCE_INLINE_TOKENS;
-  for (uint32_t index = 0; index < inline_tokens; ++index) {
-    output->reserved[4 + index] = result_.generated_token_ids[index];
-  }
+  output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_IDS_SOURCE_INDEX] =
+      OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST;
+  output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX] =
+      result_.token_text_size;
+  output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_COUNT_INDEX] =
+      result_.generated_token_count;
+  output->reserved[OPENNPUX_NPU_INFERENCE_STOP_REASON_INDEX] =
+      result_.stop_reason;
+  output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET_INDEX] =
+      OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET;
+  output->reserved[OPENNPUX_NPU_INFERENCE_TOKEN_IDS_BYTES_INDEX] =
+      token_ids_bytes;
+  auto* token_ids = At<uint32_t>(
+      extmem, bindings[1].device_address +
+                  OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET);
+  std::memcpy(token_ids, result_.generated_token_ids, token_ids_bytes);
   std::memset(output->prompt, 0, sizeof(output->prompt));
   std::memcpy(output->prompt, result_.token_text, result_.token_text_size);
   __atomic_thread_fence(__ATOMIC_RELEASE);

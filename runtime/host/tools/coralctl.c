@@ -1205,6 +1205,34 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         goto out;
     }
     if (inference_request != NULL) {
+        const uint32_t generated_tokens =
+            inference_result->reserved[
+                OPENNPUX_NPU_INFERENCE_TOKEN_COUNT_INDEX];
+        const uint32_t token_ids_offset =
+            inference_result->reserved[
+                OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET_INDEX];
+        const uint32_t token_ids_bytes =
+            inference_result->reserved[
+                OPENNPUX_NPU_INFERENCE_TOKEN_IDS_BYTES_INDEX];
+        const uint32_t *token_ids = NULL;
+        int token_ids_valid =
+            generated_tokens != 0 &&
+            generated_tokens <= OPENNPUX_NPU_INFERENCE_MAX_RESULT_TOKENS &&
+            token_ids_offset == OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET &&
+            token_ids_bytes == generated_tokens * sizeof(uint32_t) &&
+            token_ids_offset <= NPU_OUTPUT_BUFFER_SIZE &&
+            token_ids_bytes <= NPU_OUTPUT_BUFFER_SIZE - token_ids_offset;
+        if (token_ids_valid) {
+            token_ids = (const uint32_t *)(const void *)(
+                window.bytes + output_offset + token_ids_offset);
+            for (uint32_t index = 0; index < generated_tokens; ++index) {
+                if (token_ids[index] >= inference_result->vocabulary_size) {
+                    token_ids_valid = 0;
+                    token_ids = NULL;
+                    break;
+                }
+            }
+        }
         printf("inference_prompt=%s\n", inference_request->prompt);
         printf("inference_prompt_checksum=0x%08" PRIx32 "\n",
                inference_request->prompt_checksum);
@@ -1224,25 +1252,22 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                inference_result->next_token);
         printf("inference_result_checksum=0x%08" PRIx32 "\n",
                inference_result->result_checksum);
-        if (inference_result->reserved[0] ==
+        if (inference_result->reserved[
+                OPENNPUX_NPU_INFERENCE_TOKEN_IDS_SOURCE_INDEX] ==
             OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST) {
-            const uint32_t text_size = inference_result->reserved[1];
+            const uint32_t text_size = inference_result->reserved[
+                OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX];
             printf("inference_result_source=sim-host-numerical\n");
             printf("inference_generated_tokens=%" PRIu32 "\n",
-                   inference_result->reserved[2]);
+                   generated_tokens);
             printf("inference_stop_reason=%" PRIu32 "\n",
-                   inference_result->reserved[3]);
-            const uint32_t inline_tokens = inference_result->reserved[2] <
-                OPENNPUX_NPU_INFERENCE_INLINE_TOKENS ?
-                inference_result->reserved[2] :
-                OPENNPUX_NPU_INFERENCE_INLINE_TOKENS;
+                   inference_result->reserved[
+                       OPENNPUX_NPU_INFERENCE_STOP_REASON_INDEX]);
             printf("inference_token_ids=");
-            for (uint32_t index = 0; index < inline_tokens; ++index) {
+            for (uint32_t index = 0;
+                 token_ids != NULL && index < generated_tokens; ++index) {
                 printf("%s%" PRIu32, index == 0 ? "" : ",",
-                       inference_result->reserved[4 + index]);
-            }
-            if (inline_tokens < inference_result->reserved[2]) {
-                printf(",...");
+                       token_ids[index]);
             }
             putchar('\n');
             if (text_size <= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES) {
@@ -1266,15 +1291,19 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             (sim_host_numerical &&
              (inference_result->mode !=
                   OPENNPUX_NPU_INFERENCE_MODE_NUMERICAL ||
-              inference_result->reserved[0] !=
+              inference_result->reserved[
+                  OPENNPUX_NPU_INFERENCE_TOKEN_IDS_SOURCE_INDEX] !=
                   OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST ||
-              inference_result->reserved[1] == 0 ||
-              inference_result->reserved[1] >
+              inference_result->reserved[
+                  OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX] == 0 ||
+              inference_result->reserved[
+                  OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX] >
                   OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
-              inference_result->reserved[2] == 0 ||
-              inference_result->reserved[2] >
+              generated_tokens == 0 ||
+              generated_tokens >
                   inference_request->max_new_tokens ||
-              inference_result->reserved[4] !=
+              !token_ids_valid ||
+              token_ids[0] !=
                   inference_result->next_token))) {
             errno = EIO;
             perror("executable-run inference validation");

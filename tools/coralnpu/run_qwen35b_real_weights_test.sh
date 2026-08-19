@@ -249,7 +249,27 @@ if [ "$coralctl_stale" -eq 1 ]; then
     echo "[coral-qwen35b-real-weights-test] coralctl missing or stale; rebuilding" >&2
     "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
 fi
-[ -r "$FIRMWARE" ] || "${ROOT_DIR}/tools/coralnpu/build_rtl_bridge.sh"
+rtl_stale=0
+if [ ! -r "$FIRMWARE" ] || [ ! -r "$BRIDGE" ]; then
+    rtl_stale=1
+elif [ -z "${CORAL_RTL_FIRMWARE:-}" ] &&
+     find "${ROOT_DIR}/sim/coralnpu" -type f \
+         \( -newer "$FIRMWARE" -o -newer "$BRIDGE" \) \
+         -print -quit | grep -q .; then
+    rtl_stale=1
+fi
+if [ "$rtl_stale" -eq 1 ] &&
+   [ -z "${CORAL_RTL_FIRMWARE:-}" ] &&
+   [ -z "${CORAL_RTL_BRIDGE:-}" ] &&
+   [ "${CORAL_AUTO_BUILD_FIRMWARE:-1}" = 1 ]; then
+    echo "[coral-qwen35b-real-weights-test] RTL artifacts missing or stale; rebuilding" >&2
+    "${ROOT_DIR}/tools/coralnpu/build_rtl_bridge.sh"
+fi
+[ -r "$FIRMWARE" ] || {
+    echo "error: firmware missing or stale: $FIRMWARE" >&2
+    echo "run: ./tools/coralnpu/build_rtl_bridge.sh" >&2
+    exit 1
+}
 [ -r "$BRIDGE" ] || { echo "error: RTL bridge missing: $BRIDGE" >&2; exit 1; }
 
 TMP_SCRIPT="$(mktemp)"

@@ -35,7 +35,9 @@ for token in OPENNPUX_NPU_ROUTE_TABLE_MAGIC \
 done
 for token in OPENNPUX_NPU_INFERENCE_IO_MAGIC \
     OPENNPUX_NPU_INFERENCE_IO_VERSION \
-    OPENNPUX_NPU_INFERENCE_PROMPT_BYTES; do
+    OPENNPUX_NPU_INFERENCE_PROMPT_BYTES \
+    OPENNPUX_NPU_INFERENCE_MAX_RESULT_TOKENS \
+    OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET; do
     host_value="$(awk -v t="$token" '$2 == t {print $3; exit}' \
         "$HOST_INFERENCE")"
     rtl_value="$(awk -v t="$token" '$2 == t {print $3; exit}' \

@@ -77,6 +77,7 @@ opennpux_npu_weight_page_cursor_next(
         if (!expert_active(cursor, record->expert_id)) {
             ++cursor->record_index;
             cursor->next_page_offset = 0;
+            cursor->pages_in_record = 0;
             continue;
         }
         if (cursor->next_page_offset == 0) {
@@ -84,13 +85,17 @@ opennpux_npu_weight_page_cursor_next(
                 ~(uint64_t)(cursor->page_size - 1);
             cursor->range_end = record->file_offset + record->byte_size;
         }
-        if (cursor->next_page_offset >= cursor->range_end) {
+        if (cursor->next_page_offset >= cursor->range_end ||
+            (cursor->max_pages_per_record != 0 &&
+             cursor->pages_in_record >= cursor->max_pages_per_record)) {
             ++cursor->record_index;
             cursor->next_page_offset = 0;
+            cursor->pages_in_record = 0;
             continue;
         }
         const uint64_t page_offset = cursor->next_page_offset;
         cursor->next_page_offset += cursor->page_size;
+        ++cursor->pages_in_record;
         request->command_id = cursor->command_id;
         request->shard_index = record->shard_index;
         request->file_offset = page_offset;
@@ -102,6 +107,20 @@ opennpux_npu_weight_page_cursor_next(
         request->page_size = cursor->page_size;
         return 1;
     }
+    return 0;
+}
+
+int
+opennpux_npu_weight_page_cursor_limit_records(
+    struct opennpux_npu_weight_page_cursor *cursor,
+    uint32_t max_pages_per_record)
+{
+    if (cursor == NULL || cursor->next_page_offset != 0 ||
+        cursor->record_index != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    cursor->max_pages_per_record = max_pages_per_record;
     return 0;
 }
 

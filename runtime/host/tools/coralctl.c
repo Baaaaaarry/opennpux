@@ -161,6 +161,7 @@ struct executable_page_service {
     struct opennpux_npu_weight_page_cursor *cursors;
     uint8_t *cursor_initialized;
     uint32_t command_count;
+    uint32_t max_pages_per_record;
     void *residency;
     volatile uint8_t *residency_device;
     size_t residency_size;
@@ -227,12 +228,15 @@ service_executable_page(void *opaque)
         }
         struct opennpux_npu_weight_page_cursor *cursor =
             &service->cursors[fault_snapshot.command_id];
-        if (!service->cursor_initialized[fault_snapshot.command_id] &&
-            opennpux_npu_weight_page_cursor_begin_sized(
-                service->ranges, fault_snapshot.command_id,
-                service->active_experts, service->active_expert_count,
-                service->transfer_size, cursor) != 0) {
-            return -1;
+        if (!service->cursor_initialized[fault_snapshot.command_id]) {
+            if (opennpux_npu_weight_page_cursor_begin_sized(
+                    service->ranges, fault_snapshot.command_id,
+                    service->active_experts, service->active_expert_count,
+                    service->transfer_size, cursor) != 0 ||
+                opennpux_npu_weight_page_cursor_limit_records(
+                    cursor, service->max_pages_per_record) != 0) {
+                return -1;
+            }
         }
         service->cursor_initialized[fault_snapshot.command_id] = 1;
         if (opennpux_npu_weight_page_cursor_next(cursor, &request) != 1 ||
@@ -812,6 +816,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
             page_service.cursors = page_cursors;
             page_service.cursor_initialized = page_cursor_initialized;
             page_service.command_count = executable.header->command_count;
+            page_service.max_pages_per_record =
+                (header->flags & OPENNPUX_NPU_INVOKE_NUMERICAL) != 0 ? 0 : 1;
         }
     }
     size_t route_size = 0;
@@ -1018,6 +1024,9 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         printf("paging_source=%s\n",
                real_weights ? "model-ranges" : "repeated-page");
         if (real_weights) {
+            printf("paging_weight_policy=%s\n",
+                   page_service.max_pages_per_record == 0 ?
+                       "complete-ranges" : "sampled-first-page-per-range");
             printf("paging_cache_hits=%" PRIu64 "\n",
                    weight_cache.stats.hits);
             printf("paging_cache_misses=%" PRIu64 "\n",

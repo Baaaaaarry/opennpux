@@ -149,6 +149,24 @@ main(int argc, char **argv)
           "large transfer cache fill failed");
     free(transfer_storage);
 
+    struct opennpux_npu_weight_range_record sampled_record =
+        ranges.records[0];
+    sampled_record.file_offset = 2 * OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+    sampled_record.byte_size = 3 * OPENNPUX_NPU_WEIGHT_PAGE_SIZE;
+    struct opennpux_npu_weight_page_cursor sampled_cursor = {
+        .records = &sampled_record,
+        .record_count = 1,
+        .command_id = sampled_record.command_id,
+        .page_size = OPENNPUX_NPU_WEIGHT_PAGE_SIZE,
+    };
+    check(opennpux_npu_weight_page_cursor_limit_records(
+              &sampled_cursor, 1) == 0 &&
+              opennpux_npu_weight_page_cursor_next(
+                  &sampled_cursor, &request) == 1 &&
+              opennpux_npu_weight_page_cursor_next(
+                  &sampled_cursor, &request) == 0,
+          "sampled range emitted more than one page");
+
     opennpux_npu_weight_ranges_unload(&ranges);
     puts("PASS: NPU weight pager tests");
     return 0;

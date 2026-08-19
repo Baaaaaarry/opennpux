@@ -61,6 +61,8 @@ struct opennpux_npu_weight_page_cursor {
     uint32_t record_index;
     uint64_t next_page_offset;
     uint64_t range_end;
+    uint32_t pages_in_record;
+    uint32_t max_pages_per_record;
     uint32_t command_id;
     const uint64_t *active_experts;
     uint32_t active_expert_count;
@@ -101,6 +103,9 @@ int opennpux_npu_weight_page_cursor_begin_sized(
 int opennpux_npu_weight_page_cursor_next(
     struct opennpux_npu_weight_page_cursor *cursor,
     struct opennpux_npu_weight_page_request *request);
+int opennpux_npu_weight_page_cursor_limit_records(
+    struct opennpux_npu_weight_page_cursor *cursor,
+    uint32_t max_pages_per_record);
 int opennpux_npu_weight_page_read(
     const char *manifest_path,
     const struct opennpux_model_package_info *model,

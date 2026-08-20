@@ -187,6 +187,7 @@ cc_library(
     hdrs = [
         "gem5_bridge/opennpux/model_package.h",
         "gem5_bridge/opennpux/npu_gptq_weights.h",
+        "gem5_bridge/opennpux/npu_submission.h",
         "gem5_bridge/opennpux/npu_weight_ranges.h",
     ],
     includes = ["gem5_bridge"],

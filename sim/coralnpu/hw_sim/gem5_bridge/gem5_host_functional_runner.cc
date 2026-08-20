@@ -127,6 +127,10 @@ void PrintCommandFailure(const Gem5HostFunctionalGraph& graph,
                  index, binding.role_id,
                  static_cast<unsigned long long>(binding.expert_id),
                  binding.slot_id, loaded ? 1U : 0U, values.size());
+    if (!loaded) {
+      std::fprintf(stderr, "host_functional_failure_weight_error=%s\n",
+                   weights->last_error().c_str());
+    }
   }
   bindings.clear();
   const bool has_gptq = weights != nullptr &&

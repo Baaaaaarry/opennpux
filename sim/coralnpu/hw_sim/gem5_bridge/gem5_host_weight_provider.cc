@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <tuple>
@@ -162,6 +163,7 @@ struct Gem5HostWeightProvider::Impl {
   OwnedWeights down;
   size_t max_component_size = 0;
   uint32_t routed_command_id = UINT32_MAX;
+  std::string last_error;
   bool loaded = false;
 };
 
@@ -202,6 +204,7 @@ void Gem5HostWeightProvider::Reset() {
   impl_->down = {};
   impl_->max_component_size = 0;
   impl_->routed_command_id = UINT32_MAX;
+  impl_->last_error.clear();
   impl_->loaded = false;
 }
 
@@ -224,32 +227,54 @@ bool Gem5HostWeightProvider::LoadFloatWeight(
     uint32_t command_id, uint32_t role_id, uint64_t expert_id,
     uint32_t slot_id, std::vector<float>* weights) {
   if (!impl_->loaded || weights == nullptr) {
+    impl_->last_error = "float-weight provider is not loaded";
     return false;
   }
+  impl_->last_error.clear();
   const opennpux_npu_weight_range_record* record = nullptr;
   if (opennpux_npu_weight_range_find_slot(
           &impl_->ranges, command_id, role_id,
           OPENNPUX_NPU_WEIGHT_COMPONENT_WEIGHT, expert_id, slot_id,
-          &record) != 0 ||
-      record->byte_size == 0 || record->byte_size > impl_->max_component_size ||
+          &record) != 0) {
+    impl_->last_error = "float-weight range lookup failed errno=" +
+                        std::to_string(errno);
+    return false;
+  }
+  if (record->byte_size == 0 ||
+      record->byte_size > impl_->max_component_size ||
       record->byte_size > SIZE_MAX) {
+    impl_->last_error = "invalid float-weight range size=" +
+                        std::to_string(record->byte_size);
     return false;
   }
   std::vector<uint8_t> bytes;
   try {
     bytes.resize(static_cast<size_t>(record->byte_size));
   } catch (...) {
+    impl_->last_error = "float-weight allocation failed bytes=" +
+                        std::to_string(record->byte_size);
     return false;
   }
   if (opennpux_model_package_read_shard_range(
           impl_->manifest_path.c_str(), &impl_->model, record->shard_index,
           record->file_offset, bytes.data(), bytes.size()) != 0) {
+    impl_->last_error = "float-weight shard read failed shard=" +
+                        std::to_string(record->shard_index) + " offset=" +
+                        std::to_string(record->file_offset) + " bytes=" +
+                        std::to_string(record->byte_size) + " errno=" +
+                        std::to_string(errno);
     return false;
   }
   const uint32_t data_type = static_cast<uint32_t>(
       (record->flags & OPENNPUX_NPU_WEIGHT_DTYPE_MASK) >>
       OPENNPUX_NPU_WEIGHT_DTYPE_SHIFT);
-  return ConvertFloatWeight(bytes, data_type, weights);
+  if (!ConvertFloatWeight(bytes, data_type, weights)) {
+    impl_->last_error = "float-weight conversion failed dtype=" +
+                        std::to_string(data_type) + " bytes=" +
+                        std::to_string(record->byte_size);
+    return false;
+  }
+  return true;
 }
 
 bool Gem5HostWeightProvider::FindGptqBindings(
@@ -357,4 +382,8 @@ bool Gem5HostWeightProvider::ProvideRoutedExpert(
 
 bool Gem5HostWeightProvider::loaded() const {
   return impl_ != nullptr && impl_->loaded;
+}
+
+const std::string& Gem5HostWeightProvider::last_error() const {
+  return impl_->last_error;
 }

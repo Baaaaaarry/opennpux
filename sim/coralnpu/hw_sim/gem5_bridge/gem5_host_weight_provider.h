@@ -58,6 +58,7 @@ class Gem5HostWeightProvider {
                                   Gem5GenericGptqWeights* up,
                                   Gem5GenericGptqWeights* down);
   bool loaded() const;
+  const std::string& last_error() const;
 
  private:
   struct Impl;

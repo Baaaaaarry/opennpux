@@ -33,6 +33,7 @@ EXECUTABLE_NAME="${CORAL_NPU_EXECUTABLE_NAME:-model.npxc}"
 MANIFEST_NAME="${CORAL_NPU_MANIFEST_NAME:-model.npxm}"
 RANGE_NAME="${CORAL_NPU_RANGE_NAME:-model.npxr}"
 TENSOR_PLAN_NAME="${CORAL_NPU_TENSOR_PLAN_NAME:-model.npxtb}"
+EXECUTION_PLAN_NAME="${CORAL_NPU_EXECUTION_PLAN_NAME:-execution-plan.npxp}"
 POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
 BASE="${CORAL_NPU_BASE:-0x1d000000}"
 PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
@@ -229,9 +230,20 @@ for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
 done
 if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
    [ ! -r "$MODEL_DIR/$TENSOR_PLAN_NAME" ]; then
-    echo "error: Host C++ tensor plan missing: $MODEL_DIR/$TENSOR_PLAN_NAME" >&2
-    echo "regenerate it with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2
-    exit 1
+    TENSOR_PLAN_STEM=${TENSOR_PLAN_NAME%.npxtb}
+    EXECUTION_PLAN="$MODEL_DIR/$EXECUTION_PLAN_NAME"
+    if [ "${CORAL_AUTO_REBUILD_TENSOR_PLAN:-1}" != 0 ] &&
+       [ -r "$EXECUTION_PLAN" ]; then
+        echo "[coral-qwen35b-real-weights-test] rebuilding missing Host C++ tensor plan" >&2
+        "${ROOT_DIR}/tools/models/compile_npu_executable.py" \
+            "$MODEL_DIR/$MANIFEST_NAME" "$EXECUTION_PLAN" \
+            "$MODEL_DIR/$TENSOR_PLAN_STEM.npxe"
+    fi
+    [ -r "$MODEL_DIR/$TENSOR_PLAN_NAME" ] || {
+        echo "error: Host C++ tensor plan missing: $MODEL_DIR/$TENSOR_PLAN_NAME" >&2
+        echo "regenerate it with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2
+        exit 1
+    }
 fi
 if [ ! -r "$MODEL_DIR/preprocessor_config.json" ] &&
    python3 - "$MODEL_DIR/config.json" <<'PY'

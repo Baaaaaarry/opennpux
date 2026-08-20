@@ -70,6 +70,71 @@ bool ParseCount(const char* text, uint32_t* count) {
   return true;
 }
 
+void PrintCommandFailure(const Gem5HostFunctionalGraph& graph,
+                         Gem5HostWeightProvider* weights,
+                         const void* submission, size_t submission_size,
+                         uint32_t command_index) {
+  const auto* command = graph.command(command_index);
+  if (command == nullptr) {
+    std::fprintf(stderr, "host_functional_failure=no-command\n");
+    return;
+  }
+  std::fprintf(stderr,
+               "host_functional_failure_opcode=%u flags=0x%08x "
+               "profiling_tag=0x%llx\n",
+               command->opcode, command->flags,
+               static_cast<unsigned long long>(command->profiling_tag));
+  const auto* header = static_cast<const opennpux_npu_invocation_header*>(
+      submission);
+  const uint64_t parameter_offset = header->parameter_offset +
+                                    command->parameter_offset;
+  if (command->parameter_size == sizeof(opennpux_npu_operator_parameters) &&
+      parameter_offset <= submission_size &&
+      command->parameter_size <= submission_size - parameter_offset) {
+    const auto* parameters =
+        reinterpret_cast<const opennpux_npu_operator_parameters*>(
+            static_cast<const uint8_t*>(submission) + parameter_offset);
+    std::fprintf(stderr,
+                 "host_functional_failure_parameters=phase:%u,flags:0x%08x,"
+                 "input:%u,output:%u,intermediate:%u\n",
+                 parameters->phase, parameters->flags,
+                 parameters->input_features, parameters->output_features,
+                 parameters->intermediate_features);
+  }
+  opennpux_npu_functional_request request = {};
+  const bool materialized = graph.Materialize(command_index, nullptr, 0,
+                                               &request);
+  std::fprintf(stderr,
+               "host_functional_failure_request=materialized:%u,rows:%u,"
+               "features:%u,operands:%u\n",
+               materialized ? 1U : 0U, request.rows, request.features,
+               request.operand_count);
+
+  std::vector<Gem5HostWeightBinding> bindings;
+  const bool has_float = weights != nullptr &&
+      weights->FindFloatBindings(command_index, &bindings);
+  std::fprintf(stderr, "host_functional_failure_float_bindings=%zu\n",
+               has_float ? bindings.size() : 0U);
+  for (size_t index = 0; has_float && index < bindings.size(); ++index) {
+    std::vector<float> values;
+    const auto& binding = bindings[index];
+    const bool loaded = weights->LoadFloatWeight(
+        command_index, binding.role_id, binding.expert_id, binding.slot_id,
+        &values);
+    std::fprintf(stderr,
+                 "host_functional_failure_float_%zu=role:%u,expert:%llu,"
+                 "slot:%u,loaded:%u,elements:%zu\n",
+                 index, binding.role_id,
+                 static_cast<unsigned long long>(binding.expert_id),
+                 binding.slot_id, loaded ? 1U : 0U, values.size());
+  }
+  bindings.clear();
+  const bool has_gptq = weights != nullptr &&
+      weights->FindGptqBindings(command_index, &bindings);
+  std::fprintf(stderr, "host_functional_failure_gptq_bindings=%zu\n",
+               has_gptq ? bindings.size() : 0U);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -149,6 +214,10 @@ int main(int argc, char** argv) {
       std::fprintf(stderr,
                    "host_functional_failed_step=%u command=%u\n", step,
                    failed_command);
+      if (failed_command != UINT32_MAX) {
+        PrintCommandFailure(graph, &weights, submission, submission_size,
+                            failed_command);
+      }
       break;
     }
     generated.push_back(next_token);

@@ -1062,3 +1062,75 @@ opennpux_coral_mobilenet_test(
     }
     return 0;
 }
+
+int
+opennpux_coral_generic_test(
+    struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
+    struct opennpux_coral_generic_test_result *result)
+{
+    memset(result, 0, sizeof(*result));
+    const size_t required = OPENNPUX_CORAL_GENERIC_TEST_MAILBOX_OFFSET +
+                            sizeof(struct opennpux_coral_generic_test_mailbox);
+    struct opennpux_coral_shared_window window;
+    if (opennpux_coral_open_shared_window(dev, required, &window) != 0) {
+        return -1;
+    }
+
+    volatile uint8_t *mailbox_bytes =
+        window.bytes + OPENNPUX_CORAL_GENERIC_TEST_MAILBOX_OFFSET;
+    memset((void *)mailbox_bytes, 0,
+           sizeof(struct opennpux_coral_generic_test_mailbox));
+    __sync_synchronize();
+    struct opennpux_coral_info before;
+    struct opennpux_coral_info after;
+    opennpux_coral_get_info(dev, &before);
+
+    const int run_result =
+        opennpux_coral_run(dev, entry, polls, &result->device_status);
+    const int run_errno = errno;
+    __sync_synchronize();
+
+    volatile const struct opennpux_coral_generic_test_mailbox *mailbox =
+        (volatile const struct opennpux_coral_generic_test_mailbox *)
+            mailbox_bytes;
+    result->state = mailbox->state;
+    result->error_code = mailbox->error_code;
+    result->output_count = mailbox->output_count;
+    for (uint32_t i = 0; i < OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT; ++i) {
+        result->output[i] = mailbox->output[i];
+    }
+    result->output_checksum = mailbox->output_checksum;
+    result->output_bytes = mailbox->output_bytes;
+    result->operation_count = mailbox->operation_count;
+    result->bytes_read = mailbox->bytes_read;
+    result->bytes_written = mailbox->bytes_written;
+    result->npu_cycles = ((uint64_t)mailbox->cycle_high << 32) |
+                         mailbox->cycle_low;
+    const int mailbox_valid =
+        mailbox->magic == OPENNPUX_CORAL_GENERIC_TEST_MAGIC &&
+        mailbox->version == OPENNPUX_CORAL_GENERIC_TEST_VERSION &&
+        result->state == OPENNPUX_CORAL_GENERIC_TEST_COMPLETE &&
+        result->error_code == OPENNPUX_CORAL_GENERIC_TEST_ERROR_NONE &&
+        result->output_count == OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT &&
+        result->output_bytes == OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT *
+                                sizeof(result->output[0]);
+
+    opennpux_coral_get_info(dev, &after);
+    result->dma_requests = after.dma_requests - before.dma_requests;
+    result->dma_completions =
+        after.dma_completions - before.dma_completions;
+    result->dma_errors = after.dma_errors - before.dma_errors;
+    opennpux_coral_close_shared_window(&window);
+
+    if (run_result != 0) {
+        errno = run_errno;
+        return -1;
+    }
+    if (!mailbox_valid || result->dma_requests == 0 ||
+        result->dma_requests != result->dma_completions ||
+        result->dma_errors != 0) {
+        errno = EIO;
+        return -1;
+    }
+    return 0;
+}

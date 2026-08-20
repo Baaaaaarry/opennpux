@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "opennpux/coral_command.h"
+#include "opennpux/coral_generic_test.h"
 #include "opennpux/coral_mobilenet.h"
 #include "opennpux/coral_model.h"
 #include "opennpux/coral_uapi.h"
@@ -112,6 +113,23 @@ struct opennpux_coral_mobilenet_result {
     uint32_t dma_errors;
 };
 
+struct opennpux_coral_generic_test_result {
+    uint32_t device_status;
+    uint32_t state;
+    uint32_t error_code;
+    uint32_t output_count;
+    int32_t output[OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT];
+    uint32_t output_checksum;
+    uint32_t output_bytes;
+    uint64_t operation_count;
+    uint64_t bytes_read;
+    uint64_t bytes_written;
+    uint64_t npu_cycles;
+    uint32_t dma_requests;
+    uint32_t dma_completions;
+    uint32_t dma_errors;
+};
+
 const char *opennpux_coral_backend_name(enum opennpux_coral_backend backend);
 const char *opennpux_coral_transport_name(
     enum opennpux_coral_transport transport);
@@ -167,6 +185,9 @@ int opennpux_coral_run_model_file(
 int opennpux_coral_mobilenet_test(
     struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
     struct opennpux_coral_mobilenet_result *result);
+int opennpux_coral_generic_test(
+    struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
+    struct opennpux_coral_generic_test_result *result);
 
 #ifdef __cplusplus
 }

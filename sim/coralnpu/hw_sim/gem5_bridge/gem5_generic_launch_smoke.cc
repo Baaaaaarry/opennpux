@@ -1,6 +1,6 @@
 #include <cstdint>
 
-#include "hw_sim/gem5_bridge/coral_mobilenet.h"
+#include "hw_sim/gem5_bridge/coral_generic_test.h"
 #include "hw_sim/gem5_bridge/coral_operator.h"
 #include "hw_sim/gem5_bridge/coral_operator_client.h"
 #include "hw_sim/gem5_bridge/npu_functional_request.h"
@@ -10,7 +10,7 @@ namespace {
 
 constexpr uint32_t kExtmemBase = UINT32_C(0x20000000);
 constexpr uint32_t kMailboxAddress =
-    kExtmemBase + OPENNPUX_CORAL_MOBILENET_MAILBOX_OFFSET;
+    kExtmemBase + OPENNPUX_CORAL_GENERIC_TEST_MAILBOX_OFFSET;
 constexpr uint32_t kDescriptorAddress =
     kExtmemBase + CORAL_OPERATOR_DESCRIPTOR_OFFSET;
 constexpr uint32_t kRequestAddress = kDescriptorAddress + UINT32_C(0x400);
@@ -42,7 +42,8 @@ uint32_t Fnv1a32(const volatile uint8_t* data, uint32_t bytes) {
 }  // namespace
 
 int main() {
-  auto* mailbox = reinterpret_cast<volatile opennpux_coral_mobilenet_mailbox*>(
+  auto* mailbox = reinterpret_cast<
+      volatile opennpux_coral_generic_test_mailbox*>(
       static_cast<uintptr_t>(kMailboxAddress));
   auto* descriptor = reinterpret_cast<coral_operator_descriptor*>(
       static_cast<uintptr_t>(kDescriptorAddress));
@@ -55,10 +56,10 @@ int main() {
   auto* output = reinterpret_cast<volatile float*>(
       static_cast<uintptr_t>(kOutputAddress));
 
-  mailbox->magic = OPENNPUX_CORAL_MOBILENET_MAGIC;
-  mailbox->version = OPENNPUX_CORAL_MOBILENET_VERSION;
-  mailbox->state = OPENNPUX_CORAL_MOBILENET_STARTED;
-  mailbox->error_code = OPENNPUX_CORAL_MOBILENET_ERROR_NONE;
+  mailbox->magic = OPENNPUX_CORAL_GENERIC_TEST_MAGIC;
+  mailbox->version = OPENNPUX_CORAL_GENERIC_TEST_VERSION;
+  mailbox->state = OPENNPUX_CORAL_GENERIC_TEST_STARTED;
+  mailbox->error_code = OPENNPUX_CORAL_GENERIC_TEST_ERROR_NONE;
   const float lhs[kElements] = {1.0f, 2.0f, 3.0f, 4.0f};
   const float rhs[kElements] = {10.0f, 20.0f, 30.0f, 40.0f};
   for (uint32_t index = 0; index < kElements; ++index) {
@@ -100,24 +101,24 @@ int main() {
   descriptor->reserved[0] = OPENNPUX_NPU_OP_ADD;
 
   if (!opennpux::SubmitHybridOperator(descriptor, kDescriptorAddress)) {
-    mailbox->state = OPENNPUX_CORAL_MOBILENET_ERROR;
-    mailbox->error_code = descriptor->error;
+    mailbox->state = OPENNPUX_CORAL_GENERIC_TEST_ERROR;
+    mailbox->error_code = descriptor->error != 0 ?
+        descriptor->error : OPENNPUX_CORAL_GENERIC_TEST_ERROR_SUBMIT;
     return 1;
   }
 
   const int32_t expected[kElements] = {11, 22, 33, 44};
   for (uint32_t index = 0; index < kElements; ++index) {
     if (static_cast<int32_t>(output[index]) != expected[index]) {
-      mailbox->state = OPENNPUX_CORAL_MOBILENET_ERROR;
-      mailbox->error_code = OPENNPUX_CORAL_MOBILENET_ERROR_OUTPUT;
+      mailbox->state = OPENNPUX_CORAL_GENERIC_TEST_ERROR;
+      mailbox->error_code = OPENNPUX_CORAL_GENERIC_TEST_ERROR_OUTPUT;
       return 1;
     }
     mailbox->output[index] = static_cast<int32_t>(output[index]);
   }
-  mailbox->output[kElements] = static_cast<int32_t>(request->error);
-  mailbox->output_count = OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT;
+  mailbox->output_count = OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT;
   mailbox->output_bytes =
-      OPENNPUX_CORAL_MOBILENET_OUTPUT_COUNT * sizeof(mailbox->output[0]);
+      OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT * sizeof(mailbox->output[0]);
   mailbox->output_checksum = Fnv1a32(
       reinterpret_cast<const volatile uint8_t*>(mailbox->output),
       mailbox->output_bytes);
@@ -126,6 +127,6 @@ int main() {
   mailbox->bytes_written = request->bytes_written;
   mailbox->cycle_low = static_cast<uint32_t>(request->modeled_cycles);
   mailbox->cycle_high = static_cast<uint32_t>(request->modeled_cycles >> 32);
-  mailbox->state = OPENNPUX_CORAL_MOBILENET_COMPLETE;
+  mailbox->state = OPENNPUX_CORAL_GENERIC_TEST_COMPLETE;
   return 0;
 }

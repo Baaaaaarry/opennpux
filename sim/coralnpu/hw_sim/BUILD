@@ -540,7 +540,7 @@ coralnpu_v2_binary(
 coralnpu_v2_binary(
     name = "gem5_generic_launch_smoke",
     srcs = [
-        "gem5_bridge/coral_mobilenet.h",
+        "gem5_bridge/coral_generic_test.h",
         "gem5_bridge/coral_operator.h",
         "gem5_bridge/coral_operator_client.h",
         "gem5_bridge/gem5_generic_launch_smoke.cc",

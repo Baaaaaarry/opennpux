@@ -46,7 +46,7 @@ if [ ! -c /dev/opennpux-coral ]; then
 fi
 
 OUTPUT="$(OPENNPUX_CORAL_TRANSPORT=driver \
-    "${CORALCTL}" mobilenet-test "${NPU_BASE}" 1000000)" || {
+    "${CORALCTL}" generic-test "${NPU_BASE}" 1000000)" || {
     printf '%s\n' "${OUTPUT}"
     fail "NPU_LAUNCH firmware failed"
 }
@@ -69,11 +69,11 @@ EOF
     return 1
 }
 
-has_output_line 'mobilenet_output=11,22,33,44,0' ||
+has_output_line 'generic_output=11,22,33,44' ||
     fail "unexpected ADD output"
-has_output_line 'mobilenet_operation_count=4' ||
+has_output_line 'generic_operation_count=4' ||
     fail "unexpected operation count"
-has_output_line 'mobilenet_test=PASS' || fail "missing runtime PASS"
+has_output_line 'generic_test=PASS' || fail "missing runtime PASS"
 
 echo "npu_launch_output=11,22,33,44"
 echo "npu_launch_test=PASS"

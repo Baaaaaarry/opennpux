@@ -359,6 +359,14 @@ provider defaults to `moe_wna16`; override it with
 `token_reference=vllm` identifies the numerical reference provider. A
 GPTQModel reference remains useful for transport diagnostics but is not the
 semantic acceptance source for this checkpoint.
+
+GB10 is SM121. Some FlashInfer wheels misclassify SM120/SM121 in the sampler
+architecture gate and raise `FlashInfer requires GPUs with sm75 or higher`.
+The provider defaults `VLLM_USE_FLASHINFER_SAMPLER=0`, which selects vLLM's
+native sampler, and uses `TRITON_ATTN` plus eager execution to avoid known
+SM121 FlashInfer/CUDA-graph failures. These defaults can be overridden with
+`OPENNPUX_VLLM_ATTENTION_BACKEND` and `OPENNPUX_VLLM_ENFORCE_EAGER=0` only after
+the installed wheel combination has been validated.
 PyTorch 2.10.0 has a known Python 3.12 TorchInductor `CSE` generic annotation
 regression and has no 2.10.1 bug-fix release. The generator detects that exact
 API mismatch and applies a process-local second-parameter default before

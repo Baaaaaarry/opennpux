@@ -695,3 +695,6 @@ CPU placement 在独立生成器进程内清空 `CUDA_VISIBLE_DEVICES`，防止 
 新增 vLLM offline reference provider，采用 Qwen3.5 官方建议的 `moe_wna16` 路径并直接
 获取 `CompletionOutput.token_ids`，再通过既有 `.npxo`、NPU command completion 和
 Guest 校验链路返回。最终语义验收必须使用可信 reference provider 并人工检查文本。
+GB10/SM121 上 FlashInfer sampler 的架构检查会在部分 wheel 组合中误报低于 sm75；vLLM
+reference provider 默认禁用该 sampler，并选择原生 sampler、`TRITON_ATTN` 和 eager
+执行，避免已知的 SM121 FlashInfer/CUDA graph 启动故障。

@@ -46,6 +46,10 @@ def main() -> None:
     if not 1 <= args.max_new_tokens <= MAX_RESULT_TOKENS:
         parser.error(f"--max-new-tokens must be between 1 and {MAX_RESULT_TOKENS}")
 
+    # FlashInfer's sampler architecture gate misclassifies some SM120/SM121
+    # wheel combinations. vLLM's native sampler is the supported fallback.
+    os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
+
     from transformers import AutoProcessor
     from vllm import LLM, SamplingParams
 
@@ -81,11 +85,17 @@ def main() -> None:
                 sampling_arguments[name] = generation_policy[name]
     sampling = SamplingParams(**sampling_arguments)
     quantization = os.environ.get("OPENNPUX_VLLM_QUANTIZATION", "moe_wna16")
+    attention_backend = os.environ.get(
+        "OPENNPUX_VLLM_ATTENTION_BACKEND", "TRITON_ATTN"
+    )
+    enforce_eager = os.environ.get("OPENNPUX_VLLM_ENFORCE_EAGER", "1") != "0"
     llm = LLM(
         model=str(args.model_dir),
         trust_remote_code=True,
         quantization=quantization,
         language_model_only=True,
+        attention_backend=attention_backend,
+        enforce_eager=enforce_eager,
         max_model_len=int(os.environ.get("OPENNPUX_VLLM_MAX_MODEL_LEN", "4096")),
         gpu_memory_utilization=float(
             os.environ.get("OPENNPUX_VLLM_GPU_MEMORY_UTILIZATION", "0.9")
@@ -135,6 +145,12 @@ def main() -> None:
     temporary.write_bytes(record)
     temporary.replace(args.output)
     print("hf_numerical_backend=vllm:" + quantization)
+    print("hf_numerical_vllm_attention_backend=" + attention_backend)
+    print(f"hf_numerical_vllm_enforce_eager={int(enforce_eager)}")
+    print(
+        "hf_numerical_vllm_flashinfer_sampler="
+        + os.environ["VLLM_USE_FLASHINFER_SAMPLER"]
+    )
     print("hf_numerical_model_loader=vllm")
     print(f"hf_numerical_prompt_checksum=0x{fnv1a(prompt_bytes):08x}")
     print(f"hf_numerical_input_tokens={input_tokens}")

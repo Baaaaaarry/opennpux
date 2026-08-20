@@ -252,6 +252,12 @@ int main(int argc, char** argv) {
   uint32_t next_token = 0;
   assert(graph.ReadNextToken(&next_token));
   assert(next_token == 31);
+  const opennpux_npu_tensor_plan_runtime decode_runtime = {1, 3, 3, 2};
+  const uint32_t decode_tokens[] = {0, 1, 2};
+  assert(graph.ConfigureRuntime(submission, submission_size,
+                                UINT32_C(0x24000000), decode_runtime));
+  assert(graph.SetInputTokenIds(decode_tokens, 3));
+  assert(graph.arena().runtime().sequence_length == 3);
   std::printf("functional_graph_add_elements=%zu\n", count);
   std::puts("functional_graph_gptq_projection=PASS");
   std::puts("functional_graph_routed_expert=PASS");
@@ -260,6 +266,7 @@ int main(int argc, char** argv) {
   std::puts("functional_graph_auto_dispatch=PASS");
   std::puts("functional_graph_program_failure_location=PASS");
   std::puts("functional_graph_token_io=PASS");
+  std::puts("functional_graph_autoregressive_reconfigure=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

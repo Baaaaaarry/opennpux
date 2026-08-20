@@ -48,7 +48,9 @@ struct Gem5SimHostFunctional::Impl {
     const char* model = std::getenv("CORAL_HOST_FUNCTIONAL_MODEL");
     const char* ranges = std::getenv("CORAL_HOST_FUNCTIONAL_RANGES");
     const char* tensor_plan = std::getenv("CORAL_HOST_FUNCTIONAL_TENSOR_PLAN");
-    configured = model != nullptr || ranges != nullptr || tensor_plan != nullptr;
+    configured = (model != nullptr && model[0] != '\0') ||
+                 (ranges != nullptr && ranges[0] != '\0') ||
+                 (tensor_plan != nullptr && tensor_plan[0] != '\0');
     if (!configured) {
       return;
     }

@@ -32,6 +32,7 @@ MODEL_DIR="${CORAL_MODEL_DIR:-/data/models/Qwen3.5-35B}"
 EXECUTABLE_NAME="${CORAL_NPU_EXECUTABLE_NAME:-model.npxc}"
 MANIFEST_NAME="${CORAL_NPU_MANIFEST_NAME:-model.npxm}"
 RANGE_NAME="${CORAL_NPU_RANGE_NAME:-model.npxr}"
+TENSOR_PLAN_NAME="${CORAL_NPU_TENSOR_PLAN_NAME:-model.npxtb}"
 POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
 BASE="${CORAL_NPU_BASE:-0x1d000000}"
 PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
@@ -44,7 +45,9 @@ GPTQ_BACKEND="${CORAL_QWEN_GPTQ_BACKEND:-${OPENNPUX_GPTQ_BACKEND:-gptq_torch}}"
 HF_DEVICE="${CORAL_QWEN_HF_DEVICE:-auto}"
 NUMERICAL_ENV=""
 SIM_HOST_PAGING="${CORAL_SIM_HOST_PAGING:-1}"
-SIM_HOST_NUMERICAL="${CORAL_SIM_HOST_NUMERICAL:-1}"
+SIM_HOST_NUMERICAL="${CORAL_SIM_HOST_NUMERICAL:-0}"
+SIM_HOST_FUNCTIONAL="${CORAL_SIM_HOST_FUNCTIONAL_CPP:-1}"
+TOKEN_REFERENCE="${CORAL_QWEN_TOKEN_REFERENCE:-1}"
 REUSE_DECODE_WEIGHTS="${CORAL_REUSE_DECODE_WEIGHTS:-1}"
 HF_PYTHON="${CORAL_HF_PYTHON:-${ROOT_DIR}/.venv/hf-numerical/bin/python}"
 
@@ -224,6 +227,12 @@ for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
         exit 1
     }
 done
+if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
+   [ ! -r "$MODEL_DIR/$TENSOR_PLAN_NAME" ]; then
+    echo "error: Host C++ tensor plan missing: $MODEL_DIR/$TENSOR_PLAN_NAME" >&2
+    echo "regenerate it with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2
+    exit 1
+fi
 if [ ! -r "$MODEL_DIR/preprocessor_config.json" ] &&
    python3 - "$MODEL_DIR/config.json" <<'PY'
 import json
@@ -248,6 +257,10 @@ fi
 if [ "$SIM_HOST_NUMERICAL" != 0 ] &&
    [ "${CORAL_QWEN35B_NUMERICAL:-0}" != 0 ]; then
     echo "error: select sim-host numerical or firmware numerical, not both" >&2
+    exit 1
+fi
+if [ "$SIM_HOST_NUMERICAL" != 0 ] && [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
+    echo "error: select Host C++ functional or sim-host numerical, not both" >&2
     exit 1
 fi
 command -v diod >/dev/null 2>&1 || {
@@ -295,11 +308,16 @@ if [ "$SIM_HOST_PAGING" != 0 ]; then
 fi
 
 SIM_HOST_NUMERICAL_ENV=""
+SIM_HOST_FUNCTIONAL_ENV=""
+HOST_FUNCTIONAL_MODEL=""
+HOST_FUNCTIONAL_RANGES=""
+HOST_FUNCTIONAL_TENSOR_PLAN=""
 SIM_HOST_RESULT=""
 INPUT_TOKEN_COUNT=1
+INPUT_TOKEN_IDS=""
 EXPECTED_GENERATED_TOKENS=0
 EXPECTED_TOKEN_IDS=""
-if [ "$SIM_HOST_NUMERICAL" != 0 ]; then
+if [ "$TOKEN_REFERENCE" != 0 ] || [ "$SIM_HOST_NUMERICAL" != 0 ]; then
     PROMPT_TAG="$(python3 - "$PROMPT" <<'PY'
 import sys
 value = 2166136261
@@ -374,7 +392,9 @@ PY
             exec "$HF_PYTHON" "$GENERATOR" "$@"
         )
     fi
-    SIM_HOST_NUMERICAL_ENV="OPENNPUX_SIM_HOST_NUMERICAL=1"
+    if [ "$SIM_HOST_NUMERICAL" != 0 ]; then
+        SIM_HOST_NUMERICAL_ENV="OPENNPUX_SIM_HOST_NUMERICAL=1"
+    fi
     INPUT_TOKEN_COUNT="$(python3 - "$SIM_HOST_RESULT" <<'PY'
 import struct
 import sys
@@ -418,6 +438,28 @@ PY
     echo "[coral-qwen35b-real-weights-test] HF device: $HF_DEVICE" >&2
     echo "[coral-qwen35b-real-weights-test] input tokens: $INPUT_TOKEN_COUNT" >&2
     echo "[coral-qwen35b-real-weights-test] expected token ids: $EXPECTED_TOKEN_IDS" >&2
+fi
+if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
+    if [ ! -x "$HF_PYTHON" ]; then
+        echo "error: tokenizer Python environment is missing: $HF_PYTHON" >&2
+        echo "run: ./tools/models/setup_hf_numerical_env.sh" >&2
+        exit 1
+    fi
+    TOKENIZED="$($HF_PYTHON "${ROOT_DIR}/tools/models/tokenize_hf_prompt.py" \
+        "$MODEL_DIR" --prompt "$PROMPT" --prompt-format "$PROMPT_FORMAT")"
+    INPUT_TOKEN_COUNT="$(printf '%s\n' "$TOKENIZED" |
+        sed -n 's/^input_token_count=//p')"
+    INPUT_TOKEN_IDS="$(printf '%s\n' "$TOKENIZED" |
+        sed -n 's/^input_token_ids=//p')"
+    [ -n "$INPUT_TOKEN_COUNT" ] && [ -n "$INPUT_TOKEN_IDS" ] || {
+        echo "error: CPU tokenizer did not produce token IDs" >&2
+        exit 1
+    }
+    SIM_HOST_FUNCTIONAL_ENV="OPENNPUX_SIM_HOST_FUNCTIONAL_CPP=1"
+    HOST_FUNCTIONAL_MODEL="$MODEL_DIR/$MANIFEST_NAME"
+    HOST_FUNCTIONAL_RANGES="$MODEL_DIR/$RANGE_NAME"
+    HOST_FUNCTIONAL_TENSOR_PLAN="$MODEL_DIR/$TENSOR_PLAN_NAME"
+    echo "[coral-qwen35b-real-weights-test] CPU token count: $INPUT_TOKEN_COUNT" >&2
 fi
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
@@ -522,10 +564,12 @@ for asset in '$EXECUTABLE_NAME' '$MANIFEST_NAME' '$RANGE_NAME'; do
     fi
 done
 if env $NUMERICAL_ENV $SIM_HOST_ENV $SIM_HOST_NUMERICAL_ENV \
+    $SIM_HOST_FUNCTIONAL_ENV \
     $REUSE_DECODE_WEIGHTS_ENV \
     OPENNPUX_PROMPT='$PROMPT' \
     OPENNPUX_MAX_NEW_TOKENS='$MAX_NEW_TOKENS' \
     OPENNPUX_INPUT_TOKEN_COUNT='$INPUT_TOKEN_COUNT' \
+    OPENNPUX_INPUT_TOKEN_IDS='$INPUT_TOKEN_IDS' \
     OPENNPUX_MODEL_ROOT=/mnt/opennpux-model \
     /tmp/coralctl executable-run-paged \
     /mnt/opennpux-model/$EXECUTABLE_NAME decode \
@@ -542,7 +586,16 @@ if [ "\$inference_rc" -ne 0 ]; then
     m5 --inst exit
     exit 1
 fi
-if [ '$SIM_HOST_NUMERICAL' != 0 ]; then
+if [ '$SIM_HOST_FUNCTIONAL' != 0 ]; then
+    if ! grep -Fqx 'inference_result_source=host-functional-cpp' \
+        /tmp/opennpux-inference.log; then
+        echo '[coral-qwen35b-real-weights-test] FAIL: Host C++ result source missing'
+        m5 --inst exit
+        exit 1
+    fi
+    echo '[coral-qwen35b-real-weights-test] functional_backend=host-cpp'
+fi
+if [ '$TOKEN_REFERENCE' != 0 ]; then
     if ! grep -Fqx 'inference_generated_tokens=$EXPECTED_GENERATED_TOKENS' \
         /tmp/opennpux-inference.log; then
         echo '[coral-qwen35b-real-weights-test] FAIL: generated token count differs from HF golden'
@@ -568,6 +621,9 @@ cd "${ROOT_DIR}/thirdparty/gem5"
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_SIM_HOST_PAGE_BUNDLE="$SIM_HOST_BUNDLE" \
 CORAL_SIM_HOST_INFERENCE_RESULT="$SIM_HOST_RESULT" \
+CORAL_HOST_FUNCTIONAL_MODEL="$HOST_FUNCTIONAL_MODEL" \
+CORAL_HOST_FUNCTIONAL_RANGES="$HOST_FUNCTIONAL_RANGES" \
+CORAL_HOST_FUNCTIONAL_TENSOR_PLAN="$HOST_FUNCTIONAL_TENSOR_PLAN" \
 CORAL_RTL_BRIDGE="$BRIDGE" \
 CORAL_RTL_FIRMWARE="$FIRMWARE" \
 CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1000}" \

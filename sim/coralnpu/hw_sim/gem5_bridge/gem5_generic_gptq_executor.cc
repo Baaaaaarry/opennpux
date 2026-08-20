@@ -1,7 +1,9 @@
 #include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <vector>
 #include <limits>
 
 namespace {
@@ -389,4 +391,84 @@ bool RunGem5GenericGptqExpert(
   *stats = {};
   return AddStats(gate_stats, stats) && AddStats(up_stats, stats) &&
          AddStats(activation_stats, stats) && AddStats(down_stats, stats);
+}
+
+bool RunGem5RoutedGptqExperts(
+    const opennpux_npu_operator_parameters& parameters, uint32_t rows,
+    Gem5GenericConstBuffer input, const uint64_t* expert_ids,
+    const float* route_weights, uint32_t active_experts,
+    Gem5GptqExpertWeightsProvider provider, void* provider_opaque,
+    Gem5GenericMutableBuffer output, Gem5GptqKernelStats* stats) {
+  if (rows == 0 || parameters.output_features == 0 ||
+      parameters.intermediate_features == 0 || input.data == nullptr ||
+      expert_ids == nullptr || route_weights == nullptr ||
+      active_experts == 0 || provider == nullptr || output.data == nullptr ||
+      stats == nullptr) {
+    return false;
+  }
+  uint64_t output_count = 0;
+  uint64_t intermediate_count = 0;
+  if (!ProductSize(rows, parameters.output_features, 1, &output_count) ||
+      !ProductSize(rows, parameters.intermediate_features, 1,
+                   &intermediate_count) ||
+      output_count > output.size / sizeof(float) ||
+      intermediate_count > SIZE_MAX / sizeof(float)) {
+    return false;
+  }
+
+  std::vector<float> gate(intermediate_count);
+  std::vector<float> up(intermediate_count);
+  std::vector<float> activated(intermediate_count);
+  std::vector<float> expert_output(output_count);
+  auto* combined = static_cast<float*>(output.data);
+  std::fill(combined, combined + output_count, 0.0f);
+  *stats = {};
+
+  for (uint32_t route = 0; route < active_experts; ++route) {
+    if (!std::isfinite(route_weights[route])) {
+      return false;
+    }
+    Gem5GenericGptqWeights gate_weights = {};
+    Gem5GenericGptqWeights up_weights = {};
+    Gem5GenericGptqWeights down_weights = {};
+    if (!provider(provider_opaque, expert_ids[route], &gate_weights,
+                  &up_weights, &down_weights)) {
+      return false;
+    }
+    std::fill(expert_output.begin(), expert_output.end(), 0.0f);
+    const Gem5GenericGptqExpertOperands operands = {
+        input,
+        gate_weights,
+        up_weights,
+        down_weights,
+        {gate.data(), gate.size() * sizeof(float)},
+        {up.data(), up.size() * sizeof(float)},
+        {activated.data(), activated.size() * sizeof(float)},
+        {expert_output.data(), expert_output.size() * sizeof(float)},
+    };
+    Gem5GptqKernelStats expert_stats = {};
+    if (!RunGem5GenericGptqExpert(parameters, rows, operands, &expert_stats) ||
+        !AddStats(expert_stats, stats)) {
+      return false;
+    }
+    for (uint64_t index = 0; index < output_count; ++index) {
+      combined[index] += route_weights[route] * expert_output[index];
+      if (!std::isfinite(combined[index])) {
+        return false;
+      }
+    }
+  }
+
+  const uint64_t combine_operations = output_count * active_experts * 2;
+  const uint64_t combine_bytes_read =
+      output_count * active_experts * sizeof(float) * 2;
+  const uint64_t combine_bytes_written = output_count * sizeof(float);
+  const Gem5GptqKernelStats combine_stats = {
+      combine_operations,
+      combine_bytes_read,
+      combine_bytes_written,
+      (combine_operations + 15) / 16 +
+          (combine_bytes_read + combine_bytes_written + 15) / 16,
+  };
+  return AddStats(combine_stats, stats);
 }

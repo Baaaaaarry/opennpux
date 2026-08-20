@@ -48,6 +48,24 @@ bool ReadStreamedWeight(void* opaque, Gem5GptqComponent component,
   return true;
 }
 
+struct RoutedWeights {
+  Gem5GenericGptqWeights experts[2][3];
+};
+
+bool ProvideRoutedWeights(void* opaque, uint64_t expert_id,
+                          Gem5GenericGptqWeights* gate,
+                          Gem5GenericGptqWeights* up,
+                          Gem5GenericGptqWeights* down) {
+  auto* weights = static_cast<RoutedWeights*>(opaque);
+  if (expert_id >= 2 || gate == nullptr || up == nullptr || down == nullptr) {
+    return false;
+  }
+  *gate = weights->experts[expert_id][0];
+  *up = weights->experts[expert_id][1];
+  *down = weights->experts[expert_id][2];
+  return true;
+}
+
 }  // namespace
 
 int main() {
@@ -228,6 +246,34 @@ int main() {
                    6.0f / (1.0f + std::exp(-2.0f))) < 1e-6f);
   assert(stats.operations == 36);
   assert(stats.modeled_cycles > 0);
+
+  const uint32_t doubled_qweight[] = {
+      UINT32_C(0x00000002), UINT32_C(0x00000020)};
+  RoutedWeights routed_weights = {};
+  for (size_t projection = 0; projection < 3; ++projection) {
+    routed_weights.experts[0][projection] =
+        projection == 1
+            ? IdentityWeights(sum_qweight, expert_qzeros, expert_scales)
+            : IdentityWeights(identity_qweight, expert_qzeros, expert_scales);
+    routed_weights.experts[1][projection] =
+        projection == 1
+            ? IdentityWeights(sum_qweight, expert_qzeros, expert_scales)
+            : IdentityWeights(doubled_qweight, expert_qzeros, expert_scales);
+  }
+  const uint64_t expert_ids[] = {0, 1};
+  const float route_weights[] = {0.25f, 0.75f};
+  float routed_output[2] = {};
+  assert(RunGem5RoutedGptqExperts(
+      expert_parameters, 1, {expert_input, sizeof(expert_input)}, expert_ids,
+      route_weights, 2, ProvideRoutedWeights, &routed_weights,
+      {routed_output, sizeof(routed_output)}, &stats));
+  assert(std::fabs(routed_output[0] -
+                   (0.25f * expert_output[0] +
+                    0.75f * 2.0f * expert_output[0])) < 1e-6f);
+  assert(std::fabs(routed_output[1] -
+                   (0.25f * expert_output[1] +
+                    0.75f * 2.0f * expert_output[1])) < 1e-6f);
+  assert(stats.operations > 72);
   expert_parameters.intermediate_features = 0;
   assert(!RunGem5GenericGptqExpert(
       expert_parameters, 1, expert_operands, &stats));

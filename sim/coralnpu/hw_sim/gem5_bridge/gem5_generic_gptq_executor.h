@@ -46,6 +46,10 @@ struct Gem5GenericGptqExpertOperands {
   Gem5GenericMutableBuffer output;
 };
 
+using Gem5GptqExpertWeightsProvider = bool (*)(
+    void* opaque, uint64_t expert_id, Gem5GenericGptqWeights* gate,
+    Gem5GenericGptqWeights* up, Gem5GenericGptqWeights* down);
+
 struct Gem5GenericGptqPageSpan {
   Gem5GptqComponent component;
   uint64_t tensor_offset;
@@ -91,5 +95,14 @@ bool RunGem5GenericGptqExpert(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,
     const Gem5GenericGptqExpertOperands& operands,
     Gem5GptqKernelStats* stats);
+
+// Executes the active routed experts and combines their outputs. The provider
+// keeps model/package-specific weight lookup outside the stable command ABI.
+bool RunGem5RoutedGptqExperts(
+    const opennpux_npu_operator_parameters& parameters, uint32_t rows,
+    Gem5GenericConstBuffer input, const uint64_t* expert_ids,
+    const float* route_weights, uint32_t active_experts,
+    Gem5GptqExpertWeightsProvider provider, void* provider_opaque,
+    Gem5GenericMutableBuffer output, Gem5GptqKernelStats* stats);
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_GENERIC_GPTQ_EXECUTOR_H_

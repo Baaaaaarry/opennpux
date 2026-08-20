@@ -172,6 +172,7 @@ cc_library(
     hdrs = ["gem5_bridge/gem5_host_functional_graph.h"],
     deps = [
         ":gem5_functional_materializer_runtime",
+        ":gem5_host_routed_expert",
         ":gem5_host_tensor_arena",
     ],
 )
@@ -197,6 +198,16 @@ cc_library(
     hdrs = ["gem5_bridge/gem5_host_weight_provider.h"],
     deps = [
         ":gem5_model_weight_runtime",
+        ":gem5_npu_submission_headers",
+    ],
+)
+
+cc_library(
+    name = "gem5_host_routed_expert",
+    srcs = ["gem5_bridge/gem5_host_routed_expert.cc"],
+    hdrs = ["gem5_bridge/gem5_host_routed_expert.h"],
+    deps = [
+        ":gem5_host_weight_provider",
         ":gem5_npu_submission_headers",
     ],
 )

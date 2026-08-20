@@ -121,8 +121,53 @@ int main(int argc, char** argv) {
     assert(std::isfinite(matmul_output_data[index]));
   }
   assert(graph.stats().completed_commands == 2);
+  uint32_t expert_index = UINT32_MAX;
+  for (uint32_t index = 0; index < graph.command_count(); ++index) {
+    if (graph.command(index)->opcode == OPENNPUX_NPU_OP_EXPERT) {
+      expert_index = index;
+      break;
+    }
+  }
+  assert(expert_index != UINT32_MAX);
+  opennpux_npu_functional_request expert = {};
+  assert(graph.Materialize(expert_index, nullptr, 0, &expert));
+  const auto* expert_input = FindOperand(expert, OPENNPUX_NPU_OPERAND_INPUT);
+  const auto* expert_ids = FindOperand(expert, OPENNPUX_NPU_OPERAND_SECONDARY);
+  const auto* expert_routes =
+      FindOperand(expert, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY);
+  const auto* expert_output = FindOperand(expert, OPENNPUX_NPU_OPERAND_OUTPUT);
+  assert(expert_input != nullptr && expert_ids != nullptr &&
+         expert_routes != nullptr && expert_output != nullptr);
+  auto* expert_input_data = reinterpret_cast<float*>(graph.arena().Translate(
+      expert_input->address, expert_input->byte_size));
+  auto* expert_id_data = reinterpret_cast<uint32_t*>(
+      graph.arena().Translate(expert_ids->address, expert_ids->byte_size));
+  auto* expert_route_data = reinterpret_cast<float*>(
+      graph.arena().Translate(expert_routes->address,
+                              expert_routes->byte_size));
+  auto* expert_output_data = reinterpret_cast<float*>(graph.arena().Translate(
+      expert_output->address, expert_output->byte_size));
+  assert(expert_input_data != nullptr && expert_id_data != nullptr &&
+         expert_route_data != nullptr && expert_output_data != nullptr);
+  for (size_t index = 0; index < expert_input->byte_size / sizeof(float);
+       ++index) {
+    expert_input_data[index] = 1.0f;
+  }
+  for (size_t index = 0; index < expert_ids->byte_size / sizeof(uint32_t);
+       ++index) {
+    expert_id_data[index] = 0;
+    expert_route_data[index] =
+        index % graph.arena().runtime().active_experts == 0 ? 1.0f : 0.0f;
+  }
+  assert(graph.ExecuteRoutedExpert(expert_index, &weights));
+  for (size_t index = 0; index < expert_output->byte_size / sizeof(float);
+       ++index) {
+    assert(std::isfinite(expert_output_data[index]));
+  }
+  assert(graph.stats().completed_commands == 3);
   std::printf("functional_graph_add_elements=%zu\n", count);
   std::puts("functional_graph_gptq_projection=PASS");
+  std::puts("functional_graph_routed_expert=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

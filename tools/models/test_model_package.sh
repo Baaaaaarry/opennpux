@@ -372,6 +372,7 @@ done
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_generic_command_dispatch.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_tensor_arena.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_weight_provider.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_routed_expert.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_graph.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_graph_test.cc" \
     "${WORK_DIR}/npu_submission.o" \

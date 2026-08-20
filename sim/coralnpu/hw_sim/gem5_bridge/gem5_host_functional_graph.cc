@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
 
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
+#include "hw_sim/gem5_bridge/gem5_host_routed_expert.h"
 
 namespace {
 
@@ -35,6 +36,16 @@ bool RegionsOverlap(uint32_t first_base, size_t first_size,
   const uint64_t first_end = static_cast<uint64_t>(first_base) + first_size;
   const uint64_t second_end = static_cast<uint64_t>(second_base) + second_size;
   return first_base < second_end && second_base < first_end;
+}
+
+const opennpux_npu_functional_operand* FindOperand(
+    const opennpux_npu_functional_request& request, uint32_t role) {
+  for (uint32_t index = 0; index < request.operand_count; ++index) {
+    if (request.operands[index].role == role) {
+      return &request.operands[index];
+    }
+  }
+  return nullptr;
 }
 
 }  // namespace
@@ -231,6 +242,61 @@ bool Gem5HostFunctionalGraph::ExecuteGptqQkv(
   opennpux_npu_functional_request request = {};
   return count >= 9 && Materialize(command_index, operands, count, &request) &&
          Execute(&request, regions, count);
+}
+
+bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
+    uint32_t command_index, Gem5HostWeightProvider* weights) {
+  opennpux_npu_functional_request request = {};
+  if (!configured_ || weights == nullptr ||
+      !Materialize(command_index, nullptr, 0, &request) ||
+      request.opcode != OPENNPUX_NPU_OP_EXPERT ||
+      !weights->ConfigureRoutedExpert(command_index)) {
+    return false;
+  }
+  const auto* input = FindOperand(request, OPENNPUX_NPU_OPERAND_INPUT);
+  const auto* ids = FindOperand(request, OPENNPUX_NPU_OPERAND_SECONDARY);
+  const auto* route_weights =
+      FindOperand(request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY);
+  const auto* output = FindOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+  if (input == nullptr || ids == nullptr || route_weights == nullptr ||
+      output == nullptr || request.rows == 0 ||
+      arena_.runtime().active_experts == 0 ||
+      request.parameter_address < submission_base_ ||
+      request.parameter_size > submission_.size() ||
+      request.parameter_address - submission_base_ >
+          submission_.size() - request.parameter_size) {
+    return false;
+  }
+  auto* input_data = reinterpret_cast<const float*>(
+      arena_.Translate(input->address, input->byte_size));
+  auto* id_data = reinterpret_cast<const uint32_t*>(
+      arena_.Translate(ids->address, ids->byte_size));
+  auto* route_data = reinterpret_cast<const float*>(
+      arena_.Translate(route_weights->address, route_weights->byte_size));
+  auto* output_data = reinterpret_cast<float*>(
+      arena_.Translate(output->address, output->byte_size));
+  const uint64_t route_count =
+      static_cast<uint64_t>(request.rows) * arena_.runtime().active_experts;
+  if (input_data == nullptr || id_data == nullptr || route_data == nullptr ||
+      output_data == nullptr || route_count > ids->byte_size / sizeof(uint32_t) ||
+      route_count > route_weights->byte_size / sizeof(float)) {
+    return false;
+  }
+  const void* parameters = submission_.data() +
+      (request.parameter_address - submission_base_);
+  Gem5HostRoutedExpertStats routed_stats = {};
+  if (!RunGem5HostRoutedExpert(
+          parameters, request.rows, input_data, input->byte_size, id_data,
+          route_data, arena_.runtime().active_experts, output_data,
+          output->byte_size, weights, &routed_stats)) {
+    return false;
+  }
+  ++stats_.completed_commands;
+  stats_.operations += routed_stats.operations;
+  stats_.modeled_cycles += routed_stats.modeled_cycles;
+  stats_.bytes_read += routed_stats.bytes_read;
+  stats_.bytes_written += routed_stats.bytes_written;
+  return true;
 }
 
 const opennpux_npu_command* Gem5HostFunctionalGraph::command(

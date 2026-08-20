@@ -102,5 +102,17 @@ copy_if_changed \
 copy_if_changed \
     "${SUPER_ROOT}/runtime/host/src/npu_tensor_plan.c" \
     "${RUNTIME_PLAN_DIR}/npu_tensor_plan.c"
+for runtime_file in \
+    npu_submission.h npu_functional_request.h npu_functional_materializer.h \
+    npu_weight_ranges.h; do
+    copy_if_changed \
+        "${SUPER_ROOT}/runtime/host/include/opennpux/${runtime_file}" \
+        "${RUNTIME_PLAN_DIR}/${runtime_file}"
+done
+for runtime_file in npu_submission.c npu_functional_materializer.c; do
+    copy_if_changed \
+        "${SUPER_ROOT}/runtime/host/src/${runtime_file}" \
+        "${RUNTIME_PLAN_DIR}/${runtime_file}"
+done
 
 echo "[coralnpu-patchset] done"

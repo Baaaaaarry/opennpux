@@ -143,6 +143,84 @@ void TestGptqMatMul() {
   assert(request->operation_count == 4);
 }
 
+void TestGptqExpert() {
+  std::vector<uint8_t> memory(8192);
+  constexpr uint32_t kRequest = 64;
+  constexpr uint32_t kParameters = 768;
+  constexpr uint32_t kInput = 1024;
+  constexpr uint32_t kOutput = 1088;
+  constexpr uint32_t kGateOutput = 1120;
+  constexpr uint32_t kUpOutput = 1152;
+  constexpr uint32_t kActivated = 1184;
+  constexpr uint32_t kGate = 2048;
+  constexpr uint32_t kUp = 2176;
+  constexpr uint32_t kDown = 2304;
+  auto* request = At<opennpux_npu_functional_request>(&memory, kRequest);
+  *request = {};
+  request->magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  request->version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  request->struct_size = sizeof(*request);
+  request->opcode = OPENNPUX_NPU_OP_EXPERT;
+  request->rows = 1;
+  request->features = 2;
+  request->parameter_address = kBase + kParameters;
+  request->parameter_size = sizeof(opennpux_npu_operator_parameters);
+  AddOperand(request, OPENNPUX_NPU_OPERAND_INPUT, kInput, 2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT, kOutput, 2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_GATE_OUTPUT, kGateOutput,
+             2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_UP_OUTPUT, kUpOutput,
+             2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_ACTIVATED, kActivated,
+             2 * sizeof(float));
+  const auto add_projection = [request](uint32_t base, uint32_t qweight_role,
+                                         uint32_t qzeros_role,
+                                         uint32_t scales_role) {
+    AddOperand(request, qweight_role, base, 2 * sizeof(uint32_t));
+    AddOperand(request, qzeros_role, base + 32, sizeof(uint32_t));
+    AddOperand(request, scales_role, base + 64, 2 * sizeof(float));
+  };
+  add_projection(kGate, OPENNPUX_NPU_OPERAND_GATE_QWEIGHT,
+                 OPENNPUX_NPU_OPERAND_GATE_QZEROS,
+                 OPENNPUX_NPU_OPERAND_GATE_SCALES);
+  add_projection(kUp, OPENNPUX_NPU_OPERAND_UP_QWEIGHT,
+                 OPENNPUX_NPU_OPERAND_UP_QZEROS,
+                 OPENNPUX_NPU_OPERAND_UP_SCALES);
+  add_projection(kDown, OPENNPUX_NPU_OPERAND_DOWN_QWEIGHT,
+                 OPENNPUX_NPU_OPERAND_DOWN_QZEROS,
+                 OPENNPUX_NPU_OPERAND_DOWN_SCALES);
+
+  auto* parameters = At<opennpux_npu_operator_parameters>(&memory, kParameters);
+  *parameters = {};
+  parameters->magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  parameters->version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  parameters->struct_size = sizeof(*parameters);
+  parameters->opcode = OPENNPUX_NPU_OP_EXPERT;
+  parameters->flags = OPENNPUX_NPU_PARAMETER_GPTQ;
+  parameters->input_features = 2;
+  parameters->output_features = 2;
+  parameters->intermediate_features = 2;
+  parameters->quantization_bits = 4;
+  parameters->quantization_group_size = 2;
+  parameters->scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
+  parameters->quantized_zero_bias = 1;
+  const float input[] = {1.0f, 2.0f};
+  std::memcpy(memory.data() + kInput, input, sizeof(input));
+  for (uint32_t base : {kGate, kUp, kDown}) {
+    const uint32_t qweight[] = {UINT32_C(0x22), UINT32_C(0x22)};
+    const uint32_t qzeros = 0;
+    const float scales[] = {1.0f, 1.0f};
+    std::memcpy(memory.data() + base, qweight, sizeof(qweight));
+    std::memcpy(memory.data() + base + 32, &qzeros, sizeof(qzeros));
+    std::memcpy(memory.data() + base + 64, scales, sizeof(scales));
+  }
+  assert(ExecuteGem5FunctionalRequest(request, memory.data(), kBase,
+                                      memory.size()));
+  const float* output = At<float>(&memory, kOutput);
+  assert(output[0] > 0.0f && output[0] == output[1]);
+  assert(request->operation_count != 0);
+}
+
 void TestEmbedding() {
   std::vector<uint8_t> memory(4096);
   constexpr uint32_t kRequest = 64;
@@ -305,6 +383,7 @@ int main() {
   TestDenseMatMul();
   TestDiscontiguousAddressSpace();
   TestGptqMatMul();
+  TestGptqExpert();
   TestRejectsOpcodeMismatch();
   std::puts("gem5_generic_command_dispatch=PASS");
   return 0;

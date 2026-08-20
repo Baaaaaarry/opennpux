@@ -163,6 +163,40 @@ bool ExecuteGem5FunctionalRequestInRegions(
       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_V_G_IDX, regions, region_count),
       output_tertiary,
   };
+  const Gem5GenericGptqExpertOperands gptq_expert = {
+      input,
+      {ConstBuffer(*request, OPENNPUX_NPU_OPERAND_GATE_QWEIGHT, regions,
+                   region_count),
+       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_GATE_QZEROS, regions,
+                   region_count),
+       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_GATE_SCALES, regions,
+                   region_count),
+       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_GATE_G_IDX, regions,
+                   region_count)},
+      {ConstBuffer(*request, OPENNPUX_NPU_OPERAND_UP_QWEIGHT, regions,
+                   region_count),
+       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_UP_QZEROS, regions,
+                   region_count),
+       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_UP_SCALES, regions,
+                   region_count),
+       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_UP_G_IDX, regions,
+                   region_count)},
+      {ConstBuffer(*request, OPENNPUX_NPU_OPERAND_DOWN_QWEIGHT, regions,
+                   region_count),
+       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_DOWN_QZEROS, regions,
+                   region_count),
+       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_DOWN_SCALES, regions,
+                   region_count),
+       ConstBuffer(*request, OPENNPUX_NPU_OPERAND_DOWN_G_IDX, regions,
+                   region_count)},
+      MutableBuffer(*request, OPENNPUX_NPU_OPERAND_GATE_OUTPUT, regions,
+                    region_count),
+      MutableBuffer(*request, OPENNPUX_NPU_OPERAND_UP_OUTPUT, regions,
+                    region_count),
+      MutableBuffer(*request, OPENNPUX_NPU_OPERAND_ACTIVATED, regions,
+                    region_count),
+      output,
+  };
 
   Gem5HostFunctionalRequest host = {};
   host.opcode = request->opcode;
@@ -191,6 +225,7 @@ bool ExecuteGem5FunctionalRequestInRegions(
   host.q_gptq_operands = &q_gptq;
   host.k_gptq_operands = &k_gptq;
   host.v_gptq_operands = &v_gptq;
+  host.gptq_expert_operands = &gptq_expert;
 
   request->state = CORAL_OPERATOR_STATE_RUNNING;
   request->error = CORAL_OPERATOR_ERROR_NONE;

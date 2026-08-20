@@ -329,6 +329,30 @@ PY
     "${WORK_DIR}/npu_tensor_plan.o" \
     -o "${WORK_DIR}/gem5_host_tensor_arena_test"
 "${WORK_DIR}/gem5_host_tensor_arena_test" "${MODEL_DIR}/model.npxtb"
+for source in npu_submission npu_executable npu_functional_materializer; do
+    "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+        -I"${ROOT_DIR}/runtime/host/include" \
+        -c "${ROOT_DIR}/runtime/host/src/${source}.c" \
+        -o "${WORK_DIR}/${source}.o"
+done
+"${CXX}" -O2 -Wall -Wextra -Werror -std=c++17 \
+    -I"${ROOT_DIR}/sim/coralnpu" \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_gptq_kernels.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_generic_gptq_executor.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_transformer_kernels.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_backend.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_generic_command_dispatch.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_tensor_arena.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_graph.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_graph_test.cc" \
+    "${WORK_DIR}/npu_submission.o" \
+    "${WORK_DIR}/npu_executable.o" \
+    "${WORK_DIR}/npu_functional_materializer.o" \
+    "${WORK_DIR}/npu_tensor_plan.o" \
+    -o "${WORK_DIR}/gem5_host_functional_graph_test"
+"${WORK_DIR}/gem5_host_functional_graph_test" \
+    "${MODEL_DIR}/model.npxc" "${MODEL_DIR}/model.npxtb"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_submission.c" \

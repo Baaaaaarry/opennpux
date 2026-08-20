@@ -1,0 +1,58 @@
+#ifndef HW_SIM_GEM5_BRIDGE_GEM5_HOST_FUNCTIONAL_GRAPH_H_
+#define HW_SIM_GEM5_BRIDGE_GEM5_HOST_FUNCTIONAL_GRAPH_H_
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "opennpux/npu_functional_materializer.h"
+#include "hw_sim/gem5_bridge/gem5_generic_command_dispatch.h"
+#include "hw_sim/gem5_bridge/gem5_host_tensor_arena.h"
+
+struct Gem5HostFunctionalGraphStats {
+  uint32_t completed_commands;
+  uint64_t operations;
+  uint64_t modeled_cycles;
+  uint64_t bytes_read;
+  uint64_t bytes_written;
+};
+
+// Joins one instantiated invocation with its SSA tensor plan. Weight operands
+// remain caller supplied because they may come from a page cache or a direct
+// host mapping without changing graph scheduling.
+class Gem5HostFunctionalGraph {
+ public:
+  bool LoadTensorPlan(const std::string& tensor_plan_path);
+  bool Configure(const void* submission, size_t submission_size,
+                 uint32_t submission_base,
+                 uint32_t arena_base = UINT32_C(0x30000000));
+  bool Materialize(
+      uint32_t command_index,
+      const opennpux_npu_functional_operand* extra_operands,
+      uint32_t extra_operand_count,
+      opennpux_npu_functional_request* request) const;
+  bool Execute(
+      opennpux_npu_functional_request* request,
+      const Gem5FunctionalMemoryRegion* extra_regions = nullptr,
+      size_t extra_region_count = 0);
+  void ResetInvocation();
+
+  uint32_t command_count() const {
+    return configured_ ? program_.header->command_count : 0;
+  }
+  const opennpux_npu_command* command(uint32_t index) const;
+  Gem5HostTensorArena& arena() { return arena_; }
+  const Gem5HostTensorArena& arena() const { return arena_; }
+  const Gem5HostFunctionalGraphStats& stats() const { return stats_; }
+
+ private:
+  std::vector<uint8_t> submission_;
+  uint32_t submission_base_ = 0;
+  Gem5HostTensorArena arena_;
+  opennpux_npu_functional_program program_ = {};
+  Gem5HostFunctionalGraphStats stats_ = {};
+  bool configured_ = false;
+};
+
+#endif  // HW_SIM_GEM5_BRIDGE_GEM5_HOST_FUNCTIONAL_GRAPH_H_

@@ -5,7 +5,9 @@
 #include <cstdint>
 
 #include "hw_sim/gem5_bridge/coral_operator.h"
+#ifndef OPENNPUX_NPU_FUNCTIONAL_REQUEST_H
 #include "hw_sim/gem5_bridge/npu_functional_request.h"
+#endif
 
 struct Gem5FunctionalMemoryRegion {
   uint32_t base;

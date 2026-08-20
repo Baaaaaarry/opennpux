@@ -150,6 +150,32 @@ cc_library(
     deps = [":gem5_tensor_plan_runtime"],
 )
 
+cc_library(
+    name = "gem5_functional_materializer_runtime",
+    srcs = [
+        "gem5_bridge/opennpux/npu_functional_materializer.c",
+        "gem5_bridge/opennpux/npu_submission.c",
+    ],
+    hdrs = [
+        "gem5_bridge/opennpux/npu_functional_materializer.h",
+        "gem5_bridge/opennpux/npu_functional_request.h",
+        "gem5_bridge/opennpux/npu_submission.h",
+        "gem5_bridge/opennpux/npu_weight_ranges.h",
+    ],
+    includes = ["gem5_bridge"],
+    deps = [":gem5_tensor_plan_runtime"],
+)
+
+cc_library(
+    name = "gem5_host_functional_graph",
+    srcs = ["gem5_bridge/gem5_host_functional_graph.cc"],
+    hdrs = ["gem5_bridge/gem5_host_functional_graph.h"],
+    deps = [
+        ":gem5_functional_materializer_runtime",
+        ":gem5_host_tensor_arena",
+    ],
+)
+
 cc_binary(
     name = "libcoralnpu_gem5_bridge.so",
     srcs = [
@@ -190,6 +216,7 @@ cc_binary(
     linkshared = True,
     visibility = ["//visibility:public"],
     deps = [
+        ":gem5_host_functional_graph",
         ":gem5_host_tensor_arena",
         ":gem5_npu_submission_headers",
         ":hw_primitives",
@@ -240,6 +267,7 @@ cc_binary(
     linkshared = True,
     visibility = ["//visibility:public"],
     deps = [
+        ":gem5_host_functional_graph",
         ":gem5_host_tensor_arena",
         ":gem5_npu_submission_headers",
         ":hw_primitives",

@@ -808,3 +808,17 @@ GPTQ component 则由分页 cache region 提供；所有 operand 仍使用统一
 因此 RTL custom-instruction smoke 不受影响。Native 回归已验证跨 submission/arena 的 ADD
 数值执行以及未映射地址拒绝。下一步不再需要复制参数或 Tensor 到伪造的连续 EXTMEM，
 可以直接组装三类 region 后执行 materialized command。
+
+模型无关 `Gem5HostFunctionalGraph` 现已组合 invocation、`.npxtb` Tensor arena、
+materializer 和 segmented-memory executor。它从已校验 command 的 runtime shape 配置
+arena，保留 submission 中 operator parameter 的原始 NPU 地址，并允许分页权重作为额外
+region/operand 注入；因此调度器不再依赖 Qwen tensor 名称。本机回归从真实生成的
+`.npxc` 实例化 30-command invocation，选择其中 residual ADD，解析两个输入和一个输出，
+执行 36 个 float 元素并逐项验证结果。
+
+同时修复 generic dispatcher 的 MoE 数据通路：此前 Host backend 虽实现 GPTQ Expert，
+dispatcher 却没有构造 gate/up/down 三组 GPTQ weights、gate/up/activation 临时缓冲和
+`gptq_expert_operands`，任何真实 EXPERT request 都会失败。现在三组 projection 和中间
+Tensor 均由版本化 operand role 解析；最小 int4 SwiGLU Expert 回归已完成真实数值执行。
+下一增量将从 `.npxr`/safetensors 为每条命令构造这些额外 operand，并处理 active-expert
+循环与 route-weight combine。

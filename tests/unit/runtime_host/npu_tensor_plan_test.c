@@ -63,6 +63,16 @@ main(int argc, char **argv)
     check(opennpux_npu_tensor_plan_persistent_size(
               &plan, &runtime, &persistent_size) == 0 && persistent_size != 0,
           "persistent size resolution failed");
+    uint64_t input_size = 0;
+    uint64_t output_size = 0;
+    check(opennpux_npu_tensor_plan_storage_size(
+              &plan, OPENNPUX_NPU_TENSOR_INPUT, &runtime, &input_size) == 0 &&
+              input_size >= 32,
+          "input storage size resolution failed");
+    check(opennpux_npu_tensor_plan_storage_size(
+              &plan, OPENNPUX_NPU_TENSOR_OUTPUT, &runtime, &output_size) == 0 &&
+              output_size >= 8,
+          "output storage size resolution failed");
     const struct opennpux_npu_tensor_plan_memory memory = {
         .input_address = UINT64_C(0x80000000),
         .input_size = UINT64_C(0x10000),
@@ -73,6 +83,25 @@ main(int argc, char **argv)
         .scratch_address = UINT64_C(0x90000000),
         .scratch_size = scratch_size,
     };
+    struct opennpux_npu_tensor_plan_memory layout;
+    uint64_t layout_size = 0;
+    check(opennpux_npu_tensor_plan_memory_layout(
+              &plan, &runtime, UINT64_C(0xa0000000), UINT64_C(0x10000000),
+              &layout, &layout_size) == 0 && layout_size != 0,
+          "contiguous tensor arena layout failed");
+    check(layout.input_size == input_size && layout.output_size == output_size &&
+              layout.persistent_size == persistent_size &&
+              layout.scratch_size == scratch_size &&
+              layout.input_address < layout.output_address &&
+              layout.output_address < layout.persistent_address &&
+              layout.persistent_address < layout.scratch_address &&
+              layout.scratch_address + layout.scratch_size <=
+                  UINT64_C(0xa0000000) + layout_size,
+          "contiguous tensor arena layout mismatch");
+    check(opennpux_npu_tensor_plan_memory_layout(
+              &plan, &runtime, UINT64_C(0xa0000000), layout_size - 1,
+              &layout, &layout_size) != 0 && errno == ENOSPC,
+          "undersized contiguous tensor arena accepted");
     check(opennpux_npu_tensor_plan_resolve(
               &plan, 0, &runtime, &memory, &address, &size) == 0 &&
               address == memory.input_address && size == 32,
@@ -93,6 +122,20 @@ main(int argc, char **argv)
               address >= memory.persistent_address &&
               address + size <= memory.persistent_address + memory.persistent_size,
           "persistent tensor resolution failed");
+    uint64_t previous_persistent_end = memory.persistent_address;
+    uint32_t persistent_count = 0;
+    for (uint32_t index = 0; index < plan.header->tensor_count; ++index) {
+        if (plan.tensors[index].storage != OPENNPUX_NPU_TENSOR_PERSISTENT) {
+            continue;
+        }
+        check(opennpux_npu_tensor_plan_resolve(
+                  &plan, index, &runtime, &memory, &address, &size) == 0 &&
+                  address >= previous_persistent_end,
+              "persistent tensor storage overlaps");
+        previous_persistent_end = address + size;
+        ++persistent_count;
+    }
+    check(persistent_count > 1, "persistent storage offset coverage missing");
 
     struct opennpux_npu_command_tensor_views views;
     check(opennpux_npu_tensor_plan_resolve_command(

@@ -8,6 +8,7 @@ WORK_DIR="${ROOT_DIR}/build/local-tests/model-package"
 MODEL_DIR="${WORK_DIR}/hf-model"
 MANIFEST="${MODEL_DIR}/model.npxm"
 CC="${CC:-cc}"
+CXX="${CXX:-c++}"
 
 rm -rf "${WORK_DIR}"
 mkdir -p "${MODEL_DIR}"
@@ -316,6 +317,18 @@ PY
     "${ROOT_DIR}/tests/unit/runtime_host/npu_tensor_plan_test.c" \
     -o "${WORK_DIR}/npu_tensor_plan_test"
 "${WORK_DIR}/npu_tensor_plan_test" "${MODEL_DIR}/model.npxtb"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    -c "${ROOT_DIR}/runtime/host/src/npu_tensor_plan.c" \
+    -o "${WORK_DIR}/npu_tensor_plan.o"
+"${CXX}" -O2 -Wall -Wextra -Werror -std=c++17 \
+    -I"${ROOT_DIR}/sim/coralnpu" \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_tensor_arena.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_tensor_arena_test.cc" \
+    "${WORK_DIR}/npu_tensor_plan.o" \
+    -o "${WORK_DIR}/gem5_host_tensor_arena_test"
+"${WORK_DIR}/gem5_host_tensor_arena_test" "${MODEL_DIR}/model.npxtb"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_submission.c" \

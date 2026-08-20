@@ -338,13 +338,28 @@ opennpux_npu_tensor_plan_persistent_size(
     const struct opennpux_npu_tensor_plan *plan,
     const struct opennpux_npu_tensor_plan_runtime *runtime, uint64_t *size)
 {
-    if (plan == NULL || plan->header == NULL || runtime == NULL || size == NULL) {
+    return opennpux_npu_tensor_plan_storage_size(
+        plan, OPENNPUX_NPU_TENSOR_PERSISTENT, runtime, size);
+}
+
+int
+opennpux_npu_tensor_plan_storage_size(
+    const struct opennpux_npu_tensor_plan *plan, uint32_t storage,
+    const struct opennpux_npu_tensor_plan_runtime *runtime, uint64_t *size)
+{
+    if (plan == NULL || plan->header == NULL || runtime == NULL || size == NULL ||
+        storage < OPENNPUX_NPU_TENSOR_INPUT ||
+        storage > OPENNPUX_NPU_TENSOR_PERSISTENT) {
         errno = EINVAL;
         return -1;
     }
+    if (storage == OPENNPUX_NPU_TENSOR_SCRATCH) {
+        return opennpux_npu_tensor_plan_scratch_size(
+            plan, runtime->batch_size, runtime->sequence_length, size);
+    }
     uint64_t total = 0;
     for (uint32_t index = 0; index < plan->header->tensor_count; ++index) {
-        if (plan->tensors[index].storage != OPENNPUX_NPU_TENSOR_PERSISTENT) {
+        if (plan->tensors[index].storage != storage) {
             continue;
         }
         uint64_t bytes = 0;
@@ -354,6 +369,79 @@ opennpux_npu_tensor_plan_persistent_size(
         }
     }
     *size = total;
+    return 0;
+}
+
+int
+opennpux_npu_tensor_plan_memory_layout(
+    const struct opennpux_npu_tensor_plan *plan,
+    const struct opennpux_npu_tensor_plan_runtime *runtime,
+    uint64_t arena_address, uint64_t arena_capacity,
+    struct opennpux_npu_tensor_plan_memory *memory, uint64_t *required_size)
+{
+    if (plan == NULL || runtime == NULL || arena_address == 0 || memory == NULL ||
+        required_size == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    uint64_t sizes[5] = {0};
+    for (uint32_t storage = OPENNPUX_NPU_TENSOR_INPUT;
+         storage <= OPENNPUX_NPU_TENSOR_PERSISTENT; ++storage) {
+        if (opennpux_npu_tensor_plan_storage_size(
+                plan, storage, runtime, &sizes[storage]) != 0) {
+            return -1;
+        }
+    }
+    uint64_t offsets[5] = {0};
+    uint64_t total = 0;
+    const uint32_t order[] = {
+        OPENNPUX_NPU_TENSOR_INPUT, OPENNPUX_NPU_TENSOR_OUTPUT,
+        OPENNPUX_NPU_TENSOR_PERSISTENT, OPENNPUX_NPU_TENSOR_SCRATCH,
+    };
+    for (uint32_t index = 0; index < sizeof(order) / sizeof(order[0]); ++index) {
+        const uint32_t storage = order[index];
+        offsets[storage] = total;
+        if (total > UINT64_MAX - sizes[storage] ||
+            align_u64(total + sizes[storage], &total) != 0) {
+            return -1;
+        }
+    }
+    *required_size = total;
+    if (total > arena_capacity || arena_address > UINT64_MAX - total) {
+        errno = ENOSPC;
+        return -1;
+    }
+    memset(memory, 0, sizeof(*memory));
+    memory->input_address = arena_address + offsets[OPENNPUX_NPU_TENSOR_INPUT];
+    memory->input_size = sizes[OPENNPUX_NPU_TENSOR_INPUT];
+    memory->output_address = arena_address + offsets[OPENNPUX_NPU_TENSOR_OUTPUT];
+    memory->output_size = sizes[OPENNPUX_NPU_TENSOR_OUTPUT];
+    memory->persistent_address =
+        arena_address + offsets[OPENNPUX_NPU_TENSOR_PERSISTENT];
+    memory->persistent_size = sizes[OPENNPUX_NPU_TENSOR_PERSISTENT];
+    memory->scratch_address = arena_address + offsets[OPENNPUX_NPU_TENSOR_SCRATCH];
+    memory->scratch_size = sizes[OPENNPUX_NPU_TENSOR_SCRATCH];
+    return 0;
+}
+
+static int
+tensor_storage_offset(
+    const struct opennpux_npu_tensor_plan *plan, uint32_t tensor_id,
+    const struct opennpux_npu_tensor_plan_runtime *runtime, uint64_t *offset)
+{
+    const uint32_t storage = plan->tensors[tensor_id].storage;
+    uint64_t total = 0;
+    for (uint32_t index = 0; index < tensor_id; ++index) {
+        if (plan->tensors[index].storage != storage) {
+            continue;
+        }
+        uint64_t bytes = 0;
+        if (tensor_size(&plan->tensors[index], runtime, &bytes) != 0 ||
+            total > UINT64_MAX - bytes || align_u64(total + bytes, &total) != 0) {
+            return -1;
+        }
+    }
+    *offset = total;
     return 0;
 }
 
@@ -389,36 +477,20 @@ opennpux_npu_tensor_plan_resolve(
             memory->scratch_address, memory->scratch_size, tensor_address,
             resolved_size);
     } else if (tensor->storage == OPENNPUX_NPU_TENSOR_PERSISTENT) {
-        uint64_t offset = 0;
-        for (uint32_t index = 0; index < tensor_id; ++index) {
-            if (plan->tensors[index].storage != OPENNPUX_NPU_TENSOR_PERSISTENT) {
-                continue;
-            }
-            uint64_t previous_size = 0;
-            if (tensor_size(&plan->tensors[index], runtime, &previous_size) != 0 ||
-                offset > UINT64_MAX - previous_size ||
-                align_u64(offset + previous_size, &offset) != 0) {
-                return -1;
-            }
-        }
-        if (offset > memory->persistent_size ||
-            size > memory->persistent_size - offset ||
-            memory->persistent_address > UINT64_MAX - offset) {
-            errno = ENOSPC;
-            return -1;
-        }
-        *tensor_address = memory->persistent_address + offset;
-        *resolved_size = size;
-        return 0;
+        address = memory->persistent_address;
+        capacity = memory->persistent_size;
     } else {
         errno = EINVAL;
         return -1;
     }
-    if (address == 0 || size > capacity) {
+    uint64_t offset = 0;
+    if (address == 0 || tensor_storage_offset(
+            plan, tensor_id, runtime, &offset) != 0 || offset > capacity ||
+        size > capacity - offset || address > UINT64_MAX - offset) {
         errno = ENOSPC;
         return -1;
     }
-    *tensor_address = address;
+    *tensor_address = address + offset;
     *resolved_size = size;
     return 0;
 }

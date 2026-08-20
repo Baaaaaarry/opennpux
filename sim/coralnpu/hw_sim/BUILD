@@ -136,6 +136,20 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "gem5_tensor_plan_runtime",
+    srcs = ["gem5_bridge/opennpux/npu_tensor_plan.c"],
+    hdrs = ["gem5_bridge/opennpux/npu_tensor_plan.h"],
+    includes = ["gem5_bridge"],
+)
+
+cc_library(
+    name = "gem5_host_tensor_arena",
+    srcs = ["gem5_bridge/gem5_host_tensor_arena.cc"],
+    hdrs = ["gem5_bridge/gem5_host_tensor_arena.h"],
+    deps = [":gem5_tensor_plan_runtime"],
+)
+
 cc_binary(
     name = "libcoralnpu_gem5_bridge.so",
     srcs = [
@@ -176,6 +190,7 @@ cc_binary(
     linkshared = True,
     visibility = ["//visibility:public"],
     deps = [
+        ":gem5_host_tensor_arena",
         ":gem5_npu_submission_headers",
         ":hw_primitives",
         "//hdl/chisel/src/coralnpu:core_mini_axi_cc_library_cc",
@@ -225,6 +240,7 @@ cc_binary(
     linkshared = True,
     visibility = ["//visibility:public"],
     deps = [
+        ":gem5_host_tensor_arena",
         ":gem5_npu_submission_headers",
         ":hw_primitives",
         "//hdl/chisel/src/coralnpu:rvv_core_mini_highmem_axi_cc_library_cc",

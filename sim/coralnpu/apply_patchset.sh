@@ -91,4 +91,16 @@ for path in doc examples hdl hw_sim internal rules sw tests toolchain third_part
     fi
 done
 
+# The bridge consumes the same binary tensor-plan implementation as the guest
+# runtime. Generate these files in the Coral Bazel workspace rather than
+# maintaining a second ABI/parser implementation in the overlay.
+RUNTIME_PLAN_DIR="${CORAL_REPO}/hw_sim/gem5_bridge/opennpux"
+mkdir -p "${RUNTIME_PLAN_DIR}"
+copy_if_changed \
+    "${SUPER_ROOT}/runtime/host/include/opennpux/npu_tensor_plan.h" \
+    "${RUNTIME_PLAN_DIR}/npu_tensor_plan.h"
+copy_if_changed \
+    "${SUPER_ROOT}/runtime/host/src/npu_tensor_plan.c" \
+    "${RUNTIME_PLAN_DIR}/npu_tensor_plan.c"
+
 echo "[coralnpu-patchset] done"

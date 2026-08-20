@@ -126,6 +126,14 @@ int opennpux_npu_tensor_plan_scratch_size(
 int opennpux_npu_tensor_plan_persistent_size(
     const struct opennpux_npu_tensor_plan *plan,
     const struct opennpux_npu_tensor_plan_runtime *runtime, uint64_t *size);
+int opennpux_npu_tensor_plan_storage_size(
+    const struct opennpux_npu_tensor_plan *plan, uint32_t storage,
+    const struct opennpux_npu_tensor_plan_runtime *runtime, uint64_t *size);
+int opennpux_npu_tensor_plan_memory_layout(
+    const struct opennpux_npu_tensor_plan *plan,
+    const struct opennpux_npu_tensor_plan_runtime *runtime,
+    uint64_t arena_address, uint64_t arena_capacity,
+    struct opennpux_npu_tensor_plan_memory *memory, uint64_t *required_size);
 int opennpux_npu_tensor_plan_resolve(
     const struct opennpux_npu_tensor_plan *plan, uint32_t tensor_id,
     const struct opennpux_npu_tensor_plan_runtime *runtime,

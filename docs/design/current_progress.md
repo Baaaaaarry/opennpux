@@ -787,3 +787,16 @@ Host C++ kernel 路径仍可由自定义指令 smoke 和图级 scheduler 共同�
 测试已验证直接 API 与既有 descriptor API 对 ADD 得到相同数值和统计结果。下一步是
 在 bridge 中加载 `.npxtb`，分配 Host tensor arena，并将分页 residency 转换为每条 GPTQ
 request 的 component operands。
+
+上述 Tensor arena 基础现已落地。通用 runtime 会按实时 batch/sequence 将 input、output、
+persistent 和可复用 scratch slot 排列到一个对齐的连续地址空间；同一 storage class 内的
+多个 Tensor 也拥有独立 offset，不再错误别名到同一基址。Coral bridge 通过
+`Gem5HostTensorArena` 直接复用 canonical `.npxtb` loader，获得逐命令 Tensor view，并将
+边界校验后的 NPU 地址翻译为 Host backing buffer。相关实现由 overlay 脚本同步到 Coral
+Bazel workspace，避免 runtime 与 bridge 各自维护一份二进制 ABI/parser。
+
+模型包回归已在 30-command、37-Tensor、6-scratch-slot 的 Qwen 形态图上验证连续布局、
+逐命令解析、Host 地址翻译、容量不足和越界拒绝。当前尚未宣称 35B Host functional
+数值闭环：下一增量需要按 opcode 将这些 Tensor view 物化为 functional request，并把
+分页 residency 中的 GPTQ qweight/qzeros/scales/g_idx 绑定为 component operands，随后才
+能按 dependency 顺序执行完整 graph 并与 vLLM oracle 比对 logits/token。

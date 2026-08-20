@@ -447,6 +447,19 @@ compares the complete returned token-ID sequence and generated-token count with
 the host `.npxo` record; successful automated comparison prints
 `[coral-qwen35b-real-weights-test] token_golden=PASS`.
 
+This acceptance is specifically the `reference-publication` system baseline:
+vLLM computes the token and the bridge publishes it after the modeled NPU
+command lifecycle completes. It proves transport and orchestration, not native
+Host C++ operator correctness.
+
+The stricter `host-cpp-functional` acceptance must run without
+`CORAL_SIM_HOST_INFERENCE_RESULT`, report
+`inference_result_source=host-cpp-functional`, execute every required opcode
+without fallback, and compare the Host C++ generated token IDs against vLLM
+only after simulation. That mode remains incomplete until the executable
+contains a full intermediate-tensor allocation map and every required kernel is
+registered.
+
 Before booting, the runner recomputes the staged image on the host and injects
 the result into the guest script, so the device must match
 `gptq_projection_expected_checksum` and

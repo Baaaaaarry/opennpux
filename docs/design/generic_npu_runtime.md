@@ -182,6 +182,45 @@ the 524-command invocation about 93KiB, so the former 64KiB control window is
 not sufficient. Because the shared window size is represented in the device
 tree, switching an existing smaller setup to 8MiB requires one new boot
 checkpoint.
+
+### Host Functional Backend Contract
+
+The fast functional NPU backend is a native C++ execution engine, not a token
+publication shim and not a Guest CPU fallback. It consumes the same generic
+command opcodes, real paged weights, runtime tensor bindings and persistent
+state that timing and RTL engines consume. Each supported command must read its
+actual input tensors, write its actual output tensors and make those outputs
+visible to dependent commands. Returning estimated operations, bytes or cycles
+without producing the output tensor is not numerical completion.
+
+The first model-independent kernel layer implements float32 Add, Mul, SiLU,
+RMSNorm, Softmax, RoPE and deterministic TopK. The functional dispatcher
+returns `unsupported` for all other opcodes; it must never silently retire an
+unsupported numerical command. Existing GPTQ INT4 MatMul and SwiGLU Expert
+kernels are registered through the same dispatcher as the weight-bearing
+execution foundation.
+
+The current five logical executable bindings (`input`, `output`, `weights`,
+`persistent_state`, `scratch`) describe memory classes, not every intermediate
+tensor in the 524-command graph. Before the dispatcher can execute the complete
+graph, the compiler/runtime contract must add:
+
+- stable virtual tensor IDs for every command input and output;
+- producer/consumer and liveness metadata;
+- scratch offsets allocated from non-overlapping live ranges;
+- persistent KV-cache and recurrent-state regions;
+- runtime dimensions/strides for prefill and decode;
+- explicit weight-role mappings for every numerical command.
+
+This tensor allocation map is an executable side table rather than a
+Qwen-specific ABI. Qwen3.5 is the first frontend that emits it; subsequent
+Transformer frontends reuse the same contract.
+
+vLLM remains an external oracle. A vLLM `.npxo` result may be used for system
+transport regression, but it must not be copied into the device result during
+Host C++ functional acceptance. Native acceptance requires the Host C++ engine
+to produce logits and token IDs first, followed by an out-of-band comparison
+against vLLM.
 Executable and invocation ABI version 2 identifies the inline relocation
 fields. Version 1 `.npxc` files must be regenerated rather than interpreted
 with implicit resource bindings.

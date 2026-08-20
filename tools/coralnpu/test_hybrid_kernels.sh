@@ -30,4 +30,6 @@ cd "${CORAL_REPO}"
     --test_output=errors \
     //hw_sim:gem5_gptq_kernels_test \
     //hw_sim:gem5_generic_gptq_executor_test \
+    //hw_sim:gem5_transformer_kernels_test \
+    //hw_sim:gem5_host_functional_backend_test \
     //hw_sim:gem5_hybrid_kernels_test "$@"

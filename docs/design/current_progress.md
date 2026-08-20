@@ -703,3 +703,24 @@ GB10 已完成 vLLM reference 的 8-token 端到端验收：Guest 返回 token I
 逐项一致，文本以 `Okay, the user mentioned ...` 开始，证明结果具有基本语义而非此前
 GPTQModel 的多语言碎片。real-weight runner 的默认 loader 因此切换为 `vllm`；
 Transformers/GPTQModel 仅保留为显式诊断选项。
+
+## 2026-08-20 Host C++ Functional Backend 基线
+
+Qwen 数值开发主线已从“vLLM 结果注入”调整为“Host C++ 独立执行真实数值图”。
+vLLM `.npxo` 发布路径继续作为 CPU/NPU 控制流、分页、completion 和结果回传的系统
+回归基线，但不再代表 Host functional inference 正确性。最终 native 验收必须在不设置
+`CORAL_SIM_HOST_INFERENCE_RESULT` 的情况下，由 Host C++ backend 自行产生 logits 和
+token，再与 vLLM oracle 做仿真外差分。
+
+首批模型无关 C++ Tensor kernel 已实现 Add、Mul、SiLU、RMSNorm、Softmax、RoPE 和
+确定性 TopK，并统一返回 operations、bytes read/write 和 modeled cycles。新增
+`Gem5HostFunctionalBackend` 以 generic opcode 为调度边界；未实现的 Attention 等命令
+明确返回 `unsupported`，禁止只累计 estimated cycles 后伪造数值完成。现有 GPTQ INT4
+MatMul 和 SwiGLU Expert 已注册到同一 backend，形成统一的权重算子与基础 Tensor 算子
+执行入口。
+
+当前阻塞完整 524-command 数值执行的主要接口缺口是中间 Tensor 映射：现有 executable
+只有 input/output/weights/state/scratch 五类逻辑 binding，尚未携带逐命令虚拟 Tensor ID、
+producer/consumer、liveness、scratch offset、KV cache 和 recurrent-state layout。下一增量
+将由 compiler 生成模型无关 tensor-allocation side table，runtime 在 invocation 中绑定该
+表，然后由 Host functional backend 按 dependency 顺序真实串联每条命令的输入输出。

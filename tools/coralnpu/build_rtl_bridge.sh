@@ -21,6 +21,7 @@
 #   phase2_check_overlay_boundary.sh     ← verify no upstream conflicts
 #   phase2_test_axi_adapter.sh           ← AXI master adapter unit tests
 #   phase5_test_custom_rtl.sh            ← custom RTL accelerator tests
+#   test_host_functional_backend.sh      ← native Transformer kernel tests
 #     → Bazel build (4 targets)
 #       → build/coralnpu/libcoralnpu_gem5_bridge.so
 #       → build/coralnpu/gem5_smoke_halt.elf
@@ -112,6 +113,7 @@ fi
 "${ROOT_DIR}/tools/coralnpu/test_coprocessor_command.sh"
 "${ROOT_DIR}/tools/coralnpu/test_custom_rtl.sh"
 "${ROOT_DIR}/tools/coralnpu/test_sim_host_pager.sh"
+"${ROOT_DIR}/tools/coralnpu/test_host_functional_backend.sh"
 
 # ---------------------------------------------------------------------------
 # Ensure Bazel cache and output directories exist.

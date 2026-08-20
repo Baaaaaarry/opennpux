@@ -1,0 +1,206 @@
+#include "hw_sim/gem5_bridge/gem5_transformer_kernels.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numeric>
+#include <vector>
+
+namespace {
+
+constexpr uint64_t kOperationsPerCycle = 16;
+constexpr uint64_t kBytesPerCycle = 16;
+
+bool ProductFits(size_t first, size_t second, size_t* result) {
+  if (result == nullptr ||
+      (second != 0 && first > std::numeric_limits<size_t>::max() / second)) {
+    return false;
+  }
+  *result = first * second;
+  return true;
+}
+
+uint64_t DivCeil(uint64_t value, uint64_t divisor) {
+  return value / divisor + (value % divisor != 0);
+}
+
+bool FinishStats(uint64_t operations, uint64_t elements_read,
+                 uint64_t elements_written, Gem5TransformerKernelStats* stats) {
+  if (stats == nullptr ||
+      elements_read > UINT64_MAX / sizeof(float) ||
+      elements_written > UINT64_MAX / sizeof(float)) {
+    return false;
+  }
+  stats->operations = operations;
+  stats->bytes_read = elements_read * sizeof(float);
+  stats->bytes_written = elements_written * sizeof(float);
+  stats->modeled_cycles = std::max<uint64_t>(
+      DivCeil(operations, kOperationsPerCycle),
+      DivCeil(stats->bytes_read + stats->bytes_written, kBytesPerCycle));
+  return true;
+}
+
+bool ValidBuffers(const float* input, size_t count, float* output,
+                  Gem5TransformerKernelStats* stats) {
+  return input != nullptr && count != 0 && output != nullptr && stats != nullptr;
+}
+
+}  // namespace
+
+bool RunGem5AddF32(const float* lhs, const float* rhs, size_t count,
+                   float* output, Gem5TransformerKernelStats* stats) {
+  if (!ValidBuffers(lhs, count, output, stats) || rhs == nullptr ||
+      count > UINT64_MAX / 2) {
+    return false;
+  }
+  for (size_t index = 0; index < count; ++index) {
+    output[index] = lhs[index] + rhs[index];
+  }
+  return FinishStats(count, count * 2, count, stats);
+}
+
+bool RunGem5MulF32(const float* lhs, const float* rhs, size_t count,
+                   float* output, Gem5TransformerKernelStats* stats) {
+  if (!ValidBuffers(lhs, count, output, stats) || rhs == nullptr ||
+      count > UINT64_MAX / 2) {
+    return false;
+  }
+  for (size_t index = 0; index < count; ++index) {
+    output[index] = lhs[index] * rhs[index];
+  }
+  return FinishStats(count, count * 2, count, stats);
+}
+
+bool RunGem5SiluF32(const float* input, size_t count, float* output,
+                    Gem5TransformerKernelStats* stats) {
+  if (!ValidBuffers(input, count, output, stats)) {
+    return false;
+  }
+  for (size_t index = 0; index < count; ++index) {
+    output[index] = input[index] / (1.0f + std::exp(-input[index]));
+    if (!std::isfinite(output[index])) {
+      return false;
+    }
+  }
+  return FinishStats(count * 4, count, count, stats);
+}
+
+bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
+                       size_t features, float epsilon, float* output,
+                       Gem5TransformerKernelStats* stats) {
+  size_t count = 0;
+  if (!ProductFits(rows, features, &count) ||
+      !ValidBuffers(input, count, output, stats) || weight == nullptr ||
+      !std::isfinite(epsilon) || epsilon < 0.0f || count > UINT64_MAX / 4) {
+    return false;
+  }
+  for (size_t row = 0; row < rows; ++row) {
+    double sum_squares = 0.0;
+    for (size_t column = 0; column < features; ++column) {
+      const float value = input[row * features + column];
+      sum_squares += static_cast<double>(value) * value;
+    }
+    const float inverse_rms = 1.0f / std::sqrt(
+        static_cast<float>(sum_squares / features) + epsilon);
+    if (!std::isfinite(inverse_rms)) {
+      return false;
+    }
+    for (size_t column = 0; column < features; ++column) {
+      output[row * features + column] =
+          input[row * features + column] * inverse_rms * weight[column];
+    }
+  }
+  const uint64_t operations = static_cast<uint64_t>(count) * 4 + rows * 2;
+  return FinishStats(operations, count * 2, count, stats);
+}
+
+bool RunGem5SoftmaxF32(const float* input, size_t rows, size_t features,
+                       float* output, Gem5TransformerKernelStats* stats) {
+  size_t count = 0;
+  if (!ProductFits(rows, features, &count) ||
+      !ValidBuffers(input, count, output, stats) || count > UINT64_MAX / 4) {
+    return false;
+  }
+  for (size_t row = 0; row < rows; ++row) {
+    const float* row_input = input + row * features;
+    float* row_output = output + row * features;
+    const float maximum =
+        *std::max_element(row_input, row_input + features);
+    double sum = 0.0;
+    for (size_t column = 0; column < features; ++column) {
+      row_output[column] = std::exp(row_input[column] - maximum);
+      sum += row_output[column];
+    }
+    if (!(sum > 0.0) || !std::isfinite(sum)) {
+      return false;
+    }
+    for (size_t column = 0; column < features; ++column) {
+      row_output[column] /= static_cast<float>(sum);
+    }
+  }
+  return FinishStats(static_cast<uint64_t>(count) * 4, count, count, stats);
+}
+
+bool RunGem5RopeF32(const float* input, const uint32_t* positions, size_t rows,
+                    size_t heads, size_t head_dim, float theta, float* output,
+                    Gem5TransformerKernelStats* stats) {
+  size_t row_elements = 0;
+  size_t count = 0;
+  if (!ProductFits(heads, head_dim, &row_elements) ||
+      !ProductFits(rows, row_elements, &count) ||
+      !ValidBuffers(input, count, output, stats) || positions == nullptr ||
+      head_dim == 0 || head_dim % 2 != 0 || !(theta > 0.0f) ||
+      !std::isfinite(theta) || count > UINT64_MAX / 3) {
+    return false;
+  }
+  for (size_t row = 0; row < rows; ++row) {
+    for (size_t head = 0; head < heads; ++head) {
+      const size_t base = row * row_elements + head * head_dim;
+      for (size_t pair = 0; pair < head_dim / 2; ++pair) {
+        const float exponent =
+            -2.0f * static_cast<float>(pair) / static_cast<float>(head_dim);
+        const float angle = static_cast<float>(positions[row]) *
+                            std::pow(theta, exponent);
+        const float cosine = std::cos(angle);
+        const float sine = std::sin(angle);
+        const float first = input[base + pair * 2];
+        const float second = input[base + pair * 2 + 1];
+        output[base + pair * 2] = first * cosine - second * sine;
+        output[base + pair * 2 + 1] = first * sine + second * cosine;
+      }
+    }
+  }
+  return FinishStats(static_cast<uint64_t>(count) * 3, count + rows, count,
+                     stats);
+}
+
+bool RunGem5TopKF32(const float* input, size_t count, size_t k,
+                    float* output_values, uint32_t* output_indices,
+                    Gem5TransformerKernelStats* stats) {
+  if (input == nullptr || count == 0 || k == 0 || k > count ||
+      count > UINT32_MAX || output_values == nullptr ||
+      output_indices == nullptr || stats == nullptr) {
+    return false;
+  }
+  std::vector<uint32_t> indices(count);
+  std::iota(indices.begin(), indices.end(), 0);
+  const auto order = [input](uint32_t lhs, uint32_t rhs) {
+    if (input[lhs] == input[rhs]) {
+      return lhs < rhs;
+    }
+    return input[lhs] > input[rhs];
+  };
+  std::partial_sort(indices.begin(), indices.begin() + k, indices.end(), order);
+  for (size_t index = 0; index < k; ++index) {
+    output_indices[index] = indices[index];
+    output_values[index] = input[indices[index]];
+  }
+  if (!FinishStats(static_cast<uint64_t>(count) * k, count, k, stats)) {
+    return false;
+  }
+  stats->bytes_written += k * sizeof(uint32_t);
+  stats->modeled_cycles = std::max<uint64_t>(
+      stats->modeled_cycles,
+      DivCeil(stats->bytes_read + stats->bytes_written, kBytesPerCycle));
+  return true;
+}

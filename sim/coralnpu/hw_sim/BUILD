@@ -155,6 +155,8 @@ cc_binary(
         "gem5_bridge/gem5_generic_gptq_executor.h",
         "gem5_bridge/gem5_gptq_kernels.cc",
         "gem5_bridge/gem5_gptq_kernels.h",
+        "gem5_bridge/gem5_host_functional_backend.cc",
+        "gem5_bridge/gem5_host_functional_backend.h",
         "gem5_bridge/gem5_hybrid_kernels.cc",
         "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_operator.cc",
@@ -163,6 +165,8 @@ cc_binary(
         "gem5_bridge/gem5_sim_host_pager.h",
         "gem5_bridge/gem5_sim_host_numerical.cc",
         "gem5_bridge/gem5_sim_host_numerical.h",
+        "gem5_bridge/gem5_transformer_kernels.cc",
+        "gem5_bridge/gem5_transformer_kernels.h",
         "gem5_bridge/qwen_device_inference.h",
     ],
     linkshared = True,
@@ -196,6 +200,8 @@ cc_binary(
         "gem5_bridge/gem5_generic_gptq_executor.h",
         "gem5_bridge/gem5_gptq_kernels.cc",
         "gem5_bridge/gem5_gptq_kernels.h",
+        "gem5_bridge/gem5_host_functional_backend.cc",
+        "gem5_bridge/gem5_host_functional_backend.h",
         "gem5_bridge/gem5_hybrid_kernels.cc",
         "gem5_bridge/gem5_hybrid_kernels.h",
         "gem5_bridge/gem5_hybrid_operator.cc",
@@ -204,6 +210,8 @@ cc_binary(
         "gem5_bridge/gem5_sim_host_pager.h",
         "gem5_bridge/gem5_sim_host_numerical.cc",
         "gem5_bridge/gem5_sim_host_numerical.h",
+        "gem5_bridge/gem5_transformer_kernels.cc",
+        "gem5_bridge/gem5_transformer_kernels.h",
         "gem5_bridge/qwen_device_inference.h",
     ],
     copts = ["-DCORAL_GEM5_RVV_HIGHMEM"],
@@ -244,6 +252,31 @@ cc_test(
         "gem5_bridge/gem5_sim_host_numerical.cc",
         "gem5_bridge/gem5_sim_host_numerical.h",
         "gem5_bridge/gem5_sim_host_numerical_test.cc",
+    ],
+    deps = [":gem5_npu_submission_headers"],
+)
+
+cc_test(
+    name = "gem5_transformer_kernels_test",
+    srcs = [
+        "gem5_bridge/gem5_transformer_kernels.cc",
+        "gem5_bridge/gem5_transformer_kernels.h",
+        "gem5_bridge/gem5_transformer_kernels_test.cc",
+    ],
+)
+
+cc_test(
+    name = "gem5_host_functional_backend_test",
+    srcs = [
+        "gem5_bridge/gem5_generic_gptq_executor.cc",
+        "gem5_bridge/gem5_generic_gptq_executor.h",
+        "gem5_bridge/gem5_gptq_kernels.cc",
+        "gem5_bridge/gem5_gptq_kernels.h",
+        "gem5_bridge/gem5_host_functional_backend.cc",
+        "gem5_bridge/gem5_host_functional_backend.h",
+        "gem5_bridge/gem5_host_functional_backend_test.cc",
+        "gem5_bridge/gem5_transformer_kernels.cc",
+        "gem5_bridge/gem5_transformer_kernels.h",
     ],
     deps = [":gem5_npu_submission_headers"],
 )

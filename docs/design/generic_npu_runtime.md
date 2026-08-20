@@ -403,6 +403,17 @@ the lowered phase rather than inferred from the opcode. This prevents dynamic
 attention compute from being counted as a static-weight DMA request while
 retaining weight reads for projections, normalization, routing and experts.
 
+The host runtime now resolves each instantiated command against the binary
+tensor plan and materializes the bridge's address-only functional request ABI.
+This is a model-independent join of `.npxc` commands, dynamic runtime shape,
+`.npxtb` SSA tensor views and caller-supplied weight-page operands. Up to four
+inputs and three outputs retain distinct roles, so fused QKV projection, RoPE,
+router Top-K and recurrent-state commands no longer collapse multiple tensors
+into one output. `opennpux_npu_functional_program` iterates a validated
+submission and relocates each operator parameter block from the submission's
+device address. A build-time ABI probe rejects drift between the Linux runtime
+header and the mirrored Coral bridge header before Verilator compilation.
+
 The first data-plane probe stages one 4KiB page from the model weight source
 behind binding 2. Weight-consuming command classes sample the page through the
 Coral EXTMEM address, which exercises the RTL AXI Master and gem5 shared-memory

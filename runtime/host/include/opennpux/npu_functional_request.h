@@ -1,7 +1,11 @@
-#ifndef HW_SIM_GEM5_BRIDGE_NPU_FUNCTIONAL_REQUEST_H_
-#define HW_SIM_GEM5_BRIDGE_NPU_FUNCTIONAL_REQUEST_H_
+#ifndef OPENNPUX_NPU_FUNCTIONAL_REQUEST_H
+#define OPENNPUX_NPU_FUNCTIONAL_REQUEST_H
 
 #include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define OPENNPUX_NPU_FUNCTIONAL_MAGIC UINT32_C(0x4658504e)
 #define OPENNPUX_NPU_FUNCTIONAL_VERSION UINT32_C(1)
@@ -48,9 +52,6 @@ struct opennpux_npu_functional_operand {
     uint32_t reserved;
 };
 
-// Firmware creates this address-based envelope after resolving the generic
-// executable's tensor plan. The bridge translates it to host pointers only at
-// the execution boundary, so no host pointer crosses the firmware ABI.
 struct opennpux_npu_functional_request {
     uint32_t magic;
     uint32_t version;
@@ -90,4 +91,8 @@ _Static_assert(sizeof(struct opennpux_npu_functional_request) ==
                "functional request ABI size changed");
 #endif
 
-#endif  // HW_SIM_GEM5_BRIDGE_NPU_FUNCTIONAL_REQUEST_H_
+#ifdef __cplusplus
+}
+#endif
+
+#endif

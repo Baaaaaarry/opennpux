@@ -98,6 +98,7 @@ fi
 "${ROOT_DIR}/tools/coralnpu/check_rtl_bridge_abi.sh"
 "${ROOT_DIR}/tools/coralnpu/check_command_abi.sh"
 "${ROOT_DIR}/tools/coralnpu/check_npu_submission_abi.sh"
+"${ROOT_DIR}/tools/coralnpu/check_functional_request_abi.sh"
 if ! awk '
     /name = "gem5_npu_command_processor_smoke"/ { in_target = 1 }
     in_target && /stack_size_bytes = 4096/ { stack_ok = 1 }

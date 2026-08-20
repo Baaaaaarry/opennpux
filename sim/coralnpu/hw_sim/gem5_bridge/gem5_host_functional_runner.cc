@@ -1,4 +1,5 @@
 #include <cerrno>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -18,25 +19,51 @@ bool ParseTokens(const char* text, std::vector<uint32_t>* tokens) {
   }
   const char* cursor = text;
   while (*cursor != '\0') {
+    while (std::isspace(static_cast<unsigned char>(*cursor))) {
+      ++cursor;
+    }
+    if (*cursor == '\0') {
+      break;
+    }
     char* end = nullptr;
     errno = 0;
-    const unsigned long value = std::strtoul(cursor, &end, 0);
-    if (errno != 0 || end == cursor || value > UINT32_MAX ||
-        (*end != '\0' && *end != ',')) {
+    const unsigned long value = std::strtoul(cursor, &end, 10);
+    if (errno != 0 || end == cursor || value > UINT32_MAX) {
+      return false;
+    }
+    while (std::isspace(static_cast<unsigned char>(*end))) {
+      ++end;
+    }
+    if (*end != '\0' && *end != ',') {
       return false;
     }
     tokens->push_back(static_cast<uint32_t>(value));
-    cursor = *end == ',' ? end + 1 : end;
+    if (*end == ',') {
+      cursor = end + 1;
+      if (*cursor == '\0') {
+        return false;
+      }
+    } else {
+      cursor = end;
+    }
   }
   return !tokens->empty();
 }
 
 bool ParseCount(const char* text, uint32_t* count) {
+  if (text == nullptr || count == nullptr) {
+    return false;
+  }
+  while (std::isspace(static_cast<unsigned char>(*text))) {
+    ++text;
+  }
   char* end = nullptr;
   errno = 0;
-  const unsigned long value = std::strtoul(text, &end, 0);
-  if (errno != 0 || end == text || *end != '\0' || value == 0 ||
-      value > 32) {
+  const unsigned long value = std::strtoul(text, &end, 10);
+  while (std::isspace(static_cast<unsigned char>(*end))) {
+    ++end;
+  }
+  if (errno != 0 || end == text || *end != '\0' || value == 0 || value > 32) {
     return false;
   }
   *count = static_cast<uint32_t>(value);
@@ -55,8 +82,13 @@ int main(int argc, char** argv) {
   }
   std::vector<uint32_t> tokens;
   uint32_t max_new_tokens = 0;
-  if (!ParseTokens(argv[5], &tokens) || !ParseCount(argv[6], &max_new_tokens)) {
-    std::fprintf(stderr, "invalid token IDs or generation count\n");
+  if (!ParseTokens(argv[5], &tokens)) {
+    std::fprintf(stderr, "invalid token IDs: bytes=%zu value='%s'\n",
+                 std::strlen(argv[5]), argv[5]);
+    return 2;
+  }
+  if (!ParseCount(argv[6], &max_new_tokens)) {
+    std::fprintf(stderr, "invalid generation count: value='%s'\n", argv[6]);
     return 2;
   }
   opennpux_npu_executable executable = {};

@@ -167,11 +167,21 @@ cc_library(
 )
 
 cc_library(
+    name = "gem5_generic_command_dispatch_headers",
+    hdrs = [
+        "gem5_bridge/coral_operator.h",
+        "gem5_bridge/gem5_generic_command_dispatch.h",
+    ],
+    deps = [":gem5_npu_submission_headers"],
+)
+
+cc_library(
     name = "gem5_host_functional_graph",
     srcs = ["gem5_bridge/gem5_host_functional_graph.cc"],
     hdrs = ["gem5_bridge/gem5_host_functional_graph.h"],
     deps = [
         ":gem5_functional_materializer_runtime",
+        ":gem5_generic_command_dispatch_headers",
         ":gem5_host_routed_expert",
         ":gem5_host_tensor_arena",
     ],
@@ -198,9 +208,19 @@ cc_library(
     srcs = ["gem5_bridge/gem5_host_weight_provider.cc"],
     hdrs = ["gem5_bridge/gem5_host_weight_provider.h"],
     deps = [
+        ":gem5_generic_gptq_executor_headers",
         ":gem5_model_weight_runtime",
         ":gem5_npu_submission_headers",
     ],
+)
+
+cc_library(
+    name = "gem5_generic_gptq_executor_headers",
+    hdrs = [
+        "gem5_bridge/gem5_generic_gptq_executor.h",
+        "gem5_bridge/gem5_gptq_kernels.h",
+    ],
+    deps = [":gem5_npu_submission_headers"],
 )
 
 cc_library(
@@ -208,8 +228,8 @@ cc_library(
     srcs = ["gem5_bridge/gem5_host_routed_expert.cc"],
     hdrs = ["gem5_bridge/gem5_host_routed_expert.h"],
     deps = [
+        ":gem5_generic_gptq_executor_headers",
         ":gem5_host_weight_provider",
-        ":gem5_npu_submission_headers",
     ],
 )
 

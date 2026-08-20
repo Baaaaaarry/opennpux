@@ -166,11 +166,19 @@ existing Coral control path:
    operations, bytes read/written and modeled cycles through the normal
    asynchronous completion chain.
 
-Current focused execution coverage is float ADD/MUL/RMSNorm/RoPE/Softmax/
-TopK/SiLU and GPTQ MatMul. The next integration increment is firmware/runtime
-materialization of one request per `.npxe` command using the binary tensor
-plan, followed by GPTQ expert operand binding and complete command-stream
-execution.
+Current focused execution coverage is float Embedding/dense MatMul/ADD/MUL/
+RMSNorm/RoPE/Softmax/TopK/SiLU and GPTQ MatMul. The nine-op Qwen command-flow
+smoke submits each primitive through `NPU_LAUNCH`, preserves intermediate
+Tensor dependencies in EXTMEM and verifies a deterministic TopK result.
+
+The runtime tensor-plan API now resolves one `.npxe` command at a time into
+bounded input/output Tensor views. Each view contains the stable Tensor ID,
+storage class, data type, runtime-resolved dimensions, NPU-visible address and
+byte size. Resolution applies live batch/sequence/KV/active-expert dimensions,
+scratch-slot reuse and persistent-state layout before any functional request is
+created. The next integration increment maps these model-independent views to
+opcode-specific operand roles, adds multi-output operator support, and binds
+GPTQ weight views before complete command-stream execution.
 
 ## Implemented Compiler/Runtime Boundary
 

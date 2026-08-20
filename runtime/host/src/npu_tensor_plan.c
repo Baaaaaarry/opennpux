@@ -42,6 +42,46 @@ multiply_size(uint64_t value, uint64_t factor, uint64_t *result)
 }
 
 static int
+resolved_dimension(
+    const struct opennpux_npu_tensor_plan_tensor *tensor, uint32_t index,
+    const struct opennpux_npu_tensor_plan_runtime *runtime,
+    uint32_t *dimension)
+{
+    if (tensor == NULL || runtime == NULL || dimension == NULL ||
+        index >= tensor->rank) {
+        errno = EINVAL;
+        return -1;
+    }
+    const uint32_t symbol = (tensor->dimension_symbols >> (index * 4)) & 0xf;
+    uint32_t value = tensor->dimensions[index];
+    switch (symbol) {
+    case OPENNPUX_NPU_DIMENSION_STATIC:
+        break;
+    case OPENNPUX_NPU_DIMENSION_BATCH:
+        value = runtime->batch_size;
+        break;
+    case OPENNPUX_NPU_DIMENSION_SEQUENCE:
+        value = runtime->sequence_length;
+        break;
+    case OPENNPUX_NPU_DIMENSION_KV:
+        value = runtime->kv_length;
+        break;
+    case OPENNPUX_NPU_DIMENSION_ACTIVE_EXPERTS:
+        value = runtime->active_experts;
+        break;
+    default:
+        errno = EINVAL;
+        return -1;
+    }
+    if (value == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    *dimension = value;
+    return 0;
+}
+
+static int
 tensor_size(const struct opennpux_npu_tensor_plan_tensor *tensor,
             const struct opennpux_npu_tensor_plan_runtime *runtime,
             uint64_t *size)
@@ -53,28 +93,9 @@ tensor_size(const struct opennpux_npu_tensor_plan_tensor *tensor,
     }
     uint64_t elements = 1;
     for (uint32_t index = 0; index < tensor->rank; ++index) {
-        const uint32_t symbol = (tensor->dimension_symbols >> (index * 4)) & 0xf;
-        uint64_t dimension = tensor->dimensions[index];
-        switch (symbol) {
-        case OPENNPUX_NPU_DIMENSION_STATIC:
-            break;
-        case OPENNPUX_NPU_DIMENSION_BATCH:
-            dimension = runtime->batch_size;
-            break;
-        case OPENNPUX_NPU_DIMENSION_SEQUENCE:
-            dimension = runtime->sequence_length;
-            break;
-        case OPENNPUX_NPU_DIMENSION_KV:
-            dimension = runtime->kv_length;
-            break;
-        case OPENNPUX_NPU_DIMENSION_ACTIVE_EXPERTS:
-            dimension = runtime->active_experts;
-            break;
-        default:
-            errno = EINVAL;
-            return -1;
-        }
-        if (dimension == 0 || multiply_size(elements, dimension, &elements) != 0) {
+        uint32_t dimension = 0;
+        if (resolved_dimension(tensor, index, runtime, &dimension) != 0 ||
+            multiply_size(elements, dimension, &elements) != 0) {
             errno = EINVAL;
             return -1;
         }
@@ -399,5 +420,68 @@ opennpux_npu_tensor_plan_resolve(
     }
     *tensor_address = address;
     *resolved_size = size;
+    return 0;
+}
+
+static int
+resolve_view(
+    const struct opennpux_npu_tensor_plan *plan, uint32_t tensor_id,
+    const struct opennpux_npu_tensor_plan_runtime *runtime,
+    const struct opennpux_npu_tensor_plan_memory *memory,
+    struct opennpux_npu_tensor_view *view)
+{
+    if (view == NULL || plan == NULL || plan->header == NULL ||
+        tensor_id >= plan->header->tensor_count) {
+        errno = EINVAL;
+        return -1;
+    }
+    const struct opennpux_npu_tensor_plan_tensor *tensor =
+        &plan->tensors[tensor_id];
+    memset(view, 0, sizeof(*view));
+    view->tensor_id = tensor_id;
+    view->storage = tensor->storage;
+    view->data_type = tensor->data_type;
+    view->rank = tensor->rank;
+    for (uint32_t index = 0; index < tensor->rank; ++index) {
+        if (resolved_dimension(tensor, index, runtime,
+                               &view->dimensions[index]) != 0) {
+            return -1;
+        }
+    }
+    return opennpux_npu_tensor_plan_resolve(
+        plan, tensor_id, runtime, memory, &view->address, &view->size);
+}
+
+int
+opennpux_npu_tensor_plan_resolve_command(
+    const struct opennpux_npu_tensor_plan *plan, uint32_t command_id,
+    const struct opennpux_npu_tensor_plan_runtime *runtime,
+    const struct opennpux_npu_tensor_plan_memory *memory,
+    struct opennpux_npu_command_tensor_views *views)
+{
+    if (plan == NULL || plan->header == NULL || runtime == NULL ||
+        memory == NULL || views == NULL ||
+        command_id >= plan->header->command_count) {
+        errno = EINVAL;
+        return -1;
+    }
+    const struct opennpux_npu_tensor_plan_command *command =
+        &plan->commands[command_id];
+    memset(views, 0, sizeof(*views));
+    views->command_id = command_id;
+    views->input_count = command->input_count;
+    views->output_count = command->output_count;
+    for (uint32_t index = 0; index < command->input_count; ++index) {
+        if (resolve_view(plan, command->input_tensor_ids[index], runtime,
+                         memory, &views->inputs[index]) != 0) {
+            return -1;
+        }
+    }
+    for (uint32_t index = 0; index < command->output_count; ++index) {
+        if (resolve_view(plan, command->output_tensor_ids[index], runtime,
+                         memory, &views->outputs[index]) != 0) {
+            return -1;
+        }
+    }
     return 0;
 }

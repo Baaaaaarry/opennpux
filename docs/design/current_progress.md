@@ -763,3 +763,11 @@ GB10 验收脚本会逐项确认九种 opcode 均从 `source=custom-instruction`
 该 smoke 验证的是完整控制流、二级译码、依赖数据流和 Host C++ primitive 数值链；它
 不是 35B 模型的完整权重推理。后续仍需让 `.npxe + .npxtb` runtime 按 Tensor allocation
 逐条物化相同 request，并接入分页真实权重、KV/state 迭代与多 token decode。
+
+`.npxtb` runtime 已新增 command 级 Tensor-view resolver。调用方传入 command ID、实时
+batch/sequence/KV/active-expert shape 和 input/output/persistent/scratch memory binding，
+即可一次获得该命令全部输入输出的 Tensor ID、数据类型、实际维度、NPU 地址和字节数。
+resolver 复用既有 scratch liveness slot 与 persistent layout，并对每个 view 独立执行容量
+和溢出校验。模型包回归已覆盖 30-command/37-Tensor/6-slot 图。下一步是将这些通用 view
+映射为 opcode-specific operand role，补齐多输出算子和 GPTQ weight view 后生成 functional
+request。

@@ -83,6 +83,20 @@ struct opennpux_npu_tensor_plan_runtime {
     uint32_t batch_size, sequence_length, kv_length, active_experts;
 };
 
+struct opennpux_npu_tensor_view {
+    uint32_t tensor_id, storage, data_type, rank;
+    uint32_t dimensions[OPENNPUX_NPU_TENSOR_PLAN_MAX_RANK];
+    uint64_t address, size;
+};
+
+struct opennpux_npu_command_tensor_views {
+    uint32_t command_id, input_count, output_count, reserved;
+    struct opennpux_npu_tensor_view
+        inputs[OPENNPUX_NPU_TENSOR_PLAN_MAX_INPUTS];
+    struct opennpux_npu_tensor_view
+        outputs[OPENNPUX_NPU_TENSOR_PLAN_MAX_OUTPUTS];
+};
+
 #if defined(__cplusplus)
 static_assert(sizeof(struct opennpux_npu_tensor_plan_header) ==
               OPENNPUX_NPU_TENSOR_PLAN_HEADER_SIZE);
@@ -121,6 +135,11 @@ int opennpux_npu_tensor_plan_resolve_scratch(
     const struct opennpux_npu_tensor_plan *plan, uint32_t tensor_id,
     uint32_t batch_size, uint32_t sequence_length, uint64_t scratch_address,
     uint64_t scratch_size, uint64_t *tensor_address, uint64_t *tensor_size);
+int opennpux_npu_tensor_plan_resolve_command(
+    const struct opennpux_npu_tensor_plan *plan, uint32_t command_id,
+    const struct opennpux_npu_tensor_plan_runtime *runtime,
+    const struct opennpux_npu_tensor_plan_memory *memory,
+    struct opennpux_npu_command_tensor_views *views);
 
 #ifdef __cplusplus
 }

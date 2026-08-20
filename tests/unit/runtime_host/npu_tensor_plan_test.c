@@ -94,7 +94,30 @@ main(int argc, char **argv)
               address + size <= memory.persistent_address + memory.persistent_size,
           "persistent tensor resolution failed");
 
+    struct opennpux_npu_command_tensor_views views;
+    check(opennpux_npu_tensor_plan_resolve_command(
+              &plan, 0, &runtime, &memory, &views) == 0,
+          "command tensor view resolution failed");
+    check(views.command_id == 0 && views.input_count == 1 &&
+              views.output_count == 1,
+          "command tensor view header mismatch");
+    check(views.inputs[0].tensor_id == 0 &&
+              views.inputs[0].address == memory.input_address &&
+              views.inputs[0].size == 32 && views.inputs[0].rank == 2 &&
+              views.inputs[0].dimensions[0] == runtime.batch_size &&
+              views.inputs[0].dimensions[1] == runtime.sequence_length,
+          "command input tensor view mismatch");
+    check(views.outputs[0].storage == OPENNPUX_NPU_TENSOR_SCRATCH &&
+              views.outputs[0].address >= memory.scratch_address &&
+              views.outputs[0].address + views.outputs[0].size <=
+                  memory.scratch_address + memory.scratch_size,
+          "command output tensor view mismatch");
+    check(opennpux_npu_tensor_plan_resolve_command(
+              &plan, plan.header->command_count, &runtime, &memory,
+              &views) != 0 && errno == EINVAL,
+          "out-of-range command tensor view accepted");
+
     opennpux_npu_tensor_plan_unload(&plan);
-    puts("PASS: NPU tensor plan loader and scratch resolver tests");
+    puts("PASS: NPU tensor plan loader and command view resolver tests");
     return 0;
 }

@@ -216,6 +216,20 @@ This tensor allocation map is an executable side table rather than a
 Qwen-specific ABI. Qwen3.5 is the first frontend that emits it; subsequent
 Transformer frontends reuse the same contract.
 
+The compiler now emits this first-stage side table as `model.npxt` with format
+`OPENNPUX_NPU_TENSOR_PLAN_V1`. It is an SSA-style graph containing every
+command's input/output tensor IDs, symbolic runtime shapes, producer/consumer
+lifetimes, persistent KV/recurrent-state objects, and reusable scratch slots.
+The 40-layer Qwen3.5 shape lowers 524 commands to 625 tensors and six scratch
+slots. QKV projections have separate outputs; RoPE consumes and produces Q/K,
+KV-cache update consumes K/V, and Attention consumes rotated Q plus cache.
+`inspect_npu_tensor_plan.py` rejects incomplete command coverage,
+read-before-produce dependencies, overlapping live ranges in one slot, and an
+unproduced external output. This side table is still a compiler contract: the
+next runtime increment must scale slots by live batch/sequence dimensions,
+assign device addresses, and pass resolved tensor views to the Host C++
+dispatcher before numerical execution can be claimed.
+
 vLLM remains an external oracle. A vLLM `.npxo` result may be used for system
 transport regression, but it must not be copied into the device result during
 Host C++ functional acceptance. Native acceptance requires the Host C++ engine

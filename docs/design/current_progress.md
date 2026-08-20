@@ -724,3 +724,10 @@ MatMul 和 SwiGLU Expert 已注册到同一 backend，形成统一的权重算�
 producer/consumer、liveness、scratch offset、KV cache 和 recurrent-state layout。下一增量
 将由 compiler 生成模型无关 tensor-allocation side table，runtime 在 invocation 中绑定该
 表，然后由 Host functional backend 按 dependency 顺序真实串联每条命令的输入输出。
+
+该 compiler 增量现已落地：`model.npxt` 使用 SSA Tensor ID 明确记录 attention/state、
+两级 residual 和 MoE 分支/汇合关系，并根据 producer/last-consumer 生命周期复用 scratch
+slot。QKV 已拆分为独立 Q/K/V，RoPE、KV-cache update 与 Attention 按真实依赖连接。
+40 层 Qwen3.5 形态的 524 条命令被完整映射为 625 个 Tensor 和 6 个 scratch slot；
+独立 validator 会拒绝缺命令、先读后写、活跃区间冲突及没有生产者的最终输出。当前仍待
+runtime 将符号 shape/slot 实例化为设备地址并逐命令调用 Host C++ backend。

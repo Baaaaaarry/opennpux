@@ -10,6 +10,7 @@ from typing import Any
 
 
 FORMAT = "OPENNPUX_NPU_EXECUTABLE_V2"
+TENSOR_PLAN_FORMAT = "OPENNPUX_NPU_TENSOR_PLAN_V1"
 HEADER = struct.Struct("<8I3Q2I3Q")
 ENTRY = struct.Struct("<4I4Q")
 COMMAND = struct.Struct("<8I4Q2IQ")
@@ -342,6 +343,255 @@ def build_executable(
     }
 
 
+def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+    """Build a model-independent SSA tensor graph for executable commands."""
+    hidden = max(1, int(manifest.get("hidden_size", 1)))
+    heads = max(1, int(manifest.get("head_count", 1)))
+    kv_heads = max(1, int(manifest.get("kv_head_count", heads)))
+    head_dim = max(1, int(manifest.get("head_dim", hidden // heads or 1)))
+    active_experts = max(1, int(manifest.get("experts_per_token", 1)))
+    vocab = max(1, int(manifest.get("vocab_size", 1)))
+    tensors: list[dict[str, Any]] = []
+    command_io: list[dict[str, Any]] = []
+    consumers: dict[int, list[int]] = {}
+
+    def tensor(
+        name: str, storage: str, shape: list[int | str], producer: int | None,
+        data_type: str = "float32",
+    ) -> int:
+        tensor_id = len(tensors)
+        tensors.append({
+            "id": tensor_id,
+            "name": name,
+            "storage": storage,
+            "data_type": data_type,
+            "shape": shape,
+            "producer_command": producer,
+        })
+        consumers[tensor_id] = []
+        return tensor_id
+
+    def emit(command: dict[str, Any], inputs: list[int], outputs: list[int]) -> None:
+        command_id = int(command["command_id"])
+        if not inputs or not outputs:
+            raise ValueError(f"command {command_id} has incomplete tensor IO")
+        for tensor_id in inputs:
+            consumers[tensor_id].append(command_id)
+        command_io.append({
+            "command_id": command_id,
+            "input_tensor_ids": inputs,
+            "output_tensor_ids": outputs,
+        })
+
+    rows: list[int | str] = ["runtime.batch", "runtime.sequence"]
+    token_ids = tensor("invocation.token_ids", "input", rows, None, "int32")
+    final_output = tensor(
+        "invocation.next_token", "output", ["runtime.batch"], None, "int32"
+    )
+    current = token_ids
+    layer_input = token_ids
+    post_attention = token_ids
+    route_indices: int | None = None
+    route_weights: int | None = None
+    routed_output: int | None = None
+    shared_output: int | None = None
+    query_tensor: int | None = None
+    key_tensor: int | None = None
+    value_tensor: int | None = None
+    layer_residual_count: dict[int, int] = {}
+
+    for command in executable["commands"]:
+        command_id = int(command["command_id"])
+        attributes = command["attributes"]
+        phase = str(attributes["phase"])
+        layer = attributes.get("layer")
+        prefix = "model" if layer is None else f"layer.{int(layer)}"
+
+        if phase == "token_embedding":
+            output = tensor(f"{prefix}.hidden", "scratch", rows + [hidden], command_id)
+            emit(command, [current], [output])
+            current = output
+            continue
+        if layer is not None and phase == "attention_norm":
+            layer_input = current
+        if phase in {"attention_norm", "ffn_norm", "linear_attention_gate_norm",
+                     "final_norm"}:
+            output = tensor(f"{prefix}.{phase}", "scratch", rows + [hidden], command_id)
+            emit(command, [current], [output])
+            current = output
+            continue
+        if phase == "qkv_projection":
+            query_tensor = tensor(
+                f"{prefix}.query", "scratch", rows + [heads * head_dim], command_id
+            )
+            key_tensor = tensor(
+                f"{prefix}.key", "scratch", rows + [kv_heads * head_dim], command_id
+            )
+            value_tensor = tensor(
+                f"{prefix}.value", "scratch", rows + [kv_heads * head_dim], command_id
+            )
+            emit(command, [current], [query_tensor, key_tensor, value_tensor])
+            current = query_tensor
+            continue
+        if phase in {"attention_output_projection", "linear_attention_projection",
+                     "linear_attention_output_projection"}:
+            output = tensor(f"{prefix}.{phase}", "scratch", rows + [hidden], command_id)
+            emit(command, [current], [output])
+            current = output
+            continue
+        if phase == "rope":
+            if query_tensor is None or key_tensor is None:
+                raise ValueError(f"command {command_id} has no Q/K tensors")
+            rotated_query = tensor(
+                f"{prefix}.query_rope", "scratch",
+                list(tensors[query_tensor]["shape"]), command_id,
+            )
+            rotated_key = tensor(
+                f"{prefix}.key_rope", "scratch", list(tensors[key_tensor]["shape"]),
+                command_id,
+            )
+            emit(command, [query_tensor, key_tensor], [rotated_query, rotated_key])
+            query_tensor = rotated_query
+            key_tensor = rotated_key
+            current = rotated_query
+            continue
+        if phase == "paged_kv_cache_update":
+            if key_tensor is None or value_tensor is None:
+                raise ValueError(f"command {command_id} has no K/V tensors")
+            state = tensor(
+                f"{prefix}.kv_cache", "persistent",
+                ["runtime.batch", "runtime.kv", kv_heads, head_dim], command_id,
+            )
+            emit(command, [key_tensor, value_tensor], [state])
+            continue
+        if phase == "scaled_dot_product_attention":
+            output = tensor(f"{prefix}.attention", "scratch", rows + [hidden], command_id)
+            state = next(
+                item["id"] for item in reversed(tensors)
+                if item["name"] == f"{prefix}.kv_cache"
+            )
+            emit(command, [current, state], [output])
+            current = output
+            continue
+        if phase == "causal_depthwise_conv":
+            output = tensor(f"{prefix}.conv", "scratch", rows + [hidden], command_id)
+            emit(command, [current], [output])
+            current = output
+            continue
+        if phase == "recurrent_state_update":
+            state = tensor(
+                f"{prefix}.recurrent_state", "persistent",
+                ["runtime.batch", hidden], command_id,
+            )
+            output = tensor(f"{prefix}.recurrent", "scratch", rows + [hidden], command_id)
+            emit(command, [current], [output, state])
+            current = output
+            continue
+        if phase == "router_topk":
+            route_indices = tensor(
+                f"{prefix}.route_indices", "scratch", rows + [active_experts],
+                command_id, "int32",
+            )
+            route_weights = tensor(
+                f"{prefix}.route_weights", "scratch", rows + [active_experts], command_id
+            )
+            emit(command, [current], [route_indices, route_weights])
+            continue
+        if phase == "routed_experts_active_only":
+            if route_indices is None or route_weights is None:
+                raise ValueError(f"command {command_id} has no router outputs")
+            routed_output = tensor(
+                f"{prefix}.routed_expert", "scratch", rows + [hidden], command_id
+            )
+            emit(command, [current, route_indices, route_weights], [routed_output])
+            continue
+        if phase == "shared_expert":
+            shared_output = tensor(
+                f"{prefix}.shared_expert", "scratch", rows + [hidden], command_id
+            )
+            emit(command, [current], [shared_output])
+            continue
+        if phase == "moe_combine":
+            if routed_output is None or shared_output is None or route_weights is None:
+                raise ValueError(f"command {command_id} has incomplete expert inputs")
+            output = tensor(f"{prefix}.moe", "scratch", rows + [hidden], command_id)
+            emit(command, [routed_output, shared_output, route_weights], [output])
+            current = output
+            continue
+        if phase == "residual_add":
+            layer_index = int(layer)
+            residual_index = layer_residual_count.get(layer_index, 0)
+            residual = layer_input if residual_index == 0 else post_attention
+            output = tensor(
+                f"{prefix}.residual.{residual_index}", "scratch", rows + [hidden],
+                command_id,
+            )
+            emit(command, [residual, current], [output])
+            current = output
+            layer_residual_count[layer_index] = residual_index + 1
+            if residual_index == 0:
+                post_attention = output
+            continue
+        if phase == "lm_head":
+            output = tensor(f"{prefix}.logits", "scratch", rows + [vocab], command_id)
+            emit(command, [current], [output])
+            current = output
+            continue
+        if phase == "token_selection":
+            tensors[final_output]["producer_command"] = command_id
+            emit(command, [current], [final_output])
+            current = final_output
+            continue
+        raise ValueError(f"command {command_id} has no tensor lowering for phase {phase}")
+
+    if len(command_io) != len(executable["commands"]):
+        raise ValueError("tensor plan does not cover every command")
+    for item in tensors:
+        item_consumers = consumers[item["id"]]
+        item["consumer_commands"] = item_consumers
+        item["last_consumer_command"] = max(
+            item_consumers,
+            default=item["producer_command"] if item["producer_command"] is not None else 0,
+        )
+
+    scratch_tensors = [item for item in tensors if item["storage"] == "scratch"]
+    slots: list[dict[str, int]] = []
+    active: list[tuple[int, int]] = []
+    for item in sorted(scratch_tensors, key=lambda value: int(value["producer_command"])):
+        producer = int(item["producer_command"])
+        active = [(end, slot) for end, slot in active if end >= producer]
+        used = {slot for _, slot in active}
+        slot = next((index for index in range(len(slots)) if index not in used), len(slots))
+        static_elements = 1
+        for dimension in item["shape"]:
+            if isinstance(dimension, int):
+                static_elements *= dimension
+        bytes_per_row = static_elements * 4
+        if slot == len(slots):
+            slots.append({"id": slot, "bytes_per_runtime_row": bytes_per_row})
+        else:
+            slots[slot]["bytes_per_runtime_row"] = max(
+                slots[slot]["bytes_per_runtime_row"], bytes_per_row
+            )
+        item["allocation_slot"] = slot
+        item["bytes_per_runtime_row"] = bytes_per_row
+        active.append((int(item["last_consumer_command"]), slot))
+
+    return {
+        "format": TENSOR_PLAN_FORMAT,
+        "version": 1,
+        "execution_scope": executable["execution_scope"],
+        "runtime_row_expression": "runtime.batch * runtime.sequence",
+        "tensor_count": len(tensors),
+        "command_count": len(command_io),
+        "scratch_slot_count": len(slots),
+        "scratch_bytes_per_runtime_row": sum(slot["bytes_per_runtime_row"] for slot in slots),
+        "scratch_slots": slots,
+        "tensors": tensors,
+        "command_io": command_io,
+    }
+
+
 def hash64(value: str) -> int:
     return int.from_bytes(hashlib.sha256(value.encode()).digest()[:8], "little")
 
@@ -431,12 +681,23 @@ def main() -> None:
     parser.add_argument("plan", type=Path)
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
-    executable = build_executable(load_object(args.manifest), load_object(args.plan))
+    manifest = load_object(args.manifest)
+    executable = build_executable(manifest, load_object(args.plan))
     args.output.write_text(json.dumps(executable, indent=2, sort_keys=True) + "\n")
+    tensor_plan = build_tensor_plan(executable, manifest)
+    tensor_plan_output = args.output.with_suffix(".npxt")
+    tensor_plan_output.write_text(json.dumps(tensor_plan, indent=2, sort_keys=True) + "\n")
     binary_output = args.output.with_suffix(".npxc")
     write_binary(executable, binary_output)
     print(f"npu_executable={args.output}")
     print(f"npu_command_template={binary_output}")
+    print(f"npu_tensor_plan={tensor_plan_output}")
+    print(f"npu_tensor_plan_tensors={tensor_plan['tensor_count']}")
+    print(f"npu_tensor_plan_scratch_slots={tensor_plan['scratch_slot_count']}")
+    print(
+        "npu_tensor_plan_scratch_bytes_per_runtime_row="
+        f"{tensor_plan['scratch_bytes_per_runtime_row']}"
+    )
     print(f"npu_executable_commands={len(executable['commands'])}")
     print(f"npu_command_template_bytes={binary_output.stat().st_size}")
     binding_offset = align(INVOCATION_HEADER_SIZE)

@@ -80,6 +80,7 @@ PY
 "${SCRIPT_DIR}/compile_npu_executable.py" \
     "${MANIFEST}" "${MODEL_DIR}/execution-plan.npxp" \
     "${MODEL_DIR}/model.npxe"
+"${SCRIPT_DIR}/inspect_npu_tensor_plan.py" "${MODEL_DIR}/model.npxt"
 "${SCRIPT_DIR}/compile_npu_weight_plan.py" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxe" "${MODEL_DIR}/model.npxw"
 python3 - "${MODEL_DIR}/model.npxw" <<'PY'

@@ -90,6 +90,8 @@ if ! "${SCRIPT_DIR}/compile_npu_executable.py" \
     echo "fields: unknown_decoder_tensor_patterns, unknown_decoder_tensor_samples" >&2
     exit 1
 fi
+"${SCRIPT_DIR}/inspect_npu_tensor_plan.py" \
+    "$(dirname -- "${OUTPUT}")/model.npxt"
 "${SCRIPT_DIR}/compile_npu_weight_plan.py" \
     "${OUTPUT}" "$(dirname -- "${OUTPUT}")/model.npxe" \
     "$(dirname -- "${OUTPUT}")/model.npxw" --require-complete

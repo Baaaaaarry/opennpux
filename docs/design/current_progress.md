@@ -772,3 +772,18 @@ resolver 复用既有 scratch liveness slot 与 persistent layout，并对每个
 和溢出校验。模型包回归已覆盖 30-command/37-Tensor/6-slot 图。下一步是将这些通用 view
 映射为 opcode-specific operand role，补齐多输出算子和 GPTQ weight view 后生成 functional
 request。
+
+Host functional 图调度入口现已增加两项强约束。`functional_program_init()` 会在任何
+Tensor 地址解析前验证 invocation 中的 command ID 均落在 `.npxtb` 范围内且不重复，
+并要求同一次 invocation 的全部命令使用一致的 runtime shape；这避免部分命令流、分页
+重放或损坏的 submission 静默复用错误的 scratch/KV 地址。模型包单测覆盖重复 command
+ID 和不一致 runtime shape 的拒绝路径。
+
+Bridge 的单命令数值执行也已从 Coral custom-instruction envelope 中解耦。
+`ExecuteGem5FunctionalRequest()` 可直接执行 materializer 生成的地址型 functional
+request，原有 `DispatchGem5GenericCommand()` 仅保留外层 descriptor 校验和统计回填。
+因此后续 524-command 图调度器不再需要为每条命令伪造 `GENERIC_COMMAND` 外壳；同一
+Host C++ kernel 路径仍可由自定义指令 smoke 和图级 scheduler 共同复用。当前 native
+测试已验证直接 API 与既有 descriptor API 对 ADD 得到相同数值和统计结果。下一步是
+在 bridge 中加载 `.npxtb`，分配 Host tensor arena，并将分页 residency 转换为每条 GPTQ
+request 的 component operands。

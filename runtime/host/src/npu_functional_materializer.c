@@ -2,7 +2,51 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
+
+static int
+validate_program_commands(
+    const struct opennpux_npu_invocation_header *header,
+    const struct opennpux_npu_command *commands,
+    const struct opennpux_npu_tensor_plan *tensor_plan)
+{
+    if (header == NULL || commands == NULL || tensor_plan == NULL ||
+        tensor_plan->header == NULL || header->command_count == 0 ||
+        header->command_count > tensor_plan->header->command_count) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    uint8_t *seen = calloc(tensor_plan->header->command_count, sizeof(*seen));
+    if (seen == NULL) {
+        return -1;
+    }
+    const uint64_t runtime_shape = commands[0].runtime_shape;
+    int result = 0;
+    for (uint32_t index = 0; index < header->command_count; ++index) {
+        const uint32_t command_id = commands[index].command_id;
+        if (command_id >= tensor_plan->header->command_count ||
+            tensor_plan->commands[command_id].command_id != command_id) {
+            errno = ERANGE;
+            result = -1;
+            break;
+        }
+        if (seen[command_id] != 0) {
+            errno = EEXIST;
+            result = -1;
+            break;
+        }
+        if (commands[index].runtime_shape != runtime_shape) {
+            errno = EINVAL;
+            result = -1;
+            break;
+        }
+        seen[command_id] = 1;
+    }
+    free(seen);
+    return result;
+}
 
 static int
 add_view(struct opennpux_npu_functional_request *request, uint32_t role,
@@ -194,8 +238,10 @@ opennpux_npu_functional_program_init(
         return -1;
     }
     const struct opennpux_npu_invocation_header *header = submission;
-    if (header->command_count > tensor_plan->header->command_count) {
-        errno = EINVAL;
+    const struct opennpux_npu_command *commands =
+        (const struct opennpux_npu_command *)(
+            (const uint8_t *)submission + header->command_offset);
+    if (validate_program_commands(header, commands, tensor_plan) != 0) {
         return -1;
     }
     memset(program, 0, sizeof(*program));
@@ -203,8 +249,7 @@ opennpux_npu_functional_program_init(
     program->submission_size = submission_size;
     program->submission_address = submission_address;
     program->header = header;
-    program->commands = (const struct opennpux_npu_command *)(
-        program->submission + header->command_offset);
+    program->commands = commands;
     program->tensor_plan = tensor_plan;
     program->runtime.batch_size =
         program->commands[0].runtime_shape & OPENNPUX_NPU_RUNTIME_FIELD_MASK;

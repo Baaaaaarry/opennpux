@@ -69,10 +69,19 @@ void TestAdd() {
   std::memcpy(memory.data() + kInput, input, sizeof(input));
   std::memcpy(memory.data() + kSecondary, secondary, sizeof(secondary));
 
+  assert(ExecuteGem5FunctionalRequest(request, memory.data(), kBase,
+                                     memory.size()));
+  const float* output = At<float>(&memory, kOutput);
+  assert(output[0] == 11.0f && output[3] == 44.0f);
+  assert(request->state == CORAL_OPERATOR_STATE_COMPLETE);
+  assert(request->operation_count == 4);
+
+  std::memset(memory.data() + kOutput, 0, sizeof(input));
+  request->state = 0;
+  request->operation_count = 0;
   auto descriptor = Descriptor(kRequest, OPENNPUX_NPU_OP_ADD);
   assert(DispatchGem5GenericCommand(&descriptor, memory.data(), kBase,
                                     memory.size()));
-  const float* output = At<float>(&memory, kOutput);
   assert(output[0] == 11.0f && output[3] == 44.0f);
   assert(request->state == CORAL_OPERATOR_STATE_COMPLETE);
   assert(request->operation_count == 4);

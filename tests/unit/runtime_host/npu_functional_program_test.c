@@ -89,6 +89,42 @@ main(int argc, char **argv)
         }
     }
     check(multi_output_commands != 0, "multi-operand commands absent");
+
+    check(program.header->command_count > 1,
+          "functional program needs multiple commands for validation tests");
+    struct opennpux_npu_invocation_header *mutable_header = submission;
+    struct opennpux_npu_command *mutable_commands =
+        (struct opennpux_npu_command *)((uint8_t *)submission +
+                                        mutable_header->command_offset);
+    const uint32_t saved_command_id = mutable_commands[1].command_id;
+    mutable_commands[1].command_id = mutable_commands[0].command_id;
+    mutable_header->checksum = opennpux_npu_submission_checksum(
+        submission, mutable_header->total_size);
+    errno = 0;
+    check(opennpux_npu_functional_program_init(
+              &program, submission, submission_size, 0x24000000,
+              &tensor_plan, &memory) != 0 && errno == EEXIST,
+          "reject duplicate command id");
+    mutable_commands[1].command_id = saved_command_id;
+
+    const uint64_t saved_runtime_shape = mutable_commands[1].runtime_shape;
+    mutable_commands[1].runtime_shape = opennpux_npu_pack_runtime_shape(
+        1, 2, invocation.kv_length, invocation.active_experts);
+    mutable_header->checksum = opennpux_npu_submission_checksum(
+        submission, mutable_header->total_size);
+    errno = 0;
+    check(opennpux_npu_functional_program_init(
+              &program, submission, submission_size, 0x24000000,
+              &tensor_plan, &memory) != 0 && errno == EINVAL,
+          "reject inconsistent runtime shape");
+    mutable_commands[1].runtime_shape = saved_runtime_shape;
+    mutable_header->checksum = opennpux_npu_submission_checksum(
+        submission, mutable_header->total_size);
+    check(opennpux_npu_functional_program_init(
+              &program, submission, submission_size, 0x24000000,
+              &tensor_plan, &memory) == 0,
+          "restore valid functional program");
+
     printf("functional_program_commands=%u\n", program.header->command_count);
     puts("npu_functional_program=PASS");
     free(submission);

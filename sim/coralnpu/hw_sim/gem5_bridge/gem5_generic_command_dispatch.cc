@@ -57,25 +57,14 @@ bool Required(const Gem5GenericConstBuffer& buffer) {
 
 }  // namespace
 
-bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
-                                uint8_t* extmem, uint32_t extmem_base,
-                                size_t extmem_size) {
-  if (descriptor == nullptr || extmem == nullptr ||
-      descriptor->tensor_count != 1) {
-    return false;
-  }
-  const coral_operator_tensor& envelope = descriptor->tensors[0];
-  auto* request = static_cast<opennpux_npu_functional_request*>(Address(
-      extmem, extmem_base, extmem_size, envelope.address,
-      sizeof(opennpux_npu_functional_request)));
-  if (request == nullptr ||
-      envelope.size < sizeof(opennpux_npu_functional_request) ||
+bool ExecuteGem5FunctionalRequest(
+    opennpux_npu_functional_request* request, uint8_t* extmem,
+    uint32_t extmem_base, size_t extmem_size) {
+  if (request == nullptr || extmem == nullptr ||
       request->magic != OPENNPUX_NPU_FUNCTIONAL_MAGIC ||
       request->version != OPENNPUX_NPU_FUNCTIONAL_VERSION ||
       request->struct_size != sizeof(*request) ||
-      request->operand_count > OPENNPUX_NPU_FUNCTIONAL_MAX_OPERANDS ||
-      request->opcode != descriptor->reserved[0]) {
-    descriptor->error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
+      request->operand_count > OPENNPUX_NPU_FUNCTIONAL_MAX_OPERANDS) {
     return false;
   }
 
@@ -109,7 +98,8 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
   if ((request->opcode == OPENNPUX_NPU_OP_EMBED ?
            !Required(input_indices) : !Required(input)) ||
       output.data == nullptr || output.size == 0) {
-    descriptor->error = CORAL_OPERATOR_ERROR_ADDRESS;
+    request->state = CORAL_OPERATOR_STATE_ERROR;
+    request->error = CORAL_OPERATOR_ERROR_ADDRESS;
     return false;
   }
 
@@ -202,7 +192,6 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
     request->error = result.status == Gem5HostFunctionalStatus::kUnsupported
                          ? CORAL_OPERATOR_ERROR_UNSUPPORTED
                          : CORAL_OPERATOR_ERROR_EXECUTION;
-    descriptor->error = request->error;
     return false;
   }
 
@@ -211,9 +200,36 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
   request->bytes_read = result.stats.bytes_read;
   request->bytes_written = result.stats.bytes_written;
   request->state = CORAL_OPERATOR_STATE_COMPLETE;
-  descriptor->operation_count = result.stats.operations;
-  descriptor->modeled_cycles = result.stats.modeled_cycles;
-  descriptor->bytes_read = result.stats.bytes_read;
-  descriptor->bytes_written = result.stats.bytes_written;
+  return true;
+}
+
+bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
+                                uint8_t* extmem, uint32_t extmem_base,
+                                size_t extmem_size) {
+  if (descriptor == nullptr || extmem == nullptr ||
+      descriptor->tensor_count != 1) {
+    return false;
+  }
+  const coral_operator_tensor& envelope = descriptor->tensors[0];
+  auto* request = static_cast<opennpux_npu_functional_request*>(Address(
+      extmem, extmem_base, extmem_size, envelope.address,
+      sizeof(opennpux_npu_functional_request)));
+  if (request == nullptr ||
+      envelope.size < sizeof(opennpux_npu_functional_request) ||
+      request->opcode != descriptor->reserved[0]) {
+    descriptor->error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
+    return false;
+  }
+  if (!ExecuteGem5FunctionalRequest(request, extmem, extmem_base,
+                                    extmem_size)) {
+    descriptor->error = request->error == CORAL_OPERATOR_ERROR_NONE
+                            ? CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR
+                            : request->error;
+    return false;
+  }
+  descriptor->operation_count = request->operation_count;
+  descriptor->modeled_cycles = request->modeled_cycles;
+  descriptor->bytes_read = request->bytes_read;
+  descriptor->bytes_written = request->bytes_written;
   return true;
 }

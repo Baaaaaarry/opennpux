@@ -110,7 +110,7 @@ int main() {
 
   float recurrent_output[3] = {};
   float recurrent_state[3] = {};
-  assert(RunGem5RecurrentUpdateF32(lhs, 3, recurrent_output,
+  assert(RunGem5RecurrentUpdateF32(lhs, 1, 3, recurrent_output,
                                    recurrent_state, &stats));
   assert(recurrent_output[2] == 3.0f && recurrent_state[1] == -2.0f);
   assert(RunGem5CombineF32(lhs, rhs, 3, recurrent_output, &stats));

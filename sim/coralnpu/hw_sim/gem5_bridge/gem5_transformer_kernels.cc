@@ -430,14 +430,17 @@ bool RunGem5AttentionF32(
 }
 
 bool RunGem5RecurrentUpdateF32(
-    const float* input, size_t count, float* output, float* state,
+    const float* input, size_t rows, size_t features, float* output,
+    float* state,
     Gem5TransformerKernelStats* stats) {
-  if (!ValidBuffers(input, count, output, stats) || state == nullptr) {
+  size_t count = 0;
+  if (!ProductFits(rows, features, &count) ||
+      !ValidBuffers(input, count, output, stats) || state == nullptr) {
     return false;
   }
   std::copy_n(input, count, output);
-  std::copy_n(input, count, state);
-  return FinishStats(count * 2, count, count * 2, stats);
+  std::copy_n(input + (rows - 1) * features, features, state);
+  return FinishStats(count + features, count, count + features, stats);
 }
 
 bool RunGem5CombineF32(

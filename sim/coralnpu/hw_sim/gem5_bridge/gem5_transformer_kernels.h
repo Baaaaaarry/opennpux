@@ -67,7 +67,8 @@ bool RunGem5AttentionF32(
     float* output, Gem5TransformerKernelStats* stats);
 
 bool RunGem5RecurrentUpdateF32(
-    const float* input, size_t count, float* output, float* state,
+    const float* input, size_t rows, size_t features, float* output,
+    float* state,
     Gem5TransformerKernelStats* stats);
 
 bool RunGem5CombineF32(

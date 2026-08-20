@@ -440,8 +440,8 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
       break;
     case OPENNPUX_NPU_OP_RECURRENT_UPDATE:
       success = RunGem5RecurrentUpdateF32(
-          request.input, count, request.output, request.output_secondary,
-          &result.stats);
+          request.input, request.rows, request.features, request.output,
+          request.output_secondary, &result.stats);
       break;
     case OPENNPUX_NPU_OP_COMBINE:
       success = RunGem5CombineF32(request.input, request.secondary, count,

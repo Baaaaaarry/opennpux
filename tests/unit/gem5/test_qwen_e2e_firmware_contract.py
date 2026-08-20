@@ -23,3 +23,18 @@ def test_qwen_runner_uses_runtime_bootscript_source_of_truth():
         'TEST_SCRIPT="${ROOT_DIR}/runtime/host/bootscripts/'
         'coral-qwen-e2e-test.rcS"'
     ) in source
+
+
+def test_qwen35b_weight_plan_rebuild_uses_json_executable_plan():
+    source = (
+        ROOT / "tools/coralnpu/run_qwen35b_real_weights_test.sh"
+    ).read_text(encoding="utf-8")
+    assert (
+        'EXECUTABLE_PLAN_NAME="${CORAL_NPU_EXECUTABLE_PLAN_NAME:-model.npxe}"'
+        in source
+    )
+    compile_call = source.split(
+        '"${ROOT_DIR}/tools/models/compile_npu_weight_plan.py"', 1
+    )[1].split("--require-complete", 1)[0]
+    assert '"$MODEL_DIR/$EXECUTABLE_PLAN_NAME"' in compile_call
+    assert '"$MODEL_DIR/$EXECUTABLE_NAME"' not in compile_call

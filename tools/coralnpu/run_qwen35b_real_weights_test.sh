@@ -30,6 +30,7 @@ EOF
 
 MODEL_DIR="${CORAL_MODEL_DIR:-/data/models/Qwen3.5-35B}"
 EXECUTABLE_NAME="${CORAL_NPU_EXECUTABLE_NAME:-model.npxc}"
+EXECUTABLE_PLAN_NAME="${CORAL_NPU_EXECUTABLE_PLAN_NAME:-model.npxe}"
 MANIFEST_NAME="${CORAL_NPU_MANIFEST_NAME:-model.npxm}"
 RANGE_NAME="${CORAL_NPU_RANGE_NAME:-model.npxr}"
 TENSOR_PLAN_NAME="${CORAL_NPU_TENSOR_PLAN_NAME:-model.npxtb}"
@@ -247,8 +248,13 @@ then
         exit 1
     fi
     echo "[coral-qwen35b-real-weights-test] rebuilding text-domain weight plan" >&2
+    [ -r "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" ] || {
+        echo "error: NPU executable plan missing: $MODEL_DIR/$EXECUTABLE_PLAN_NAME" >&2
+        echo "regenerate it with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2
+        exit 1
+    }
     "${ROOT_DIR}/tools/models/compile_npu_weight_plan.py" \
-        "$MODEL_DIR/$MANIFEST_NAME" "$MODEL_DIR/$EXECUTABLE_NAME" \
+        "$MODEL_DIR/$MANIFEST_NAME" "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" \
         "$MODEL_DIR/model.npxw" --range-output "$MODEL_DIR/$RANGE_NAME" \
         --require-complete
 fi

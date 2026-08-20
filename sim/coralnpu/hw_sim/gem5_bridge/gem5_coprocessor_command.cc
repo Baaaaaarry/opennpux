@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "hw_sim/gem5_bridge/npu_submission.h"
+
 namespace {
 
 uint64_t DivCeil(uint64_t value, uint64_t divisor) {
@@ -130,7 +132,7 @@ bool Gem5CoprocessorCommandAdapter::ValidateDescriptor(
     *error = CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR;
     return false;
   }
-  if (OperatorEngine(descriptor.opcode) == Gem5CommandEngine::kFrontend) {
+  if (OperatorEngine(descriptor) == Gem5CommandEngine::kFrontend) {
     *error = CORAL_OPERATOR_ERROR_UNSUPPORTED;
     return false;
   }
@@ -138,7 +140,32 @@ bool Gem5CoprocessorCommandAdapter::ValidateDescriptor(
 }
 
 Gem5CommandEngine Gem5CoprocessorCommandAdapter::OperatorEngine(
-    uint32_t opcode) const {
+    const coral_operator_descriptor& descriptor) const {
+  uint32_t opcode = descriptor.opcode;
+  if (opcode == CORAL_OPERATOR_OP_GENERIC_COMMAND) {
+    switch (descriptor.reserved[0]) {
+      case OPENNPUX_NPU_OP_MATMUL:
+      case OPENNPUX_NPU_OP_CONVOLUTION:
+      case OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION:
+      case OPENNPUX_NPU_OP_EXPERT:
+      case OPENNPUX_NPU_OP_ATTENTION:
+        return Gem5CommandEngine::kTensor;
+      case OPENNPUX_NPU_OP_SOFTMAX:
+      case OPENNPUX_NPU_OP_TOPK:
+      case OPENNPUX_NPU_OP_ACTIVATION:
+        return Gem5CommandEngine::kSfu;
+      case OPENNPUX_NPU_OP_ADD:
+      case OPENNPUX_NPU_OP_MUL:
+      case OPENNPUX_NPU_OP_NORMALIZE:
+      case OPENNPUX_NPU_OP_ROPE:
+      case OPENNPUX_NPU_OP_RECURRENT_UPDATE:
+      case OPENNPUX_NPU_OP_ROUTER:
+      case OPENNPUX_NPU_OP_COMBINE:
+        return Gem5CommandEngine::kVector;
+      default:
+        return Gem5CommandEngine::kFrontend;
+    }
+  }
   switch (opcode) {
     case CORAL_OPERATOR_OP_CONV_2D_INT8:
     case CORAL_OPERATOR_OP_DEPTHWISE_CONV_2D_INT8:
@@ -170,7 +197,7 @@ bool Gem5CoprocessorCommandAdapter::DecodeOperator(
     return false;
   }
 
-  const Gem5CommandEngine operator_engine = OperatorEngine(descriptor.opcode);
+  const Gem5CommandEngine operator_engine = OperatorEngine(descriptor);
   const std::array<Gem5CommandEngine, kCommandsPerSubmission> engines = {
       Gem5CommandEngine::kFrontend, Gem5CommandEngine::kTdma,
       operator_engine, Gem5CommandEngine::kTdma,

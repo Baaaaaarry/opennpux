@@ -734,5 +734,13 @@ runtime 将符号 shape/slot 实例化为设备地址并逐命令调用 Host C++
 
 同时新增 `model.npxtb` 二进制 side table 与 C runtime loader。Loader 对 checksum、
 record bounds、producer-before-consumer 和 slot 容量做强校验，并可按实际 batch/sequence
-计算 scratch 总容量、把 scratch Tensor ID 解析为边界受控的设备地址。下一步继续补齐
-input/output/persistent state 解析并接入 bridge dispatcher。
+计算 scratch/persistent 容量，把 input/output/scratch/persistent Tensor ID 解析为边界受控
+的设备地址。
+
+Bridge generic dispatcher 已完成第一步接入。固件仍通过既有 `NPU_LAUNCH`/MMIO doorbell
+提交外层 Coral descriptor，新增 `GENERIC_COMMAND` 外层 opcode；内层 generic opcode 在
+二级译码阶段选择 Tensor/Vector/SFU。外层 descriptor 指向 EXTMEM 中版本化、纯地址的
+functional request，bridge 校验每个 operand 范围后调用 `Gem5HostFunctionalBackend`，并
+沿原有异步五级命令链回填 operation/traffic/modeled-cycle 统计。ADD 与 GPTQ MatMul 数值
+执行、非法 envelope 拒绝以及三类 engine 路由已有独立单测。下一步是 runtime/firmware
+根据 `.npxtb` 为每条 `.npxe` command 物化 request，使完整命令流真正进入该数值执行链。

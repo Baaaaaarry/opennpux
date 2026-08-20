@@ -56,6 +56,24 @@ The execution engine is selected from the operator opcode:
 - Vector: Add, LayerNorm.
 - SFU: Softmax.
 
+Generic executables use the same outer command path with
+`CORAL_OPERATOR_OP_GENERIC_COMMAND`. The outer descriptor points to a
+versioned `opennpux_npu_functional_request` in local EXTMEM and mirrors the
+inner generic opcode in `reserved[0]`. The second-level decoder uses that
+inner opcode to select Tensor, Vector, or SFU before execution. At the execute
+boundary, `DispatchGem5GenericCommand()` validates every EXTMEM range,
+translates address-based operands to host pointers, calls
+`Gem5HostFunctionalBackend`, and writes operation, traffic, and modeled-cycle
+statistics back to both the request and the outer descriptor. This keeps the
+firmware/custom-instruction path intact while allowing Host C++ kernels to be
+replaced incrementally by timing models or RTL functional units.
+
+The functional request ABI intentionally contains no host pointer. It carries
+an operator parameter address plus role-tagged operand address/size pairs.
+The compiler-generated tensor plan and CPU runtime resolve logical tensors to
+device addresses; NPU firmware materializes the request only after those
+addresses are known.
+
 Each command contains a submission tag, command ID, descriptor address,
 engine, micro-op, dependency mask, source, state, latency, and remaining
 cycles. A command issues only when all bits in its dependency mask have
@@ -101,6 +119,7 @@ Host-side control-model test:
 
 ```bash
 ./tools/coralnpu/test_coprocessor_command.sh
+./tools/coralnpu/test_hybrid_kernels.sh
 ```
 
 Focused RTL end-to-end test on x86 Linux/GB10:

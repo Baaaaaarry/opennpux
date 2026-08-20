@@ -129,6 +129,8 @@ const char* OperatorName(uint32_t opcode) {
       return "gptq_gated_mlp";
     case CORAL_OPERATOR_OP_GPTQ_PAGED_MATMUL:
       return "gptq_paged_matmul";
+    case CORAL_OPERATOR_OP_GENERIC_COMMAND:
+      return "generic_command";
     default:
       return "unknown";
   }
@@ -706,7 +708,8 @@ struct coral_gem5_handle {
                   (UINT32_C(1) << CORAL_OPERATOR_OP_QWEN_TINY_INFER) |
                   (UINT32_C(1) << CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4) |
                   (UINT32_C(1) << CORAL_OPERATOR_OP_GPTQ_GATED_MLP) |
-                  (UINT32_C(1) << CORAL_OPERATOR_OP_GPTQ_PAGED_MATMUL);
+                  (UINT32_C(1) << CORAL_OPERATOR_OP_GPTQ_PAGED_MATMUL) |
+                  (UINT32_C(1) << CORAL_OPERATOR_OP_GENERIC_COMMAND);
 #endif
         }
         auto* destination = reinterpret_cast<uint8_t*>(

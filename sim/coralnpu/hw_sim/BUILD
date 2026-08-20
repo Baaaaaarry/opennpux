@@ -126,6 +126,7 @@ cc_binary(
 cc_library(
     name = "gem5_npu_submission_headers",
     hdrs = [
+        "gem5_bridge/npu_functional_request.h",
         "gem5_bridge/npu_inference_io.h",
         "gem5_bridge/npu_submission.h",
         "gem5_bridge/npu_numerical_result.h",
@@ -153,6 +154,8 @@ cc_binary(
         "gem5_bridge/gem5_dma_request_builder.h",
         "gem5_bridge/gem5_generic_gptq_executor.cc",
         "gem5_bridge/gem5_generic_gptq_executor.h",
+        "gem5_bridge/gem5_generic_command_dispatch.cc",
+        "gem5_bridge/gem5_generic_command_dispatch.h",
         "gem5_bridge/gem5_gptq_kernels.cc",
         "gem5_bridge/gem5_gptq_kernels.h",
         "gem5_bridge/gem5_host_functional_backend.cc",
@@ -168,6 +171,7 @@ cc_binary(
         "gem5_bridge/gem5_transformer_kernels.cc",
         "gem5_bridge/gem5_transformer_kernels.h",
         "gem5_bridge/qwen_device_inference.h",
+        "gem5_bridge/npu_functional_request.h",
     ],
     linkshared = True,
     visibility = ["//visibility:public"],
@@ -198,6 +202,8 @@ cc_binary(
         "gem5_bridge/gem5_dma_request_builder.h",
         "gem5_bridge/gem5_generic_gptq_executor.cc",
         "gem5_bridge/gem5_generic_gptq_executor.h",
+        "gem5_bridge/gem5_generic_command_dispatch.cc",
+        "gem5_bridge/gem5_generic_command_dispatch.h",
         "gem5_bridge/gem5_gptq_kernels.cc",
         "gem5_bridge/gem5_gptq_kernels.h",
         "gem5_bridge/gem5_host_functional_backend.cc",
@@ -213,6 +219,7 @@ cc_binary(
         "gem5_bridge/gem5_transformer_kernels.cc",
         "gem5_bridge/gem5_transformer_kernels.h",
         "gem5_bridge/qwen_device_inference.h",
+        "gem5_bridge/npu_functional_request.h",
     ],
     copts = ["-DCORAL_GEM5_RVV_HIGHMEM"],
     linkshared = True,
@@ -277,6 +284,26 @@ cc_test(
         "gem5_bridge/gem5_host_functional_backend_test.cc",
         "gem5_bridge/gem5_transformer_kernels.cc",
         "gem5_bridge/gem5_transformer_kernels.h",
+    ],
+    deps = [":gem5_npu_submission_headers"],
+)
+
+cc_test(
+    name = "gem5_generic_command_dispatch_test",
+    srcs = [
+        "gem5_bridge/coral_operator.h",
+        "gem5_bridge/gem5_generic_command_dispatch.cc",
+        "gem5_bridge/gem5_generic_command_dispatch.h",
+        "gem5_bridge/gem5_generic_command_dispatch_test.cc",
+        "gem5_bridge/gem5_generic_gptq_executor.cc",
+        "gem5_bridge/gem5_generic_gptq_executor.h",
+        "gem5_bridge/gem5_gptq_kernels.cc",
+        "gem5_bridge/gem5_gptq_kernels.h",
+        "gem5_bridge/gem5_host_functional_backend.cc",
+        "gem5_bridge/gem5_host_functional_backend.h",
+        "gem5_bridge/gem5_transformer_kernels.cc",
+        "gem5_bridge/gem5_transformer_kernels.h",
+        "gem5_bridge/npu_functional_request.h",
     ],
     deps = [":gem5_npu_submission_headers"],
 )

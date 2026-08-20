@@ -109,7 +109,8 @@ class Gem5CoprocessorCommandAdapter {
   bool DecodeOperator(Gem5CommandSource source, uint32_t descriptor_address,
                       const coral_operator_descriptor& descriptor,
                       uint32_t submission_tag, uint32_t* error);
-  Gem5CommandEngine OperatorEngine(uint32_t opcode) const;
+  Gem5CommandEngine OperatorEngine(
+      const coral_operator_descriptor& descriptor) const;
   Submission* FindSubmission(uint32_t tag);
   const Submission* FindSubmission(uint32_t tag) const;
   static size_t EngineIndex(Gem5CommandEngine engine);

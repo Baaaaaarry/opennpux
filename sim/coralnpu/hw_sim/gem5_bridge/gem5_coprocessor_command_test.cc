@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 
+#include "hw_sim/gem5_bridge/npu_submission.h"
+
 namespace {
 
 coral_operator_descriptor ValidDescriptor(uint32_t opcode) {
@@ -102,6 +104,38 @@ void TestGptqOpcodeUsesTensorEngine(uint32_t opcode) {
   }
   assert(command.opcode == Gem5MicroOpcode::kExecuteOperator);
   assert(command.engine == Gem5CommandEngine::kTensor);
+}
+
+void TestGenericOpcodeSecondLevelDecode(uint32_t opcode,
+                                        Gem5CommandEngine expected_engine) {
+  Gem5CoprocessorCommandAdapter adapter;
+  coral_operator_descriptor descriptor =
+      ValidDescriptor(CORAL_OPERATOR_OP_GENERIC_COMMAND);
+  descriptor.reserved[0] = opcode;
+  uint32_t tag = 0;
+  uint32_t error = UINT32_MAX;
+  assert(adapter.Submit(Gem5CommandSource::kCustomInstruction, 0x20400300,
+                        descriptor, &tag, &error));
+  Gem5CoprocessorCommand command = {};
+  for (size_t index = 0; index < 3; ++index) {
+    assert(adapter.IssueNext(&command));
+    assert(adapter.Complete(command.command_id, true));
+  }
+  assert(command.operator_opcode == CORAL_OPERATOR_OP_GENERIC_COMMAND);
+  assert(command.opcode == Gem5MicroOpcode::kExecuteOperator);
+  assert(command.engine == expected_engine);
+}
+
+void TestUnsupportedGenericOpcodeRejected() {
+  Gem5CoprocessorCommandAdapter adapter;
+  coral_operator_descriptor descriptor =
+      ValidDescriptor(CORAL_OPERATOR_OP_GENERIC_COMMAND);
+  descriptor.reserved[0] = 0;
+  uint32_t tag = 0;
+  uint32_t error = 0;
+  assert(!adapter.Submit(Gem5CommandSource::kCustomInstruction, 0x20400300,
+                         descriptor, &tag, &error));
+  assert(error == CORAL_OPERATOR_ERROR_UNSUPPORTED);
 }
 
 void TestBadDescriptorRejected() {
@@ -248,6 +282,13 @@ int main() {
   TestSourceAndNameObservability();
   TestGptqOpcodeUsesTensorEngine(CORAL_OPERATOR_OP_GPTQ_MATMUL_INT4);
   TestGptqOpcodeUsesTensorEngine(CORAL_OPERATOR_OP_GPTQ_GATED_MLP);
+  TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_MATMUL,
+                                     Gem5CommandEngine::kTensor);
+  TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_ADD,
+                                     Gem5CommandEngine::kVector);
+  TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_SOFTMAX,
+                                     Gem5CommandEngine::kSfu);
+  TestUnsupportedGenericOpcodeRejected();
   TestBadDescriptorRejected();
   TestFailureStopsDependentCommands();
   TestEngineCreditsAndMultipleSubmissions();

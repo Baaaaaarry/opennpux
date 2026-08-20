@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "hw_sim/gem5_bridge/gem5_hybrid_kernels.h"
+#include "hw_sim/gem5_bridge/gem5_generic_command_dispatch.h"
 
 namespace {
 
@@ -137,6 +138,10 @@ bool DispatchGem5HybridOperator(
       break;
     case CORAL_OPERATOR_OP_GPTQ_PAGED_MATMUL:
       success = RunGem5HybridGptqPagedMatMul(
+          descriptor, extmem, extmem_base, extmem_size);
+      break;
+    case CORAL_OPERATOR_OP_GENERIC_COMMAND:
+      success = DispatchGem5GenericCommand(
           descriptor, extmem, extmem_base, extmem_size);
       break;
     default:

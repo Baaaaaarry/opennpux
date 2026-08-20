@@ -148,6 +148,30 @@ submission ABI while adding only model rewrites, kernels, or RTL capabilities.
 7. Add a second Transformer family as an ABI-generality gate before freezing
    the currently provisional version 2 ABI.
 
+## Generic Command Execution Boundary
+
+The bridge now exposes the first model-independent execution seam behind the
+existing Coral control path:
+
+1. Firmware submits a normal Coral descriptor with outer opcode
+   `GENERIC_COMMAND` through the MMIO doorbell or `NPU_LAUNCH` custom
+   instruction.
+2. `reserved[0]` carries the generic executable opcode for second-level engine
+   selection; the descriptor's sole tensor points to a versioned functional
+   request in EXTMEM.
+3. The request contains only NPU-visible addresses and role-tagged operands.
+   The bridge validates all ranges before translating them to simulation-host
+   pointers.
+4. `Gem5HostFunctionalBackend` performs the real numerical kernel and returns
+   operations, bytes read/written and modeled cycles through the normal
+   asynchronous completion chain.
+
+Current focused execution coverage is float ADD/MUL/RMSNorm/RoPE/Softmax/
+TopK/SiLU and GPTQ MatMul. The next integration increment is firmware/runtime
+materialization of one request per `.npxe` command using the binary tensor
+plan, followed by GPTQ expert operand binding and complete command-stream
+execution.
+
 ## Implemented Compiler/Runtime Boundary
 
 The generic-ABI implementation now adds:

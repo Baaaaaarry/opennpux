@@ -23,6 +23,11 @@ fail() {
 }
 
 echo "[coral-npu-launch-test] started"
+kernel_release=unknown
+if [ -r /proc/sys/kernel/osrelease ]; then
+    IFS= read -r kernel_release < /proc/sys/kernel/osrelease
+fi
+echo "[coral-npu-launch-test] kernel=${kernel_release}"
 [ -f /tmp/coralnpu-baseline-preload.ready ] || fail "stale checkpoint"
 [ -x "${CORALCTL}" ] || fail "coralctl missing"
 [ -f "${MODULE}" ] || fail "kernel module missing"
@@ -31,7 +36,14 @@ echo "[coral-npu-launch-test] started"
 if [ ! -c /dev/opennpux-coral ]; then
     /tmp/busybox insmod "${MODULE}" 2>/tmp/opennpux-coral-insmod.err || true
 fi
-[ -c /dev/opennpux-coral ] || fail "/dev/opennpux-coral missing"
+if [ ! -c /dev/opennpux-coral ]; then
+    if [ -r /tmp/opennpux-coral-insmod.err ]; then
+        while IFS= read -r line; do
+            echo "[coral-npu-launch-test] insmod: ${line}"
+        done < /tmp/opennpux-coral-insmod.err
+    fi
+    fail "/dev/opennpux-coral missing; module and vmlinux must come from the same kernel build tree"
+fi
 
 OUTPUT="$(OPENNPUX_CORAL_TRANSPORT=driver \
     "${CORALCTL}" mobilenet-test "${NPU_BASE}" 1000000)" || {

@@ -68,6 +68,13 @@ fi
 #   is passed so the module Makefile can find the UAPI header at
 #   runtime/host/include/opennpux/coral_uapi.h.
 # ---------------------------------------------------------------------------
+# Module .cmd files live in runtime/kernel, not under the selected kernel
+# output directory. Clean them so switching kernel trees or ARM64 atomic/OF
+# configuration cannot reuse an incompatible object file.
+make -C "${LINUX_SRC}" O="${LINUX_BUILD}" \
+    M="${ROOT_DIR}/runtime/kernel" \
+    OPENNPUX_ROOT="${ROOT_DIR}" \
+    ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" clean
 make -C "${LINUX_SRC}" O="${LINUX_BUILD}" \
     M="${ROOT_DIR}/runtime/kernel" \
     OPENNPUX_ROOT="${ROOT_DIR}" \

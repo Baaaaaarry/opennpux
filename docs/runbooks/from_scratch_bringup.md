@@ -253,3 +253,12 @@ Expect `0`. The watchdog fires when the RTL core shows no bus activity for
 5M cycles (a stall signature), and a reject line means the bridge refused a
 transaction with SLVERR. Either one indicates an infrastructure bug even on
 an otherwise passing run — do not ignore a PASS that comes with either.
+## Troubleshooting: Kernel/Module ABI Pair
+
+The guest `vmlinux` and `opennpux_coral.ko` must be produced from the same
+kernel build directory and `.config`, not merely share the same `uname -r`.
+Unknown symbols such as `of_node_put` together with
+`__ll_sc___cmpxchg_case_mb_32` indicate a Device Tree or ARM64 atomic
+configuration mismatch. Rebuild the module against `build/linux-arm64`,
+install that release-qualified module into the disk image, and rebuild the
+checkpoint because `/tmp/opennpux_coral.ko` is checkpoint-resident.

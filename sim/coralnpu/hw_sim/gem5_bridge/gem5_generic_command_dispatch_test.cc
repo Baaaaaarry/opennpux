@@ -221,6 +221,67 @@ void TestDenseMatMul() {
   assert(request->operation_count == 8);
 }
 
+void TestDiscontiguousAddressSpace() {
+  constexpr uint32_t kSubmissionBase = UINT32_C(0x24000000);
+  constexpr uint32_t kArenaBase = UINT32_C(0x30000000);
+  std::vector<uint8_t> submission(256);
+  std::vector<uint8_t> arena(256);
+  opennpux_npu_functional_request request = {};
+  request.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  request.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  request.struct_size = sizeof(request);
+  request.opcode = OPENNPUX_NPU_OP_ADD;
+  request.rows = 1;
+  request.features = 4;
+  request.parameter_address = kSubmissionBase;
+  request.parameter_size = sizeof(opennpux_npu_operator_parameters);
+  auto add_absolute = [&request](uint32_t role, uint32_t address,
+                                 uint32_t size) {
+    auto& operand = request.operands[request.operand_count++];
+    operand.role = role;
+    operand.address = address;
+    operand.byte_size = size;
+  };
+  add_absolute(OPENNPUX_NPU_OPERAND_INPUT, kArenaBase,
+               4 * sizeof(float));
+  add_absolute(OPENNPUX_NPU_OPERAND_SECONDARY, kArenaBase + 32,
+               4 * sizeof(float));
+  add_absolute(OPENNPUX_NPU_OPERAND_OUTPUT, kArenaBase + 64,
+               4 * sizeof(float));
+  auto* parameters = reinterpret_cast<opennpux_npu_operator_parameters*>(
+      submission.data());
+  parameters->magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  parameters->version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  parameters->struct_size = sizeof(*parameters);
+  parameters->opcode = OPENNPUX_NPU_OP_ADD;
+  const float input[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  const float secondary[] = {4.0f, 3.0f, 2.0f, 1.0f};
+  std::memcpy(arena.data(), input, sizeof(input));
+  std::memcpy(arena.data() + 32, secondary, sizeof(secondary));
+  const Gem5FunctionalMemoryRegion regions[] = {
+      {kSubmissionBase, submission.data(), submission.size()},
+      {kArenaBase, arena.data(), arena.size()},
+  };
+  assert(ExecuteGem5FunctionalRequestInRegions(
+      &request, regions, sizeof(regions) / sizeof(regions[0])));
+  const float* output = reinterpret_cast<const float*>(arena.data() + 64);
+  assert(output[0] == 5.0f && output[3] == 5.0f);
+  assert(request.state == CORAL_OPERATOR_STATE_COMPLETE);
+
+  request.state = 0;
+  request.operands[0].address = UINT32_C(0x28000000);
+  assert(!ExecuteGem5FunctionalRequestInRegions(
+      &request, regions, sizeof(regions) / sizeof(regions[0])));
+  assert(request.error == CORAL_OPERATOR_ERROR_ADDRESS);
+
+  const Gem5FunctionalMemoryRegion overlapping[] = {
+      {kArenaBase, arena.data(), arena.size()},
+      {kArenaBase + 64, submission.data(), submission.size()},
+  };
+  assert(!ExecuteGem5FunctionalRequestInRegions(
+      &request, overlapping, sizeof(overlapping) / sizeof(overlapping[0])));
+}
+
 void TestRejectsOpcodeMismatch() {
   std::vector<uint8_t> memory(1024);
   constexpr uint32_t kRequest = 64;
@@ -242,6 +303,7 @@ int main() {
   TestAdd();
   TestEmbedding();
   TestDenseMatMul();
+  TestDiscontiguousAddressSpace();
   TestGptqMatMul();
   TestRejectsOpcodeMismatch();
   std::puts("gem5_generic_command_dispatch=PASS");

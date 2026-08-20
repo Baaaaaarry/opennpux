@@ -9,6 +9,7 @@
 # Pipeline:
 #   gem5_transformer_kernels_test
 #     -> gem5_host_functional_backend_test
+#     -> gem5_generic_command_dispatch_test
 #
 # Environment:
 #   CXX  Host C++ compiler (default: c++)
@@ -43,4 +44,15 @@ mkdir -p "${OUT_DIR}"
     "${SOURCE_DIR}/gem5_host_functional_backend.cc" \
     "${SOURCE_DIR}/gem5_host_functional_backend_test.cc" \
     -o "${OUT_DIR}/gem5_host_functional_backend_test"
-exec "${OUT_DIR}/gem5_host_functional_backend_test"
+"${OUT_DIR}/gem5_host_functional_backend_test"
+
+"${CXX}" -O2 -Wall -Wextra -Werror -std=c++17 \
+    -I"${ROOT_DIR}/sim/coralnpu" \
+    "${SOURCE_DIR}/gem5_gptq_kernels.cc" \
+    "${SOURCE_DIR}/gem5_generic_gptq_executor.cc" \
+    "${SOURCE_DIR}/gem5_transformer_kernels.cc" \
+    "${SOURCE_DIR}/gem5_host_functional_backend.cc" \
+    "${SOURCE_DIR}/gem5_generic_command_dispatch.cc" \
+    "${SOURCE_DIR}/gem5_generic_command_dispatch_test.cc" \
+    -o "${OUT_DIR}/gem5_generic_command_dispatch_test"
+exec "${OUT_DIR}/gem5_generic_command_dispatch_test"

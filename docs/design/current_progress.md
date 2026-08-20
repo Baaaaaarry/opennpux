@@ -800,3 +800,11 @@ Bazel workspace，避免 runtime 与 bridge 各自维护一份二进制 ABI/pars
 数值闭环：下一增量需要按 opcode 将这些 Tensor view 物化为 functional request，并把
 分页 residency 中的 GPTQ qweight/qzeros/scales/g_idx 绑定为 component operands，随后才
 能按 dependency 顺序执行完整 graph 并与 vLLM oracle 比对 logits/token。
+
+Host functional 执行器进一步支持由多个非连续 memory region 组成的 NPU 地址空间。
+invocation/operator parameters 可保留在 submission region，中间 Tensor 位于 Host arena，
+GPTQ component 则由分页 cache region 提供；所有 operand 仍使用统一 32-bit NPU 地址，
+执行前逐 region 校验范围。原有单一 EXTMEM API 保持兼容并退化为 one-region wrapper，
+因此 RTL custom-instruction smoke 不受影响。Native 回归已验证跨 submission/arena 的 ADD
+数值执行以及未映射地址拒绝。下一步不再需要复制参数或 Tensor 到伪造的连续 EXTMEM，
+可以直接组装三类 region 后执行 materialized command。

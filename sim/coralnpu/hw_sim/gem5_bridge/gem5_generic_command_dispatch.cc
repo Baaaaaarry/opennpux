@@ -7,18 +7,43 @@
 
 namespace {
 
-bool RangeValid(uint32_t address, size_t size, uint32_t base,
-                size_t capacity) {
-  return size != 0 && size <= capacity && address >= base &&
-         static_cast<size_t>(address - base) <= capacity - size;
+bool AddressSpaceValid(const Gem5FunctionalMemoryRegion* regions,
+                       size_t region_count) {
+  if (regions == nullptr || region_count == 0) {
+    return false;
+  }
+  for (size_t index = 0; index < region_count; ++index) {
+    const auto& region = regions[index];
+    const uint64_t end = static_cast<uint64_t>(region.base) + region.size;
+    if (region.data == nullptr || region.size == 0 ||
+        end > (UINT64_C(1) << 32)) {
+      return false;
+    }
+    for (size_t other = 0; other < index; ++other) {
+      const uint64_t other_end =
+          static_cast<uint64_t>(regions[other].base) + regions[other].size;
+      if (region.base < other_end && regions[other].base < end) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
-void* Address(uint8_t* extmem, uint32_t extmem_base, size_t extmem_size,
+void* Address(const Gem5FunctionalMemoryRegion* regions, size_t region_count,
               uint32_t address, size_t size) {
-  if (!RangeValid(address, size, extmem_base, extmem_size)) {
+  if (regions == nullptr || size == 0) {
     return nullptr;
   }
-  return extmem + (address - extmem_base);
+  for (size_t index = 0; index < region_count; ++index) {
+    const auto& region = regions[index];
+    if (region.data != nullptr && address >= region.base &&
+        size <= region.size &&
+        static_cast<size_t>(address - region.base) <= region.size - size) {
+      return region.data + (address - region.base);
+    }
+  }
+  return nullptr;
 }
 
 const opennpux_npu_functional_operand* FindOperand(
@@ -33,21 +58,19 @@ const opennpux_npu_functional_operand* FindOperand(
 
 Gem5GenericConstBuffer ConstBuffer(
     const opennpux_npu_functional_request& request, uint32_t role,
-    uint8_t* extmem, uint32_t extmem_base, size_t extmem_size) {
+    const Gem5FunctionalMemoryRegion* regions, size_t region_count) {
   const auto* operand = FindOperand(request, role);
   if (operand == nullptr) {
     return {};
   }
-  return {Address(extmem, extmem_base, extmem_size, operand->address,
-                  operand->byte_size),
+  return {Address(regions, region_count, operand->address, operand->byte_size),
           operand->byte_size};
 }
 
 Gem5GenericMutableBuffer MutableBuffer(
     const opennpux_npu_functional_request& request, uint32_t role,
-    uint8_t* extmem, uint32_t extmem_base, size_t extmem_size) {
-  const auto buffer = ConstBuffer(request, role, extmem, extmem_base,
-                                  extmem_size);
+    const Gem5FunctionalMemoryRegion* regions, size_t region_count) {
+  const auto buffer = ConstBuffer(request, role, regions, region_count);
   return {const_cast<void*>(buffer.data), buffer.size};
 }
 
@@ -60,7 +83,16 @@ bool Required(const Gem5GenericConstBuffer& buffer) {
 bool ExecuteGem5FunctionalRequest(
     opennpux_npu_functional_request* request, uint8_t* extmem,
     uint32_t extmem_base, size_t extmem_size) {
-  if (request == nullptr || extmem == nullptr ||
+  const Gem5FunctionalMemoryRegion region = {
+      extmem_base, extmem, extmem_size,
+  };
+  return ExecuteGem5FunctionalRequestInRegions(request, &region, 1);
+}
+
+bool ExecuteGem5FunctionalRequestInRegions(
+    opennpux_npu_functional_request* request,
+    const Gem5FunctionalMemoryRegion* regions, size_t region_count) {
+  if (request == nullptr || !AddressSpaceValid(regions, region_count) ||
       request->magic != OPENNPUX_NPU_FUNCTIONAL_MAGIC ||
       request->version != OPENNPUX_NPU_FUNCTIONAL_VERSION ||
       request->struct_size != sizeof(*request) ||
@@ -69,32 +101,25 @@ bool ExecuteGem5FunctionalRequest(
   }
 
   const auto input = ConstBuffer(*request, OPENNPUX_NPU_OPERAND_INPUT,
-                                 extmem, extmem_base, extmem_size);
+                                 regions, region_count);
   const auto input_indices = ConstBuffer(
-      *request, OPENNPUX_NPU_OPERAND_INPUT_INDICES, extmem, extmem_base,
-      extmem_size);
+      *request, OPENNPUX_NPU_OPERAND_INPUT_INDICES, regions, region_count);
   const auto secondary = ConstBuffer(
-      *request, OPENNPUX_NPU_OPERAND_SECONDARY, extmem, extmem_base,
-      extmem_size);
+      *request, OPENNPUX_NPU_OPERAND_SECONDARY, regions, region_count);
   const auto tertiary = ConstBuffer(
-      *request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY, extmem, extmem_base,
-      extmem_size);
+      *request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY, regions, region_count);
   const auto weight = ConstBuffer(*request, OPENNPUX_NPU_OPERAND_WEIGHT,
-                                  extmem, extmem_base, extmem_size);
+                                  regions, region_count);
   const auto positions = ConstBuffer(
-      *request, OPENNPUX_NPU_OPERAND_POSITIONS, extmem, extmem_base,
-      extmem_size);
+      *request, OPENNPUX_NPU_OPERAND_POSITIONS, regions, region_count);
   const auto output = MutableBuffer(*request, OPENNPUX_NPU_OPERAND_OUTPUT,
-                                    extmem, extmem_base, extmem_size);
+                                    regions, region_count);
   const auto output_indices = MutableBuffer(
-      *request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES, extmem, extmem_base,
-      extmem_size);
+      *request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES, regions, region_count);
   const auto output_secondary = MutableBuffer(
-      *request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY, extmem, extmem_base,
-      extmem_size);
+      *request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY, regions, region_count);
   const auto output_tertiary = MutableBuffer(
-      *request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY, extmem, extmem_base,
-      extmem_size);
+      *request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY, regions, region_count);
   if ((request->opcode == OPENNPUX_NPU_OP_EMBED ?
            !Required(input_indices) : !Required(input)) ||
       output.data == nullptr || output.size == 0) {
@@ -104,54 +129,38 @@ bool ExecuteGem5FunctionalRequest(
   }
 
   const auto* parameters = static_cast<const opennpux_npu_operator_parameters*>(
-      Address(extmem, extmem_base, extmem_size, request->parameter_address,
+      Address(regions, region_count, request->parameter_address,
               request->parameter_size));
   Gem5GenericGptqOperands gptq = {
       input,
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_QWEIGHT, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_QZEROS, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_SCALES, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_G_IDX, extmem,
-                  extmem_base, extmem_size),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_QWEIGHT, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_QZEROS, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_SCALES, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_G_IDX, regions, region_count),
       output,
   };
   Gem5GenericGptqOperands q_gptq = {
       input,
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_Q_QWEIGHT, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_Q_QZEROS, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_Q_SCALES, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_Q_G_IDX, extmem,
-                  extmem_base, extmem_size),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_Q_QWEIGHT, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_Q_QZEROS, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_Q_SCALES, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_Q_G_IDX, regions, region_count),
       output,
   };
   Gem5GenericGptqOperands k_gptq = {
       input,
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_K_QWEIGHT, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_K_QZEROS, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_K_SCALES, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_K_G_IDX, extmem,
-                  extmem_base, extmem_size),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_K_QWEIGHT, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_K_QZEROS, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_K_SCALES, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_K_G_IDX, regions, region_count),
       output_secondary,
   };
   Gem5GenericGptqOperands v_gptq = {
       input,
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_V_QWEIGHT, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_V_QZEROS, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_V_SCALES, extmem,
-                  extmem_base, extmem_size),
-      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_V_G_IDX, extmem,
-                  extmem_base, extmem_size),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_V_QWEIGHT, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_V_QZEROS, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_V_SCALES, regions, region_count),
+      ConstBuffer(*request, OPENNPUX_NPU_OPERAND_V_G_IDX, regions, region_count),
       output_tertiary,
   };
 
@@ -210,10 +219,12 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
       descriptor->tensor_count != 1) {
     return false;
   }
+  const Gem5FunctionalMemoryRegion region = {
+      extmem_base, extmem, extmem_size,
+  };
   const coral_operator_tensor& envelope = descriptor->tensors[0];
   auto* request = static_cast<opennpux_npu_functional_request*>(Address(
-      extmem, extmem_base, extmem_size, envelope.address,
-      sizeof(opennpux_npu_functional_request)));
+      &region, 1, envelope.address, sizeof(opennpux_npu_functional_request)));
   if (request == nullptr ||
       envelope.size < sizeof(opennpux_npu_functional_request) ||
       request->opcode != descriptor->reserved[0]) {

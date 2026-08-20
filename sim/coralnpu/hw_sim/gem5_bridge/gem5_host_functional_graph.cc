@@ -63,15 +63,23 @@ bool Gem5HostFunctionalGraph::Configure(const void* submission,
                                          size_t submission_size,
                                          uint32_t submission_base,
                                          uint32_t arena_base) {
-  ResetInvocation();
-  if (!arena_.loaded() || submission == nullptr || submission_size == 0 ||
-      submission_size > UINT32_MAX ||
-      static_cast<uint64_t>(submission_base) + submission_size >
-          (UINT64_C(1) << 32)) {
-    return false;
-  }
   opennpux_npu_tensor_plan_runtime runtime = {};
   if (!DecodeRuntime(submission, submission_size, &runtime)) {
+    return false;
+  }
+  return ConfigureRuntime(submission, submission_size, submission_base,
+                          runtime, arena_base);
+}
+
+bool Gem5HostFunctionalGraph::ConfigureRuntime(
+    const void* submission, size_t submission_size, uint32_t submission_base,
+    const opennpux_npu_tensor_plan_runtime& runtime, uint32_t arena_base) {
+  ResetInvocation();
+  if (!arena_.loaded() || submission == nullptr || submission_size == 0 ||
+      submission_size > UINT32_MAX || runtime.batch_size == 0 ||
+      runtime.sequence_length == 0 ||
+      static_cast<uint64_t>(submission_base) + submission_size >
+          (UINT64_C(1) << 32)) {
     return false;
   }
   try {
@@ -90,6 +98,7 @@ bool Gem5HostFunctionalGraph::Configure(const void* submission,
     ResetInvocation();
     return false;
   }
+  program_.runtime = runtime;
   submission_base_ = submission_base;
   configured_ = true;
   return true;

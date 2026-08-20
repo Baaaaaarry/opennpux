@@ -30,6 +30,10 @@ class Gem5HostFunctionalGraph {
   bool Configure(const void* submission, size_t submission_size,
                  uint32_t submission_base,
                  uint32_t arena_base = UINT32_C(0x30000000));
+  bool ConfigureRuntime(
+      const void* submission, size_t submission_size, uint32_t submission_base,
+      const opennpux_npu_tensor_plan_runtime& runtime,
+      uint32_t arena_base = UINT32_C(0x30000000));
   bool Materialize(
       uint32_t command_index,
       const opennpux_npu_functional_operand* extra_operands,

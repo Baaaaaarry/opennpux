@@ -521,6 +521,13 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         getenv("OPENNPUX_SIM_HOST_PAGING") != NULL;
     const int sim_host_numerical =
         getenv("OPENNPUX_SIM_HOST_NUMERICAL") != NULL;
+    const int sim_host_functional =
+        getenv("OPENNPUX_SIM_HOST_FUNCTIONAL_CPP") != NULL;
+    if (sim_host_numerical && sim_host_functional) {
+        errno = EINVAL;
+        perror("executable-run sim-host mode");
+        return 1;
+    }
     print_paged_stage(paged, "load-executable");
     struct opennpux_npu_executable executable;
     if (opennpux_npu_executable_load(path, &executable) != 0) {
@@ -975,7 +982,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         inference_request->struct_size = sizeof(*inference_request);
         inference_request->state = OPENNPUX_NPU_INFERENCE_PENDING;
         inference_request->mode =
-            sim_host_numerical ||
+            sim_host_numerical || sim_host_functional ||
             (header->flags & OPENNPUX_NPU_INVOKE_NUMERICAL) != 0 ?
                 OPENNPUX_NPU_INFERENCE_MODE_NUMERICAL :
                 OPENNPUX_NPU_INFERENCE_MODE_FUNCTIONAL;
@@ -1319,12 +1326,15 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                inference_result->next_token);
         printf("inference_result_checksum=0x%08" PRIx32 "\n",
                inference_result->result_checksum);
-        if (inference_result->reserved[
-                OPENNPUX_NPU_INFERENCE_TOKEN_IDS_SOURCE_INDEX] ==
-            OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST) {
+        const uint32_t result_source = inference_result->reserved[
+            OPENNPUX_NPU_INFERENCE_TOKEN_IDS_SOURCE_INDEX];
+        if (result_source == OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST ||
+            result_source == OPENNPUX_NPU_INFERENCE_SOURCE_HOST_FUNCTIONAL) {
             const uint32_t text_size = inference_result->reserved[
                 OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX];
-            printf("inference_result_source=sim-host-numerical\n");
+            printf("inference_result_source=%s\n",
+                   result_source == OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST ?
+                       "sim-host-numerical" : "host-functional-cpp");
             printf("inference_generated_tokens=%" PRIu32 "\n",
                    generated_tokens);
             printf("inference_stop_reason=%" PRIu32 "\n",
@@ -1337,7 +1347,8 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                        token_ids[index]);
             }
             putchar('\n');
-            if (text_size <= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES) {
+            if (text_size != 0 &&
+                text_size <= OPENNPUX_NPU_INFERENCE_PROMPT_BYTES) {
                 printf("inference_token_text=%.*s\n", (int)text_size,
                        inference_result->prompt);
             }
@@ -1355,17 +1366,20 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                 expected_executed_commands ||
             inference_result->next_token >=
                 inference_result->vocabulary_size ||
-            (sim_host_numerical &&
+            ((sim_host_numerical || sim_host_functional) &&
              (inference_result->mode !=
                   OPENNPUX_NPU_INFERENCE_MODE_NUMERICAL ||
               inference_result->reserved[
                   OPENNPUX_NPU_INFERENCE_TOKEN_IDS_SOURCE_INDEX] !=
-                  OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST ||
-              inference_result->reserved[
-                  OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX] == 0 ||
-              inference_result->reserved[
-                  OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX] >
-                  OPENNPUX_NPU_INFERENCE_PROMPT_BYTES ||
+                  (sim_host_numerical ?
+                       OPENNPUX_NPU_INFERENCE_SOURCE_SIM_HOST :
+                       OPENNPUX_NPU_INFERENCE_SOURCE_HOST_FUNCTIONAL) ||
+              (sim_host_numerical &&
+               (inference_result->reserved[
+                    OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX] == 0 ||
+                inference_result->reserved[
+                    OPENNPUX_NPU_INFERENCE_TOKEN_TEXT_SIZE_INDEX] >
+                    OPENNPUX_NPU_INFERENCE_PROMPT_BYTES)) ||
               generated_tokens == 0 ||
               generated_tokens >
                   inference_request->max_new_tokens ||

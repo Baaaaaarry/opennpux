@@ -7,4 +7,6 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 "${ROOT_DIR}/tools/coralnpu/check_generic_test_abi.sh"
 CORAL_NPU_LAUNCH_TARGET="//hw_sim:gem5_qwen_command_flow_smoke.elf" \
 CORAL_NPU_LAUNCH_OUTPUT="gem5_qwen_command_flow_smoke.elf" \
+CORAL_NPU_LAUNCH_BRIDGE_TARGET="//hw_sim:libcoralnpu_gem5_rvv_highmem_bridge.so" \
+CORAL_NPU_LAUNCH_BRIDGE_OUTPUT="libcoralnpu_gem5_rvv_highmem_bridge.so" \
     exec "${SCRIPT_DIR}/build_npu_launch_smoke.sh" "$@"

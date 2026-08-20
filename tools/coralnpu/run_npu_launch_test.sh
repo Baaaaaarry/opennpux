@@ -19,6 +19,13 @@ CORALCTL="${CORAL_NPU_LAUNCH_CORALCTL:-${ROOT_DIR}/build/guest-tools/coralctl-aa
     echo "run ./tools/coralnpu/build_rvv_mobilenet.sh -c opt first" >&2
     exit 1
 }
+if find "${ROOT_DIR}/sim/coralnpu" -type f -newer "${BRIDGE}" \
+   -print -quit | grep -q .; then
+    echo "error: RVV highmem bridge is stale: ${BRIDGE}" >&2
+    echo "rebuild the firmware and bridge together with:" >&2
+    echo "  ./tools/coralnpu/build_qwen_command_flow_smoke.sh" >&2
+    exit 1
+fi
 [ -f "${FIRMWARE}" ] || {
     echo "error: NPU_LAUNCH firmware not found: ${FIRMWARE}" >&2
     echo "run ./tools/coralnpu/build_npu_launch_smoke.sh first" >&2

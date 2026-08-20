@@ -7,6 +7,8 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 CORAL_REPO="${CORAL_REPO:-${ROOT_DIR}/thirdparty/coralnpu}"
 TARGET="${CORAL_NPU_LAUNCH_TARGET:-//hw_sim:gem5_npu_launch_smoke.elf}"
 OUTPUT_NAME="${CORAL_NPU_LAUNCH_OUTPUT:-gem5_npu_launch_smoke.elf}"
+BRIDGE_TARGET="${CORAL_NPU_LAUNCH_BRIDGE_TARGET:-}"
+BRIDGE_OUTPUT_NAME="${CORAL_NPU_LAUNCH_BRIDGE_OUTPUT:-libcoralnpu_gem5_rvv_highmem_bridge.so}"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -33,9 +35,15 @@ esac
 mkdir -p "${BAZEL_OUTPUT_ROOT}" "${REPO_CACHE}" "${DISTDIR}" "${OUT_DIR}"
 
 cd "${CORAL_REPO}"
-"${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" build \
-    --repository_cache="${REPO_CACHE}" \
-    --distdir="${DISTDIR}" "${TARGET}" "$@"
+if [ -n "${BRIDGE_TARGET}" ]; then
+    "${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" build \
+        --repository_cache="${REPO_CACHE}" \
+        --distdir="${DISTDIR}" "${TARGET}" "${BRIDGE_TARGET}" "$@"
+else
+    "${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" build \
+        --repository_cache="${REPO_CACHE}" \
+        --distdir="${DISTDIR}" "${TARGET}" "$@"
+fi
 
 EXEC_ROOT="$("${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" \
     info execution_root)"
@@ -51,11 +59,35 @@ esac
     exit 1
 }
 
+BRIDGE_SOURCE=""
+if [ -n "${BRIDGE_TARGET}" ]; then
+    BRIDGE_OUTPUT="$("${BAZEL}" --output_user_root="${BAZEL_OUTPUT_ROOT}" \
+        cquery --repository_cache="${REPO_CACHE}" --distdir="${DISTDIR}" \
+        --output=files "${BRIDGE_TARGET}" "$@")"
+    case "${BRIDGE_OUTPUT}" in
+        /*) BRIDGE_SOURCE="${BRIDGE_OUTPUT}" ;;
+        *) BRIDGE_SOURCE="${EXEC_ROOT}/${BRIDGE_OUTPUT}" ;;
+    esac
+    [ -f "${BRIDGE_SOURCE}" ] || {
+        echo "error: NPU_LAUNCH bridge output not found: ${BRIDGE_SOURCE}" >&2
+        exit 1
+    }
+fi
+
 DESTINATION="${OUT_DIR}/${OUTPUT_NAME}"
 TEMPORARY="$(mktemp "${OUT_DIR}/.${OUTPUT_NAME}.XXXXXX")"
 cp "${SOURCE}" "${TEMPORARY}"
 chmod 0644 "${TEMPORARY}"
 mv -f "${TEMPORARY}" "${DESTINATION}"
+
+if [ -n "${BRIDGE_SOURCE}" ]; then
+    BRIDGE_DESTINATION="${OUT_DIR}/${BRIDGE_OUTPUT_NAME}"
+    BRIDGE_TEMPORARY="$(mktemp "${OUT_DIR}/.${BRIDGE_OUTPUT_NAME}.XXXXXX")"
+    cp "${BRIDGE_SOURCE}" "${BRIDGE_TEMPORARY}"
+    chmod 0755 "${BRIDGE_TEMPORARY}"
+    mv -f "${BRIDGE_TEMPORARY}" "${BRIDGE_DESTINATION}"
+    echo "built: ${BRIDGE_DESTINATION}"
+fi
 
 # CUSTOM_0 has opcode 0x0b in bits [6:0]. Search executable sections directly
 # so validation does not depend on objdump knowing the custom mnemonic.

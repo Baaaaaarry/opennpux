@@ -57,7 +57,9 @@ for name, tensors in (
         "model.language_model.layers.0.mlp.experts.0.down_proj.scales": bytes(36),
         "model.language_model.layers.0.mlp.experts.0.down_proj.g_idx": bytes(96),
         "model.language_model.layers.1.mlp.experts.7.down_proj.qweight": bytes(range(10, 18)),
-        "model.language_model.layers.1.mlp.router.weight": bytes(range(20, 28)),
+        "model.language_model.layers.1.mlp.router.weight": b"".join(
+            struct.pack("<f", ((row * 3 + column) % 11 - 5) / 8.0)
+            for row in range(18) for column in range(8)),
         "model.language_model.layers.1.linear_attn.in_proj_qkv.qweight": bytes(range(30, 38)),
         "model.language_model.norm.weight": bytes(range(40, 48)),
     }),
@@ -68,12 +70,15 @@ for name, tensors in (
     for tensor_name, data in tensors.items():
         weight_map[tensor_name] = name
         dtype = "U8"
-        if tensor_name.endswith(".scales"):
+        if tensor_name.endswith("mlp.router.weight"):
+            dtype = "F32"
+        elif tensor_name.endswith(".scales"):
             dtype = "F16"
         elif tensor_name.endswith(".g_idx") or tensor_name.endswith(".qzeros"):
             dtype = "I32"
+        shape = [18, 8] if tensor_name.endswith("mlp.router.weight") else [len(data)]
         header[tensor_name] = {
-            "dtype": dtype, "shape": [len(data)],
+            "dtype": dtype, "shape": shape,
             "data_offsets": [offset, offset + len(data)]
         }
         payload += data

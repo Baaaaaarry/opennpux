@@ -1,6 +1,8 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_backend.h"
 
+#include <cmath>
 #include <limits>
+#include <vector>
 
 #include "hw_sim/gem5_bridge/npu_submission.h"
 
@@ -33,6 +35,79 @@ void AddStats(const Gem5GptqKernelStats& source,
   destination->bytes_read += source.bytes_read;
   destination->bytes_written += source.bytes_written;
   destination->modeled_cycles += source.modeled_cycles;
+}
+
+bool RunRouter(const Gem5HostFunctionalRequest& request,
+               Gem5TransformerKernelStats* stats) {
+  if (stats == nullptr || request.operator_parameters == nullptr ||
+      request.rows == 0 || request.rows > UINT32_MAX || request.top_k == 0 ||
+      request.output == nullptr || request.output_indices == nullptr) {
+    return false;
+  }
+  auto parameters = *request.operator_parameters;
+  const uint32_t expert_count = parameters.output_features;
+  if (expert_count == 0 || request.top_k > expert_count ||
+      request.rows > std::numeric_limits<size_t>::max() / expert_count) {
+    return false;
+  }
+  std::vector<float> logits;
+  try {
+    logits.resize(request.rows * expert_count);
+  } catch (...) {
+    return false;
+  }
+  if (request.gptq_operands != nullptr &&
+      request.gptq_operands->qweight.data != nullptr) {
+    parameters.opcode = OPENNPUX_NPU_OP_MATMUL;
+    auto projection = *request.gptq_operands;
+    projection.output = {logits.data(), logits.size() * sizeof(float)};
+    Gem5GptqKernelStats projection_stats = {};
+    if (!RunGem5GenericGptqMatMul(
+            parameters, static_cast<uint32_t>(request.rows), projection,
+            &projection_stats)) {
+      return false;
+    }
+    AddStats(projection_stats, stats);
+  } else {
+    Gem5TransformerKernelStats projection_stats = {};
+    if (!RunGem5MatMulF32(
+            request.input, request.weight, request.rows,
+            parameters.input_features, expert_count, logits.data(),
+            &projection_stats)) {
+      return false;
+    }
+    stats->operations += projection_stats.operations;
+    stats->bytes_read += projection_stats.bytes_read;
+    stats->bytes_written += projection_stats.bytes_written;
+    stats->modeled_cycles += projection_stats.modeled_cycles;
+  }
+  for (size_t row = 0; row < request.rows; ++row) {
+    Gem5TransformerKernelStats topk_stats = {};
+    float* values = request.output + row * request.top_k;
+    if (!RunGem5TopKF32(logits.data() + row * expert_count, expert_count,
+                        request.top_k, values,
+                        request.output_indices + row * request.top_k,
+                        &topk_stats)) {
+      return false;
+    }
+    const float maximum = values[0];
+    double sum = 0.0;
+    for (size_t index = 0; index < request.top_k; ++index) {
+      values[index] = std::exp(values[index] - maximum);
+      sum += values[index];
+    }
+    if (!(sum > 0.0) || !std::isfinite(sum)) {
+      return false;
+    }
+    for (size_t index = 0; index < request.top_k; ++index) {
+      values[index] /= static_cast<float>(sum);
+    }
+    stats->operations += topk_stats.operations + request.top_k * 2;
+    stats->bytes_read += topk_stats.bytes_read;
+    stats->bytes_written += topk_stats.bytes_written;
+    stats->modeled_cycles += topk_stats.modeled_cycles;
+  }
+  return true;
 }
 
 }  // namespace
@@ -165,6 +240,15 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
         request.kv_heads, request.head_dim, request.kv_length, request.output,
         &result.stats);
     if (!success) result.status = Gem5HostFunctionalStatus::kExecutionError;
+    return result;
+  }
+  if (request.opcode == OPENNPUX_NPU_OP_ROUTER &&
+      ((request.gptq_operands != nullptr &&
+        request.gptq_operands->qweight.data != nullptr) ||
+       request.weight != nullptr)) {
+    if (!RunRouter(request, &result.stats)) {
+      result.status = Gem5HostFunctionalStatus::kExecutionError;
+    }
     return result;
   }
 

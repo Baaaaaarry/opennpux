@@ -44,6 +44,8 @@ class Gem5HostFunctionalGraph {
                              uint32_t slot_id);
   bool ExecuteGptqQkv(uint32_t command_index,
                       Gem5HostWeightProvider* weights);
+  bool ExecuteGptqRouter(uint32_t command_index,
+                         Gem5HostWeightProvider* weights);
   bool ExecuteRoutedExpert(uint32_t command_index,
                            Gem5HostWeightProvider* weights);
   void ResetInvocation();

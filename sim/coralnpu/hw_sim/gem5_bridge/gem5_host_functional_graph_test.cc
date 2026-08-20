@@ -164,10 +164,53 @@ int main(int argc, char** argv) {
        ++index) {
     assert(std::isfinite(expert_output_data[index]));
   }
-  assert(graph.stats().completed_commands == 3);
+  uint32_t router_index = UINT32_MAX;
+  for (uint32_t index = 0; index < graph.command_count(); ++index) {
+    if (graph.command(index)->opcode == OPENNPUX_NPU_OP_ROUTER) {
+      router_index = index;
+    }
+  }
+  assert(router_index != UINT32_MAX);
+  opennpux_npu_functional_request router = {};
+  assert(graph.Materialize(router_index, nullptr, 0, &router));
+  const auto* router_input = FindOperand(router, OPENNPUX_NPU_OPERAND_INPUT);
+  const auto* router_ids =
+      FindOperand(router, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES);
+  const auto* router_weights =
+      FindOperand(router, OPENNPUX_NPU_OPERAND_OUTPUT);
+  assert(router_input != nullptr && router_ids != nullptr &&
+         router_weights != nullptr);
+  auto* router_input_data = reinterpret_cast<float*>(graph.arena().Translate(
+      router_input->address, router_input->byte_size));
+  auto* router_id_data = reinterpret_cast<uint32_t*>(graph.arena().Translate(
+      router_ids->address, router_ids->byte_size));
+  auto* router_weight_data = reinterpret_cast<float*>(graph.arena().Translate(
+      router_weights->address, router_weights->byte_size));
+  assert(router_input_data != nullptr && router_id_data != nullptr &&
+         router_weight_data != nullptr);
+  for (size_t index = 0; index < router_input->byte_size / sizeof(float);
+       ++index) {
+    router_input_data[index] = static_cast<float>(index % 7) / 7.0f;
+  }
+  assert(graph.ExecuteGptqRouter(router_index, &weights));
+  const size_t route_count =
+      static_cast<size_t>(router.rows) * router.top_k;
+  for (size_t row = 0; row < router.rows; ++row) {
+    float sum = 0.0f;
+    for (size_t route = 0; route < router.top_k; ++route) {
+      const size_t index = row * router.top_k + route;
+      assert(index < route_count && router_id_data[index] < 8);
+      assert(std::isfinite(router_weight_data[index]) &&
+             router_weight_data[index] >= 0.0f);
+      sum += router_weight_data[index];
+    }
+    assert(std::fabs(sum - 1.0f) < 1.0e-5f);
+  }
+  assert(graph.stats().completed_commands == 4);
   std::printf("functional_graph_add_elements=%zu\n", count);
   std::puts("functional_graph_gptq_projection=PASS");
   std::puts("functional_graph_routed_expert=PASS");
+  std::puts("functional_graph_gptq_router=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

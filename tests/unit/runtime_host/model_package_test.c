@@ -47,14 +47,16 @@ main(int argc, char **argv)
               "model.language_model.layers.1.mlp.router.weight",
                                              &tensor) == 0,
           "tensor lookup failed");
-    check(tensor.shard_index == 1 && tensor.rank == 1 && tensor.dims[0] == 8,
+    check(tensor.shard_index == 1 && tensor.rank == 2 &&
+              tensor.dims[0] == 18 && tensor.dims[1] == 8,
           "tensor metadata mismatch");
     unsigned char bytes[4];
-    check(opennpux_model_package_read_tensor(argv[1], &info, &tensor, 2,
+    check(opennpux_model_package_read_tensor(argv[1], &info, &tensor, 0,
                                              bytes, sizeof(bytes)) == 0,
           "tensor range read failed");
-    check(bytes[0] == 22 && bytes[1] == 23 && bytes[2] == 24 && bytes[3] == 25,
-          "tensor range data mismatch");
+    float router_weight = 0.0f;
+    memcpy(&router_weight, bytes, sizeof(router_weight));
+    check(router_weight == -0.625f, "tensor range data mismatch");
     puts("PASS: model package host unit tests");
     return 0;
 }

@@ -12,6 +12,7 @@ DEBUG_LOG="${CORAL_NPU_LAUNCH_DEBUG_LOG:-${ROOT_DIR}/simout/coral-npu-launch.deb
 CKPT_ROOT="${CORAL_NPU_LAUNCH_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_mobilenet_ckpt}"
 SHARED_BASE="${CORAL_NPU_LAUNCH_SHARED_BASE:-0x8f000000}"
 KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
+CORALCTL="${CORAL_NPU_LAUNCH_CORALCTL:-${ROOT_DIR}/build/guest-tools/coralctl-aarch64}"
 
 [ -f "${BRIDGE}" ] || {
     echo "error: RVV highmem bridge not found: ${BRIDGE}" >&2
@@ -21,6 +22,28 @@ KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
 [ -f "${FIRMWARE}" ] || {
     echo "error: NPU_LAUNCH firmware not found: ${FIRMWARE}" >&2
     echo "run ./tools/coralnpu/build_npu_launch_smoke.sh first" >&2
+    exit 1
+}
+
+coralctl_stale=0
+if [ ! -x "${CORALCTL}" ]; then
+    coralctl_stale=1
+elif find "${ROOT_DIR}/runtime/host" -type f -newer "${CORALCTL}" \
+     -print -quit | grep -q .; then
+    coralctl_stale=1
+fi
+if [ "${coralctl_stale}" -eq 1 ] &&
+   [ "${CORAL_NPU_LAUNCH_AUTO_BUILD_CORALCTL:-1}" = 1 ]; then
+    echo "[npu-launch] coralctl missing or stale; rebuilding" >&2
+    "${ROOT_DIR}/tools/guest_tools/build_coralctl.sh"
+fi
+[ -x "${CORALCTL}" ] || {
+    echo "error: current guest coralctl not found: ${CORALCTL}" >&2
+    exit 1
+}
+strings "${CORALCTL}" | grep -q 'generic-test' || {
+    echo "error: ${CORALCTL} lacks generic-test support" >&2
+    echo "rebuild it with ./tools/guest_tools/build_coralctl.sh" >&2
     exit 1
 }
 
@@ -45,9 +68,44 @@ CORAL_DISK_IMG="${CORAL_DISK_IMG:-${HOME}/wlk/gem5_arm_linux_images/ubuntu-18.04
 
 mkdir -p "$(dirname "${HOST_LOG}")" "$(dirname "${DEBUG_LOG}")"
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
+[ -f "${TEST_SCRIPT}" ] || {
+    echo "error: guest test script not found: ${TEST_SCRIPT}" >&2
+    exit 1
+}
+
+# Checkpoints retain /tmp/coralctl from the image used at checkpoint creation.
+# Inject the current binary into every resume script so user-space-only runtime
+# changes never force an expensive Linux checkpoint rebuild.
+INJECTED_TEST_SCRIPT="$(mktemp)"
+cat >"${INJECTED_TEST_SCRIPT}" <<'EOF'
+#!/bin/sh
+decode_base64()
+{
+    if command -v base64 >/dev/null 2>&1; then
+        base64 -d
+    elif [ -x /bin/busybox ]; then
+        /bin/busybox base64 -d
+    elif [ -x /tmp/busybox ]; then
+        /tmp/busybox base64 -d
+    else
+        echo '[npu-launch] FAIL: base64 decoder missing'
+        command -v m5 >/dev/null 2>&1 && m5 --inst exit
+        exit 1
+    fi
+}
+decode_base64 >/tmp/coralctl <<'OPENNPUX_CORALCTL_EOF'
+EOF
+base64 "${CORALCTL}" >>"${INJECTED_TEST_SCRIPT}"
+cat >>"${INJECTED_TEST_SCRIPT}" <<'EOF'
+OPENNPUX_CORALCTL_EOF
+chmod 0755 /tmp/coralctl
+echo '[npu-launch] injected current coralctl into checkpoint tmpfs'
+EOF
+tail -n +2 "${TEST_SCRIPT}" >>"${INJECTED_TEST_SCRIPT}"
+TEST_SCRIPT="${INJECTED_TEST_SCRIPT}"
 
 STATUS_FILE="$(mktemp)"
-trap 'rm -f "${STATUS_FILE}"' EXIT
+trap 'rm -f "${STATUS_FILE}" "${INJECTED_TEST_SCRIPT}"' EXIT
 set +e
 (
     CORAL_NPU_BACKEND=verilated-coral \

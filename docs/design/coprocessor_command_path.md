@@ -145,6 +145,11 @@ request. Acceptance requires the guest output `11,22,33,44`, operation count
 micro-commands. It is the focused gate for the compiler/runtime generic
 command path and does not execute TFLM or a complete model graph.
 
+The restore script checks the common
+`/tmp/coralnpu-baseline-preload.ready` marker produced by
+`boot-to-checkpoint.rcS`. Resume-script-only updates are injected with
+`m5 readfile` and do not require rebuilding a valid checkpoint.
+
 The focused firmware constructs one four-element INT8 ADD descriptor in local
 EXTMEM and submits it with `NPU_LAUNCH`. The run script requires independent
 evidence from both sides of the boundary: the bridge log must show

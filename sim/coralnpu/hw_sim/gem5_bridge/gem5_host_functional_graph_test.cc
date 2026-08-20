@@ -215,13 +215,26 @@ int main(int argc, char** argv) {
   assert(graph.ExecuteCommand(add_index, &weights));
   assert(graph.ExecuteCommand(matmul_index, &weights));
   assert(graph.ExecuteCommand(router_index, &weights));
-  assert(graph.stats().completed_commands == 9);
+  uint32_t rope_index = UINT32_MAX;
+  for (uint32_t index = 0; index < graph.command_count(); ++index) {
+    if (graph.command(index)->opcode == OPENNPUX_NPU_OP_ROPE) {
+      rope_index = index;
+      break;
+    }
+  }
+  assert(rope_index != UINT32_MAX);
+  assert(graph.ExecuteCommand(rope_index, &weights));
+  assert(graph.stats().completed_commands == 10);
+  uint32_t failed_command = UINT32_MAX;
+  assert(!graph.ExecuteProgram(&weights, &failed_command));
+  assert(failed_command == 0);
   std::printf("functional_graph_add_elements=%zu\n", count);
   std::puts("functional_graph_gptq_projection=PASS");
   std::puts("functional_graph_routed_expert=PASS");
   std::puts("functional_graph_direct_expert=PASS");
   std::puts("functional_graph_gptq_router=PASS");
   std::puts("functional_graph_auto_dispatch=PASS");
+  std::puts("functional_graph_program_failure_location=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

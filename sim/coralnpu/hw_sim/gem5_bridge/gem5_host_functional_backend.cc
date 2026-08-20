@@ -127,6 +127,7 @@ bool Gem5HostFunctionalBackend::Supports(uint32_t opcode) const {
     case OPENNPUX_NPU_OP_EXPERT:
     case OPENNPUX_NPU_OP_DMA:
     case OPENNPUX_NPU_OP_ATTENTION:
+    case OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION:
     case OPENNPUX_NPU_OP_RECURRENT_UPDATE:
     case OPENNPUX_NPU_OP_COMBINE:
       return true;
@@ -240,6 +241,23 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
         request.kv_heads, request.head_dim, request.kv_length, request.output,
         &result.stats);
     if (!success) result.status = Gem5HostFunctionalStatus::kExecutionError;
+    return result;
+  }
+  if (request.opcode == OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION) {
+    size_t count = 0;
+    if (!ElementCount(request, &count) || request.weight == nullptr ||
+        request.features == 0 ||
+        request.operator_parameters == nullptr ||
+        request.operator_parameters->intermediate_features == 0) {
+      return Result(Gem5HostFunctionalStatus::kInvalid);
+    }
+    const size_t kernel_width =
+        request.operator_parameters->intermediate_features;
+    if (!RunGem5CausalDepthwiseConvF32(
+            request.input, request.weight, request.rows, request.features,
+            kernel_width, request.output, &result.stats)) {
+      result.status = Gem5HostFunctionalStatus::kExecutionError;
+    }
     return result;
   }
   if (request.opcode == OPENNPUX_NPU_OP_ROUTER &&

@@ -41,6 +41,9 @@ bool RunGem5SoftmaxF32(const float* input, size_t rows, size_t features,
 bool RunGem5RopeF32(const float* input, const uint32_t* positions, size_t rows,
                     size_t heads, size_t head_dim, float theta, float* output,
                     Gem5TransformerKernelStats* stats);
+bool RunGem5CausalDepthwiseConvF32(
+    const float* input, const float* weight, size_t rows, size_t features,
+    size_t kernel_width, float* output, Gem5TransformerKernelStats* stats);
 
 // Returns values in descending order. Equal values retain the lower source
 // index first so functional-model results are deterministic across hosts.

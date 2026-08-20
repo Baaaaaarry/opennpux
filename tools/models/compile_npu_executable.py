@@ -114,10 +114,12 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
         intermediate = moe
     elif phase == "shared_expert":
         intermediate = shared
+    elif phase == "causal_depthwise_conv":
+        intermediate = max(1, int(manifest.get("linear_conv_kernel_dim", 4)))
     elif phase == "lm_head":
         output_features = vocab
     elif phase == "token_embedding":
-        input_features = 1
+        input_features = vocab
     elif phase == "token_selection":
         input_features = vocab
         output_features = 1

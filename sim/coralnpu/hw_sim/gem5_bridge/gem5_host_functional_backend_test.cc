@@ -14,6 +14,7 @@ int main() {
   assert(backend.Supports(OPENNPUX_NPU_OP_NORMALIZE));
   assert(backend.Supports(OPENNPUX_NPU_OP_ATTENTION));
   assert(backend.Supports(OPENNPUX_NPU_OP_ROUTER));
+  assert(backend.Supports(OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION));
 
   const float input[] = {3.0f, 4.0f};
   const float weight[] = {1.0f, 2.0f};
@@ -64,6 +65,29 @@ int main() {
   result = backend.Execute(request);
   assert(result.status == Gem5HostFunctionalStatus::kComplete);
   assert(result.stats.operations != 0);
+
+  opennpux_npu_operator_parameters convolution_parameters = {};
+  convolution_parameters.intermediate_features = 2;
+  const float convolution_input[] = {1.0f, 10.0f, 2.0f, 20.0f,
+                                     3.0f, 30.0f};
+  const float convolution_weight[] = {2.0f, 3.0f, 4.0f, 5.0f};
+  float convolution_output[6] = {};
+  request = {};
+  request.opcode = OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION;
+  request.input = convolution_input;
+  request.weight = convolution_weight;
+  request.rows = 3;
+  request.features = 2;
+  request.operator_parameters = &convolution_parameters;
+  request.output = convolution_output;
+  result = backend.Execute(request);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(convolution_output[0] == 4.0f &&
+         convolution_output[1] == 50.0f &&
+         convolution_output[2] == 10.0f &&
+         convolution_output[3] == 130.0f &&
+         convolution_output[4] == 16.0f &&
+         convolution_output[5] == 210.0f);
 
   const float router_logits[] = {0.5f, 2.0f, 2.0f, -1.0f};
   float router_weights[2] = {};

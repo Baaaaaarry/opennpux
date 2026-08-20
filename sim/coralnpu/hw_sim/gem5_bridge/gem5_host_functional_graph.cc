@@ -259,24 +259,10 @@ bool Gem5HostFunctionalGraph::ExecuteGptqRouter(
                             OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT)) {
     return true;
   }
-  std::vector<float> weight;
-  if (!weights->LoadFloatWeight(command_index,
-                                OPENNPUX_NPU_WEIGHT_ROLE_ROUTER,
-                                OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
-                                OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT, &weight) ||
-      weight.empty() || weight.size() > UINT32_MAX / sizeof(float)) {
-    return false;
-  }
-  constexpr uint32_t kWeightAddress = UINT32_C(0x50000000);
-  const opennpux_npu_functional_operand operand = {
-      OPENNPUX_NPU_OPERAND_WEIGHT, kWeightAddress,
-      static_cast<uint32_t>(weight.size() * sizeof(float)), 0};
-  Gem5FunctionalMemoryRegion region = {
-      kWeightAddress, reinterpret_cast<uint8_t*>(weight.data()),
-      weight.size() * sizeof(float)};
-  opennpux_npu_functional_request request = {};
-  return Materialize(command_index, &operand, 1, &request) &&
-         Execute(&request, &region, 1);
+  const Gem5HostWeightBinding binding = {
+      OPENNPUX_NPU_WEIGHT_ROLE_ROUTER, OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
+      OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT};
+  return ExecuteFloatWeight(command_index, weights, binding);
 }
 
 bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
@@ -452,6 +438,34 @@ bool Gem5HostFunctionalGraph::ExecuteFloatWeight(
       weight.empty() || weight.size() > UINT32_MAX / sizeof(float)) {
     return false;
   }
+  opennpux_npu_functional_request initial = {};
+  if (!Materialize(command_index, nullptr, 0, &initial) ||
+      initial.parameter_address < submission_base_ ||
+      initial.parameter_size != sizeof(opennpux_npu_operator_parameters) ||
+      initial.parameter_address - submission_base_ >
+          submission_.size() - initial.parameter_size) {
+    return false;
+  }
+  const auto* parameters =
+      reinterpret_cast<const opennpux_npu_operator_parameters*>(
+          submission_.data() + initial.parameter_address - submission_base_);
+  uint64_t required = 0;
+  if (initial.opcode == OPENNPUX_NPU_OP_EMBED) {
+    required = static_cast<uint64_t>(parameters->input_features) *
+               initial.features;
+  } else if (initial.opcode == OPENNPUX_NPU_OP_NORMALIZE) {
+    required = initial.features;
+  } else if (initial.opcode == OPENNPUX_NPU_OP_MATMUL ||
+             initial.opcode == OPENNPUX_NPU_OP_ROUTER) {
+    required = static_cast<uint64_t>(parameters->input_features) *
+               parameters->output_features;
+  } else if (initial.opcode == OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION) {
+    required = static_cast<uint64_t>(parameters->intermediate_features) *
+               initial.features;
+  }
+  if (required == 0 || required != weight.size()) {
+    return false;
+  }
   constexpr uint32_t kWeightAddress = UINT32_C(0x50000000);
   const opennpux_npu_functional_operand operand = {
       OPENNPUX_NPU_OPERAND_WEIGHT, kWeightAddress,
@@ -459,6 +473,28 @@ bool Gem5HostFunctionalGraph::ExecuteFloatWeight(
   Gem5FunctionalMemoryRegion region = {
       kWeightAddress, reinterpret_cast<uint8_t*>(weight.data()),
       weight.size() * sizeof(float)};
+  opennpux_npu_functional_request request = {};
+  return Materialize(command_index, &operand, 1, &request) &&
+         Execute(&request, &region, 1);
+}
+
+bool Gem5HostFunctionalGraph::ExecutePositioned(uint32_t command_index) {
+  opennpux_npu_functional_request initial = {};
+  if (!Materialize(command_index, nullptr, 0, &initial) || initial.rows == 0 ||
+      initial.rows > UINT32_MAX / sizeof(uint32_t)) {
+    return false;
+  }
+  std::vector<uint32_t> positions(initial.rows);
+  for (uint32_t row = 0; row < initial.rows; ++row) {
+    positions[row] = row;
+  }
+  constexpr uint32_t kPositionAddress = UINT32_C(0x50000000);
+  const opennpux_npu_functional_operand operand = {
+      OPENNPUX_NPU_OPERAND_POSITIONS, kPositionAddress,
+      static_cast<uint32_t>(positions.size() * sizeof(uint32_t)), 0};
+  Gem5FunctionalMemoryRegion region = {
+      kPositionAddress, reinterpret_cast<uint8_t*>(positions.data()),
+      positions.size() * sizeof(uint32_t)};
   opennpux_npu_functional_request request = {};
   return Materialize(command_index, &operand, 1, &request) &&
          Execute(&request, &region, 1);
@@ -472,6 +508,9 @@ bool Gem5HostFunctionalGraph::ExecuteCommand(
   }
   if (selected->opcode == OPENNPUX_NPU_OP_ROUTER) {
     return ExecuteGptqRouter(command_index, weights);
+  }
+  if (selected->opcode == OPENNPUX_NPU_OP_ROPE) {
+    return ExecutePositioned(command_index);
   }
   std::vector<Gem5HostWeightBinding> gptq;
   const bool has_gptq = weights->FindGptqBindings(command_index, &gptq);
@@ -523,6 +562,25 @@ bool Gem5HostFunctionalGraph::ExecuteCommand(
   }
   opennpux_npu_functional_request request = {};
   return Materialize(command_index, nullptr, 0, &request) && Execute(&request);
+}
+
+bool Gem5HostFunctionalGraph::ExecuteProgram(
+    Gem5HostWeightProvider* weights, uint32_t* failed_command) {
+  if (failed_command != nullptr) {
+    *failed_command = UINT32_MAX;
+  }
+  if (!configured_ || weights == nullptr || !weights->loaded()) {
+    return false;
+  }
+  for (uint32_t index = 0; index < command_count(); ++index) {
+    if (!ExecuteCommand(index, weights)) {
+      if (failed_command != nullptr) {
+        *failed_command = index;
+      }
+      return false;
+    }
+  }
+  return true;
 }
 
 const opennpux_npu_command* Gem5HostFunctionalGraph::command(

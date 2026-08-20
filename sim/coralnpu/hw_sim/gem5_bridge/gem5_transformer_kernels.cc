@@ -248,6 +248,34 @@ bool RunGem5RopeF32(const float* input, const uint32_t* positions, size_t rows,
                      stats);
 }
 
+bool RunGem5CausalDepthwiseConvF32(
+    const float* input, const float* weight, size_t rows, size_t features,
+    size_t kernel_width, float* output, Gem5TransformerKernelStats* stats) {
+  size_t count = 0;
+  size_t weight_count = 0;
+  if (!ProductFits(rows, features, &count) ||
+      !ProductFits(kernel_width, features, &weight_count) ||
+      !ValidBuffers(input, count, output, stats) || weight == nullptr ||
+      kernel_width == 0 || count > UINT64_MAX / kernel_width / 2) {
+    return false;
+  }
+  for (size_t row = 0; row < rows; ++row) {
+    for (size_t feature = 0; feature < features; ++feature) {
+      float sum = 0.0f;
+      for (size_t tap = 0; tap < kernel_width; ++tap) {
+        if (tap > row) {
+          continue;
+        }
+        sum += input[(row - tap) * features + feature] *
+               weight[(kernel_width - 1 - tap) * features + feature];
+      }
+      output[row * features + feature] = sum;
+    }
+  }
+  return FinishStats(static_cast<uint64_t>(count) * kernel_width * 2,
+                     count + weight_count, count, stats);
+}
+
 bool RunGem5TopKF32(const float* input, size_t count, size_t k,
                     float* output_values, uint32_t* output_indices,
                     Gem5TransformerKernelStats* stats) {

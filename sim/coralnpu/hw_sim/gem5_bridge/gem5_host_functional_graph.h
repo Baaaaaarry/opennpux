@@ -54,6 +54,8 @@ class Gem5HostFunctionalGraph {
                          const Gem5HostWeightBinding& binding);
   bool ExecuteCommand(uint32_t command_index,
                       Gem5HostWeightProvider* weights);
+  bool ExecuteProgram(Gem5HostWeightProvider* weights,
+                      uint32_t* failed_command = nullptr);
   void ResetInvocation();
 
   uint32_t command_count() const {
@@ -68,6 +70,7 @@ class Gem5HostFunctionalGraph {
   bool ExecuteFloatWeight(uint32_t command_index,
                           Gem5HostWeightProvider* weights,
                           const Gem5HostWeightBinding& binding);
+  bool ExecutePositioned(uint32_t command_index);
   std::vector<uint8_t> submission_;
   uint32_t submission_base_ = 0;
   Gem5HostTensorArena arena_;

@@ -278,14 +278,13 @@ seed are part of the cache key. Model-mode generation rejects an all-identical
 multi-token result instead of accepting a degenerate loop as a golden; use
 `OPENNPUX_ALLOW_DEGENERATE_OUTPUT=1` only for diagnosis.
 
-The default `CORAL_QWEN_MODEL_LOADER=transformers` follows the model card's
-multimodal text path with `AutoModelForMultimodalLM` and `AutoProcessor`, even
-for a text-only prompt. This matters because Qwen3.5 packages text and vision
-under a conditional-generation architecture. The former direct
-`GPTQModel.load` path bypassed the official processor/model pairing and produced
-multilingual token fragments despite a valid transport golden. It remains
-available as `CORAL_QWEN_MODEL_LOADER=gptqmodel` for backend diagnosis only.
-The loader name and quantization backend are part of the result cache key.
+The default `CORAL_QWEN_MODEL_LOADER=vllm` uses the Qwen3.5-compatible offline
+engine as the semantic reference. The `transformers` and direct `gptqmodel`
+loaders remain available for backend diagnosis only: the former rejects this
+checkpoint when required quantized parameters are missing, while the latter
+has produced multilingual fragments despite a valid transport golden. All
+paths continue to use `AutoProcessor` for the multimodal chat template. The
+loader name and quantization backend are part of the result cache key.
 
 Install a recent model-compatible `torch`, `transformers`, `accelerate` and
 `numpy` environment before the first run. The GPTQ model may additionally need
@@ -323,12 +322,13 @@ Host numerical placement is explicit through `CORAL_QWEN_HF_DEVICE=auto|cuda|cpu
 and is part of the result cache key. If a CUDA kernel reports an illegal memory
 access, terminate that generator process before retrying because its CUDA
 context is no longer usable. Use `CUDA_LAUNCH_BLOCKING=1` once to identify the
-failing operation. To bypass the CUDA kernel while preserving a real-weight
-golden, use the GPTQModel CPU ATen implementation:
+failing operation. To bypass the CUDA kernel for loader diagnostics, use the
+GPTQModel CPU ATen implementation explicitly:
 
 ```sh
 CORAL_QWEN_HF_DEVICE=cpu \
 CORAL_QWEN_GPTQ_BACKEND=gptq_torch_aten \
+CORAL_QWEN_MODEL_LOADER=gptqmodel \
 CORAL_REBUILD_SIM_HOST_RESULT=1 \
 ./tools/coralnpu/run_qwen35b_real_weights_test.sh
 ```
@@ -386,7 +386,7 @@ CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
   CORAL_QWEN_PROMPT='Explain heterogeneous computing in one sentence.' \
   CORAL_QWEN_PROMPT_FORMAT=chat \
   CORAL_QWEN_DECODE_MODE=model \
-  CORAL_QWEN_MODEL_LOADER=transformers \
+  CORAL_QWEN_MODEL_LOADER=vllm \
   CORAL_QWEN_GENERATION_SEED=42 \
   CORAL_QWEN_MAX_NEW_TOKENS=8 \
   CORAL_SIM_HOST_PAGING=1 \

@@ -698,3 +698,8 @@ Guest 校验链路返回。最终语义验收必须使用可信 reference provid
 GB10/SM121 上 FlashInfer sampler 的架构检查会在部分 wheel 组合中误报低于 sm75；vLLM
 reference provider 默认禁用该 sampler，并选择原生 sampler、`TRITON_ATTN` 和 eager
 执行，避免已知的 SM121 FlashInfer/CUDA graph 启动故障。
+
+GB10 已完成 vLLM reference 的 8-token 端到端验收：Guest 返回 token IDs 与 vLLM
+逐项一致，文本以 `Okay, the user mentioned ...` 开始，证明结果具有基本语义而非此前
+GPTQModel 的多语言碎片。real-weight runner 的默认 loader 因此切换为 `vllm`；
+Transformers/GPTQModel 仅保留为显式诊断选项。

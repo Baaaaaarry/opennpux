@@ -407,54 +407,63 @@ bool RunGem5RoutedGptqExperts(
     return false;
   }
   uint64_t output_count = 0;
-  uint64_t intermediate_count = 0;
-  if (!ProductSize(rows, parameters.output_features, 1, &output_count) ||
-      !ProductSize(rows, parameters.intermediate_features, 1,
-                   &intermediate_count) ||
-      output_count > output.size / sizeof(float) ||
-      intermediate_count > SIZE_MAX / sizeof(float)) {
+  uint64_t input_count = 0;
+  if (!ProductSize(rows, parameters.input_features, 1, &input_count) ||
+      !ProductSize(rows, parameters.output_features, 1, &output_count) ||
+      input_count > input.size / sizeof(float) ||
+      output_count > output.size / sizeof(float)) {
     return false;
   }
 
-  std::vector<float> gate(intermediate_count);
-  std::vector<float> up(intermediate_count);
-  std::vector<float> activated(intermediate_count);
-  std::vector<float> expert_output(output_count);
+  std::vector<float> gate(parameters.intermediate_features);
+  std::vector<float> up(parameters.intermediate_features);
+  std::vector<float> activated(parameters.intermediate_features);
+  std::vector<float> expert_output(parameters.output_features);
+  const auto* input_rows = static_cast<const float*>(input.data);
   auto* combined = static_cast<float*>(output.data);
   std::fill(combined, combined + output_count, 0.0f);
   *stats = {};
 
-  for (uint32_t route = 0; route < active_experts; ++route) {
-    if (!std::isfinite(route_weights[route])) {
-      return false;
-    }
-    Gem5GenericGptqWeights gate_weights = {};
-    Gem5GenericGptqWeights up_weights = {};
-    Gem5GenericGptqWeights down_weights = {};
-    if (!provider(provider_opaque, expert_ids[route], &gate_weights,
-                  &up_weights, &down_weights)) {
-      return false;
-    }
-    std::fill(expert_output.begin(), expert_output.end(), 0.0f);
-    const Gem5GenericGptqExpertOperands operands = {
-        input,
-        gate_weights,
-        up_weights,
-        down_weights,
-        {gate.data(), gate.size() * sizeof(float)},
-        {up.data(), up.size() * sizeof(float)},
-        {activated.data(), activated.size() * sizeof(float)},
-        {expert_output.data(), expert_output.size() * sizeof(float)},
-    };
-    Gem5GptqKernelStats expert_stats = {};
-    if (!RunGem5GenericGptqExpert(parameters, rows, operands, &expert_stats) ||
-        !AddStats(expert_stats, stats)) {
-      return false;
-    }
-    for (uint64_t index = 0; index < output_count; ++index) {
-      combined[index] += route_weights[route] * expert_output[index];
-      if (!std::isfinite(combined[index])) {
+  for (uint32_t row = 0; row < rows; ++row) {
+    for (uint32_t route = 0; route < active_experts; ++route) {
+      const uint64_t route_index =
+          static_cast<uint64_t>(row) * active_experts + route;
+      if (!std::isfinite(route_weights[route_index])) {
         return false;
+      }
+      Gem5GenericGptqWeights gate_weights = {};
+      Gem5GenericGptqWeights up_weights = {};
+      Gem5GenericGptqWeights down_weights = {};
+      if (!provider(provider_opaque, expert_ids[route_index], &gate_weights,
+                    &up_weights, &down_weights)) {
+        return false;
+      }
+      std::fill(expert_output.begin(), expert_output.end(), 0.0f);
+      const Gem5GenericGptqExpertOperands operands = {
+          {input_rows + static_cast<uint64_t>(row) * parameters.input_features,
+           parameters.input_features * sizeof(float)},
+          gate_weights,
+          up_weights,
+          down_weights,
+          {gate.data(), gate.size() * sizeof(float)},
+          {up.data(), up.size() * sizeof(float)},
+          {activated.data(), activated.size() * sizeof(float)},
+          {expert_output.data(), expert_output.size() * sizeof(float)},
+      };
+      Gem5GptqKernelStats expert_stats = {};
+      if (!RunGem5GenericGptqExpert(parameters, 1, operands, &expert_stats) ||
+          !AddStats(expert_stats, stats)) {
+        return false;
+      }
+      for (uint32_t column = 0; column < parameters.output_features;
+           ++column) {
+        const uint64_t output_index =
+            static_cast<uint64_t>(row) * parameters.output_features + column;
+        combined[output_index] +=
+            route_weights[route_index] * expert_output[column];
+        if (!std::isfinite(combined[output_index])) {
+          return false;
+        }
       }
     }
   }

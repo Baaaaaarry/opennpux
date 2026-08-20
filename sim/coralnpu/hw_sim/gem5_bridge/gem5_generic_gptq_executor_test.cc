@@ -274,6 +274,18 @@ int main() {
                    (0.25f * expert_output[1] +
                     0.75f * 2.0f * expert_output[1])) < 1e-6f);
   assert(stats.operations > 72);
+  const float two_row_input[] = {1.0f, 2.0f, 1.0f, 2.0f};
+  const uint64_t per_row_experts[] = {0, 1};
+  const float per_row_weights[] = {1.0f, 1.0f};
+  float two_row_output[4] = {};
+  assert(RunGem5RoutedGptqExperts(
+      expert_parameters, 2, {two_row_input, sizeof(two_row_input)},
+      per_row_experts, per_row_weights, 1, ProvideRoutedWeights,
+      &routed_weights, {two_row_output, sizeof(two_row_output)}, &stats));
+  assert(std::fabs(two_row_output[0] - expert_output[0]) < 1e-6f);
+  assert(std::fabs(two_row_output[1] - expert_output[1]) < 1e-6f);
+  assert(std::fabs(two_row_output[2] - 2.0f * expert_output[0]) < 1e-6f);
+  assert(std::fabs(two_row_output[3] - 2.0f * expert_output[1]) < 1e-6f);
   expert_parameters.intermediate_features = 0;
   assert(!RunGem5GenericGptqExpert(
       expert_parameters, 1, expert_operands, &stats));

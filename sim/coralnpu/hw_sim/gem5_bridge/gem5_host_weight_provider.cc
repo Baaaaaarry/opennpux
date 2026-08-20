@@ -22,6 +22,13 @@ Gem5GenericGptqWeights View(const OwnedWeights& weights) {
           {weights.components[3].data(), weights.components[3].size()}};
 }
 
+Gem5HostGptqWeights HostView(const OwnedWeights& weights) {
+  return {{weights.components[0].data(), weights.components[0].size()},
+          {weights.components[1].data(), weights.components[1].size()},
+          {weights.components[2].data(), weights.components[2].size()},
+          {weights.components[3].data(), weights.components[3].size()}};
+}
+
 float Float16ToFloat(uint16_t value) {
   const uint32_t sign = static_cast<uint32_t>(value & 0x8000) << 16;
   uint32_t exponent = (value >> 10) & 0x1f;
@@ -147,7 +154,7 @@ struct Gem5HostWeightProvider::Impl {
   std::string manifest_path;
   opennpux_model_package_info model = {};
   opennpux_npu_weight_ranges ranges = {};
-  OwnedWeights projection;
+  std::array<OwnedWeights, 3> projections;
   OwnedWeights gate;
   OwnedWeights up;
   OwnedWeights down;
@@ -187,7 +194,7 @@ void Gem5HostWeightProvider::Reset() {
   opennpux_npu_weight_ranges_unload(&impl_->ranges);
   impl_->manifest_path.clear();
   impl_->model = {};
-  impl_->projection = {};
+  impl_->projections = {};
   impl_->gate = {};
   impl_->up = {};
   impl_->down = {};
@@ -198,9 +205,17 @@ void Gem5HostWeightProvider::Reset() {
 
 bool Gem5HostWeightProvider::LoadProjection(
     uint32_t command_id, uint32_t role_id, uint64_t expert_id,
-    uint32_t slot_id, Gem5GenericGptqWeights* weights) {
-  return impl_->LoadGroup(command_id, role_id, expert_id, slot_id,
-                          &impl_->projection, weights);
+    uint32_t slot_id, Gem5HostGptqWeights* weights, uint32_t bank) {
+  if (weights == nullptr || bank >= impl_->projections.size()) {
+    return false;
+  }
+  Gem5GenericGptqWeights generic = {};
+  if (!impl_->LoadGroup(command_id, role_id, expert_id, slot_id,
+                        &impl_->projections[bank], &generic)) {
+    return false;
+  }
+  *weights = HostView(impl_->projections[bank]);
+  return true;
 }
 
 bool Gem5HostWeightProvider::LoadFloatWeight(

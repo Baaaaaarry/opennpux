@@ -1,6 +1,8 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
+#include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
 
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -21,7 +23,7 @@ const opennpux_npu_functional_operand* FindOperand(
 }  // namespace
 
 int main(int argc, char** argv) {
-  assert(argc == 3);
+  assert(argc == 5);
   opennpux_npu_executable executable = {};
   assert(opennpux_npu_executable_load(argv[1], &executable) == 0);
   opennpux_npu_tensor_binding bindings[5] = {};
@@ -89,7 +91,38 @@ int main(int argc, char** argv) {
   }
   assert(graph.stats().completed_commands == 1 &&
          graph.stats().operations == count);
+  uint32_t matmul_index = UINT32_MAX;
+  for (uint32_t index = 0; index < graph.command_count(); ++index) {
+    if (graph.command(index)->opcode == OPENNPUX_NPU_OP_MATMUL) {
+      matmul_index = index;
+      break;
+    }
+  }
+  assert(matmul_index != UINT32_MAX);
+  opennpux_npu_functional_request matmul = {};
+  assert(graph.Materialize(matmul_index, nullptr, 0, &matmul));
+  const auto* matmul_input = FindOperand(matmul, OPENNPUX_NPU_OPERAND_INPUT);
+  const auto* matmul_output = FindOperand(matmul, OPENNPUX_NPU_OPERAND_OUTPUT);
+  assert(matmul_input != nullptr && matmul_output != nullptr);
+  auto* matmul_input_data = reinterpret_cast<float*>(
+      graph.arena().Translate(matmul_input->address, matmul_input->byte_size));
+  auto* matmul_output_data = reinterpret_cast<float*>(
+      graph.arena().Translate(matmul_output->address, matmul_output->byte_size));
+  assert(matmul_input_data != nullptr && matmul_output_data != nullptr);
+  for (size_t index = 0; index < matmul_input->byte_size / sizeof(float);
+       ++index) {
+    matmul_input_data[index] = 1.0f;
+  }
+  Gem5HostWeightProvider weights;
+  assert(weights.Load(argv[3], argv[4], 4096));
+  assert(graph.ExecuteGptqQkv(matmul_index, &weights));
+  for (size_t index = 0; index < matmul_output->byte_size / sizeof(float);
+       ++index) {
+    assert(std::isfinite(matmul_output_data[index]));
+  }
+  assert(graph.stats().completed_commands == 2);
   std::printf("functional_graph_add_elements=%zu\n", count);
+  std::puts("functional_graph_gptq_projection=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

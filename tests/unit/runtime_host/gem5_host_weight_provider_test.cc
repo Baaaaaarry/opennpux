@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
     }
   }
   assert(q_command != UINT32_MAX);
-  Gem5GenericGptqWeights projection = {};
+  Gem5HostGptqWeights projection = {};
   assert(provider.LoadProjection(
       q_command, OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_Q_PROJ,
       OPENNPUX_NPU_WEIGHT_EXPERT_NONE, OPENNPUX_NPU_WEIGHT_SLOT_Q_PROJ,

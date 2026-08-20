@@ -10,6 +10,8 @@
 #include "hw_sim/gem5_bridge/gem5_generic_command_dispatch.h"
 #include "hw_sim/gem5_bridge/gem5_host_tensor_arena.h"
 
+class Gem5HostWeightProvider;
+
 struct Gem5HostFunctionalGraphStats {
   uint32_t completed_commands;
   uint64_t operations;
@@ -36,6 +38,12 @@ class Gem5HostFunctionalGraph {
       opennpux_npu_functional_request* request,
       const Gem5FunctionalMemoryRegion* extra_regions = nullptr,
       size_t extra_region_count = 0);
+  bool ExecuteGptqProjection(uint32_t command_index,
+                             Gem5HostWeightProvider* weights,
+                             uint32_t role_id, uint64_t expert_id,
+                             uint32_t slot_id);
+  bool ExecuteGptqQkv(uint32_t command_index,
+                      Gem5HostWeightProvider* weights);
   void ResetInvocation();
 
   uint32_t command_count() const {

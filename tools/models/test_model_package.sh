@@ -31,7 +31,16 @@ for name, tensors in (
         # 18 input columns at group size 128 all belong to group 0, so the
         # numerical reference can consume this g_idx instead of rejecting it.
         "model.language_model.layers.0.self_attn.q_proj.g_idx": bytes(72),
-        "model.language_model.layers.0.self_attn.k_proj.qweight": bytes(range(8)),
+        "model.language_model.layers.0.self_attn.k_proj.qweight": bytes(
+            index % 256 for index in range(144)),
+        "model.language_model.layers.0.self_attn.k_proj.qzeros": bytes(range(8)),
+        "model.language_model.layers.0.self_attn.k_proj.scales": bytes(range(24)),
+        "model.language_model.layers.0.self_attn.k_proj.g_idx": bytes(72),
+        "model.language_model.layers.0.self_attn.v_proj.qweight": bytes(
+            index % 256 for index in range(144)),
+        "model.language_model.layers.0.self_attn.v_proj.qzeros": bytes(range(8)),
+        "model.language_model.layers.0.self_attn.v_proj.scales": bytes(range(24)),
+        "model.language_model.layers.0.self_attn.v_proj.g_idx": bytes(72),
         "model.language_model.layers.0.self_attn.q_norm.weight": bytes(range(8)),
     }),
     ("model-00002-of-00002.safetensors", {
@@ -141,10 +150,10 @@ print("npu_weight_range_index=PASS")
 PY
 "${SCRIPT_DIR}/inspect_gptq_bindings.py" "${MODEL_DIR}/model.npxr" \
     | tee "${WORK_DIR}/gptq-bindings.log"
-grep -q '^gptq_binding_complete=4$' "${WORK_DIR}/gptq-bindings.log"
-grep -q '^gptq_binding_incomplete=3$' "${WORK_DIR}/gptq-bindings.log"
+grep -q '^gptq_binding_complete=6$' "${WORK_DIR}/gptq-bindings.log"
+grep -q '^gptq_binding_incomplete=2$' "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_duplicate=0$' "${WORK_DIR}/gptq-bindings.log"
-grep -q '^gptq_binding_scales_dtypes=float16:4$' \
+grep -q '^gptq_binding_scales_dtypes=float16:6$' \
     "${WORK_DIR}/gptq-bindings.log"
 "${SCRIPT_DIR}/materialize_gptq_projection.py" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/model.npxr" \
@@ -362,15 +371,19 @@ done
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_backend.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_generic_command_dispatch.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_tensor_arena.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_weight_provider.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_graph.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_graph_test.cc" \
     "${WORK_DIR}/npu_submission.o" \
     "${WORK_DIR}/npu_executable.o" \
     "${WORK_DIR}/npu_functional_materializer.o" \
     "${WORK_DIR}/npu_tensor_plan.o" \
+    "${WORK_DIR}/model_package.o" \
+    "${WORK_DIR}/npu_weight_ranges.o" \
     -o "${WORK_DIR}/gem5_host_functional_graph_test"
 "${WORK_DIR}/gem5_host_functional_graph_test" \
-    "${MODEL_DIR}/model.npxc" "${MODEL_DIR}/model.npxtb"
+    "${MODEL_DIR}/model.npxc" "${MODEL_DIR}/model.npxtb" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxr"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/npu_submission.c" \

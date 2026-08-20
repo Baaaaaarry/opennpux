@@ -25,7 +25,7 @@ main(int argc, char **argv)
     struct opennpux_npu_weight_ranges ranges;
     check(opennpux_npu_weight_ranges_load(argv[2], &ranges) == 0,
           "range index load failed");
-    check(ranges.header->range_count == 23, "range count mismatch");
+    check(ranges.header->range_count == 30, "range count mismatch");
     int found_expert = 0;
     for (uint32_t command = 0; command < ranges.header->command_count; ++command) {
         const struct opennpux_npu_weight_range_record *records;
@@ -73,9 +73,18 @@ main(int argc, char **argv)
               &ranges, q_projection_command,
               OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_K_PROJ,
               OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
-              OPENNPUX_NPU_WEIGHT_SLOT_K_PROJ, &gptq) != 0 &&
-              errno == ENOENT,
-          "incomplete GPTQ component set was accepted");
+              OPENNPUX_NPU_WEIGHT_SLOT_K_PROJ, &gptq) == 0 &&
+              gptq.qweight != NULL && gptq.qzeros != NULL &&
+              gptq.scales != NULL && gptq.g_idx != NULL,
+          "K projection GPTQ component set lookup failed");
+    check(opennpux_npu_weight_ranges_find_gptq(
+              &ranges, q_projection_command,
+              OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_V_PROJ,
+              OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
+              OPENNPUX_NPU_WEIGHT_SLOT_V_PROJ, &gptq) == 0 &&
+              gptq.qweight != NULL && gptq.qzeros != NULL &&
+              gptq.scales != NULL && gptq.g_idx != NULL,
+          "V projection GPTQ component set lookup failed");
     unsigned char sample[4];
     check(opennpux_model_package_read_shard_range(
               argv[1], &model, ranges.records[0].shard_index,

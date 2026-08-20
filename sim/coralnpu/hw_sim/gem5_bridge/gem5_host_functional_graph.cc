@@ -1,5 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
 
+#include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
+
 namespace {
 
 bool DecodeRuntime(const void* submission, size_t submission_size,
@@ -121,6 +123,114 @@ bool Gem5HostFunctionalGraph::Execute(
   stats_.bytes_read += request->bytes_read;
   stats_.bytes_written += request->bytes_written;
   return true;
+}
+
+bool Gem5HostFunctionalGraph::ExecuteGptqProjection(
+    uint32_t command_index, Gem5HostWeightProvider* weights,
+    uint32_t role_id, uint64_t expert_id, uint32_t slot_id) {
+  if (!configured_ || weights == nullptr) {
+    return false;
+  }
+  Gem5HostGptqWeights loaded = {};
+  if (!weights->LoadProjection(command_index, role_id, expert_id, slot_id,
+                               &loaded)) {
+    return false;
+  }
+  const Gem5HostConstBuffer components[] = {
+      loaded.qweight, loaded.qzeros, loaded.scales, loaded.g_idx};
+  const uint32_t roles[] = {
+      OPENNPUX_NPU_OPERAND_QWEIGHT, OPENNPUX_NPU_OPERAND_QZEROS,
+      OPENNPUX_NPU_OPERAND_SCALES, OPENNPUX_NPU_OPERAND_G_IDX};
+  opennpux_npu_functional_operand operands[4] = {};
+  Gem5FunctionalMemoryRegion regions[4] = {};
+  uint32_t count = 0;
+  uint64_t address = UINT32_C(0x50000000);
+  for (size_t index = 0; index < 4; ++index) {
+    if (components[index].data == nullptr || components[index].size == 0) {
+      continue;
+    }
+    address = (address + 63) & ~UINT64_C(63);
+    if (components[index].size > UINT32_MAX ||
+        address + components[index].size > (UINT64_C(1) << 32)) {
+      return false;
+    }
+    operands[count] = {roles[index], static_cast<uint32_t>(address),
+                       static_cast<uint32_t>(components[index].size), 0};
+    regions[count] = {
+        static_cast<uint32_t>(address),
+        const_cast<uint8_t*>(
+            static_cast<const uint8_t*>(components[index].data)),
+        components[index].size};
+    address += components[index].size;
+    ++count;
+  }
+  opennpux_npu_functional_request request = {};
+  return count >= 3 && Materialize(command_index, operands, count, &request) &&
+         Execute(&request, regions, count);
+}
+
+bool Gem5HostFunctionalGraph::ExecuteGptqQkv(
+    uint32_t command_index, Gem5HostWeightProvider* weights) {
+  if (!configured_ || weights == nullptr) {
+    return false;
+  }
+  const uint32_t semantic_roles[] = {
+      OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_Q_PROJ,
+      OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_K_PROJ,
+      OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_V_PROJ};
+  const uint32_t slots[] = {OPENNPUX_NPU_WEIGHT_SLOT_Q_PROJ,
+                            OPENNPUX_NPU_WEIGHT_SLOT_K_PROJ,
+                            OPENNPUX_NPU_WEIGHT_SLOT_V_PROJ};
+  const uint32_t operand_roles[][4] = {
+      {OPENNPUX_NPU_OPERAND_Q_QWEIGHT,
+       OPENNPUX_NPU_OPERAND_Q_QZEROS,
+       OPENNPUX_NPU_OPERAND_Q_SCALES, OPENNPUX_NPU_OPERAND_Q_G_IDX},
+      {OPENNPUX_NPU_OPERAND_K_QWEIGHT,
+       OPENNPUX_NPU_OPERAND_K_QZEROS,
+       OPENNPUX_NPU_OPERAND_K_SCALES, OPENNPUX_NPU_OPERAND_K_G_IDX},
+      {OPENNPUX_NPU_OPERAND_V_QWEIGHT,
+       OPENNPUX_NPU_OPERAND_V_QZEROS,
+       OPENNPUX_NPU_OPERAND_V_SCALES, OPENNPUX_NPU_OPERAND_V_G_IDX}};
+  Gem5HostGptqWeights loaded[3] = {};
+  opennpux_npu_functional_operand operands[12] = {};
+  Gem5FunctionalMemoryRegion regions[12] = {};
+  uint32_t count = 0;
+  uint64_t address = UINT32_C(0x50000000);
+  for (uint32_t projection = 0; projection < 3; ++projection) {
+    if (!weights->LoadProjection(
+            command_index, semantic_roles[projection],
+            OPENNPUX_NPU_WEIGHT_EXPERT_NONE, slots[projection],
+            &loaded[projection], projection)) {
+      return false;
+    }
+    const Gem5HostConstBuffer components[] = {
+        loaded[projection].qweight, loaded[projection].qzeros,
+        loaded[projection].scales, loaded[projection].g_idx};
+    for (uint32_t component = 0; component < 4; ++component) {
+      if (components[component].data == nullptr ||
+          components[component].size == 0) {
+        continue;
+      }
+      address = (address + 63) & ~UINT64_C(63);
+      if (components[component].size > UINT32_MAX ||
+          address + components[component].size > (UINT64_C(1) << 32)) {
+        return false;
+      }
+      operands[count] = {operand_roles[projection][component],
+                         static_cast<uint32_t>(address),
+                         static_cast<uint32_t>(components[component].size), 0};
+      regions[count] = {
+          static_cast<uint32_t>(address),
+          const_cast<uint8_t*>(static_cast<const uint8_t*>(
+              components[component].data)),
+          components[component].size};
+      address += components[component].size;
+      ++count;
+    }
+  }
+  opennpux_npu_functional_request request = {};
+  return count >= 9 && Materialize(command_index, operands, count, &request) &&
+         Execute(&request, regions, count);
 }
 
 const opennpux_npu_command* Gem5HostFunctionalGraph::command(

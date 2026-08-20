@@ -41,6 +41,10 @@ bool Gem5HostFunctionalBackend::Supports(uint32_t opcode) const {
     case OPENNPUX_NPU_OP_TOPK:
     case OPENNPUX_NPU_OP_ACTIVATION:
     case OPENNPUX_NPU_OP_EXPERT:
+    case OPENNPUX_NPU_OP_DMA:
+    case OPENNPUX_NPU_OP_ATTENTION:
+    case OPENNPUX_NPU_OP_RECURRENT_UPDATE:
+    case OPENNPUX_NPU_OP_COMBINE:
       return true;
     default:
       return false;
@@ -106,6 +110,22 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
     return result;
   }
 
+  if (request.opcode == OPENNPUX_NPU_OP_DMA) {
+    const bool success = RunGem5KvCacheUpdateF32(
+        request.input, request.secondary, request.rows, request.kv_heads,
+        request.head_dim, request.kv_length, request.output, &result.stats);
+    if (!success) result.status = Gem5HostFunctionalStatus::kExecutionError;
+    return result;
+  }
+  if (request.opcode == OPENNPUX_NPU_OP_ATTENTION) {
+    const bool success = RunGem5AttentionF32(
+        request.input, request.secondary, request.rows, request.heads,
+        request.kv_heads, request.head_dim, request.kv_length, request.output,
+        &result.stats);
+    if (!success) result.status = Gem5HostFunctionalStatus::kExecutionError;
+    return result;
+  }
+
   size_t count = 0;
   if (!ElementCount(request, &count) || request.input == nullptr ||
       request.output == nullptr) {
@@ -148,6 +168,15 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
     case OPENNPUX_NPU_OP_ACTIVATION:
       success = RunGem5SiluF32(request.input, count, request.output,
                                &result.stats);
+      break;
+    case OPENNPUX_NPU_OP_RECURRENT_UPDATE:
+      success = RunGem5RecurrentUpdateF32(
+          request.input, count, request.output, request.output_secondary,
+          &result.stats);
+      break;
+    case OPENNPUX_NPU_OP_COMBINE:
+      success = RunGem5CombineF32(request.input, request.secondary, count,
+                                  request.output, &result.stats);
       break;
     default:
       return Result(Gem5HostFunctionalStatus::kUnsupported);

@@ -111,13 +111,34 @@ opennpux_npu_functional_request_materialize(
     request->parameter_size = sizeof(*parameters);
     request->heads = parameters->head_count;
     request->head_dim = parameters->head_dim;
-    request->top_k = parameters->output_features;
+    request->kv_heads = parameters->kv_head_count;
     request->vocabulary_size = parameters->input_features;
     request->epsilon = 1.0e-5f;
     request->rope_theta = 10000.0f;
-    if (derive_shape(&views->outputs[0], &request->rows,
+    const struct opennpux_npu_tensor_view *shape_view =
+        command->opcode == OPENNPUX_NPU_OP_DMA ? &views->inputs[0] :
+        &views->outputs[0];
+    if (derive_shape(shape_view, &request->rows,
                      &request->features) != 0) {
         return -1;
+    }
+    if (command->opcode == OPENNPUX_NPU_OP_TOPK ||
+        command->opcode == OPENNPUX_NPU_OP_ROUTER) {
+        request->top_k = views->outputs[0].dimensions[
+            views->outputs[0].rank - 1];
+    }
+    if (command->opcode == OPENNPUX_NPU_OP_DMA) {
+        if (views->outputs[0].rank != 5 ||
+            views->outputs[0].dimensions[0] != 2) {
+            errno = EINVAL;
+            return -1;
+        }
+        request->kv_length = views->outputs[0].dimensions[2];
+        request->kv_heads = views->outputs[0].dimensions[3];
+    } else if (command->opcode == OPENNPUX_NPU_OP_ATTENTION &&
+               views->inputs[1].rank == 5) {
+        request->kv_length = views->inputs[1].dimensions[2];
+        request->kv_heads = views->inputs[1].dimensions[3];
     }
 
     for (uint32_t index = 0; index < views->input_count; ++index) {

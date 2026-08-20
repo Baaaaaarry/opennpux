@@ -465,7 +465,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
                 raise ValueError(f"command {command_id} has no K/V tensors")
             state = tensor(
                 f"{prefix}.kv_cache", "persistent",
-                ["runtime.batch", "runtime.kv", kv_heads, head_dim], command_id,
+                [2, "runtime.batch", "runtime.kv", kv_heads, head_dim], command_id,
             )
             emit(command, [key_tensor, value_tensor], [state])
             continue

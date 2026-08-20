@@ -4,9 +4,9 @@
 #include <stdint.h>
 
 #define OPENNPUX_NPU_FUNCTIONAL_MAGIC UINT32_C(0x4658504e)
-#define OPENNPUX_NPU_FUNCTIONAL_VERSION UINT32_C(1)
+#define OPENNPUX_NPU_FUNCTIONAL_VERSION UINT32_C(2)
 #define OPENNPUX_NPU_FUNCTIONAL_MAX_OPERANDS UINT32_C(20)
-#define OPENNPUX_NPU_FUNCTIONAL_REQUEST_SIZE UINT32_C(424)
+#define OPENNPUX_NPU_FUNCTIONAL_REQUEST_SIZE UINT32_C(432)
 
 enum opennpux_npu_functional_operand_role {
     OPENNPUX_NPU_OPERAND_INPUT = 1,
@@ -68,6 +68,8 @@ struct opennpux_npu_functional_request {
     uint32_t head_dim;
     uint32_t top_k;
     uint32_t vocabulary_size;
+    uint32_t kv_heads;
+    uint32_t kv_length;
     float epsilon;
     float rope_theta;
     struct opennpux_npu_functional_operand

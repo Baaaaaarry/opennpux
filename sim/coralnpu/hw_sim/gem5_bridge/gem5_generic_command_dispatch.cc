@@ -87,6 +87,9 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
   const auto secondary = ConstBuffer(
       *request, OPENNPUX_NPU_OPERAND_SECONDARY, extmem, extmem_base,
       extmem_size);
+  const auto tertiary = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY, extmem, extmem_base,
+      extmem_size);
   const auto weight = ConstBuffer(*request, OPENNPUX_NPU_OPERAND_WEIGHT,
                                   extmem, extmem_base, extmem_size);
   const auto positions = ConstBuffer(
@@ -96,6 +99,12 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
                                     extmem, extmem_base, extmem_size);
   const auto output_indices = MutableBuffer(
       *request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES, extmem, extmem_base,
+      extmem_size);
+  const auto output_secondary = MutableBuffer(
+      *request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY, extmem, extmem_base,
+      extmem_size);
+  const auto output_tertiary = MutableBuffer(
+      *request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY, extmem, extmem_base,
       extmem_size);
   if ((request->opcode == OPENNPUX_NPU_OP_EMBED ?
            !Required(input_indices) : !Required(input)) ||
@@ -125,17 +134,22 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
   host.input = static_cast<const float*>(input.data);
   host.input_indices = static_cast<const uint32_t*>(input_indices.data);
   host.secondary = static_cast<const float*>(secondary.data);
+  host.tertiary = static_cast<const float*>(tertiary.data);
   host.weight = static_cast<const float*>(weight.data);
   host.positions = static_cast<const uint32_t*>(positions.data);
   host.rows = request->rows;
   host.features = request->features;
   host.heads = request->heads;
   host.head_dim = request->head_dim;
+  host.kv_heads = request->kv_heads;
+  host.kv_length = request->kv_length;
   host.top_k = request->top_k;
   host.vocabulary_size = request->vocabulary_size;
   host.epsilon = request->epsilon;
   host.rope_theta = request->rope_theta;
   host.output = static_cast<float*>(output.data);
+  host.output_secondary = static_cast<float*>(output_secondary.data);
+  host.output_tertiary = static_cast<float*>(output_tertiary.data);
   host.output_indices = static_cast<uint32_t*>(output_indices.data);
   host.operator_parameters = parameters;
   host.gptq_operands = &gptq;

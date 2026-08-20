@@ -12,7 +12,7 @@ int main() {
   assert(backend.Supports(OPENNPUX_NPU_OP_EMBED));
   assert(backend.Supports(OPENNPUX_NPU_OP_MATMUL));
   assert(backend.Supports(OPENNPUX_NPU_OP_NORMALIZE));
-  assert(!backend.Supports(OPENNPUX_NPU_OP_ATTENTION));
+  assert(backend.Supports(OPENNPUX_NPU_OP_ATTENTION));
 
   const float input[] = {3.0f, 4.0f};
   const float weight[] = {1.0f, 2.0f};
@@ -45,10 +45,24 @@ int main() {
   assert(result.status == Gem5HostFunctionalStatus::kComplete);
   assert(embedding_output[0] == 3.0f && embedding_output[1] == 4.0f);
 
+  const float attention_state[] = {
+      1.0f, 0.0f, 0.0f, 1.0f,
+      2.0f, 0.0f, 0.0f, 4.0f,
+  };
+  request = {};
   request.opcode = OPENNPUX_NPU_OP_ATTENTION;
+  request.input = input;
+  request.secondary = attention_state;
+  request.rows = 1;
+  request.features = 2;
+  request.heads = 1;
+  request.kv_heads = 1;
+  request.head_dim = 2;
+  request.kv_length = 2;
+  request.output = output;
   result = backend.Execute(request);
-  assert(result.status == Gem5HostFunctionalStatus::kUnsupported);
-  assert(result.stats.operations == 0);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(result.stats.operations != 0);
 
   request.opcode = OPENNPUX_NPU_OP_ADD;
   request.input = input;

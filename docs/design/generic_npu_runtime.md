@@ -413,6 +413,15 @@ into one output. `opennpux_npu_functional_program` iterates a validated
 submission and relocates each operator parameter block from the submission's
 device address. A build-time ABI probe rejects drift between the Linux runtime
 header and the mirrored Coral bridge header before Verilator compilation.
+The first stateful numerical kernels now share that request contract. KV cache
+storage is explicitly `[K/V, batch, kv, kv_heads, head_dim]`; the update kernel
+appends both planes, and the attention kernel performs grouped-query head
+mapping, scaled score/softmax and value reduction. Recurrent update and MoE
+combine also produce real output/state tensors. These paths execute on the
+simulation host but consume the same tensor addresses and report the same
+operation/byte/cycle statistics as future RTL engines. Fused QKV still requires
+three separately bound projection weight sets and is intentionally not treated
+as a valid single-output MatMul.
 
 The first data-plane probe stages one 4KiB page from the model weight source
 behind binding 2. Weight-consuming command classes sample the page through the

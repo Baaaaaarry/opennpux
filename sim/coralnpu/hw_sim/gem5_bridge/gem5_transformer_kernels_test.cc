@@ -94,6 +94,28 @@ int main() {
   assert(top_indices[0] == 1 && top_indices[1] == 2);
   assert(top_values[0] == 3.0f && top_values[1] == 3.0f);
 
+  const float key[] = {1.0f, 0.0f, 0.0f, 1.0f};
+  const float value[] = {2.0f, 0.0f, 0.0f, 4.0f};
+  float kv_state[8] = {};
+  assert(RunGem5KvCacheUpdateF32(key, value, 2, 1, 2, 2, kv_state,
+                                 &stats));
+  assert(kv_state[0] == 1.0f && kv_state[3] == 1.0f &&
+         kv_state[4] == 2.0f && kv_state[7] == 4.0f);
+  const float query[] = {1.0f, 0.0f};
+  float attention_output[2] = {};
+  assert(RunGem5AttentionF32(query, kv_state, 1, 1, 1, 2, 2,
+                             attention_output, &stats));
+  assert(attention_output[0] > 1.0f && attention_output[0] < 2.0f);
+  assert(attention_output[1] > 0.0f && attention_output[1] < 2.0f);
+
+  float recurrent_output[3] = {};
+  float recurrent_state[3] = {};
+  assert(RunGem5RecurrentUpdateF32(lhs, 3, recurrent_output,
+                                   recurrent_state, &stats));
+  assert(recurrent_output[2] == 3.0f && recurrent_state[1] == -2.0f);
+  assert(RunGem5CombineF32(lhs, rhs, 3, recurrent_output, &stats));
+  assert(recurrent_output[0] == 5.0f && recurrent_output[2] == -3.0f);
+
   assert(!RunGem5RmsNormF32(norm_input, norm_weight, 0, 2, 0.0f,
                             norm_output, &stats));
   assert(!RunGem5RopeF32(rope_input, positions, 2, 1, 3, 10000.0f,

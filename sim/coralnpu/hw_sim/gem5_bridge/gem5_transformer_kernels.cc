@@ -278,3 +278,102 @@ bool RunGem5TopKF32(const float* input, size_t count, size_t k,
       DivCeil(stats->bytes_read + stats->bytes_written, kBytesPerCycle));
   return true;
 }
+
+bool RunGem5KvCacheUpdateF32(
+    const float* key, const float* value, size_t token_count,
+    size_t kv_heads, size_t head_dim, size_t kv_length, float* state,
+    Gem5TransformerKernelStats* stats) {
+  size_t token_elements = 0;
+  size_t plane_elements = 0;
+  if (!ProductFits(kv_heads, head_dim, &token_elements) ||
+      !ProductFits(kv_length, token_elements, &plane_elements) ||
+      key == nullptr || value == nullptr || state == nullptr ||
+      token_count == 0 || token_count > kv_length || stats == nullptr) {
+    return false;
+  }
+  const size_t destination = (kv_length - token_count) * token_elements;
+  const size_t copy_elements = token_count * token_elements;
+  std::copy_n(key, copy_elements, state + destination);
+  std::copy_n(value, copy_elements, state + plane_elements + destination);
+  return FinishStats(copy_elements * 2, copy_elements * 2,
+                     copy_elements * 2, stats);
+}
+
+bool RunGem5AttentionF32(
+    const float* query, const float* state, size_t query_rows,
+    size_t heads, size_t kv_heads, size_t head_dim, size_t kv_length,
+    float* output, Gem5TransformerKernelStats* stats) {
+  size_t query_features = 0;
+  size_t kv_features = 0;
+  size_t query_elements = 0;
+  size_t plane_elements = 0;
+  if (!ProductFits(heads, head_dim, &query_features) ||
+      !ProductFits(kv_heads, head_dim, &kv_features) ||
+      !ProductFits(query_rows, query_features, &query_elements) ||
+      !ProductFits(kv_length, kv_features, &plane_elements) ||
+      query == nullptr || state == nullptr || output == nullptr ||
+      stats == nullptr || heads == 0 || kv_heads == 0 || head_dim == 0 ||
+      kv_length == 0) {
+    return false;
+  }
+  const float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
+  std::vector<float> scores(kv_length);
+  const float* keys = state;
+  const float* values = state + plane_elements;
+  for (size_t row = 0; row < query_rows; ++row) {
+    for (size_t head = 0; head < heads; ++head) {
+      const size_t kv_head = head % kv_heads;
+      const float* q = query + row * query_features + head * head_dim;
+      float maximum = -std::numeric_limits<float>::infinity();
+      for (size_t position = 0; position < kv_length; ++position) {
+        const float* k = keys + position * kv_features + kv_head * head_dim;
+        float score = 0.0f;
+        for (size_t column = 0; column < head_dim; ++column) {
+          score += q[column] * k[column];
+        }
+        scores[position] = score * scale;
+        maximum = std::max(maximum, scores[position]);
+      }
+      float sum = 0.0f;
+      for (float& score : scores) {
+        score = std::exp(score - maximum);
+        sum += score;
+      }
+      if (!(sum > 0.0f) || !std::isfinite(sum)) {
+        return false;
+      }
+      float* destination =
+          output + row * query_features + head * head_dim;
+      std::fill_n(destination, head_dim, 0.0f);
+      for (size_t position = 0; position < kv_length; ++position) {
+        const float probability = scores[position] / sum;
+        const float* v =
+            values + position * kv_features + kv_head * head_dim;
+        for (size_t column = 0; column < head_dim; ++column) {
+          destination[column] += probability * v[column];
+        }
+      }
+    }
+  }
+  const uint64_t operations = static_cast<uint64_t>(query_rows) * heads *
+      kv_length * head_dim * 4;
+  return FinishStats(operations, query_elements + plane_elements * 2,
+                     query_elements, stats);
+}
+
+bool RunGem5RecurrentUpdateF32(
+    const float* input, size_t count, float* output, float* state,
+    Gem5TransformerKernelStats* stats) {
+  if (!ValidBuffers(input, count, output, stats) || state == nullptr) {
+    return false;
+  }
+  std::copy_n(input, count, output);
+  std::copy_n(input, count, state);
+  return FinishStats(count * 2, count, count * 2, stats);
+}
+
+bool RunGem5CombineF32(
+    const float* routed, const float* shared, size_t count, float* output,
+    Gem5TransformerKernelStats* stats) {
+  return RunGem5AddF32(routed, shared, count, output, stats);
+}

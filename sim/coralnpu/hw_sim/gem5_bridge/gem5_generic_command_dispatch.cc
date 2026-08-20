@@ -81,6 +81,9 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
 
   const auto input = ConstBuffer(*request, OPENNPUX_NPU_OPERAND_INPUT,
                                  extmem, extmem_base, extmem_size);
+  const auto input_indices = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_INPUT_INDICES, extmem, extmem_base,
+      extmem_size);
   const auto secondary = ConstBuffer(
       *request, OPENNPUX_NPU_OPERAND_SECONDARY, extmem, extmem_base,
       extmem_size);
@@ -94,7 +97,9 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
   const auto output_indices = MutableBuffer(
       *request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES, extmem, extmem_base,
       extmem_size);
-  if (!Required(input) || output.data == nullptr || output.size == 0) {
+  if ((request->opcode == OPENNPUX_NPU_OP_EMBED ?
+           !Required(input_indices) : !Required(input)) ||
+      output.data == nullptr || output.size == 0) {
     descriptor->error = CORAL_OPERATOR_ERROR_ADDRESS;
     return false;
   }
@@ -118,6 +123,7 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
   Gem5HostFunctionalRequest host = {};
   host.opcode = request->opcode;
   host.input = static_cast<const float*>(input.data);
+  host.input_indices = static_cast<const uint32_t*>(input_indices.data);
   host.secondary = static_cast<const float*>(secondary.data);
   host.weight = static_cast<const float*>(weight.data);
   host.positions = static_cast<const uint32_t*>(positions.data);
@@ -126,6 +132,7 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
   host.heads = request->heads;
   host.head_dim = request->head_dim;
   host.top_k = request->top_k;
+  host.vocabulary_size = request->vocabulary_size;
   host.epsilon = request->epsilon;
   host.rope_theta = request->rope_theta;
   host.output = static_cast<float*>(output.data);

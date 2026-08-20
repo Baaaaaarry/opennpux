@@ -1,0 +1,57 @@
+#!/bin/sh
+
+mkdir -p /proc /sys /tmp /dev
+[ -r /proc/mounts ] || mount -t proc proc /proc 2>/dev/null || true
+
+NPU_BASE=0x1D000000
+CORALCTL=/tmp/coralctl
+MODULE=/tmp/opennpux_coral.ko
+
+fail() {
+    echo "[coral-qwen-command-flow-test] FAIL: $*"
+    command -v m5 >/dev/null 2>&1 && m5 --inst exit
+    exit 1
+}
+
+echo "[coral-qwen-command-flow-test] started"
+[ -f /tmp/coralnpu-baseline-preload.ready ] || fail "stale checkpoint"
+[ -x "${CORALCTL}" ] || fail "coralctl missing"
+[ -f "${MODULE}" ] || fail "kernel module missing"
+[ -x /tmp/busybox ] || fail "BusyBox missing"
+
+if [ ! -c /dev/opennpux-coral ]; then
+    /tmp/busybox insmod "${MODULE}" 2>/tmp/opennpux-coral-insmod.err || true
+fi
+[ -c /dev/opennpux-coral ] ||
+    fail "/dev/opennpux-coral missing"
+
+OUTPUT="$(OPENNPUX_CORAL_TRANSPORT=driver \
+    "${CORALCTL}" generic-test "${NPU_BASE}" 1000000)" || {
+    printf '%s\n' "${OUTPUT}"
+    fail "Qwen generic command firmware failed"
+}
+printf '%s\n' "${OUTPUT}"
+
+has_output_line() {
+    expected="$1"
+    while IFS= read -r line; do
+        case "${line}" in
+            "${expected}"*) return 0 ;;
+        esac
+    done <<EOF
+${OUTPUT}
+EOF
+    return 1
+}
+
+has_output_line 'generic_output=9,5,' ||
+    fail "nine-operator chain produced an unexpected TopK result"
+has_output_line 'generic_test=PASS' || fail "missing runtime PASS"
+
+echo "qwen_command_flow_operators=9"
+echo "qwen_command_flow=PASS"
+# Keep the common host wrapper's terminal verdict stable.
+echo "npu_launch_test=PASS"
+echo "[coral-qwen-command-flow-test] PASS"
+command -v m5 >/dev/null 2>&1 && m5 --inst exit
+exit 0

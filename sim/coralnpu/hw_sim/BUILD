@@ -552,3 +552,19 @@ coralnpu_v2_binary(
     stack_size_bytes = 4096,
     visibility = ["//visibility:public"],
 )
+
+coralnpu_v2_binary(
+    name = "gem5_qwen_command_flow_smoke",
+    srcs = [
+        "gem5_bridge/coral_generic_test.h",
+        "gem5_bridge/coral_operator.h",
+        "gem5_bridge/coral_operator_client.h",
+        "gem5_bridge/gem5_qwen_command_flow_smoke.cc",
+        "gem5_bridge/npu_functional_request.h",
+        "gem5_bridge/npu_submission.h",
+    ],
+    dtcm_size_kbytes = 64,
+    itcm_size_kbytes = 64,
+    stack_size_bytes = 4096,
+    visibility = ["//visibility:public"],
+)

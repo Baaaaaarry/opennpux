@@ -15,6 +15,32 @@ bool Near(float actual, float expected, float tolerance = 1.0e-5f) {
 int main() {
   Gem5TransformerKernelStats stats = {};
 
+  const uint32_t token_ids[] = {2, 0};
+  const float embedding_table[] = {
+      1.0f, 2.0f, 3.0f,
+      4.0f, 5.0f, 6.0f,
+      7.0f, 8.0f, 9.0f,
+  };
+  float embeddings[6] = {};
+  assert(RunGem5EmbeddingF32(token_ids, 2, embedding_table, 3, 3,
+                             embeddings, &stats));
+  assert(embeddings[0] == 7.0f && embeddings[2] == 9.0f &&
+         embeddings[3] == 1.0f && embeddings[5] == 3.0f);
+  assert(stats.operations == 6 && stats.bytes_written == sizeof(embeddings));
+
+  const float matmul_input[] = {1.0f, 2.0f, 3.0f,
+                                4.0f, 5.0f, 6.0f};
+  const float matmul_weight[] = {1.0f, 2.0f,
+                                 3.0f, 4.0f,
+                                 5.0f, 6.0f};
+  float matmul_output[4] = {};
+  assert(RunGem5MatMulF32(matmul_input, matmul_weight, 2, 3, 2,
+                          matmul_output, &stats));
+  assert(matmul_output[0] == 22.0f && matmul_output[1] == 28.0f &&
+         matmul_output[2] == 49.0f && matmul_output[3] == 64.0f);
+  assert(stats.operations == 24 &&
+         stats.bytes_written == sizeof(matmul_output));
+
   const float lhs[] = {1.0f, -2.0f, 3.0f};
   const float rhs[] = {4.0f, 5.0f, -6.0f};
   float elementwise[3] = {};
@@ -73,6 +99,11 @@ int main() {
   assert(!RunGem5RopeF32(rope_input, positions, 2, 1, 3, 10000.0f,
                          rope_output, &stats));
   assert(!RunGem5TopKF32(logits, 4, 5, top_values, top_indices, &stats));
+  const uint32_t invalid_token[] = {3};
+  assert(!RunGem5EmbeddingF32(invalid_token, 1, embedding_table, 3, 3,
+                              embeddings, &stats));
+  assert(!RunGem5MatMulF32(matmul_input, matmul_weight, 0, 3, 2,
+                           matmul_output, &stats));
 
   std::puts("gem5_transformer_kernels=PASS");
   return 0;

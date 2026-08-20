@@ -6,7 +6,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 BRIDGE="${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_rvv_highmem_bridge.so"
 FIRMWARE="${CORAL_NPU_LAUNCH_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_npu_launch_smoke.elf}"
-TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-npu-launch-test.rcS"
+TEST_SCRIPT="${CORAL_NPU_LAUNCH_TEST_SCRIPT:-${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-npu-launch-test.rcS}"
 HOST_LOG="${CORAL_NPU_LAUNCH_HOST_LOG:-${ROOT_DIR}/simout/coral-npu-launch-host.log}"
 DEBUG_LOG="${CORAL_NPU_LAUNCH_DEBUG_LOG:-${ROOT_DIR}/simout/coral-npu-launch.debug}"
 CKPT_ROOT="${CORAL_NPU_LAUNCH_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_mobilenet_ckpt}"
@@ -92,6 +92,12 @@ if [ -n "${CORAL_NPU_LAUNCH_EXPECTED_OPCODE:-}" ]; then
         exit 1
     }
 fi
+for opcode in ${CORAL_NPU_LAUNCH_EXPECTED_OPCODES:-}; do
+    grep -q "generic_opcode=${opcode} " "${HOST_LOG}" || {
+        echo "error: expected generic opcode was not executed: ${opcode}" >&2
+        exit 1
+    }
+done
 
 # gem5term records CRLF on some hosts. Also tolerate the legacy output
 # locations used before run_multicore.sh standardized logs/sim/m5out.

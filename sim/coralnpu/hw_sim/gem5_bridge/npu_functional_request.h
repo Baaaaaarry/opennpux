@@ -33,6 +33,7 @@ enum opennpux_npu_functional_operand_role {
     OPENNPUX_NPU_OPERAND_GATE_OUTPUT = 23,
     OPENNPUX_NPU_OPERAND_UP_OUTPUT = 24,
     OPENNPUX_NPU_OPERAND_ACTIVATED = 25,
+    OPENNPUX_NPU_OPERAND_INPUT_INDICES = 26,
 };
 
 struct opennpux_npu_functional_operand {
@@ -61,7 +62,7 @@ struct opennpux_npu_functional_request {
     uint32_t heads;
     uint32_t head_dim;
     uint32_t top_k;
-    uint32_t reserved0;
+    uint32_t vocabulary_size;
     float epsilon;
     float rope_theta;
     struct opennpux_npu_functional_operand

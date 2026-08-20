@@ -155,6 +155,7 @@ Gem5CommandEngine Gem5CoprocessorCommandAdapter::OperatorEngine(
       case OPENNPUX_NPU_OP_ACTIVATION:
         return Gem5CommandEngine::kSfu;
       case OPENNPUX_NPU_OP_ADD:
+      case OPENNPUX_NPU_OP_EMBED:
       case OPENNPUX_NPU_OP_MUL:
       case OPENNPUX_NPU_OP_NORMALIZE:
       case OPENNPUX_NPU_OP_ROPE:
@@ -215,6 +216,10 @@ bool Gem5CoprocessorCommandAdapter::DecodeOperator(
     command.submission_tag = submission_tag;
     command.descriptor_address = descriptor_address;
     command.operator_opcode = descriptor.opcode;
+    command.generic_opcode =
+        descriptor.opcode == CORAL_OPERATOR_OP_GENERIC_COMMAND
+            ? descriptor.reserved[0]
+            : 0;
     command.dependency_mask =
         i == 0 ? 0 : (UINT64_C(1) << previous_id);
     command.latency_cycles = CommandLatency(descriptor, opcodes[i]);

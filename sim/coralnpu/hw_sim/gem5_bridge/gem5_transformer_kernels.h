@@ -11,6 +11,15 @@ struct Gem5TransformerKernelStats {
   uint64_t modeled_cycles;
 };
 
+bool RunGem5EmbeddingF32(const uint32_t* token_ids, size_t token_count,
+                         const float* table, size_t vocabulary_size,
+                         size_t features, float* output,
+                         Gem5TransformerKernelStats* stats);
+
+bool RunGem5MatMulF32(const float* input, const float* weight, size_t rows,
+                      size_t input_features, size_t output_features,
+                      float* output, Gem5TransformerKernelStats* stats);
+
 bool RunGem5AddF32(const float* lhs, const float* rhs, size_t count,
                    float* output, Gem5TransformerKernelStats* stats);
 

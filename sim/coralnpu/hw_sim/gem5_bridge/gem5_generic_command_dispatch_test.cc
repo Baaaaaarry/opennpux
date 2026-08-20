@@ -134,6 +134,84 @@ void TestGptqMatMul() {
   assert(request->operation_count == 4);
 }
 
+void TestEmbedding() {
+  std::vector<uint8_t> memory(4096);
+  constexpr uint32_t kRequest = 64;
+  constexpr uint32_t kTokenIds = 1024;
+  constexpr uint32_t kTable = 1056;
+  constexpr uint32_t kOutput = 1120;
+  auto* request = At<opennpux_npu_functional_request>(&memory, kRequest);
+  *request = {};
+  request->magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  request->version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  request->struct_size = sizeof(*request);
+  request->opcode = OPENNPUX_NPU_OP_EMBED;
+  request->rows = 2;
+  request->features = 2;
+  request->vocabulary_size = 3;
+  AddOperand(request, OPENNPUX_NPU_OPERAND_INPUT_INDICES, kTokenIds,
+             2 * sizeof(uint32_t));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_WEIGHT, kTable,
+             6 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT, kOutput,
+             4 * sizeof(float));
+  const uint32_t token_ids[] = {2, 0};
+  const float table[] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  std::memcpy(memory.data() + kTokenIds, token_ids, sizeof(token_ids));
+  std::memcpy(memory.data() + kTable, table, sizeof(table));
+
+  auto descriptor = Descriptor(kRequest, OPENNPUX_NPU_OP_EMBED);
+  assert(DispatchGem5GenericCommand(&descriptor, memory.data(), kBase,
+                                    memory.size()));
+  const float* output = At<float>(&memory, kOutput);
+  assert(output[0] == 5.0f && output[1] == 6.0f &&
+         output[2] == 1.0f && output[3] == 2.0f);
+  assert(request->operation_count == 4);
+}
+
+void TestDenseMatMul() {
+  std::vector<uint8_t> memory(4096);
+  constexpr uint32_t kRequest = 64;
+  constexpr uint32_t kParameters = 768;
+  constexpr uint32_t kInput = 1024;
+  constexpr uint32_t kWeight = 1056;
+  constexpr uint32_t kOutput = 1120;
+  auto* request = At<opennpux_npu_functional_request>(&memory, kRequest);
+  *request = {};
+  request->magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  request->version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  request->struct_size = sizeof(*request);
+  request->opcode = OPENNPUX_NPU_OP_MATMUL;
+  request->rows = 1;
+  request->parameter_address = kBase + kParameters;
+  request->parameter_size = sizeof(opennpux_npu_operator_parameters);
+  AddOperand(request, OPENNPUX_NPU_OPERAND_INPUT, kInput, 2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_WEIGHT, kWeight,
+             4 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT, kOutput,
+             2 * sizeof(float));
+
+  auto* parameters = At<opennpux_npu_operator_parameters>(&memory, kParameters);
+  *parameters = {};
+  parameters->magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  parameters->version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  parameters->struct_size = sizeof(*parameters);
+  parameters->opcode = OPENNPUX_NPU_OP_MATMUL;
+  parameters->input_features = 2;
+  parameters->output_features = 2;
+  const float input[] = {2.0f, 3.0f};
+  const float weight[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::memcpy(memory.data() + kInput, input, sizeof(input));
+  std::memcpy(memory.data() + kWeight, weight, sizeof(weight));
+
+  auto descriptor = Descriptor(kRequest, OPENNPUX_NPU_OP_MATMUL);
+  assert(DispatchGem5GenericCommand(&descriptor, memory.data(), kBase,
+                                    memory.size()));
+  const float* output = At<float>(&memory, kOutput);
+  assert(output[0] == 11.0f && output[1] == 16.0f);
+  assert(request->operation_count == 8);
+}
+
 void TestRejectsOpcodeMismatch() {
   std::vector<uint8_t> memory(1024);
   constexpr uint32_t kRequest = 64;
@@ -153,6 +231,8 @@ void TestRejectsOpcodeMismatch() {
 
 int main() {
   TestAdd();
+  TestEmbedding();
+  TestDenseMatMul();
   TestGptqMatMul();
   TestRejectsOpcodeMismatch();
   std::puts("gem5_generic_command_dispatch=PASS");

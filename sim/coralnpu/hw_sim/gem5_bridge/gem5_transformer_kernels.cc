@@ -40,12 +40,86 @@ bool FinishStats(uint64_t operations, uint64_t elements_read,
   return true;
 }
 
+bool FinishByteStats(uint64_t operations, uint64_t bytes_read,
+                     uint64_t bytes_written,
+                     Gem5TransformerKernelStats* stats) {
+  if (stats == nullptr) {
+    return false;
+  }
+  stats->operations = operations;
+  stats->bytes_read = bytes_read;
+  stats->bytes_written = bytes_written;
+  stats->modeled_cycles = std::max<uint64_t>(
+      DivCeil(operations, kOperationsPerCycle),
+      DivCeil(bytes_read + bytes_written, kBytesPerCycle));
+  return true;
+}
+
 bool ValidBuffers(const float* input, size_t count, float* output,
                   Gem5TransformerKernelStats* stats) {
   return input != nullptr && count != 0 && output != nullptr && stats != nullptr;
 }
 
 }  // namespace
+
+bool RunGem5EmbeddingF32(const uint32_t* token_ids, size_t token_count,
+                         const float* table, size_t vocabulary_size,
+                         size_t features, float* output,
+                         Gem5TransformerKernelStats* stats) {
+  size_t output_elements = 0;
+  size_t table_elements = 0;
+  if (token_ids == nullptr || token_count == 0 || table == nullptr ||
+      vocabulary_size == 0 || features == 0 || output == nullptr ||
+      stats == nullptr ||
+      !ProductFits(token_count, features, &output_elements) ||
+      !ProductFits(vocabulary_size, features, &table_elements) ||
+      output_elements > UINT64_MAX / sizeof(float) ||
+      token_count > UINT64_MAX / sizeof(uint32_t)) {
+    return false;
+  }
+  for (size_t token = 0; token < token_count; ++token) {
+    if (token_ids[token] >= vocabulary_size) {
+      return false;
+    }
+    std::copy_n(table + static_cast<size_t>(token_ids[token]) * features,
+                features, output + token * features);
+  }
+  return FinishByteStats(
+      output_elements,
+      token_count * sizeof(uint32_t) + output_elements * sizeof(float),
+      output_elements * sizeof(float), stats);
+}
+
+bool RunGem5MatMulF32(const float* input, const float* weight, size_t rows,
+                      size_t input_features, size_t output_features,
+                      float* output, Gem5TransformerKernelStats* stats) {
+  size_t input_elements = 0;
+  size_t weight_elements = 0;
+  size_t output_elements = 0;
+  if (!ProductFits(rows, input_features, &input_elements) ||
+      !ProductFits(input_features, output_features, &weight_elements) ||
+      !ProductFits(rows, output_features, &output_elements) ||
+      !ValidBuffers(input, input_elements, output, stats) ||
+      weight == nullptr || output_features == 0 ||
+      output_elements > UINT64_MAX / 2 ||
+      output_elements * 2 > UINT64_MAX / input_features) {
+    return false;
+  }
+  for (size_t row = 0; row < rows; ++row) {
+    for (size_t column = 0; column < output_features; ++column) {
+      float sum = 0.0f;
+      for (size_t inner = 0; inner < input_features; ++inner) {
+        sum += input[row * input_features + inner] *
+               weight[inner * output_features + column];
+      }
+      output[row * output_features + column] = sum;
+    }
+  }
+  return FinishStats(static_cast<uint64_t>(output_elements) *
+                         input_features * 2,
+                     input_elements + weight_elements, output_elements,
+                     stats);
+}
 
 bool RunGem5AddF32(const float* lhs, const float* rhs, size_t count,
                    float* output, Gem5TransformerKernelStats* stats) {

@@ -46,6 +46,7 @@ struct Gem5CoprocessorCommand {
   uint32_t submission_tag;
   uint32_t descriptor_address;
   uint32_t operator_opcode;
+  uint32_t generic_opcode;
   uint64_t dependency_mask;
   uint64_t latency_cycles;
   uint64_t remaining_cycles;

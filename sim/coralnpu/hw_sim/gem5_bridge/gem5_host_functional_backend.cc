@@ -31,6 +31,7 @@ void CopyStats(const Gem5GptqKernelStats& source,
 
 bool Gem5HostFunctionalBackend::Supports(uint32_t opcode) const {
   switch (opcode) {
+    case OPENNPUX_NPU_OP_EMBED:
     case OPENNPUX_NPU_OP_MATMUL:
     case OPENNPUX_NPU_OP_ADD:
     case OPENNPUX_NPU_OP_MUL:
@@ -60,7 +61,15 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
       return Result(Gem5HostFunctionalStatus::kInvalid);
     }
     Gem5GptqKernelStats gptq_stats = {};
-    if (request.opcode == OPENNPUX_NPU_OP_MATMUL) {
+    if (request.opcode == OPENNPUX_NPU_OP_MATMUL &&
+        (request.operator_parameters->flags & OPENNPUX_NPU_PARAMETER_GPTQ) ==
+            0) {
+      success = RunGem5MatMulF32(
+          request.input, request.weight, request.rows,
+          request.operator_parameters->input_features,
+          request.operator_parameters->output_features, request.output,
+          &result.stats);
+    } else if (request.opcode == OPENNPUX_NPU_OP_MATMUL) {
       if (request.gptq_operands == nullptr) {
         return Result(Gem5HostFunctionalStatus::kInvalid);
       }
@@ -75,9 +84,23 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
           *request.operator_parameters, static_cast<uint32_t>(request.rows),
           *request.gptq_expert_operands, &gptq_stats);
     }
-    if (success) {
+    if (success &&
+        (request.opcode == OPENNPUX_NPU_OP_EXPERT ||
+         (request.operator_parameters->flags & OPENNPUX_NPU_PARAMETER_GPTQ) !=
+             0)) {
       CopyStats(gptq_stats, &result.stats);
-    } else {
+    } else if (!success) {
+      result.status = Gem5HostFunctionalStatus::kExecutionError;
+    }
+    return result;
+  }
+
+  if (request.opcode == OPENNPUX_NPU_OP_EMBED) {
+    const bool success = RunGem5EmbeddingF32(
+        request.input_indices, request.rows, request.weight,
+        request.vocabulary_size, request.features, request.output,
+        &result.stats);
+    if (!success) {
       result.status = Gem5HostFunctionalStatus::kExecutionError;
     }
     return result;

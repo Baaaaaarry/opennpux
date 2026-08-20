@@ -9,6 +9,8 @@
 
 int main() {
   Gem5HostFunctionalBackend backend;
+  assert(backend.Supports(OPENNPUX_NPU_OP_EMBED));
+  assert(backend.Supports(OPENNPUX_NPU_OP_MATMUL));
   assert(backend.Supports(OPENNPUX_NPU_OP_NORMALIZE));
   assert(!backend.Supports(OPENNPUX_NPU_OP_ATTENTION));
 
@@ -28,12 +30,29 @@ int main() {
   assert(std::fabs(output[1] - 2.2627417f) < 1.0e-5f);
   assert(result.stats.operations != 0 && result.stats.modeled_cycles != 0);
 
+  const uint32_t token_ids[] = {1};
+  const float embedding_table[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  float embedding_output[2] = {};
+  request = {};
+  request.opcode = OPENNPUX_NPU_OP_EMBED;
+  request.input_indices = token_ids;
+  request.weight = embedding_table;
+  request.rows = 1;
+  request.features = 2;
+  request.vocabulary_size = 2;
+  request.output = embedding_output;
+  result = backend.Execute(request);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(embedding_output[0] == 3.0f && embedding_output[1] == 4.0f);
+
   request.opcode = OPENNPUX_NPU_OP_ATTENTION;
   result = backend.Execute(request);
   assert(result.status == Gem5HostFunctionalStatus::kUnsupported);
   assert(result.stats.operations == 0);
 
   request.opcode = OPENNPUX_NPU_OP_ADD;
+  request.input = input;
+  request.output = output;
   request.secondary = nullptr;
   result = backend.Execute(request);
   assert(result.status == Gem5HostFunctionalStatus::kExecutionError);
@@ -68,6 +87,27 @@ int main() {
   assert(result.status == Gem5HostFunctionalStatus::kComplete);
   assert(matmul_output[0] == 4.0f);
   assert(result.stats.operations == 4);
+
+  parameters = {};
+  parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  parameters.struct_size = sizeof(parameters);
+  parameters.opcode = OPENNPUX_NPU_OP_MATMUL;
+  parameters.input_features = 2;
+  parameters.output_features = 2;
+  const float dense_weight[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  float dense_output[2] = {};
+  request = {};
+  request.opcode = OPENNPUX_NPU_OP_MATMUL;
+  request.input = matmul_input;
+  request.weight = dense_weight;
+  request.rows = 1;
+  request.output = dense_output;
+  request.operator_parameters = &parameters;
+  result = backend.Execute(request);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(dense_output[0] == 11.0f && dense_output[1] == 16.0f);
+  assert(result.stats.operations == 8);
 
   assert(std::string(Gem5HostFunctionalStatusName(
              Gem5HostFunctionalStatus::kUnsupported)) == "unsupported");

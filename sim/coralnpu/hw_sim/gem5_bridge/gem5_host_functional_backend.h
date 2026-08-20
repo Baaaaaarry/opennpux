@@ -17,6 +17,7 @@ enum class Gem5HostFunctionalStatus {
 struct Gem5HostFunctionalRequest {
   uint32_t opcode;
   const float* input;
+  const uint32_t* input_indices;
   const float* secondary;
   const float* weight;
   const uint32_t* positions;
@@ -25,6 +26,7 @@ struct Gem5HostFunctionalRequest {
   size_t heads;
   size_t head_dim;
   size_t top_k;
+  size_t vocabulary_size;
   float epsilon;
   float rope_theta;
   float* output;

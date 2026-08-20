@@ -749,3 +749,17 @@ functional request，bridge 校验每个 operand 范围后调用 `Gem5HostFuncti
 EXTMEM 构造 float32 ADD functional request，再通过真实 `NPU_LAUNCH` 指令提交；Guest
 继续使用既有 mailbox 验证 `11,22,33,44`、operation count 和 completion。该测试要求
 GB10/x86 Linux 的 RISC-V/Verilator toolchain 构建并运行。
+
+完整 tiny-Qwen 通用命令流的下一个增量已经形成。Host functional backend 新增模型无关
+float32 Embedding 与 dense MatMul kernel，至此 tiny-Qwen 所需的 Embed、MatMul、Add、Mul、
+RMSNorm、RoPE、SiLU、Softmax、TopK 九类 primitive 均可通过统一 functional request 执行。
+`gem5_qwen_command_flow_smoke.elf` 在 Coral RTL Core 上依次发出九条 `NPU_LAUNCH` 自定义
+指令，并使用 EXTMEM 中间 Tensor 串联真实数据依赖；每条外层 `GENERIC_COMMAND` 均由
+二级译码分派至 Tensor/Vector/SFU engine，再经过 fetch/read/execute/writeback/complete
+微命令链。最终 TopK 索引必须为 5，避免仅凭完成计数产生伪 PASS。
+
+协处理器命令结构同时保留外层 `operator_opcode` 和内层 `generic_opcode`，Host 日志和
+GB10 验收脚本会逐项确认九种 opcode 均从 `source=custom-instruction` 进入命令处理器。
+该 smoke 验证的是完整控制流、二级译码、依赖数据流和 Host C++ primitive 数值链；它
+不是 35B 模型的完整权重推理。后续仍需让 `.npxe + .npxtb` runtime 按 Tensor allocation
+逐条物化相同 request，并接入分页真实权重、KV/state 迭代与多 token decode。

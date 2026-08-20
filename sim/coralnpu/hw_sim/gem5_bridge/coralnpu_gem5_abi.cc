@@ -484,13 +484,15 @@ struct coral_gem5_handle {
               command.command_id, OperatorComputeCycles(*descriptor));
           std::fprintf(stderr,
                        "Coral command execute tag=%u id=%u source=%s "
-                       "engine=%s micro_op=%s operator_opcode=%u kernel=%s "
+                       "engine=%s micro_op=%s operator_opcode=%u "
+                       "generic_opcode=%u kernel=%s "
                        "compute_cycles=%llu writeback_cycles=%llu\n",
                        command.submission_tag, command.command_id,
                        Gem5CommandSourceName(command.source),
                        Gem5CommandEngineName(command.engine),
                        Gem5MicroOpcodeName(command.opcode),
-                       command.operator_opcode, ok ? "done" : "failed",
+                       command.operator_opcode, command.generic_opcode,
+                       ok ? "done" : "failed",
                        static_cast<unsigned long long>(
                            OperatorComputeCycles(*descriptor)),
                        static_cast<unsigned long long>(
@@ -851,8 +853,13 @@ struct coral_gem5_handle {
                   hybrid_status = CORAL_OPERATOR_STATE_RUNNING;
                   std::fprintf(stderr,
                                "Coral command submission tag=%u "
-                               "operator_opcode=%u source=%s pending=%zu\n",
+                               "operator_opcode=%u generic_opcode=%u "
+                               "source=%s pending=%zu\n",
                                submission_tag, descriptor->opcode,
+                               descriptor->opcode ==
+                                       CORAL_OPERATOR_OP_GENERIC_COMMAND
+                                   ? descriptor->reserved[0]
+                                   : 0,
                                Gem5CommandSourceName(source),
                                command_adapter.PendingCount());
                   std::fflush(stderr);

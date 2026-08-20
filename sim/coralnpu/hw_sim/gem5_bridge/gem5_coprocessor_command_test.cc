@@ -122,6 +122,7 @@ void TestGenericOpcodeSecondLevelDecode(uint32_t opcode,
     assert(adapter.Complete(command.command_id, true));
   }
   assert(command.operator_opcode == CORAL_OPERATOR_OP_GENERIC_COMMAND);
+  assert(command.generic_opcode == opcode);
   assert(command.opcode == Gem5MicroOpcode::kExecuteOperator);
   assert(command.engine == expected_engine);
 }
@@ -284,9 +285,21 @@ int main() {
   TestGptqOpcodeUsesTensorEngine(CORAL_OPERATOR_OP_GPTQ_GATED_MLP);
   TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_MATMUL,
                                      Gem5CommandEngine::kTensor);
+  TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_EMBED,
+                                     Gem5CommandEngine::kVector);
   TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_ADD,
                                      Gem5CommandEngine::kVector);
+  TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_MUL,
+                                     Gem5CommandEngine::kVector);
+  TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_NORMALIZE,
+                                     Gem5CommandEngine::kVector);
+  TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_ROPE,
+                                     Gem5CommandEngine::kVector);
+  TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_ACTIVATION,
+                                     Gem5CommandEngine::kSfu);
   TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_SOFTMAX,
+                                     Gem5CommandEngine::kSfu);
+  TestGenericOpcodeSecondLevelDecode(OPENNPUX_NPU_OP_TOPK,
                                      Gem5CommandEngine::kSfu);
   TestUnsupportedGenericOpcodeRejected();
   TestBadDescriptorRejected();

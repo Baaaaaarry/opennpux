@@ -12,7 +12,7 @@ CXX="${CXX:-c++}"
 
 rm -rf "${WORK_DIR}"
 mkdir -p "${MODEL_DIR}"
-printf '%s\n' '{"architectures":["Qwen3_5MoeForConditionalGeneration"],"model_type":"qwen3_5_moe","name_or_path":"qwen-test","quantization_config":{"quant_method":"gptq","bits":4,"group_size":128,"desc_act":false,"sym":true},"text_config":{"dtype":"bfloat16","num_hidden_layers":2,"vocab_size":32,"hidden_size":18,"intermediate_size":48,"num_attention_heads":4,"num_key_value_heads":2,"head_dim":6,"max_position_embeddings":4096,"num_experts":8,"num_experts_per_tok":2,"moe_intermediate_size":24,"shared_expert_intermediate_size":32}}' > "${MODEL_DIR}/config.json"
+printf '%s\n' '{"architectures":["Qwen3_5MoeForConditionalGeneration"],"model_type":"qwen3_5_moe","name_or_path":"qwen-test","quantization_config":{"quant_method":"gptq","bits":4,"group_size":128,"desc_act":false,"sym":true},"text_config":{"dtype":"bfloat16","num_hidden_layers":2,"vocab_size":32,"hidden_size":18,"intermediate_size":48,"num_attention_heads":4,"num_key_value_heads":2,"head_dim":6,"linear_num_key_heads":2,"linear_num_value_heads":2,"linear_key_head_dim":3,"linear_value_head_dim":3,"linear_conv_kernel_dim":4,"max_position_embeddings":4096,"num_experts":8,"num_experts_per_tok":2,"moe_intermediate_size":24,"shared_expert_intermediate_size":32}}' > "${MODEL_DIR}/config.json"
 python3 - "${MODEL_DIR}" <<'PY'
 import json
 import struct
@@ -64,7 +64,15 @@ for name, tensors in (
         "model.language_model.layers.1.mlp.router.weight": b"".join(
             struct.pack("<f", ((row * 3 + column) % 11 - 5) / 8.0)
             for row in range(18) for column in range(8)),
-        "model.language_model.layers.1.linear_attn.in_proj_qkv.qweight": bytes(range(30, 38)),
+        "model.language_model.layers.1.linear_attn.in_proj_qkv.weight": b"".join(
+            struct.pack("<f", ((row + column) % 7 - 3) / 8.0)
+            for row in range(18) for column in range(18)),
+        "model.language_model.layers.1.linear_attn.in_proj_a.weight": b"".join(
+            struct.pack("<f", ((row + column) % 5 - 2) / 8.0)
+            for row in range(2) for column in range(18)),
+        "model.language_model.layers.1.linear_attn.in_proj_b.weight": b"".join(
+            struct.pack("<f", ((row * 2 + column) % 5 - 2) / 8.0)
+            for row in range(2) for column in range(18)),
         "model.language_model.norm.weight": bytes(range(40, 48)),
     }),
 ):
@@ -74,7 +82,9 @@ for name, tensors in (
     for tensor_name, data in tensors.items():
         weight_map[tensor_name] = name
         dtype = "U8"
-        if tensor_name.endswith("mlp.router.weight"):
+        if (tensor_name.endswith("mlp.router.weight") or
+                (".linear_attn." in tensor_name and
+                 tensor_name.endswith(".weight"))):
             dtype = "F32"
         elif (tensor_name.endswith(".scales") or
               tensor_name.endswith("input_layernorm.weight")):
@@ -168,7 +178,7 @@ PY
 "${SCRIPT_DIR}/inspect_gptq_bindings.py" "${MODEL_DIR}/model.npxr" \
     | tee "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_complete=6$' "${WORK_DIR}/gptq-bindings.log"
-grep -q '^gptq_binding_incomplete=2$' "${WORK_DIR}/gptq-bindings.log"
+grep -q '^gptq_binding_incomplete=1$' "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_duplicate=0$' "${WORK_DIR}/gptq-bindings.log"
 grep -q '^gptq_binding_scales_dtypes=float16:6$' \
     "${WORK_DIR}/gptq-bindings.log"

@@ -22,7 +22,7 @@ main(int argc, char **argv)
     check(opennpux_npu_tensor_plan_load(argv[1], &plan) == 0,
           "tensor plan load failed");
     check(plan.header->command_count == 30, "command count mismatch");
-    check(plan.header->tensor_count == 37, "tensor count mismatch");
+    check(plan.header->tensor_count == 39, "tensor count mismatch");
     check(plan.header->slot_count == 6, "slot count mismatch");
 
     uint64_t scratch_size = 0;

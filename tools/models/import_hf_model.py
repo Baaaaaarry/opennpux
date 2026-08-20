@@ -224,6 +224,7 @@ def build_manifest(
 
     manifest = {
         "format": FORMAT,
+        "functional_graph_revision": 2,
         "version": 2,
         "name": name or str(config.get("name_or_path", model_dir.name)),
         "architecture": architecture,
@@ -235,6 +236,21 @@ def build_manifest(
         "head_count": heads,
         "kv_head_count": config_u32(model_config, "num_key_value_heads", heads),
         "head_dim": explicit_head_dim,
+        "linear_key_head_dim": config_u32(
+            model_config, "linear_key_head_dim", explicit_head_dim
+        ),
+        "linear_value_head_dim": config_u32(
+            model_config, "linear_value_head_dim", explicit_head_dim
+        ),
+        "linear_num_key_heads": config_u32(
+            model_config, "linear_num_key_heads", heads
+        ),
+        "linear_num_value_heads": config_u32(
+            model_config, "linear_num_value_heads", heads
+        ),
+        "linear_conv_kernel_dim": config_u32(
+            model_config, "linear_conv_kernel_dim", 4
+        ),
         "max_sequence_length": config_u32(
             model_config, "max_position_embeddings", 32768
         ),

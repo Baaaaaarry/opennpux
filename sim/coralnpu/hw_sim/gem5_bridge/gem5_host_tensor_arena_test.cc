@@ -8,7 +8,7 @@ int main(int argc, char** argv) {
   Gem5HostTensorArena arena;
   assert(arena.Load(argv[1]));
   assert(arena.command_count() == 30);
-  assert(arena.tensor_count() == 37);
+  assert(arena.tensor_count() == 39);
   const opennpux_npu_tensor_plan_runtime runtime = {2, 4, 7, 2};
   assert(arena.Configure(runtime));
   assert(arena.size() != 0);

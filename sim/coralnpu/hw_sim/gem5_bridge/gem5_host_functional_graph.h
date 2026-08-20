@@ -76,6 +76,9 @@ class Gem5HostFunctionalGraph {
   bool ExecuteFloatWeight(uint32_t command_index,
                           Gem5HostWeightProvider* weights,
                           const Gem5HostWeightBinding& binding);
+  bool ExecuteLinearAttentionProjection(
+      uint32_t command_index, Gem5HostWeightProvider* weights,
+      const std::vector<Gem5HostWeightBinding>& bindings);
   bool ExecutePositioned(uint32_t command_index);
   std::vector<uint8_t> submission_;
   uint32_t submission_base_ = 0;

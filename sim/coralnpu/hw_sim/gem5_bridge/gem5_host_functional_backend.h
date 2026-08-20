@@ -21,6 +21,9 @@ struct Gem5HostFunctionalRequest {
   const float* secondary;
   const float* tertiary;
   const float* weight;
+  Gem5GenericConstBuffer linear_qkv_weight;
+  Gem5GenericConstBuffer linear_alpha_weight;
+  Gem5GenericConstBuffer linear_beta_weight;
   const uint32_t* positions;
   size_t rows;
   size_t features;

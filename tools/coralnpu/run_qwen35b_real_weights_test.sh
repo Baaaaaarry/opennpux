@@ -229,6 +229,48 @@ for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
         exit 1
     }
 done
+FUNCTIONAL_GRAPH_REFRESHED=0
+if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
+   ! python3 - "$MODEL_DIR/$MANIFEST_NAME" "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as source:
+        manifest = json.load(source)
+    with open(sys.argv[2], encoding="utf-8") as source:
+        executable = json.load(source)
+except (OSError, ValueError):
+    raise SystemExit(1)
+linear_fields = (
+    "linear_key_head_dim", "linear_value_head_dim",
+    "linear_num_key_heads", "linear_num_value_heads",
+    "linear_conv_kernel_dim",
+)
+valid = (
+    manifest.get("functional_graph_revision", 0) >= 2
+    and executable.get("functional_graph_revision", 0) >= 2
+    and all(int(manifest.get(field, 0)) > 0 for field in linear_fields)
+)
+raise SystemExit(0 if valid else 1)
+PY
+then
+    if [ "${CORAL_AUTO_REBUILD_FUNCTIONAL_GRAPH:-1}" = 0 ]; then
+        echo "error: Host C++ functional graph assets are stale" >&2
+        echo "regenerate them with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2
+        exit 1
+    fi
+    echo "[coral-qwen35b-real-weights-test] rebuilding Host C++ functional graph assets" >&2
+    "${ROOT_DIR}/tools/models/import_hf_model.py" \
+        "$MODEL_DIR" "$MODEL_DIR/$MANIFEST_NAME"
+    "${ROOT_DIR}/tools/models/build_qwen_execution_plan.py" \
+        "$MODEL_DIR/$MANIFEST_NAME"
+    "${ROOT_DIR}/tools/models/compile_npu_executable.py" \
+        "$MODEL_DIR/$MANIFEST_NAME" "$MODEL_DIR/$EXECUTION_PLAN_NAME" \
+        "$MODEL_DIR/$EXECUTABLE_PLAN_NAME"
+    FUNCTIONAL_GRAPH_REFRESHED=1
+fi
+WEIGHT_PLAN_VALID=1
 if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
    ! python3 - "$MODEL_DIR/model.npxw" <<'PY'
 import json
@@ -239,15 +281,22 @@ try:
         plan = json.load(source)
 except (OSError, ValueError):
     raise SystemExit(1)
-raise SystemExit(0 if plan.get("tensor_domain") == "text" else 1)
+valid = (plan.get("tensor_domain") == "text" and
+         plan.get("functional_graph_revision", 0) >= 2)
+raise SystemExit(0 if valid else 1)
 PY
 then
+    WEIGHT_PLAN_VALID=0
+fi
+if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
+   { [ "$FUNCTIONAL_GRAPH_REFRESHED" = 1 ] || [ "$WEIGHT_PLAN_VALID" = 0 ]; }
+then
     if [ "${CORAL_AUTO_REBUILD_WEIGHT_PLAN:-1}" = 0 ]; then
-        echo "error: Host C++ weight plan predates execution-domain isolation" >&2
+        echo "error: Host C++ weight plan predates the functional graph" >&2
         echo "regenerate it with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2
         exit 1
     fi
-    echo "[coral-qwen35b-real-weights-test] rebuilding text-domain weight plan" >&2
+    echo "[coral-qwen35b-real-weights-test] rebuilding functional text-domain weight plan" >&2
     [ -r "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" ] || {
         echo "error: NPU executable plan missing: $MODEL_DIR/$EXECUTABLE_PLAN_NAME" >&2
         echo "regenerate it with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2

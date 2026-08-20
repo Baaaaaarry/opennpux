@@ -189,6 +189,45 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
       return Result(Gem5HostFunctionalStatus::kInvalid);
     }
     Gem5GptqKernelStats gptq_stats = {};
+    const bool linear_projection =
+        request.opcode == OPENNPUX_NPU_OP_MATMUL &&
+        request.linear_qkv_weight.data != nullptr;
+    if (linear_projection) {
+      if (request.input == nullptr || request.output == nullptr ||
+          request.output_secondary == nullptr ||
+          request.output_tertiary == nullptr ||
+          request.linear_alpha_weight.data == nullptr ||
+          request.linear_beta_weight.data == nullptr ||
+          request.operator_parameters->input_features == 0) {
+        return Result(Gem5HostFunctionalStatus::kInvalid);
+      }
+      const size_t input_features = request.operator_parameters->input_features;
+      const Gem5GenericConstBuffer weights[] = {
+          request.linear_qkv_weight, request.linear_alpha_weight,
+          request.linear_beta_weight};
+      float* outputs[] = {request.output, request.output_secondary,
+                          request.output_tertiary};
+      for (size_t index = 0; index < 3; ++index) {
+        if (weights[index].size % sizeof(float) != 0 ||
+            weights[index].size / sizeof(float) % input_features != 0) {
+          return Result(Gem5HostFunctionalStatus::kInvalid);
+        }
+        const size_t output_features =
+            weights[index].size / sizeof(float) / input_features;
+        Gem5TransformerKernelStats projection_stats = {};
+        if (output_features == 0 || !RunGem5MatMulF32(
+                request.input, static_cast<const float*>(weights[index].data),
+                request.rows, input_features, output_features, outputs[index],
+                &projection_stats)) {
+          return Result(Gem5HostFunctionalStatus::kExecutionError);
+        }
+        result.stats.operations += projection_stats.operations;
+        result.stats.bytes_read += projection_stats.bytes_read;
+        result.stats.bytes_written += projection_stats.bytes_written;
+        result.stats.modeled_cycles += projection_stats.modeled_cycles;
+      }
+      return result;
+    }
     if (request.opcode == OPENNPUX_NPU_OP_MATMUL &&
         (request.operator_parameters->flags & OPENNPUX_NPU_PARAMETER_GPTQ) ==
             0) {

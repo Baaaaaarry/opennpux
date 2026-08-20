@@ -85,6 +85,13 @@ grep -q 'kernel=done' "${HOST_LOG}" || {
     echo "error: hybrid ADD kernel did not complete" >&2
     exit 1
 }
+if [ -n "${CORAL_NPU_LAUNCH_EXPECTED_OPCODE:-}" ]; then
+    grep -q "operator_opcode=${CORAL_NPU_LAUNCH_EXPECTED_OPCODE}" \
+        "${HOST_LOG}" || {
+        echo "error: expected operator opcode was not executed: ${CORAL_NPU_LAUNCH_EXPECTED_OPCODE}" >&2
+        exit 1
+    }
+fi
 
 # gem5term records CRLF on some hosts. Also tolerate the legacy output
 # locations used before run_multicore.sh standardized logs/sim/m5out.

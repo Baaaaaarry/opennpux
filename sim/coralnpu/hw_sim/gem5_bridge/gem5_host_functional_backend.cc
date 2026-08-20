@@ -47,6 +47,7 @@ bool Gem5HostFunctionalBackend::Supports(uint32_t opcode) const {
     case OPENNPUX_NPU_OP_ROPE:
     case OPENNPUX_NPU_OP_SOFTMAX:
     case OPENNPUX_NPU_OP_TOPK:
+    case OPENNPUX_NPU_OP_ROUTER:
     case OPENNPUX_NPU_OP_ACTIVATION:
     case OPENNPUX_NPU_OP_EXPERT:
     case OPENNPUX_NPU_OP_DMA:
@@ -202,6 +203,7 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
                                   request.output, &result.stats);
       break;
     case OPENNPUX_NPU_OP_TOPK:
+    case OPENNPUX_NPU_OP_ROUTER:
       success = RunGem5TopKF32(
           request.input, count, request.top_k, request.output,
           request.output_indices, &result.stats);

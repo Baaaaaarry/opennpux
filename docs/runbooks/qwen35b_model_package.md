@@ -383,15 +383,15 @@ from implemented NPU firmware/RTL kernels.
 
 ```sh
 CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
-  CORAL_QWEN_PROMPT='Explain heterogeneous computing in one sentence.' \
-  CORAL_QWEN_PROMPT_FORMAT=chat \
-  CORAL_QWEN_DECODE_MODE=model \
-  CORAL_QWEN_MODEL_LOADER=vllm \
-  CORAL_QWEN_GENERATION_SEED=42 \
-  CORAL_QWEN_MAX_NEW_TOKENS=8 \
   CORAL_SIM_HOST_PAGING=1 \
   CORAL_SIM_HOST_NUMERICAL=1 \
-  ./tools/coralnpu/run_qwen35b_real_weights_test.sh
+  ./tools/coralnpu/run_qwen35b_real_weights_test.sh \
+    --prompt 'Explain heterogeneous computing in one sentence.' \
+    --prompt-format chat \
+    --decode-mode model \
+    --model-loader vllm \
+    --generation-seed 42 \
+    --max-new-tokens 8
 ```
 
 The first run prints `sim_host_bundle=PASS`; later runs reuse

@@ -589,7 +589,8 @@ Coral Verilated bridge 直接监听固件 page-fault queue，将权重页写入 
 
 本地已通过页包生成、跳过未请求 command、cache/residency/queue 原子更新单测，
 严格 native coralctl 编译及完整 model-package 回归。GB10 验收运行
-`CORAL_SIM_HOST_PAGING=1 ./tools/coralnpu/run_qwen35b_real_weights_test.sh`，预期输出
+`CORAL_SIM_HOST_PAGING=1 ./tools/coralnpu/run_qwen35b_real_weights_test.sh
+--prompt "Explain heterogeneous computing"`，预期输出
 `paging_source=sim-host-direct` 和最终 PASS。
 
 ## 2026-08-19 Qwen35B 真实 next-token 混合验收

@@ -13,6 +13,7 @@ int main() {
   assert(backend.Supports(OPENNPUX_NPU_OP_MATMUL));
   assert(backend.Supports(OPENNPUX_NPU_OP_NORMALIZE));
   assert(backend.Supports(OPENNPUX_NPU_OP_ATTENTION));
+  assert(backend.Supports(OPENNPUX_NPU_OP_ROUTER));
 
   const float input[] = {3.0f, 4.0f};
   const float weight[] = {1.0f, 2.0f};
@@ -62,6 +63,23 @@ int main() {
   request.output = output;
   result = backend.Execute(request);
   assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(result.stats.operations != 0);
+
+  const float router_logits[] = {0.5f, 2.0f, 2.0f, -1.0f};
+  float router_weights[2] = {};
+  uint32_t router_indices[2] = {};
+  request = {};
+  request.opcode = OPENNPUX_NPU_OP_ROUTER;
+  request.input = router_logits;
+  request.rows = 1;
+  request.features = 4;
+  request.top_k = 2;
+  request.output = router_weights;
+  request.output_indices = router_indices;
+  result = backend.Execute(request);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(router_indices[0] == 1 && router_indices[1] == 2);
+  assert(router_weights[0] == 2.0f && router_weights[1] == 2.0f);
   assert(result.stats.operations != 0);
 
   request.opcode = OPENNPUX_NPU_OP_ADD;

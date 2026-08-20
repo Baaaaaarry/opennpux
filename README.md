@@ -272,7 +272,8 @@ sudo apt-get install -y diod gcc-aarch64-linux-gnu build-essential \
 CORAL_MODEL_DIR=/data/models/Qwen3.5-35B \
   CORAL_KERNEL_IMAGE="$PWD/build/kernel/vmlinux-$(cat build/kernel/kernel.release)" \
   CORAL_REBUILD_CKPT=1 \
-  ./tools/coralnpu/run_qwen35b_real_weights_test.sh
+  ./tools/coralnpu/run_qwen35b_real_weights_test.sh \
+    --prompt "Explain heterogeneous computing in one sentence."
 ```
 
 The guest kernel must provide `CONFIG_NET_9P`, `CONFIG_NET_9P_VIRTIO`, and
@@ -286,7 +287,8 @@ checkpoint; the command above rebuilds it and automatically resumes the test.
 The guest mount supplies both the fixed VirtIO mount tag `gem5` and the host
 export path as the diod `aname`; these identify the device and exported tree,
 respectively.
-Set `CORAL_QWEN_PROMPT` to change the prompt. The default run validates the
+Pass each test prompt with `--prompt`; this overrides the legacy
+`CORAL_QWEN_PROMPT` environment variable. The default run validates the
 fast functional-model endpoint: CPU prompt -> generic NPU executable -> token
 completion. Set `CORAL_QWEN35B_NUMERICAL=1` to enable incremental GPTQ
 numerical kernels; that stricter mode is complete only when every required

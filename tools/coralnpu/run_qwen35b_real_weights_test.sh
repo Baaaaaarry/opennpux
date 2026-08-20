@@ -3,6 +3,31 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)"
 KERNEL_RELEASE_FILE="${ROOT_DIR}/build/kernel/kernel.release"
+
+usage() {
+    cat <<'EOF'
+Usage: run_qwen35b_real_weights_test.sh [options]
+
+Test input:
+  --prompt TEXT              Prompt submitted by the guest CPU to the NPU
+
+Inference options:
+  --max-new-tokens N         Generate 1..32 tokens (default: 8)
+  --prompt-format FORMAT     chat or raw (default: chat)
+  --decode-mode MODE         model or greedy (default: model)
+  --generation-seed N        Non-negative generation seed (default: 42)
+  --model-loader LOADER      vllm, transformers, or gptqmodel (default: vllm)
+  --gptq-backend BACKEND     GPTQ backend used by the reference runner
+  --hf-device DEVICE         auto, cuda, or cpu (default: auto)
+  --model-dir PATH           Prepared model directory
+  -h, --help                 Show this help
+
+Command-line options override the corresponding CORAL_QWEN_* environment
+variables. The external numerical runner is a correctness reference; it is not
+the Host C++ functional-kernel result source.
+EOF
+}
+
 MODEL_DIR="${CORAL_MODEL_DIR:-/data/models/Qwen3.5-35B}"
 EXECUTABLE_NAME="${CORAL_NPU_EXECUTABLE_NAME:-model.npxc}"
 MANIFEST_NAME="${CORAL_NPU_MANIFEST_NAME:-model.npxm}"
@@ -22,11 +47,108 @@ SIM_HOST_PAGING="${CORAL_SIM_HOST_PAGING:-1}"
 SIM_HOST_NUMERICAL="${CORAL_SIM_HOST_NUMERICAL:-1}"
 REUSE_DECODE_WEIGHTS="${CORAL_REUSE_DECODE_WEIGHTS:-1}"
 HF_PYTHON="${CORAL_HF_PYTHON:-${ROOT_DIR}/.venv/hf-numerical/bin/python}"
+
+prompt_from_cli=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --prompt)
+            [ "$#" -ge 2 ] || {
+                echo "error: --prompt requires a value" >&2
+                exit 2
+            }
+            PROMPT=$2
+            prompt_from_cli=1
+            shift 2
+            ;;
+        --max-new-tokens)
+            [ "$#" -ge 2 ] || {
+                echo "error: --max-new-tokens requires a value" >&2
+                exit 2
+            }
+            MAX_NEW_TOKENS=$2
+            shift 2
+            ;;
+        --prompt-format)
+            [ "$#" -ge 2 ] || {
+                echo "error: --prompt-format requires a value" >&2
+                exit 2
+            }
+            PROMPT_FORMAT=$2
+            shift 2
+            ;;
+        --decode-mode)
+            [ "$#" -ge 2 ] || {
+                echo "error: --decode-mode requires a value" >&2
+                exit 2
+            }
+            DECODE_MODE=$2
+            shift 2
+            ;;
+        --generation-seed)
+            [ "$#" -ge 2 ] || {
+                echo "error: --generation-seed requires a value" >&2
+                exit 2
+            }
+            GENERATION_SEED=$2
+            shift 2
+            ;;
+        --model-loader)
+            [ "$#" -ge 2 ] || {
+                echo "error: --model-loader requires a value" >&2
+                exit 2
+            }
+            MODEL_LOADER=$2
+            shift 2
+            ;;
+        --gptq-backend)
+            [ "$#" -ge 2 ] || {
+                echo "error: --gptq-backend requires a value" >&2
+                exit 2
+            }
+            GPTQ_BACKEND=$2
+            shift 2
+            ;;
+        --hf-device)
+            [ "$#" -ge 2 ] || {
+                echo "error: --hf-device requires a value" >&2
+                exit 2
+            }
+            HF_DEVICE=$2
+            shift 2
+            ;;
+        --model-dir)
+            [ "$#" -ge 2 ] || {
+                echo "error: --model-dir requires a value" >&2
+                exit 2
+            }
+            MODEL_DIR=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "error: unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+[ "$#" -eq 0 ] || {
+    echo "error: unexpected positional argument: $1" >&2
+    exit 2
+}
+
 [ "${CORAL_QWEN35B_NUMERICAL:-0}" = 0 ] ||
     NUMERICAL_ENV="OPENNPUX_NPU_NUMERICAL=1"
 
 [ "${#PROMPT}" -lt 128 ] || {
-    echo "error: CORAL_QWEN_PROMPT must be shorter than 128 bytes" >&2
+    echo "error: --prompt must be shorter than 128 bytes" >&2
     exit 1
 }
 case "$MAX_NEW_TOKENS" in
@@ -41,10 +163,15 @@ esac
 }
 case "$PROMPT" in
     *"'"*)
-        echo "error: CORAL_QWEN_PROMPT cannot contain a single quote" >&2
+        echo "error: --prompt cannot contain a single quote" >&2
         exit 1
         ;;
 esac
+
+if [ "$prompt_from_cli" = 0 ]; then
+    echo "warning: --prompt was not specified; using CORAL_QWEN_PROMPT/default" >&2
+fi
+echo "[coral-qwen35b-real-weights-test] prompt: $PROMPT" >&2
 case "$PROMPT_FORMAT" in
     chat|raw) ;;
     *)

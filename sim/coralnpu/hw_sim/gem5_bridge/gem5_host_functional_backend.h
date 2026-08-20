@@ -36,6 +36,7 @@ struct Gem5HostFunctionalRequest {
   float* output_secondary;
   float* output_tertiary;
   uint32_t* output_indices;
+  size_t output_indices_count;
   const opennpux_npu_operator_parameters* operator_parameters;
   const Gem5GenericGptqOperands* gptq_operands;
   const Gem5GenericGptqOperands* q_gptq_operands;

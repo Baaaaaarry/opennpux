@@ -56,6 +56,8 @@ class Gem5HostFunctionalGraph {
                       Gem5HostWeightProvider* weights);
   bool ExecuteProgram(Gem5HostWeightProvider* weights,
                       uint32_t* failed_command = nullptr);
+  bool SetInputTokenIds(const uint32_t* token_ids, size_t token_count);
+  bool ReadNextToken(uint32_t* token_id) const;
   void ResetInvocation();
 
   uint32_t command_count() const {

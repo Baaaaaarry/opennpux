@@ -228,6 +228,30 @@ int main(int argc, char** argv) {
   uint32_t failed_command = UINT32_MAX;
   assert(!graph.ExecuteProgram(&weights, &failed_command));
   assert(failed_command == 0);
+  const uint32_t input_tokens[] = {0, 1};
+  assert(graph.SetInputTokenIds(input_tokens, 2));
+  uint32_t topk_index = UINT32_MAX;
+  for (uint32_t index = 0; index < graph.command_count(); ++index) {
+    if (graph.command(index)->opcode == OPENNPUX_NPU_OP_TOPK) {
+      topk_index = index;
+    }
+  }
+  assert(topk_index != UINT32_MAX);
+  opennpux_npu_functional_request topk = {};
+  assert(graph.Materialize(topk_index, nullptr, 0, &topk));
+  const auto* topk_input = FindOperand(topk, OPENNPUX_NPU_OPERAND_INPUT);
+  assert(topk_input != nullptr);
+  auto* logits = reinterpret_cast<float*>(graph.arena().Translate(
+      topk_input->address, topk_input->byte_size));
+  assert(logits != nullptr);
+  for (size_t index = 0; index < topk_input->byte_size / sizeof(float);
+       ++index) {
+    logits[index] = static_cast<float>(index);
+  }
+  assert(graph.ExecuteCommand(topk_index, &weights));
+  uint32_t next_token = 0;
+  assert(graph.ReadNextToken(&next_token));
+  assert(next_token == 31);
   std::printf("functional_graph_add_elements=%zu\n", count);
   std::puts("functional_graph_gptq_projection=PASS");
   std::puts("functional_graph_routed_expert=PASS");
@@ -235,6 +259,7 @@ int main(int argc, char** argv) {
   std::puts("functional_graph_gptq_router=PASS");
   std::puts("functional_graph_auto_dispatch=PASS");
   std::puts("functional_graph_program_failure_location=PASS");
+  std::puts("functional_graph_token_io=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

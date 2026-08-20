@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
 #include "hw_sim/gem5_bridge/gem5_host_routed_expert.h"
@@ -581,6 +582,62 @@ bool Gem5HostFunctionalGraph::ExecuteProgram(
     }
   }
   return true;
+}
+
+bool Gem5HostFunctionalGraph::SetInputTokenIds(
+    const uint32_t* token_ids, size_t token_count) {
+  opennpux_npu_functional_request request = {};
+  if (!configured_ || token_ids == nullptr || token_count == 0 ||
+      !Materialize(0, nullptr, 0, &request) ||
+      request.opcode != OPENNPUX_NPU_OP_EMBED) {
+    return false;
+  }
+  const auto* input = FindOperand(request, OPENNPUX_NPU_OPERAND_INPUT_INDICES);
+  if (input == nullptr || token_count != request.rows ||
+      input->byte_size < token_count * sizeof(uint32_t)) {
+    return false;
+  }
+  auto* destination = arena_.Translate(input->address, input->byte_size);
+  if (destination == nullptr) {
+    return false;
+  }
+  std::memcpy(destination, token_ids, token_count * sizeof(uint32_t));
+  return true;
+}
+
+bool Gem5HostFunctionalGraph::ReadNextToken(uint32_t* token_id) const {
+  if (!configured_ || token_id == nullptr) {
+    return false;
+  }
+  for (uint32_t offset = 0; offset < command_count(); ++offset) {
+    const uint32_t index = command_count() - 1 - offset;
+    if (command(index)->opcode != OPENNPUX_NPU_OP_TOPK) {
+      continue;
+    }
+    opennpux_npu_functional_request request = {};
+    if (!Materialize(index, nullptr, 0, &request) || request.rows == 0 ||
+        request.top_k == 0) {
+      return false;
+    }
+    const auto* output =
+        FindOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES);
+    if (output == nullptr) {
+      return false;
+    }
+    const uint64_t output_count = output->byte_size / sizeof(uint32_t);
+    if (output_count < request.top_k) {
+      return false;
+    }
+    const uint64_t selected = output_count - request.top_k;
+    const auto* values = reinterpret_cast<const uint32_t*>(
+        arena_.Translate(output->address, output->byte_size));
+    if (values == nullptr) {
+      return false;
+    }
+    *token_id = values[selected];
+    return true;
+  }
+  return false;
 }
 
 const opennpux_npu_command* Gem5HostFunctionalGraph::command(

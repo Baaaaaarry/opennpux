@@ -58,6 +58,32 @@ inference_u32_env(const char *name, uint32_t default_value,
     return 0;
 }
 
+static int
+parse_input_token_ids(const char *text, uint32_t expected_count,
+                      uint32_t vocabulary_size, uint32_t *tokens)
+{
+    if (text == NULL || text[0] == '\0' || expected_count == 0 ||
+        vocabulary_size == 0 || tokens == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    const char *cursor = text;
+    for (uint32_t index = 0; index < expected_count; ++index) {
+        char *end = NULL;
+        errno = 0;
+        const unsigned long value = strtoul(cursor, &end, 0);
+        if (errno != 0 || end == cursor || value >= vocabulary_size ||
+            (index + 1 < expected_count && *end != ',') ||
+            (index + 1 == expected_count && *end != '\0')) {
+            errno = EINVAL;
+            return -1;
+        }
+        tokens[index] = (uint32_t)value;
+        cursor = end + (index + 1 < expected_count ? 1 : 0);
+    }
+    return 0;
+}
+
 static int copy_to_shared_window(
     struct opennpux_coral_shared_window *window, const uint8_t *source,
     uint32_t size);
@@ -585,6 +611,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     struct opennpux_npu_inference_io inference_result_image;
     uint32_t max_new_tokens = 1;
     uint32_t input_token_count = 1;
+    uint32_t *input_token_ids = NULL;
     struct opennpux_model_package_info weight_model;
     struct opennpux_npu_weight_ranges weight_ranges;
     struct opennpux_npu_weight_cache weight_cache;
@@ -635,6 +662,30 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                            (uint32_t)OPENNPUX_NPU_RUNTIME_FIELD_MASK - 31,
                            &input_token_count) != 0)) {
         perror("executable-run inference shape");
+        goto out;
+    }
+    const char *input_token_text = getenv("OPENNPUX_INPUT_TOKEN_IDS");
+    if (inference_prompt != NULL && input_token_text != NULL) {
+        if (input_token_count >
+                (NPU_INPUT_BUFFER_SIZE -
+                 OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET) /
+                    sizeof(*input_token_ids)) {
+            errno = EOVERFLOW;
+            perror("executable-run input token IDs");
+            goto out;
+        }
+        input_token_ids = calloc(input_token_count, sizeof(*input_token_ids));
+        if (input_token_ids == NULL ||
+            parse_input_token_ids(input_token_text, input_token_count,
+                                  UINT32_MAX,
+                                  input_token_ids) != 0) {
+            perror("executable-run input token IDs");
+            goto out;
+        }
+    } else if (inference_prompt != NULL &&
+               getenv("OPENNPUX_SIM_HOST_FUNCTIONAL_CPP") != NULL) {
+        errno = EINVAL;
+        perror("executable-run input token IDs required");
         goto out;
     }
     const struct opennpux_npu_invocation_parameters invocation_parameters = {
@@ -823,6 +874,14 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
                 perror("executable-run real weight pager");
                 goto out;
             }
+            for (uint32_t index = 0; input_token_ids != NULL &&
+                                      index < input_token_count; ++index) {
+                if (input_token_ids[index] >= weight_model.vocab_size) {
+                    errno = ERANGE;
+                    perror("executable-run input token ID vocabulary");
+                    goto out;
+                }
+            }
             const uint32_t active_count = weight_model.experts_per_token < 8 ?
                 weight_model.experts_per_token : 8;
             const char *router_path = getenv("OPENNPUX_ROUTER_LOGITS");
@@ -934,6 +993,13 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
         copy_to_device_memory(window.bytes + input_offset,
                               (const uint8_t *)inference_request,
                               sizeof(*inference_request));
+        if (input_token_ids != NULL) {
+            copy_to_device_memory(
+                window.bytes + input_offset +
+                    OPENNPUX_NPU_INFERENCE_TOKEN_IDS_OFFSET,
+                (const uint8_t *)input_token_ids,
+                input_token_count * sizeof(*input_token_ids));
+        }
         clear_device_memory(window.bytes + output_offset,
                             sizeof(*inference_result));
         print_paged_stage(paged, "inference-io-published");
@@ -1315,6 +1381,7 @@ print_executable_run(struct opennpux_coral_device *dev, const char *path,
     puts("executable_run=PASS");
     rc = 0;
 out:
+    free(input_token_ids);
     opennpux_npu_weight_ranges_unload(&weight_ranges);
     free(weight_cache_entries);
     free(weight_cache_storage);

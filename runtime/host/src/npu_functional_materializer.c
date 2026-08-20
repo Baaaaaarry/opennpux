@@ -160,8 +160,9 @@ opennpux_npu_functional_request_materialize(
     request->epsilon = 1.0e-5f;
     request->rope_theta = 10000.0f;
     const struct opennpux_npu_tensor_view *shape_view =
-        command->opcode == OPENNPUX_NPU_OP_DMA ? &views->inputs[0] :
-        &views->outputs[0];
+        command->opcode == OPENNPUX_NPU_OP_DMA ||
+                command->opcode == OPENNPUX_NPU_OP_TOPK ?
+            &views->inputs[0] : &views->outputs[0];
     if (derive_shape(shape_view, &request->rows,
                      &request->features) != 0) {
         return -1;
@@ -196,9 +197,10 @@ opennpux_npu_functional_request_materialize(
     }
     for (uint32_t index = 0; index < views->output_count; ++index) {
         uint32_t role = output_roles[index];
-        if ((command->opcode == OPENNPUX_NPU_OP_TOPK ||
-             command->opcode == OPENNPUX_NPU_OP_ROUTER) && index == 0 &&
-            views->output_count > 1) {
+        if (command->opcode == OPENNPUX_NPU_OP_TOPK && index == 0) {
+            role = OPENNPUX_NPU_OPERAND_OUTPUT_INDICES;
+        } else if (command->opcode == OPENNPUX_NPU_OP_ROUTER && index == 0 &&
+                   views->output_count > 1) {
             role = OPENNPUX_NPU_OPERAND_OUTPUT_INDICES;
         } else if ((command->opcode == OPENNPUX_NPU_OP_TOPK ||
                     command->opcode == OPENNPUX_NPU_OP_ROUTER) &&

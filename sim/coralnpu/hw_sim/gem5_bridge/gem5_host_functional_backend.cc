@@ -30,11 +30,50 @@ void CopyStats(const Gem5GptqKernelStats& source,
 }
 
 void AddStats(const Gem5GptqKernelStats& source,
-              Gem5TransformerKernelStats* destination) {
+               Gem5TransformerKernelStats* destination) {
   destination->operations += source.operations;
   destination->bytes_read += source.bytes_read;
   destination->bytes_written += source.bytes_written;
   destination->modeled_cycles += source.modeled_cycles;
+}
+
+bool RunTopKRows(const Gem5HostFunctionalRequest& request,
+                 Gem5TransformerKernelStats* stats) {
+  if (request.input == nullptr || request.output_indices == nullptr ||
+      request.rows == 0 || request.features == 0 || request.top_k == 0 ||
+      request.top_k > request.features ||
+      (request.output_indices_count != request.top_k &&
+       request.output_indices_count != request.rows * request.top_k) ||
+      stats == nullptr) {
+    return false;
+  }
+  const bool last_row_only = request.output_indices_count == request.top_k;
+  const size_t output_rows = last_row_only ? 1 : request.rows;
+  std::vector<float> temporary;
+  float* values = request.output;
+  if (values == nullptr) {
+    try {
+      temporary.resize(output_rows * request.top_k);
+    } catch (...) {
+      return false;
+    }
+    values = temporary.data();
+  }
+  for (size_t output_row = 0; output_row < output_rows; ++output_row) {
+    const size_t input_row = last_row_only ? request.rows - 1 : output_row;
+    Gem5TransformerKernelStats row_stats = {};
+    if (!RunGem5TopKF32(
+            request.input + input_row * request.features, request.features,
+            request.top_k, values + output_row * request.top_k,
+            request.output_indices + output_row * request.top_k, &row_stats)) {
+      return false;
+    }
+    stats->operations += row_stats.operations;
+    stats->bytes_read += row_stats.bytes_read;
+    stats->bytes_written += row_stats.bytes_written;
+    stats->modeled_cycles += row_stats.modeled_cycles;
+  }
+  return true;
 }
 
 bool RunRouter(const Gem5HostFunctionalRequest& request,
@@ -272,7 +311,7 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
 
   size_t count = 0;
   if (!ElementCount(request, &count) || request.input == nullptr ||
-      request.output == nullptr) {
+      (request.output == nullptr && request.opcode != OPENNPUX_NPU_OP_TOPK)) {
     return Result(Gem5HostFunctionalStatus::kInvalid);
   }
   switch (request.opcode) {
@@ -305,10 +344,12 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
                                   request.output, &result.stats);
       break;
     case OPENNPUX_NPU_OP_TOPK:
+      success = RunTopKRows(request, &result.stats);
+      break;
     case OPENNPUX_NPU_OP_ROUTER:
-      success = RunGem5TopKF32(
-          request.input, count, request.top_k, request.output,
-          request.output_indices, &result.stats);
+      success = RunGem5TopKF32(request.input, count, request.top_k,
+                              request.output, request.output_indices,
+                              &result.stats);
       break;
     case OPENNPUX_NPU_OP_ACTIVATION:
       success = RunGem5SiluF32(request.input, count, request.output,

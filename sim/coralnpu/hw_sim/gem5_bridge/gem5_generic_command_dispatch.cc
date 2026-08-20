@@ -78,6 +78,10 @@ bool Required(const Gem5GenericConstBuffer& buffer) {
   return buffer.data != nullptr && buffer.size != 0;
 }
 
+bool Required(const Gem5GenericMutableBuffer& buffer) {
+  return buffer.data != nullptr && buffer.size != 0;
+}
+
 }  // namespace
 
 bool ExecuteGem5FunctionalRequest(
@@ -120,9 +124,11 @@ bool ExecuteGem5FunctionalRequestInRegions(
       *request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY, regions, region_count);
   const auto output_tertiary = MutableBuffer(
       *request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY, regions, region_count);
+  const bool indices_only_topk =
+      request->opcode == OPENNPUX_NPU_OP_TOPK && Required(output_indices);
   if ((request->opcode == OPENNPUX_NPU_OP_EMBED ?
            !Required(input_indices) : !Required(input)) ||
-      output.data == nullptr || output.size == 0) {
+      (!indices_only_topk && !Required(output))) {
     request->state = CORAL_OPERATOR_STATE_ERROR;
     request->error = CORAL_OPERATOR_ERROR_ADDRESS;
     return false;
@@ -220,6 +226,7 @@ bool ExecuteGem5FunctionalRequestInRegions(
   host.output_secondary = static_cast<float*>(output_secondary.data);
   host.output_tertiary = static_cast<float*>(output_tertiary.data);
   host.output_indices = static_cast<uint32_t*>(output_indices.data);
+  host.output_indices_count = output_indices.size / sizeof(uint32_t);
   host.operator_parameters = parameters;
   host.gptq_operands = &gptq;
   host.q_gptq_operands = &q_gptq;

@@ -99,6 +99,15 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
     heads = max(1, int(manifest.get("head_count", 1)))
     kv_heads = max(1, int(manifest.get("kv_head_count", heads)))
     head_dim = max(1, int(manifest.get("head_dim", hidden // heads or 1)))
+    linear_key_heads = max(1, int(manifest.get("linear_num_key_heads", heads)))
+    linear_value_heads = max(1, int(manifest.get("linear_num_value_heads", heads)))
+    linear_key_dim = max(1, int(manifest.get("linear_key_head_dim", head_dim)))
+    linear_value_dim = max(1, int(manifest.get("linear_value_head_dim", head_dim)))
+    linear_qkv_features = (
+        2 * linear_key_heads * linear_key_dim +
+        linear_value_heads * linear_value_dim
+    )
+    linear_value_features = linear_value_heads * linear_value_dim
     experts = max(1, int(manifest.get("expert_count", 1)))
     moe = max(1, int(manifest.get("moe_intermediate_size", hidden)))
     shared = max(1, int(manifest.get("shared_expert_intermediate_size", moe)))
@@ -109,20 +118,27 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
     if phase == "qkv_projection":
         output_features = (heads + 2 * kv_heads) * head_dim
     elif phase == "linear_attention_projection":
-        key_heads = max(1, int(manifest.get("linear_num_key_heads", heads)))
-        value_heads = max(1, int(manifest.get("linear_num_value_heads", heads)))
-        key_dim = max(1, int(manifest.get("linear_key_head_dim", head_dim)))
-        value_dim = max(1, int(manifest.get("linear_value_head_dim", head_dim)))
-        output_features = 2 * key_heads * key_dim + value_heads * value_dim
-        intermediate = value_heads
+        output_features = linear_qkv_features
+        intermediate = linear_value_heads
+    elif phase == "causal_depthwise_conv":
+        input_features = linear_qkv_features
+        output_features = linear_qkv_features
+        intermediate = max(1, int(manifest.get("linear_conv_kernel_dim", 4)))
+    elif phase == "recurrent_state_update":
+        input_features = linear_qkv_features
+        output_features = linear_value_features
+        intermediate = linear_value_heads
+    elif phase == "linear_attention_gate_norm":
+        output_features = linear_value_features
+        intermediate = linear_value_dim
+    elif phase == "linear_attention_output_projection":
+        input_features = linear_value_features
     elif phase == "router_topk":
         output_features = experts
     elif phase == "routed_experts_active_only":
         intermediate = moe
     elif phase == "shared_expert":
         intermediate = shared
-    elif phase == "causal_depthwise_conv":
-        intermediate = max(1, int(manifest.get("linear_conv_kernel_dim", 4)))
     elif phase == "lm_head":
         output_features = vocab
     elif phase == "token_embedding":
@@ -322,7 +338,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 2,
-        "functional_graph_revision": 2,
+        "functional_graph_revision": 3,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -416,6 +432,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     linear_qkv: int | None = None
     linear_alpha: int | None = None
     linear_beta: int | None = None
+    linear_source: int | None = None
     layer_residual_count: dict[int, int] = {}
 
     for command in executable["commands"]:
@@ -432,7 +449,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
             continue
         if layer is not None and phase == "attention_norm":
             layer_input = current
-        if phase in {"attention_norm", "ffn_norm", "linear_attention_gate_norm",
+        if phase in {"attention_norm", "ffn_norm",
                      "final_norm"}:
             output = tensor(f"{prefix}.{phase}", "scratch", rows + [hidden], command_id)
             emit(command, [current], [output])
@@ -452,6 +469,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
             current = query_tensor
             continue
         if phase == "linear_attention_projection":
+            linear_source = current
             key_heads = max(1, int(manifest.get("linear_num_key_heads", heads)))
             value_heads = max(1, int(manifest.get("linear_num_value_heads", heads)))
             key_dim = max(1, int(manifest.get("linear_key_head_dim", head_dim)))
@@ -521,12 +539,30 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
             current = output
             continue
         if phase == "recurrent_state_update":
+            if linear_alpha is None or linear_beta is None:
+                raise ValueError(f"command {command_id} has no alpha/beta tensors")
+            value_features = max(1, int(
+                manifest.get("linear_num_value_heads", heads)
+            )) * max(1, int(manifest.get("linear_value_head_dim", head_dim)))
             state = tensor(
                 f"{prefix}.recurrent_state", "persistent",
-                ["runtime.batch", hidden], command_id,
+                ["runtime.batch", value_features], command_id,
             )
-            output = tensor(f"{prefix}.recurrent", "scratch", rows + [hidden], command_id)
-            emit(command, [current], [output, state])
+            output = tensor(
+                f"{prefix}.recurrent", "scratch", rows + [value_features],
+                command_id,
+            )
+            emit(command, [current, linear_alpha, linear_beta], [output, state])
+            current = output
+            continue
+        if phase == "linear_attention_gate_norm":
+            if linear_source is None:
+                raise ValueError(f"command {command_id} has no gate source tensor")
+            output = tensor(
+                f"{prefix}.linear_attention_gate_norm", "scratch",
+                list(tensors[current]["shape"]), command_id,
+            )
+            emit(command, [current, linear_source], [output])
             current = output
             continue
         if phase == "router_topk":
@@ -628,7 +664,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
-        "functional_graph_revision": 2,
+        "functional_graph_revision": 3,
         "execution_scope": executable["execution_scope"],
         "runtime_row_expression": "runtime.batch * runtime.sequence",
         "tensor_count": len(tensors),

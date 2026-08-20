@@ -188,6 +188,46 @@ bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
   return FinishStats(operations, count * 2, count, stats);
 }
 
+bool RunGem5GatedRmsNormF32(
+    const float* input, const float* gate, const float* weight, size_t rows,
+    size_t heads, size_t head_dim, float epsilon, float* output,
+    Gem5TransformerKernelStats* stats) {
+  size_t features = 0;
+  size_t count = 0;
+  if (!ProductFits(heads, head_dim, &features) ||
+      !ProductFits(rows, features, &count) ||
+      !ValidBuffers(input, count, output, stats) || gate == nullptr ||
+      weight == nullptr || !std::isfinite(epsilon) || epsilon < 0.0f) {
+    return false;
+  }
+  for (size_t row = 0; row < rows; ++row) {
+    for (size_t head = 0; head < heads; ++head) {
+      const size_t base = row * features + head * head_dim;
+      double sum_squares = 0.0;
+      for (size_t column = 0; column < head_dim; ++column) {
+        const float value = input[base + column];
+        sum_squares += static_cast<double>(value) * value;
+      }
+      const float inverse_rms = 1.0f / std::sqrt(
+          static_cast<float>(sum_squares / head_dim) + epsilon);
+      if (!std::isfinite(inverse_rms)) {
+        return false;
+      }
+      for (size_t column = 0; column < head_dim; ++column) {
+        const float gate_value = gate[base + column];
+        const float silu_gate = gate_value / (1.0f + std::exp(-gate_value));
+        output[base + column] = input[base + column] * inverse_rms *
+                                weight[column] * silu_gate;
+        if (!std::isfinite(output[base + column])) {
+          return false;
+        }
+      }
+    }
+  }
+  return FinishStats(static_cast<uint64_t>(count) * 8 + rows * heads * 2,
+                     count * 3 + head_dim, count, stats);
+}
+
 bool RunGem5SoftmaxF32(const float* input, size_t rows, size_t features,
                        float* output, Gem5TransformerKernelStats* stats) {
   size_t count = 0;

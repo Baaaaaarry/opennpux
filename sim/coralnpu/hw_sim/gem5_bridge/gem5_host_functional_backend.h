@@ -24,6 +24,8 @@ struct Gem5HostFunctionalRequest {
   Gem5GenericConstBuffer linear_qkv_weight;
   Gem5GenericConstBuffer linear_alpha_weight;
   Gem5GenericConstBuffer linear_beta_weight;
+  Gem5GenericConstBuffer linear_gate_weight;
+  Gem5GenericConstBuffer linear_norm_weight;
   const uint32_t* positions;
   size_t rows;
   size_t features;

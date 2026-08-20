@@ -33,6 +33,11 @@ bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
                        size_t features, float epsilon, float* output,
                        Gem5TransformerKernelStats* stats);
 
+bool RunGem5GatedRmsNormF32(
+    const float* input, const float* gate, const float* weight, size_t rows,
+    size_t heads, size_t head_dim, float epsilon, float* output,
+    Gem5TransformerKernelStats* stats);
+
 bool RunGem5SoftmaxF32(const float* input, size_t rows, size_t features,
                        float* output, Gem5TransformerKernelStats* stats);
 

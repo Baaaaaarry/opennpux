@@ -219,6 +219,12 @@ bool ExecuteGem5FunctionalRequestInRegions(
   host.linear_beta_weight = ConstBuffer(
       *request, OPENNPUX_NPU_OPERAND_LINEAR_BETA_WEIGHT, regions,
       region_count);
+  host.linear_gate_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_LINEAR_GATE_WEIGHT, regions,
+      region_count);
+  host.linear_norm_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_LINEAR_NORM_WEIGHT, regions,
+      region_count);
   host.positions = static_cast<const uint32_t*>(positions.data);
   host.rows = request->rows;
   host.features = request->features;

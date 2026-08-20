@@ -268,6 +268,16 @@ int main(int argc, char** argv) {
   }
   assert(linear_projection_index != UINT32_MAX);
   assert(graph.ExecuteCommand(linear_projection_index, &weights));
+  uint32_t linear_gate_norm_index = UINT32_MAX;
+  for (uint32_t index = 0; index < graph.command_count(); ++index) {
+    std::vector<Gem5HostWeightBinding> floating;
+    if (weights.FindFloatBindings(index, &floating) && floating.size() == 2) {
+      linear_gate_norm_index = index;
+      break;
+    }
+  }
+  assert(linear_gate_norm_index != UINT32_MAX);
+  assert(graph.ExecuteCommand(linear_gate_norm_index, &weights));
   std::printf("functional_graph_add_elements=%zu\n", count);
   std::puts("functional_graph_gptq_projection=PASS");
   std::puts("functional_graph_routed_expert=PASS");
@@ -278,6 +288,7 @@ int main(int argc, char** argv) {
   std::puts("functional_graph_token_io=PASS");
   std::puts("functional_graph_autoregressive_reconfigure=PASS");
   std::puts("functional_graph_linear_attention_projection=PASS");
+  std::puts("functional_graph_linear_attention_gate_norm=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

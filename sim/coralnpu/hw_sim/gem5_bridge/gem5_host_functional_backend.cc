@@ -182,6 +182,50 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
   }
   Gem5HostFunctionalResult result = Result(Gem5HostFunctionalStatus::kComplete);
   bool success = false;
+  const bool linear_gate_norm =
+      request.opcode == OPENNPUX_NPU_OP_NORMALIZE &&
+      request.linear_gate_weight.data != nullptr;
+  if (linear_gate_norm) {
+    if (request.operator_parameters == nullptr || request.input == nullptr ||
+        request.secondary == nullptr || request.output == nullptr ||
+        request.linear_norm_weight.data == nullptr) {
+      return Result(Gem5HostFunctionalStatus::kInvalid);
+    }
+    const size_t input_features = request.operator_parameters->input_features;
+    const size_t output_features = request.operator_parameters->output_features;
+    const size_t head_dim = request.operator_parameters->intermediate_features;
+    if (input_features == 0 || output_features == 0 || head_dim == 0 ||
+        output_features % head_dim != 0 ||
+        request.linear_gate_weight.size !=
+            input_features * output_features * sizeof(float) ||
+        request.linear_norm_weight.size != head_dim * sizeof(float)) {
+      return Result(Gem5HostFunctionalStatus::kInvalid);
+    }
+    std::vector<float> gate(request.rows * output_features);
+    Gem5TransformerKernelStats projection_stats = {};
+    Gem5TransformerKernelStats norm_stats = {};
+    if (!RunGem5MatMulF32(
+            request.secondary,
+            static_cast<const float*>(request.linear_gate_weight.data),
+            request.rows, input_features, output_features, gate.data(),
+            &projection_stats) ||
+        !RunGem5GatedRmsNormF32(
+            request.input, gate.data(),
+            static_cast<const float*>(request.linear_norm_weight.data),
+            request.rows, output_features / head_dim, head_dim,
+            request.epsilon, request.output, &norm_stats)) {
+      return Result(Gem5HostFunctionalStatus::kExecutionError);
+    }
+    result.stats.operations =
+        projection_stats.operations + norm_stats.operations;
+    result.stats.bytes_read =
+        projection_stats.bytes_read + norm_stats.bytes_read;
+    result.stats.bytes_written =
+        projection_stats.bytes_written + norm_stats.bytes_written;
+    result.stats.modeled_cycles =
+        projection_stats.modeled_cycles + norm_stats.modeled_cycles;
+    return result;
+  }
   if (request.opcode == OPENNPUX_NPU_OP_MATMUL ||
       request.opcode == OPENNPUX_NPU_OP_EXPERT) {
     if (request.operator_parameters == nullptr || request.rows == 0 ||

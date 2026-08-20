@@ -73,6 +73,12 @@ for name, tensors in (
         "model.language_model.layers.1.linear_attn.in_proj_b.weight": b"".join(
             struct.pack("<f", ((row * 2 + column) % 5 - 2) / 8.0)
             for row in range(2) for column in range(18)),
+        "model.language_model.layers.1.linear_attn.in_proj_z.weight": b"".join(
+            struct.pack("<f", ((row + column) % 7 - 3) / 8.0)
+            for row in range(6) for column in range(18)),
+        "model.language_model.layers.1.linear_attn.norm.weight": b"".join(
+            struct.pack("<f", 1.0 + column / 16.0)
+            for column in range(3)),
         "model.language_model.norm.weight": bytes(range(40, 48)),
     }),
 ):

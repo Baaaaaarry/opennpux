@@ -38,6 +38,9 @@ struct Gem5HostFunctionalRequest {
   uint32_t* output_indices;
   const opennpux_npu_operator_parameters* operator_parameters;
   const Gem5GenericGptqOperands* gptq_operands;
+  const Gem5GenericGptqOperands* q_gptq_operands;
+  const Gem5GenericGptqOperands* k_gptq_operands;
+  const Gem5GenericGptqOperands* v_gptq_operands;
   const Gem5GenericGptqExpertOperands* gptq_expert_operands;
 };
 

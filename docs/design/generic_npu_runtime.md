@@ -422,6 +422,12 @@ simulation host but consume the same tensor addresses and report the same
 operation/byte/cycle statistics as future RTL engines. Fused QKV still requires
 three separately bound projection weight sets and is intentionally not treated
 as a valid single-output MatMul.
+Fused QKV now has explicit Q, K and V GPTQ component roles. The runtime maps
+compiler projection slots to those roles (and to gate/up/down expert roles),
+while the Host backend runs three independently shaped projections and writes
+three tensor-plan outputs. This preserves grouped-query dimensions where
+`heads != kv_heads`; it also prevents one resident weight set from being
+incorrectly reused for all three projections.
 
 The first data-plane probe stages one 4KiB page from the model weight source
 behind binding 2. Weight-consuming command classes sample the page through the

@@ -267,3 +267,96 @@ opennpux_npu_functional_program_materialize(
         program->submission_address + parameter_offset, extra_operands,
         extra_operand_count, request);
 }
+
+int
+opennpux_npu_functional_gptq_operands(
+    uint32_t slot_id,
+    const struct opennpux_npu_functional_gptq_views *views,
+    struct opennpux_npu_functional_operand *operands,
+    uint32_t operand_capacity, uint32_t *operand_count)
+{
+    static const uint32_t default_roles[] = {
+        OPENNPUX_NPU_OPERAND_QWEIGHT, OPENNPUX_NPU_OPERAND_QZEROS,
+        OPENNPUX_NPU_OPERAND_SCALES, OPENNPUX_NPU_OPERAND_G_IDX,
+    };
+    static const uint32_t q_roles[] = {
+        OPENNPUX_NPU_OPERAND_Q_QWEIGHT, OPENNPUX_NPU_OPERAND_Q_QZEROS,
+        OPENNPUX_NPU_OPERAND_Q_SCALES, OPENNPUX_NPU_OPERAND_Q_G_IDX,
+    };
+    static const uint32_t k_roles[] = {
+        OPENNPUX_NPU_OPERAND_K_QWEIGHT, OPENNPUX_NPU_OPERAND_K_QZEROS,
+        OPENNPUX_NPU_OPERAND_K_SCALES, OPENNPUX_NPU_OPERAND_K_G_IDX,
+    };
+    static const uint32_t v_roles[] = {
+        OPENNPUX_NPU_OPERAND_V_QWEIGHT, OPENNPUX_NPU_OPERAND_V_QZEROS,
+        OPENNPUX_NPU_OPERAND_V_SCALES, OPENNPUX_NPU_OPERAND_V_G_IDX,
+    };
+    static const uint32_t gate_roles[] = {
+        OPENNPUX_NPU_OPERAND_GATE_QWEIGHT,
+        OPENNPUX_NPU_OPERAND_GATE_QZEROS,
+        OPENNPUX_NPU_OPERAND_GATE_SCALES,
+        OPENNPUX_NPU_OPERAND_GATE_G_IDX,
+    };
+    static const uint32_t up_roles[] = {
+        OPENNPUX_NPU_OPERAND_UP_QWEIGHT,
+        OPENNPUX_NPU_OPERAND_UP_QZEROS,
+        OPENNPUX_NPU_OPERAND_UP_SCALES,
+        OPENNPUX_NPU_OPERAND_UP_G_IDX,
+    };
+    static const uint32_t down_roles[] = {
+        OPENNPUX_NPU_OPERAND_DOWN_QWEIGHT,
+        OPENNPUX_NPU_OPERAND_DOWN_QZEROS,
+        OPENNPUX_NPU_OPERAND_DOWN_SCALES,
+        OPENNPUX_NPU_OPERAND_DOWN_G_IDX,
+    };
+    if (views == NULL || operands == NULL || operand_count == NULL ||
+        operand_capacity < 3) {
+        errno = EINVAL;
+        return -1;
+    }
+    const uint32_t *roles = default_roles;
+    switch (slot_id) {
+      case OPENNPUX_NPU_WEIGHT_SLOT_Q_PROJ: roles = q_roles; break;
+      case OPENNPUX_NPU_WEIGHT_SLOT_K_PROJ: roles = k_roles; break;
+      case OPENNPUX_NPU_WEIGHT_SLOT_V_PROJ: roles = v_roles; break;
+      case OPENNPUX_NPU_WEIGHT_SLOT_GATE_PROJ: roles = gate_roles; break;
+      case OPENNPUX_NPU_WEIGHT_SLOT_UP_PROJ: roles = up_roles; break;
+      case OPENNPUX_NPU_WEIGHT_SLOT_DOWN_PROJ: roles = down_roles; break;
+      case OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT:
+      case OPENNPUX_NPU_WEIGHT_SLOT_O_PROJ:
+      case OPENNPUX_NPU_WEIGHT_SLOT_QKV_PROJ:
+        break;
+      default:
+        errno = EINVAL;
+        return -1;
+    }
+    const uint64_t addresses[] = {
+        views->qweight_address, views->qzeros_address,
+        views->scales_address, views->g_idx_address,
+    };
+    const uint64_t sizes[] = {
+        views->qweight_size, views->qzeros_size,
+        views->scales_size, views->g_idx_size,
+    };
+    const uint32_t count = views->g_idx_address == 0 ? 3 : 4;
+    if (operand_capacity < count) {
+        errno = ENOSPC;
+        return -1;
+    }
+    for (uint32_t index = 0; index < count; ++index) {
+        if (addresses[index] > UINT32_MAX || sizes[index] == 0 ||
+            sizes[index] > UINT32_MAX) {
+            errno = addresses[index] > UINT32_MAX || sizes[index] > UINT32_MAX ?
+                EOVERFLOW : EINVAL;
+            return -1;
+        }
+        operands[index] = (struct opennpux_npu_functional_operand){
+            .role = roles[index],
+            .address = (uint32_t)addresses[index],
+            .byte_size = (uint32_t)sizes[index],
+            .reserved = 0,
+        };
+    }
+    *operand_count = count;
+    return 0;
+}

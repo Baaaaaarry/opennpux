@@ -4,6 +4,7 @@
 #include "opennpux/npu_functional_request.h"
 #include "opennpux/npu_submission.h"
 #include "opennpux/npu_tensor_plan.h"
+#include "opennpux/npu_weight_ranges.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,6 +19,13 @@ struct opennpux_npu_functional_program {
     const struct opennpux_npu_tensor_plan *tensor_plan;
     struct opennpux_npu_tensor_plan_runtime runtime;
     struct opennpux_npu_tensor_plan_memory memory;
+};
+
+struct opennpux_npu_functional_gptq_views {
+    uint64_t qweight_address, qweight_size;
+    uint64_t qzeros_address, qzeros_size;
+    uint64_t scales_address, scales_size;
+    uint64_t g_idx_address, g_idx_size;
 };
 
 int opennpux_npu_functional_request_add_operand(
@@ -43,6 +51,11 @@ int opennpux_npu_functional_program_materialize(
     const struct opennpux_npu_functional_operand *extra_operands,
     uint32_t extra_operand_count,
     struct opennpux_npu_functional_request *request);
+int opennpux_npu_functional_gptq_operands(
+    uint32_t slot_id,
+    const struct opennpux_npu_functional_gptq_views *views,
+    struct opennpux_npu_functional_operand *operands,
+    uint32_t operand_capacity, uint32_t *operand_count);
 
 #ifdef __cplusplus
 }

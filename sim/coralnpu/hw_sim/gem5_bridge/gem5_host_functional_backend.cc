@@ -27,6 +27,14 @@ void CopyStats(const Gem5GptqKernelStats& source,
   destination->modeled_cycles = source.modeled_cycles;
 }
 
+void AddStats(const Gem5GptqKernelStats& source,
+              Gem5TransformerKernelStats* destination) {
+  destination->operations += source.operations;
+  destination->bytes_read += source.bytes_read;
+  destination->bytes_written += source.bytes_written;
+  destination->modeled_cycles += source.modeled_cycles;
+}
+
 }  // namespace
 
 bool Gem5HostFunctionalBackend::Supports(uint32_t opcode) const {
@@ -74,6 +82,39 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
           request.operator_parameters->output_features, request.output,
           &result.stats);
     } else if (request.opcode == OPENNPUX_NPU_OP_MATMUL) {
+      const bool fused_qkv = request.output_secondary != nullptr ||
+                             request.output_tertiary != nullptr;
+      if (fused_qkv) {
+        if (request.output_secondary == nullptr ||
+            request.output_tertiary == nullptr ||
+            request.q_gptq_operands == nullptr ||
+            request.k_gptq_operands == nullptr ||
+            request.v_gptq_operands == nullptr || request.heads == 0 ||
+            request.kv_heads == 0 || request.head_dim == 0) {
+          return Result(Gem5HostFunctionalStatus::kInvalid);
+        }
+        opennpux_npu_operator_parameters projection =
+            *request.operator_parameters;
+        Gem5GptqKernelStats projection_stats = {};
+        projection.output_features = request.heads * request.head_dim;
+        success = RunGem5GenericGptqMatMul(
+            projection, static_cast<uint32_t>(request.rows),
+            *request.q_gptq_operands, &projection_stats);
+        if (success) AddStats(projection_stats, &result.stats);
+        projection.output_features = request.kv_heads * request.head_dim;
+        projection_stats = {};
+        success = success && RunGem5GenericGptqMatMul(
+            projection, static_cast<uint32_t>(request.rows),
+            *request.k_gptq_operands, &projection_stats);
+        if (success) AddStats(projection_stats, &result.stats);
+        projection_stats = {};
+        success = success && RunGem5GenericGptqMatMul(
+            projection, static_cast<uint32_t>(request.rows),
+            *request.v_gptq_operands, &projection_stats);
+        if (success) AddStats(projection_stats, &result.stats);
+        if (!success) result.status = Gem5HostFunctionalStatus::kExecutionError;
+        return result;
+      }
       if (request.gptq_operands == nullptr) {
         return Result(Gem5HostFunctionalStatus::kInvalid);
       }

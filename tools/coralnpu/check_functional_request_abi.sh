@@ -14,7 +14,7 @@ emit_probe()
 #include <stdio.h>
 #include "${header}"
 int main(void) {
-    printf("%zu %zu %u %u %u %u %u %u\n",
+    printf("%zu %zu %u %u %u %u %u %u %u %u\n",
            sizeof(struct opennpux_npu_functional_request),
            sizeof(struct opennpux_npu_functional_operand),
            OPENNPUX_NPU_FUNCTIONAL_MAX_OPERANDS,
@@ -22,7 +22,9 @@ int main(void) {
            OPENNPUX_NPU_OPERAND_INPUT_TERTIARY,
            OPENNPUX_NPU_OPERAND_INPUT_QUATERNARY,
            OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
-           OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY);
+           OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY,
+           OPENNPUX_NPU_OPERAND_Q_QWEIGHT,
+           OPENNPUX_NPU_OPERAND_V_G_IDX);
     return 0;
 }
 EOF

@@ -84,6 +84,25 @@ main(void)
     check(request.operands[1].role == OPENNPUX_NPU_OPERAND_OUTPUT_INDICES &&
               request.operands[2].role == OPENNPUX_NPU_OPERAND_OUTPUT,
           "map router indices and weights");
+
+    const struct opennpux_npu_functional_gptq_views q_views = {
+        .qweight_address = 0x20300000,
+        .qweight_size = 48,
+        .qzeros_address = 0x20300100,
+        .qzeros_size = 8,
+        .scales_address = 0x20300200,
+        .scales_size = 24,
+    };
+    struct opennpux_npu_functional_operand q_operands[4];
+    uint32_t q_operand_count = 0;
+    check(opennpux_npu_functional_gptq_operands(
+              OPENNPUX_NPU_WEIGHT_SLOT_Q_PROJ, &q_views, q_operands, 4,
+              &q_operand_count) == 0,
+          "map q projection operands");
+    check(q_operand_count == 3 &&
+              q_operands[0].role == OPENNPUX_NPU_OPERAND_Q_QWEIGHT &&
+              q_operands[2].role == OPENNPUX_NPU_OPERAND_Q_SCALES,
+          "q projection roles");
     puts("npu_functional_materializer=PASS");
     return 0;
 }

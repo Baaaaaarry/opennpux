@@ -102,6 +102,42 @@ int main() {
   assert(matmul_output[0] == 4.0f);
   assert(result.stats.operations == 4);
 
+  float q_output[] = {0.0f};
+  float k_output[] = {0.0f};
+  float v_output[] = {0.0f};
+  const Gem5GenericGptqOperands q_operands = {
+      {matmul_input, sizeof(matmul_input)}, {qweight, sizeof(qweight)},
+      {qzeros, sizeof(qzeros)},             {scales, sizeof(scales)},
+      {nullptr, 0},                         {q_output, sizeof(q_output)},
+  };
+  const Gem5GenericGptqOperands k_operands = {
+      {matmul_input, sizeof(matmul_input)}, {qweight, sizeof(qweight)},
+      {qzeros, sizeof(qzeros)},             {scales, sizeof(scales)},
+      {nullptr, 0},                         {k_output, sizeof(k_output)},
+  };
+  const Gem5GenericGptqOperands v_operands = {
+      {matmul_input, sizeof(matmul_input)}, {qweight, sizeof(qweight)},
+      {qzeros, sizeof(qzeros)},             {scales, sizeof(scales)},
+      {nullptr, 0},                         {v_output, sizeof(v_output)},
+  };
+  parameters.output_features = 3;
+  parameters.head_count = 1;
+  parameters.kv_head_count = 1;
+  parameters.head_dim = 1;
+  request.output_secondary = k_output;
+  request.output_tertiary = v_output;
+  request.heads = 1;
+  request.kv_heads = 1;
+  request.head_dim = 1;
+  request.q_gptq_operands = &q_operands;
+  request.k_gptq_operands = &k_operands;
+  request.v_gptq_operands = &v_operands;
+  result = backend.Execute(request);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(q_output[0] == 4.0f && k_output[0] == 4.0f &&
+         v_output[0] == 4.0f);
+  assert(result.stats.operations == 12);
+
   parameters = {};
   parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
   parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;

@@ -130,6 +130,21 @@ Focused RTL end-to-end test on x86 Linux/GB10:
 ./tools/coralnpu/run_npu_launch_test.sh
 ```
 
+Generic-command end-to-end test:
+
+```bash
+./tools/coralnpu/build_rvv_mobilenet.sh -c opt
+./tools/coralnpu/build_generic_launch_smoke.sh -c opt
+./tools/coralnpu/run_generic_launch_test.sh
+```
+
+This firmware submits float32 ADD through the same `NPU_LAUNCH` instruction,
+but uses an outer `GENERIC_COMMAND` descriptor and an address-based functional
+request. Acceptance requires the guest output `11,22,33,44`, operation count
+4, and host evidence for `source=custom-instruction` plus all five ordered
+micro-commands. It is the focused gate for the compiler/runtime generic
+command path and does not execute TFLM or a complete model graph.
+
 The focused firmware constructs one four-element INT8 ADD descriptor in local
 EXTMEM and submits it with `NPU_LAUNCH`. The run script requires independent
 evidence from both sides of the boundary: the bridge log must show

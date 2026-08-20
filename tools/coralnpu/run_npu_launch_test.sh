@@ -5,7 +5,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 BRIDGE="${ROOT_DIR}/build/coralnpu/libcoralnpu_gem5_rvv_highmem_bridge.so"
-FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_npu_launch_smoke.elf"
+FIRMWARE="${CORAL_NPU_LAUNCH_FIRMWARE:-${ROOT_DIR}/build/coralnpu/gem5_npu_launch_smoke.elf}"
 TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral-npu-launch-test.rcS"
 HOST_LOG="${CORAL_NPU_LAUNCH_HOST_LOG:-${ROOT_DIR}/simout/coral-npu-launch-host.log}"
 DEBUG_LOG="${CORAL_NPU_LAUNCH_DEBUG_LOG:-${ROOT_DIR}/simout/coral-npu-launch.debug}"

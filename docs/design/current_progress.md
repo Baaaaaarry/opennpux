@@ -744,3 +744,8 @@ functional request，bridge 校验每个 operand 范围后调用 `Gem5HostFuncti
 沿原有异步五级命令链回填 operation/traffic/modeled-cycle 统计。ADD 与 GPTQ MatMul 数值
 执行、非法 envelope 拒绝以及三类 engine 路由已有独立单测。下一步是 runtime/firmware
 根据 `.npxtb` 为每条 `.npxe` command 物化 request，使完整命令流真正进入该数值执行链。
+
+新增 `gem5_generic_launch_smoke.elf` 作为上述边界的 RTL 端到端门禁。Coral 固件在本地
+EXTMEM 构造 float32 ADD functional request，再通过真实 `NPU_LAUNCH` 指令提交；Guest
+继续使用既有 mailbox 验证 `11,22,33,44`、operation count 和 completion。该测试要求
+GB10/x86 Linux 的 RISC-V/Verilator toolchain 构建并运行。

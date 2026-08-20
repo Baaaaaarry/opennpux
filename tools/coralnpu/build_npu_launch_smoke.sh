@@ -5,7 +5,8 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 CORAL_REPO="${CORAL_REPO:-${ROOT_DIR}/thirdparty/coralnpu}"
-TARGET="//hw_sim:gem5_npu_launch_smoke.elf"
+TARGET="${CORAL_NPU_LAUNCH_TARGET:-//hw_sim:gem5_npu_launch_smoke.elf}"
+OUTPUT_NAME="${CORAL_NPU_LAUNCH_OUTPUT:-gem5_npu_launch_smoke.elf}"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${PHASE2_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -50,8 +51,8 @@ esac
     exit 1
 }
 
-DESTINATION="${OUT_DIR}/gem5_npu_launch_smoke.elf"
-TEMPORARY="$(mktemp "${OUT_DIR}/.gem5_npu_launch_smoke.elf.XXXXXX")"
+DESTINATION="${OUT_DIR}/${OUTPUT_NAME}"
+TEMPORARY="$(mktemp "${OUT_DIR}/.${OUTPUT_NAME}.XXXXXX")"
 cp "${SOURCE}" "${TEMPORARY}"
 chmod 0644 "${TEMPORARY}"
 mv -f "${TEMPORARY}" "${DESTINATION}"

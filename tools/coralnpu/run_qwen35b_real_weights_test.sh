@@ -460,6 +460,33 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
     HOST_FUNCTIONAL_RANGES="$MODEL_DIR/$RANGE_NAME"
     HOST_FUNCTIONAL_TENSOR_PLAN="$MODEL_DIR/$TENSOR_PLAN_NAME"
     echo "[coral-qwen35b-real-weights-test] CPU token count: $INPUT_TOKEN_COUNT" >&2
+    if [ "${CORAL_SKIP_HOST_FUNCTIONAL_PREFLIGHT:-0}" = 0 ]; then
+        PREFLIGHT_LOG="${ROOT_DIR}/simout/qwen35b-host-functional-preflight.log"
+        mkdir -p "${ROOT_DIR}/simout"
+        echo "[coral-qwen35b-real-weights-test] running Host C++ preflight" >&2
+        if ! "${ROOT_DIR}/tools/models/run_host_functional_preflight.sh" \
+            "$MODEL_DIR" "$INPUT_TOKEN_IDS" "$MAX_NEW_TOKENS" \
+            >"$PREFLIGHT_LOG" 2>&1; then
+            cat "$PREFLIGHT_LOG" >&2
+            echo "error: Host C++ functional preflight failed; gem5 was not started" >&2
+            exit 1
+        fi
+        cat "$PREFLIGHT_LOG"
+        PREFLIGHT_TOKEN_IDS="$(sed -n \
+            's/^host_functional_token_ids=//p' "$PREFLIGHT_LOG" | tail -n 1)"
+        [ -n "$PREFLIGHT_TOKEN_IDS" ] || {
+            echo "error: Host C++ preflight did not produce token IDs" >&2
+            exit 1
+        }
+        if [ "$TOKEN_REFERENCE" != 0 ] &&
+           [ "$PREFLIGHT_TOKEN_IDS" != "$EXPECTED_TOKEN_IDS" ]; then
+            echo "error: Host C++ preflight token IDs differ from $MODEL_LOADER" >&2
+            echo "host_cpp=$PREFLIGHT_TOKEN_IDS" >&2
+            echo "reference=$EXPECTED_TOKEN_IDS" >&2
+            exit 1
+        fi
+        echo "[coral-qwen35b-real-weights-test] host_preflight=PASS" >&2
+    fi
 fi
 
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then

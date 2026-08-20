@@ -276,7 +276,8 @@ bool DispatchGem5GenericCommand(coral_operator_descriptor* descriptor,
   if (!ExecuteGem5FunctionalRequest(request, extmem, extmem_base,
                                     extmem_size)) {
     descriptor->error = request->error == CORAL_OPERATOR_ERROR_NONE
-                            ? CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR
+                            ? static_cast<uint32_t>(
+                                  CORAL_OPERATOR_ERROR_BAD_DESCRIPTOR)
                             : request->error;
     return false;
   }

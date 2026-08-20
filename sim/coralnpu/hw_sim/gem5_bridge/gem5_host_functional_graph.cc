@@ -334,6 +334,112 @@ bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
   return true;
 }
 
+bool Gem5HostFunctionalGraph::ExecuteGptqExpert(
+    uint32_t command_index, Gem5HostWeightProvider* weights,
+    const Gem5HostWeightBinding& binding) {
+  opennpux_npu_functional_request initial = {};
+  if (!configured_ || weights == nullptr ||
+      !Materialize(command_index, nullptr, 0, &initial) ||
+      initial.opcode != OPENNPUX_NPU_OP_EXPERT ||
+      initial.parameter_address < submission_base_ ||
+      initial.parameter_size != sizeof(opennpux_npu_operator_parameters) ||
+      initial.parameter_address - submission_base_ >
+          submission_.size() - initial.parameter_size) {
+    return false;
+  }
+  const auto* parameters =
+      reinterpret_cast<const opennpux_npu_operator_parameters*>(
+          submission_.data() + initial.parameter_address - submission_base_);
+  const uint64_t intermediate_elements =
+      static_cast<uint64_t>(initial.rows) * parameters->intermediate_features;
+  if (parameters->intermediate_features == 0 ||
+      intermediate_elements > SIZE_MAX / sizeof(float) ||
+      intermediate_elements > UINT32_MAX / sizeof(float)) {
+    return false;
+  }
+  const uint32_t slots[] = {OPENNPUX_NPU_WEIGHT_SLOT_GATE_PROJ,
+                            OPENNPUX_NPU_WEIGHT_SLOT_UP_PROJ,
+                            OPENNPUX_NPU_WEIGHT_SLOT_DOWN_PROJ};
+  const uint32_t operand_roles[][4] = {
+      {OPENNPUX_NPU_OPERAND_GATE_QWEIGHT,
+       OPENNPUX_NPU_OPERAND_GATE_QZEROS,
+       OPENNPUX_NPU_OPERAND_GATE_SCALES,
+       OPENNPUX_NPU_OPERAND_GATE_G_IDX},
+      {OPENNPUX_NPU_OPERAND_UP_QWEIGHT,
+       OPENNPUX_NPU_OPERAND_UP_QZEROS,
+       OPENNPUX_NPU_OPERAND_UP_SCALES,
+       OPENNPUX_NPU_OPERAND_UP_G_IDX},
+      {OPENNPUX_NPU_OPERAND_DOWN_QWEIGHT,
+       OPENNPUX_NPU_OPERAND_DOWN_QZEROS,
+       OPENNPUX_NPU_OPERAND_DOWN_SCALES,
+       OPENNPUX_NPU_OPERAND_DOWN_G_IDX}};
+  Gem5HostGptqWeights loaded[3] = {};
+  opennpux_npu_functional_operand operands[15] = {};
+  Gem5FunctionalMemoryRegion regions[15] = {};
+  uint32_t count = 0;
+  uint64_t address = UINT32_C(0x50000000);
+  for (uint32_t projection = 0; projection < 3; ++projection) {
+    if (!weights->LoadProjection(command_index, binding.role_id,
+                                 binding.expert_id, slots[projection],
+                                 &loaded[projection], projection)) {
+      return false;
+    }
+    const Gem5HostConstBuffer components[] = {
+        loaded[projection].qweight, loaded[projection].qzeros,
+        loaded[projection].scales, loaded[projection].g_idx};
+    for (uint32_t component = 0; component < 4; ++component) {
+      if (components[component].data == nullptr ||
+          components[component].size == 0) {
+        continue;
+      }
+      address = (address + 63) & ~UINT64_C(63);
+      if (components[component].size > UINT32_MAX ||
+          address + components[component].size > (UINT64_C(1) << 32)) {
+        return false;
+      }
+      operands[count] = {operand_roles[projection][component],
+                         static_cast<uint32_t>(address),
+                         static_cast<uint32_t>(components[component].size), 0};
+      regions[count] = {
+          static_cast<uint32_t>(address),
+          const_cast<uint8_t*>(static_cast<const uint8_t*>(
+              components[component].data)),
+          components[component].size};
+      address += components[component].size;
+      ++count;
+    }
+  }
+  std::vector<float> intermediates[3];
+  const uint32_t temporary_roles[] = {OPENNPUX_NPU_OPERAND_GATE_OUTPUT,
+                                      OPENNPUX_NPU_OPERAND_UP_OUTPUT,
+                                      OPENNPUX_NPU_OPERAND_ACTIVATED};
+  for (uint32_t temporary = 0; temporary < 3; ++temporary) {
+    try {
+      intermediates[temporary].resize(
+          static_cast<size_t>(intermediate_elements));
+    } catch (...) {
+      return false;
+    }
+    address = (address + 63) & ~UINT64_C(63);
+    const size_t size = intermediates[temporary].size() * sizeof(float);
+    if (address + size > (UINT64_C(1) << 32)) {
+      return false;
+    }
+    operands[count] = {temporary_roles[temporary],
+                       static_cast<uint32_t>(address),
+                       static_cast<uint32_t>(size), 0};
+    regions[count] = {static_cast<uint32_t>(address),
+                      reinterpret_cast<uint8_t*>(
+                          intermediates[temporary].data()),
+                      size};
+    address += size;
+    ++count;
+  }
+  opennpux_npu_functional_request request = {};
+  return count >= 12 && Materialize(command_index, operands, count, &request) &&
+         Execute(&request, regions, count);
+}
+
 bool Gem5HostFunctionalGraph::ExecuteFloatWeight(
     uint32_t command_index, Gem5HostWeightProvider* weights,
     const Gem5HostWeightBinding& binding) {
@@ -388,12 +494,20 @@ bool Gem5HostFunctionalGraph::ExecuteCommand(
     return false;
   }
   if (selected->opcode == OPENNPUX_NPU_OP_EXPERT && has_gptq) {
-    const bool routed = std::find_if(
+    const auto routed = std::find_if(
         gptq.begin(), gptq.end(), [](const auto& binding) {
           return binding.role_id == OPENNPUX_NPU_WEIGHT_ROLE_ROUTED_EXPERT &&
                  binding.expert_id != OPENNPUX_NPU_WEIGHT_EXPERT_NONE;
-        }) != gptq.end();
-    return routed && ExecuteRoutedExpert(command_index, weights);
+        });
+    if (routed != gptq.end()) {
+      return ExecuteRoutedExpert(command_index, weights);
+    }
+    const auto direct = std::find_if(
+        gptq.begin(), gptq.end(), [](const auto& binding) {
+          return binding.slot_id == OPENNPUX_NPU_WEIGHT_SLOT_GATE_PROJ;
+        });
+    return direct != gptq.end() &&
+           ExecuteGptqExpert(command_index, weights, *direct);
   }
   std::vector<Gem5HostWeightBinding> floating;
   if (weights->FindFloatBindings(command_index, &floating)) {

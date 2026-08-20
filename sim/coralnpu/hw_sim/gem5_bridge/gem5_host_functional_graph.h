@@ -49,6 +49,9 @@ class Gem5HostFunctionalGraph {
                          Gem5HostWeightProvider* weights);
   bool ExecuteRoutedExpert(uint32_t command_index,
                            Gem5HostWeightProvider* weights);
+  bool ExecuteGptqExpert(uint32_t command_index,
+                         Gem5HostWeightProvider* weights,
+                         const Gem5HostWeightBinding& binding);
   bool ExecuteCommand(uint32_t command_index,
                       Gem5HostWeightProvider* weights);
   void ResetInvocation();

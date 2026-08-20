@@ -731,3 +731,8 @@ slot。QKV 已拆分为独立 Q/K/V，RoPE、KV-cache update 与 Attention 按�
 40 层 Qwen3.5 形态的 524 条命令被完整映射为 625 个 Tensor 和 6 个 scratch slot；
 独立 validator 会拒绝缺命令、先读后写、活跃区间冲突及没有生产者的最终输出。当前仍待
 runtime 将符号 shape/slot 实例化为设备地址并逐命令调用 Host C++ backend。
+
+同时新增 `model.npxtb` 二进制 side table 与 C runtime loader。Loader 对 checksum、
+record bounds、producer-before-consumer 和 slot 容量做强校验，并可按实际 batch/sequence
+计算 scratch 总容量、把 scratch Tensor ID 解析为边界受控的设备地址。下一步继续补齐
+input/output/persistent state 解析并接入 bridge dispatcher。

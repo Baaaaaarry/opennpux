@@ -15,7 +15,12 @@ HEADER = struct.Struct("<8I3Q2I3Q")
 ENTRY = struct.Struct("<4I4Q")
 COMMAND = struct.Struct("<8I4Q2IQ")
 OPERATOR_PARAMETERS = struct.Struct("<16I")
+TENSOR_PLAN_HEADER = struct.Struct("<12I4Q")
+TENSOR_PLAN_TENSOR = struct.Struct("<16I2Q")
+TENSOR_PLAN_COMMAND = struct.Struct("<12I")
+TENSOR_PLAN_SLOT = struct.Struct("<2IQ")
 MAGIC = 0x4558504E
+TENSOR_PLAN_MAGIC = 0x5054504E
 INVOCATION_HEADER_SIZE = 144
 TENSOR_BINDING_SIZE = 112
 INVOCATION_COMMAND_SIZE = 112
@@ -577,6 +582,12 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
         item["bytes_per_runtime_row"] = bytes_per_row
         active.append((int(item["last_consumer_command"]), slot))
 
+    persistent_tensors = [
+        item for item in tensors if item["storage"] == "persistent"
+    ]
+    for slot, item in enumerate(persistent_tensors):
+        item["allocation_slot"] = slot
+
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
@@ -585,6 +596,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
         "tensor_count": len(tensors),
         "command_count": len(command_io),
         "scratch_slot_count": len(slots),
+        "persistent_slot_count": len(persistent_tensors),
         "scratch_bytes_per_runtime_row": sum(slot["bytes_per_runtime_row"] for slot in slots),
         "scratch_slots": slots,
         "tensors": tensors,
@@ -675,6 +687,78 @@ def write_binary(executable: dict[str, Any], path: Path) -> None:
     path.write_bytes(data)
 
 
+def write_tensor_plan_binary(plan: dict[str, Any], path: Path) -> None:
+    storage_ids = {"input": 1, "output": 2, "scratch": 3, "persistent": 4}
+    data_type_ids = {"int32": 3, "float32": 6}
+    dimension_ids = {
+        "runtime.batch": 1,
+        "runtime.sequence": 2,
+        "runtime.kv": 3,
+        "runtime.active_experts": 4,
+    }
+    tensor_offset = align(TENSOR_PLAN_HEADER.size)
+    command_offset = align(tensor_offset + len(plan["tensors"]) * TENSOR_PLAN_TENSOR.size)
+    slot_offset = align(command_offset + len(plan["command_io"]) * TENSOR_PLAN_COMMAND.size)
+    total_size = slot_offset + len(plan["scratch_slots"]) * TENSOR_PLAN_SLOT.size
+    header = TENSOR_PLAN_HEADER.pack(
+        TENSOR_PLAN_MAGIC, 1, TENSOR_PLAN_HEADER.size, total_size,
+        len(plan["tensors"]), len(plan["command_io"]), len(plan["scratch_slots"]),
+        TENSOR_PLAN_TENSOR.size, TENSOR_PLAN_COMMAND.size, TENSOR_PLAN_SLOT.size,
+        0, 0, tensor_offset, command_offset, slot_offset,
+        int(plan["scratch_bytes_per_runtime_row"]),
+    )
+    tensor_data = bytearray()
+    for tensor in plan["tensors"]:
+        dimensions = [0] * 8
+        dimension_symbols = 0
+        shape = tensor["shape"]
+        if len(shape) > len(dimensions):
+            raise ValueError(f"tensor {tensor['id']} rank exceeds binary ABI")
+        for index, dimension in enumerate(shape):
+            if isinstance(dimension, int):
+                dimensions[index] = dimension
+            else:
+                symbol = dimension_ids.get(str(dimension))
+                if symbol is None:
+                    raise ValueError(f"unknown runtime dimension {dimension}")
+                dimension_symbols |= symbol << (index * 4)
+        producer = tensor["producer_command"]
+        tensor_data += TENSOR_PLAN_TENSOR.pack(
+            int(tensor["id"]), storage_ids[str(tensor["storage"])],
+            data_type_ids[str(tensor["data_type"])], len(shape),
+            0xFFFFFFFF if producer is None else int(producer),
+            int(tensor["last_consumer_command"]),
+            int(tensor.get("allocation_slot", 0xFFFFFFFF)), dimension_symbols,
+            *dimensions, int(tensor.get("bytes_per_runtime_row", 0)), 0,
+        )
+    command_data = bytearray()
+    for record in plan["command_io"]:
+        inputs = [int(value) for value in record["input_tensor_ids"]]
+        outputs = [int(value) for value in record["output_tensor_ids"]]
+        if len(inputs) > 4 or len(outputs) > 3:
+            raise ValueError(f"command {record['command_id']} exceeds tensor IO ABI")
+        command_data += TENSOR_PLAN_COMMAND.pack(
+            int(record["command_id"]), len(inputs), len(outputs), 0,
+            *(inputs + [0xFFFFFFFF] * (4 - len(inputs))),
+            *(outputs + [0xFFFFFFFF] * (3 - len(outputs))), 0,
+        )
+    slot_data = b"".join(
+        TENSOR_PLAN_SLOT.pack(
+            int(slot["id"]), 0, int(slot["bytes_per_runtime_row"])
+        )
+        for slot in plan["scratch_slots"]
+    )
+    data = header
+    data += b"\0" * (tensor_offset - len(data)) + tensor_data
+    data += b"\0" * (command_offset - len(data)) + command_data
+    data += b"\0" * (slot_offset - len(data)) + slot_data
+    if len(data) != total_size:
+        raise ValueError("tensor plan binary layout mismatch")
+    value = checksum(data, 40)
+    data = data[:40] + struct.pack("<I", value) + data[44:]
+    path.write_bytes(data)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest", type=Path)
@@ -687,11 +771,15 @@ def main() -> None:
     tensor_plan = build_tensor_plan(executable, manifest)
     tensor_plan_output = args.output.with_suffix(".npxt")
     tensor_plan_output.write_text(json.dumps(tensor_plan, indent=2, sort_keys=True) + "\n")
+    tensor_plan_binary = args.output.with_suffix(".npxtb")
+    write_tensor_plan_binary(tensor_plan, tensor_plan_binary)
     binary_output = args.output.with_suffix(".npxc")
     write_binary(executable, binary_output)
     print(f"npu_executable={args.output}")
     print(f"npu_command_template={binary_output}")
     print(f"npu_tensor_plan={tensor_plan_output}")
+    print(f"npu_tensor_plan_binary={tensor_plan_binary}")
+    print(f"npu_tensor_plan_binary_bytes={tensor_plan_binary.stat().st_size}")
     print(f"npu_tensor_plan_tensors={tensor_plan['tensor_count']}")
     print(f"npu_tensor_plan_scratch_slots={tensor_plan['scratch_slot_count']}")
     print(

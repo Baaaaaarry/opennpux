@@ -312,6 +312,12 @@ PY
 "${WORK_DIR}/npu_executable_test" "${MODEL_DIR}/model.npxc"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/npu_tensor_plan.c" \
+    "${ROOT_DIR}/tests/unit/runtime_host/npu_tensor_plan_test.c" \
+    -o "${WORK_DIR}/npu_tensor_plan_test"
+"${WORK_DIR}/npu_tensor_plan_test" "${MODEL_DIR}/model.npxtb"
+"${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+    -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \
     "${ROOT_DIR}/runtime/host/tools/model_inspect.c" \
     -o "${WORK_DIR}/model-inspect"

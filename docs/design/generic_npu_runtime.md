@@ -230,6 +230,14 @@ next runtime increment must scale slots by live batch/sequence dimensions,
 assign device addresses, and pass resolved tensor views to the Host C++
 dispatcher before numerical execution can be claimed.
 
+For runtime consumption, the same plan is serialized as `model.npxtb` using
+the versioned `OPENNPUX_NPU_TENSOR_PLAN_V1` binary ABI. The C loader validates
+the checksum, dense tensor/command IDs, producer-before-consumer ordering,
+record bounds and slot capacity. Its resolver scales the six scratch slots by
+live batch and sequence dimensions and maps a scratch tensor ID to a bounded
+device address. Input/output and persistent-state address resolution, followed
+by dispatcher integration, remain separate runtime steps.
+
 vLLM remains an external oracle. A vLLM `.npxo` result may be used for system
 transport regression, but it must not be copied into the device result during
 Host C++ functional acceptance. Native acceptance requires the Host C++ engine

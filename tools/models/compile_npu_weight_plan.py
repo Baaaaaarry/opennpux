@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from build_qwen_execution_plan import (
-    EXPERT_RE, LAYER_RE, tensor_component, tensor_role,
+    EXPERT_RE, LAYER_RE, tensor_component, tensor_domain, tensor_role,
 )
 
 
@@ -121,6 +121,7 @@ def tensor_records(manifest_path: Path, manifest: dict[str, Any]) -> list[dict[s
                 "layer": int(layer_match.group(1)) if layer_match else None,
                 "expert": int(expert_match.group(1)) if expert_match else None,
                 "role": tensor_role(name),
+                "domain": tensor_domain(name),
                 "component": tensor_component(name),
                 "slot": tensor_slot(name),
                 "dtype": (
@@ -160,7 +161,10 @@ def build_weight_plan(
     records = tensor_records(manifest_path, manifest)
     by_layer_role: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
     for record in records:
-        if record["layer"] is not None:
+        # Generic decoder commands describe only the text model. MTP and
+        # vision tensors may reuse the same layer/role names, but are separate
+        # execution domains and must not alias a text command's weight slot.
+        if record["domain"] == "text" and record["layer"] is not None:
             by_layer_role[(int(record["layer"]), str(record["role"]))].append(record)
 
     commands = []
@@ -177,7 +181,10 @@ def build_weight_plan(
                 for role in roles
                 for record in (
                     by_layer_role.get((layer, role), []) if layer is not None
-                    else [item for item in records if item["role"] == role]
+                    else [
+                        item for item in records
+                        if item["domain"] == "text" and item["role"] == role
+                    ]
                 )
             ),
             key=lambda record: (
@@ -230,6 +237,7 @@ def build_weight_plan(
     plan = {
         "format": FORMAT,
         "version": 1,
+        "tensor_domain": "text",
         "executable": manifest_path.with_name("model.npxc").name,
         "tensor_index": str(manifest["tensor_index"]),
         "shards": manifest.get("shards", []),

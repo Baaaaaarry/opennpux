@@ -42,6 +42,10 @@ for name, tensors in (
         "model.language_model.layers.0.self_attn.v_proj.scales": bytes(range(24)),
         "model.language_model.layers.0.self_attn.v_proj.g_idx": bytes(72),
         "model.language_model.layers.0.self_attn.q_norm.weight": bytes(range(8)),
+        "model.language_model.layers.0.input_layernorm.weight": bytes(36),
+        # MTP can reuse a decoder layer index and role. It must not be bound
+        # to the text decoder's attention_norm command.
+        "mtp.layers.0.input_layernorm.weight": bytes(36),
     }),
     ("model-00002-of-00002.safetensors", {
         "model.language_model.layers.0.mlp.experts.0.gate_proj.qweight": bytes(288),
@@ -72,7 +76,8 @@ for name, tensors in (
         dtype = "U8"
         if tensor_name.endswith("mlp.router.weight"):
             dtype = "F32"
-        elif tensor_name.endswith(".scales"):
+        elif (tensor_name.endswith(".scales") or
+              tensor_name.endswith("input_layernorm.weight")):
             dtype = "F16"
         elif tensor_name.endswith(".g_idx") or tensor_name.endswith(".qzeros"):
             dtype = "I32"
@@ -105,6 +110,7 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as source:
     plan = json.load(source)
 assert plan["format"] == "OPENNPUX_NPU_WEIGHT_PLAN_V1"
+assert plan["tensor_domain"] == "text"
 assert plan["command_count"] == 30
 assert plan["mapped_command_count"] > 0
 assert plan["matched_tensor_range_count"] > 0
@@ -113,6 +119,12 @@ for command in plan["commands"]:
     if primary is not None:
         assert primary["size"] > 0
         assert primary["offset"] >= 0
+attention_norm = [
+    command for command in plan["commands"]
+    if command["layer"] == 0 and command["phase"] == "attention_norm"
+]
+assert len(attention_norm) == 1
+assert attention_norm[0]["matched_tensor_count"] == 1
 print("npu_weight_plan_loader=PASS")
 PY
 python3 - "${MODEL_DIR}/model.npxw" "${MODEL_DIR}/model.npxr" <<'PY'

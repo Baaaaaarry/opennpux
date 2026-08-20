@@ -229,6 +229,30 @@ for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
     }
 done
 if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
+   ! python3 - "$MODEL_DIR/model.npxw" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as source:
+        plan = json.load(source)
+except (OSError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if plan.get("tensor_domain") == "text" else 1)
+PY
+then
+    if [ "${CORAL_AUTO_REBUILD_WEIGHT_PLAN:-1}" = 0 ]; then
+        echo "error: Host C++ weight plan predates execution-domain isolation" >&2
+        echo "regenerate it with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2
+        exit 1
+    fi
+    echo "[coral-qwen35b-real-weights-test] rebuilding text-domain weight plan" >&2
+    "${ROOT_DIR}/tools/models/compile_npu_weight_plan.py" \
+        "$MODEL_DIR/$MANIFEST_NAME" "$MODEL_DIR/$EXECUTABLE_NAME" \
+        "$MODEL_DIR/model.npxw" --range-output "$MODEL_DIR/$RANGE_NAME" \
+        --require-complete
+fi
+if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
    [ ! -r "$MODEL_DIR/$TENSOR_PLAN_NAME" ]; then
     TENSOR_PLAN_STEM=${TENSOR_PLAN_NAME%.npxtb}
     EXECUTION_PLAN="$MODEL_DIR/$EXECUTION_PLAN_NAME"

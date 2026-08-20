@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 struct Gem5GenericGptqWeights;
 
@@ -26,6 +27,9 @@ class Gem5HostWeightProvider {
   bool LoadProjection(uint32_t command_id, uint32_t role_id,
                       uint64_t expert_id, uint32_t slot_id,
                       Gem5GenericGptqWeights* weights);
+  bool LoadFloatWeight(uint32_t command_id, uint32_t role_id,
+                       uint64_t expert_id, uint32_t slot_id,
+                       std::vector<float>* weights);
   bool ConfigureRoutedExpert(uint32_t command_id);
   static bool ProvideRoutedExpert(void* opaque, uint64_t expert_id,
                                   Gem5GenericGptqWeights* gate,

@@ -1,6 +1,8 @@
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
 
 #include <array>
+#include <cmath>
+#include <cstring>
 #include <vector>
 
 #include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
@@ -18,6 +20,86 @@ Gem5GenericGptqWeights View(const OwnedWeights& weights) {
           {weights.components[1].data(), weights.components[1].size()},
           {weights.components[2].data(), weights.components[2].size()},
           {weights.components[3].data(), weights.components[3].size()}};
+}
+
+float Float16ToFloat(uint16_t value) {
+  const uint32_t sign = static_cast<uint32_t>(value & 0x8000) << 16;
+  uint32_t exponent = (value >> 10) & 0x1f;
+  uint32_t mantissa = value & 0x3ff;
+  uint32_t bits = 0;
+  if (exponent == 0) {
+    if (mantissa == 0) {
+      bits = sign;
+    } else {
+      exponent = 127 - 15 + 1;
+      while ((mantissa & 0x400) == 0) {
+        mantissa <<= 1;
+        --exponent;
+      }
+      bits = sign | (exponent << 23) | ((mantissa & 0x3ff) << 13);
+    }
+  } else if (exponent == 0x1f) {
+    bits = sign | UINT32_C(0x7f800000) | (mantissa << 13);
+  } else {
+    bits = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
+  }
+  float result = 0.0f;
+  std::memcpy(&result, &bits, sizeof(result));
+  return result;
+}
+
+bool ConvertFloatWeight(const std::vector<uint8_t>& bytes, uint32_t data_type,
+                        std::vector<float>* output) {
+  if (output == nullptr || bytes.empty()) {
+    return false;
+  }
+  size_t element_size = 0;
+  if (data_type == OPENNPUX_NPU_DTYPE_FLOAT16 ||
+      data_type == OPENNPUX_NPU_DTYPE_BFLOAT16) {
+    element_size = sizeof(uint16_t);
+  } else if (data_type == OPENNPUX_NPU_DTYPE_INT8) {
+    element_size = sizeof(int8_t);
+  } else if (data_type == OPENNPUX_NPU_DTYPE_INT32) {
+    element_size = sizeof(int32_t);
+  } else if (data_type == OPENNPUX_NPU_DTYPE_FLOAT32) {
+    element_size = sizeof(float);
+  } else {
+    return false;
+  }
+  if (bytes.size() % element_size != 0) {
+    return false;
+  }
+  try {
+    output->resize(bytes.size() / element_size);
+  } catch (...) {
+    return false;
+  }
+  for (size_t index = 0; index < output->size(); ++index) {
+    if (data_type == OPENNPUX_NPU_DTYPE_INT8) {
+      (*output)[index] = static_cast<float>(
+          static_cast<int8_t>(bytes[index]));
+    } else if (data_type == OPENNPUX_NPU_DTYPE_INT32) {
+      int32_t value = 0;
+      std::memcpy(&value, bytes.data() + index * sizeof(value), sizeof(value));
+      (*output)[index] = static_cast<float>(value);
+    } else if (data_type == OPENNPUX_NPU_DTYPE_FLOAT32) {
+      std::memcpy(&(*output)[index], bytes.data() + index * sizeof(float),
+                  sizeof(float));
+    } else {
+      uint16_t value = 0;
+      std::memcpy(&value, bytes.data() + index * sizeof(value), sizeof(value));
+      if (data_type == OPENNPUX_NPU_DTYPE_BFLOAT16) {
+        const uint32_t bits = static_cast<uint32_t>(value) << 16;
+        std::memcpy(&(*output)[index], &bits, sizeof(bits));
+      } else {
+        (*output)[index] = Float16ToFloat(value);
+      }
+    }
+    if (!std::isfinite((*output)[index])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace
@@ -119,6 +201,38 @@ bool Gem5HostWeightProvider::LoadProjection(
     uint32_t slot_id, Gem5GenericGptqWeights* weights) {
   return impl_->LoadGroup(command_id, role_id, expert_id, slot_id,
                           &impl_->projection, weights);
+}
+
+bool Gem5HostWeightProvider::LoadFloatWeight(
+    uint32_t command_id, uint32_t role_id, uint64_t expert_id,
+    uint32_t slot_id, std::vector<float>* weights) {
+  if (!impl_->loaded || weights == nullptr) {
+    return false;
+  }
+  const opennpux_npu_weight_range_record* record = nullptr;
+  if (opennpux_npu_weight_range_find_slot(
+          &impl_->ranges, command_id, role_id,
+          OPENNPUX_NPU_WEIGHT_COMPONENT_WEIGHT, expert_id, slot_id,
+          &record) != 0 ||
+      record->byte_size == 0 || record->byte_size > impl_->max_component_size ||
+      record->byte_size > SIZE_MAX) {
+    return false;
+  }
+  std::vector<uint8_t> bytes;
+  try {
+    bytes.resize(static_cast<size_t>(record->byte_size));
+  } catch (...) {
+    return false;
+  }
+  if (opennpux_model_package_read_shard_range(
+          impl_->manifest_path.c_str(), &impl_->model, record->shard_index,
+          record->file_offset, bytes.data(), bytes.size()) != 0) {
+    return false;
+  }
+  const uint32_t data_type = static_cast<uint32_t>(
+      (record->flags & OPENNPUX_NPU_WEIGHT_DTYPE_MASK) >>
+      OPENNPUX_NPU_WEIGHT_DTYPE_SHIFT);
+  return ConvertFloatWeight(bytes, data_type, weights);
 }
 
 bool Gem5HostWeightProvider::ConfigureRoutedExpert(uint32_t command_id) {

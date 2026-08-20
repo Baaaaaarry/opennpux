@@ -164,6 +164,7 @@ int main(int argc, char** argv) {
        ++index) {
     assert(std::isfinite(expert_output_data[index]));
   }
+  assert(graph.ExecuteCommand(expert_index, &weights));
   uint32_t router_index = UINT32_MAX;
   for (uint32_t index = 0; index < graph.command_count(); ++index) {
     if (graph.command(index)->opcode == OPENNPUX_NPU_OP_ROUTER) {
@@ -206,11 +207,16 @@ int main(int argc, char** argv) {
     }
     assert(std::fabs(sum - 1.0f) < 1.0e-5f);
   }
-  assert(graph.stats().completed_commands == 4);
+  assert(graph.stats().completed_commands == 5);
+  assert(graph.ExecuteCommand(add_index, &weights));
+  assert(graph.ExecuteCommand(matmul_index, &weights));
+  assert(graph.ExecuteCommand(router_index, &weights));
+  assert(graph.stats().completed_commands == 8);
   std::printf("functional_graph_add_elements=%zu\n", count);
   std::puts("functional_graph_gptq_projection=PASS");
   std::puts("functional_graph_routed_expert=PASS");
   std::puts("functional_graph_gptq_router=PASS");
+  std::puts("functional_graph_auto_dispatch=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

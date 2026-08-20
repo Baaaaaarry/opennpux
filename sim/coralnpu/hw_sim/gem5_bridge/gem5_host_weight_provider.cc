@@ -1,8 +1,10 @@
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <tuple>
 #include <vector>
 
 #include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
@@ -248,6 +250,77 @@ bool Gem5HostWeightProvider::LoadFloatWeight(
       (record->flags & OPENNPUX_NPU_WEIGHT_DTYPE_MASK) >>
       OPENNPUX_NPU_WEIGHT_DTYPE_SHIFT);
   return ConvertFloatWeight(bytes, data_type, weights);
+}
+
+bool Gem5HostWeightProvider::FindGptqBindings(
+    uint32_t command_id,
+    std::vector<Gem5HostWeightBinding>* bindings) const {
+  if (!impl_->loaded || bindings == nullptr) {
+    return false;
+  }
+  bindings->clear();
+  const opennpux_npu_weight_range_record* records = nullptr;
+  uint32_t record_count = 0;
+  if (opennpux_npu_weight_ranges_for_command(
+          &impl_->ranges, command_id, &records, &record_count) != 0) {
+    return false;
+  }
+  std::vector<std::tuple<uint32_t, uint64_t, uint32_t>> seen;
+  for (uint32_t index = 0; index < record_count; ++index) {
+    const auto& record = records[index];
+    if (record.component_id != OPENNPUX_NPU_WEIGHT_COMPONENT_QWEIGHT) {
+      continue;
+    }
+    const uint32_t slot = static_cast<uint32_t>(
+        record.flags & OPENNPUX_NPU_WEIGHT_SLOT_MASK);
+    const auto key = std::make_tuple(record.role_id, record.expert_id, slot);
+    if (std::find(seen.begin(), seen.end(), key) != seen.end()) {
+      continue;
+    }
+    opennpux_npu_gptq_weight_ranges group = {};
+    if (opennpux_npu_weight_ranges_find_gptq(
+            &impl_->ranges, command_id, record.role_id, record.expert_id,
+            slot, &group) != 0) {
+      continue;
+    }
+    seen.push_back(key);
+    bindings->push_back({record.role_id, record.expert_id, slot});
+  }
+  return !bindings->empty();
+}
+
+bool Gem5HostWeightProvider::FindFloatBindings(
+    uint32_t command_id,
+    std::vector<Gem5HostWeightBinding>* bindings) const {
+  if (!impl_->loaded || bindings == nullptr) {
+    return false;
+  }
+  bindings->clear();
+  const opennpux_npu_weight_range_record* records = nullptr;
+  uint32_t record_count = 0;
+  if (opennpux_npu_weight_ranges_for_command(
+          &impl_->ranges, command_id, &records, &record_count) != 0) {
+    return false;
+  }
+  for (uint32_t index = 0; index < record_count; ++index) {
+    const auto& record = records[index];
+    if (record.component_id != OPENNPUX_NPU_WEIGHT_COMPONENT_WEIGHT) {
+      continue;
+    }
+    const Gem5HostWeightBinding binding = {
+        record.role_id, record.expert_id,
+        static_cast<uint32_t>(record.flags & OPENNPUX_NPU_WEIGHT_SLOT_MASK)};
+    const auto duplicate = std::find_if(
+        bindings->begin(), bindings->end(), [&](const auto& existing) {
+          return existing.role_id == binding.role_id &&
+                 existing.expert_id == binding.expert_id &&
+                 existing.slot_id == binding.slot_id;
+        });
+    if (duplicate == bindings->end()) {
+      bindings->push_back(binding);
+    }
+  }
+  return !bindings->empty();
 }
 
 bool Gem5HostWeightProvider::ConfigureRoutedExpert(uint32_t command_id) {

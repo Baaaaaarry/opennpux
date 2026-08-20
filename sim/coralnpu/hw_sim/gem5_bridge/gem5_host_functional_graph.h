@@ -11,6 +11,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_tensor_arena.h"
 
 class Gem5HostWeightProvider;
+struct Gem5HostWeightBinding;
 
 struct Gem5HostFunctionalGraphStats {
   uint32_t completed_commands;
@@ -48,6 +49,8 @@ class Gem5HostFunctionalGraph {
                          Gem5HostWeightProvider* weights);
   bool ExecuteRoutedExpert(uint32_t command_index,
                            Gem5HostWeightProvider* weights);
+  bool ExecuteCommand(uint32_t command_index,
+                      Gem5HostWeightProvider* weights);
   void ResetInvocation();
 
   uint32_t command_count() const {
@@ -59,6 +62,9 @@ class Gem5HostFunctionalGraph {
   const Gem5HostFunctionalGraphStats& stats() const { return stats_; }
 
  private:
+  bool ExecuteFloatWeight(uint32_t command_index,
+                          Gem5HostWeightProvider* weights,
+                          const Gem5HostWeightBinding& binding);
   std::vector<uint8_t> submission_;
   uint32_t submission_base_ = 0;
   Gem5HostTensorArena arena_;

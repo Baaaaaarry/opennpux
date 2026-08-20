@@ -21,6 +21,12 @@ struct Gem5HostGptqWeights {
   Gem5HostConstBuffer g_idx;
 };
 
+struct Gem5HostWeightBinding {
+  uint32_t role_id;
+  uint64_t expert_id;
+  uint32_t slot_id;
+};
+
 // Owns direct host mappings of semantic GPTQ components. A private
 // implementation prevents the runtime's full submission ABI from leaking
 // into bridge headers that use Coral's reduced standalone ABI copy.
@@ -42,6 +48,10 @@ class Gem5HostWeightProvider {
   bool LoadFloatWeight(uint32_t command_id, uint32_t role_id,
                        uint64_t expert_id, uint32_t slot_id,
                        std::vector<float>* weights);
+  bool FindGptqBindings(uint32_t command_id,
+                        std::vector<Gem5HostWeightBinding>* bindings) const;
+  bool FindFloatBindings(uint32_t command_id,
+                         std::vector<Gem5HostWeightBinding>* bindings) const;
   bool ConfigureRoutedExpert(uint32_t command_id);
   static bool ProvideRoutedExpert(void* opaque, uint64_t expert_id,
                                   Gem5GenericGptqWeights* gate,

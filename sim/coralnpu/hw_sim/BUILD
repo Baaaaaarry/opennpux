@@ -176,6 +176,31 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "gem5_model_weight_runtime",
+    srcs = [
+        "gem5_bridge/opennpux/model_package.c",
+        "gem5_bridge/opennpux/npu_gptq_weights.c",
+        "gem5_bridge/opennpux/npu_weight_ranges.c",
+    ],
+    hdrs = [
+        "gem5_bridge/opennpux/model_package.h",
+        "gem5_bridge/opennpux/npu_gptq_weights.h",
+        "gem5_bridge/opennpux/npu_weight_ranges.h",
+    ],
+    includes = ["gem5_bridge"],
+)
+
+cc_library(
+    name = "gem5_host_weight_provider",
+    srcs = ["gem5_bridge/gem5_host_weight_provider.cc"],
+    hdrs = ["gem5_bridge/gem5_host_weight_provider.h"],
+    deps = [
+        ":gem5_model_weight_runtime",
+        ":gem5_npu_submission_headers",
+    ],
+)
+
 cc_binary(
     name = "libcoralnpu_gem5_bridge.so",
     srcs = [
@@ -218,6 +243,7 @@ cc_binary(
     deps = [
         ":gem5_host_functional_graph",
         ":gem5_host_tensor_arena",
+        ":gem5_host_weight_provider",
         ":gem5_npu_submission_headers",
         ":hw_primitives",
         "//hdl/chisel/src/coralnpu:core_mini_axi_cc_library_cc",
@@ -269,6 +295,7 @@ cc_binary(
     deps = [
         ":gem5_host_functional_graph",
         ":gem5_host_tensor_arena",
+        ":gem5_host_weight_provider",
         ":gem5_npu_submission_headers",
         ":hw_primitives",
         "//hdl/chisel/src/coralnpu:rvv_core_mini_highmem_axi_cc_library_cc",

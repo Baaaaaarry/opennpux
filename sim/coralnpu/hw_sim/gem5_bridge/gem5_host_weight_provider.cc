@@ -1,0 +1,158 @@
+#include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
+
+#include <array>
+#include <vector>
+
+#include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
+#include "opennpux/model_package.h"
+#include "opennpux/npu_weight_ranges.h"
+
+namespace {
+
+struct OwnedWeights {
+  std::array<std::vector<uint8_t>, 4> components;
+};
+
+Gem5GenericGptqWeights View(const OwnedWeights& weights) {
+  return {{weights.components[0].data(), weights.components[0].size()},
+          {weights.components[1].data(), weights.components[1].size()},
+          {weights.components[2].data(), weights.components[2].size()},
+          {weights.components[3].data(), weights.components[3].size()}};
+}
+
+}  // namespace
+
+struct Gem5HostWeightProvider::Impl {
+  bool LoadGroup(uint32_t command_id, uint32_t role_id, uint64_t expert_id,
+                 uint32_t slot_id, OwnedWeights* owned,
+                 Gem5GenericGptqWeights* view) {
+    if (!loaded || owned == nullptr || view == nullptr) {
+      return false;
+    }
+    opennpux_npu_gptq_weight_ranges group = {};
+    if (opennpux_npu_weight_ranges_find_gptq(
+            &ranges, command_id, role_id, expert_id, slot_id, &group) != 0) {
+      return false;
+    }
+    const opennpux_npu_weight_range_record* records[] = {
+        group.qweight, group.qzeros, group.scales, group.g_idx};
+    for (size_t index = 0; index < 4; ++index) {
+      auto& bytes = owned->components[index];
+      bytes.clear();
+      if (records[index] == nullptr) {
+        continue;
+      }
+      if (records[index]->byte_size == 0 ||
+          records[index]->byte_size > max_component_size ||
+          records[index]->byte_size > SIZE_MAX) {
+        return false;
+      }
+      try {
+        bytes.resize(static_cast<size_t>(records[index]->byte_size));
+      } catch (...) {
+        return false;
+      }
+      if (opennpux_model_package_read_shard_range(
+              manifest_path.c_str(), &model, records[index]->shard_index,
+              records[index]->file_offset, bytes.data(), bytes.size()) != 0) {
+        return false;
+      }
+    }
+    *view = View(*owned);
+    return true;
+  }
+
+  std::string manifest_path;
+  opennpux_model_package_info model = {};
+  opennpux_npu_weight_ranges ranges = {};
+  OwnedWeights projection;
+  OwnedWeights gate;
+  OwnedWeights up;
+  OwnedWeights down;
+  size_t max_component_size = 0;
+  uint32_t routed_command_id = UINT32_MAX;
+  bool loaded = false;
+};
+
+Gem5HostWeightProvider::Gem5HostWeightProvider()
+    : impl_(std::make_unique<Impl>()) {}
+
+Gem5HostWeightProvider::~Gem5HostWeightProvider() { Reset(); }
+
+bool Gem5HostWeightProvider::Load(const std::string& manifest_path,
+                                  const std::string& weight_ranges_path,
+                                  size_t max_component_size) {
+  Reset();
+  if (manifest_path.empty() || weight_ranges_path.empty() ||
+      max_component_size == 0 ||
+      opennpux_model_package_load(manifest_path.c_str(), &impl_->model) != 0 ||
+      opennpux_npu_weight_ranges_load(weight_ranges_path.c_str(),
+                                      &impl_->ranges) != 0 ||
+      impl_->ranges.header->shard_count != impl_->model.shard_count) {
+    Reset();
+    return false;
+  }
+  impl_->manifest_path = manifest_path;
+  impl_->max_component_size = max_component_size;
+  impl_->loaded = true;
+  return true;
+}
+
+void Gem5HostWeightProvider::Reset() {
+  if (impl_ == nullptr) {
+    return;
+  }
+  opennpux_npu_weight_ranges_unload(&impl_->ranges);
+  impl_->manifest_path.clear();
+  impl_->model = {};
+  impl_->projection = {};
+  impl_->gate = {};
+  impl_->up = {};
+  impl_->down = {};
+  impl_->max_component_size = 0;
+  impl_->routed_command_id = UINT32_MAX;
+  impl_->loaded = false;
+}
+
+bool Gem5HostWeightProvider::LoadProjection(
+    uint32_t command_id, uint32_t role_id, uint64_t expert_id,
+    uint32_t slot_id, Gem5GenericGptqWeights* weights) {
+  return impl_->LoadGroup(command_id, role_id, expert_id, slot_id,
+                          &impl_->projection, weights);
+}
+
+bool Gem5HostWeightProvider::ConfigureRoutedExpert(uint32_t command_id) {
+  if (!impl_->loaded || command_id >= impl_->ranges.header->command_count) {
+    return false;
+  }
+  impl_->routed_command_id = command_id;
+  return true;
+}
+
+bool Gem5HostWeightProvider::ProvideRoutedExpert(
+    void* opaque, uint64_t expert_id, Gem5GenericGptqWeights* gate,
+    Gem5GenericGptqWeights* up, Gem5GenericGptqWeights* down) {
+  auto* provider = static_cast<Gem5HostWeightProvider*>(opaque);
+  if (provider == nullptr || !provider->impl_->loaded ||
+      provider->impl_->routed_command_id == UINT32_MAX) {
+    return false;
+  }
+  return provider->impl_->LoadGroup(
+             provider->impl_->routed_command_id,
+             OPENNPUX_NPU_WEIGHT_ROLE_ROUTED_EXPERT, expert_id,
+             OPENNPUX_NPU_WEIGHT_SLOT_GATE_PROJ, &provider->impl_->gate,
+             gate) &&
+         provider->impl_->LoadGroup(
+             provider->impl_->routed_command_id,
+             OPENNPUX_NPU_WEIGHT_ROLE_ROUTED_EXPERT, expert_id,
+             OPENNPUX_NPU_WEIGHT_SLOT_UP_PROJ, &provider->impl_->up, up) &&
+         provider->impl_->LoadGroup(
+             provider->impl_->routed_command_id,
+             OPENNPUX_NPU_WEIGHT_ROLE_ROUTED_EXPERT, expert_id,
+             OPENNPUX_NPU_WEIGHT_SLOT_DOWN_PROJ, &provider->impl_->down,
+             down);
+}
+
+bool Gem5HostWeightProvider::loaded() const {
+  return impl_ != nullptr && impl_->loaded;
+}

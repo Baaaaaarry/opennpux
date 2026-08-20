@@ -221,6 +221,24 @@ grep -q '^gptq_reference=PASS$' "${WORK_DIR}/gptq-reference.log"
     -o "${WORK_DIR}/npu_gptq_weights_test"
 "${WORK_DIR}/npu_gptq_weights_test" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxr"
+for source in model_package npu_weight_ranges npu_gptq_weights; do
+    "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
+        -I"${ROOT_DIR}/runtime/host/include" \
+        -c "${ROOT_DIR}/runtime/host/src/${source}.c" \
+        -o "${WORK_DIR}/${source}.o"
+done
+"${CXX}" -O2 -Wall -Wextra -Werror -std=c++17 \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    -I"${ROOT_DIR}/sim/coralnpu" \
+    "${WORK_DIR}/model_package.o" \
+    "${WORK_DIR}/npu_weight_ranges.o" \
+    "${WORK_DIR}/npu_gptq_weights.o" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_weight_provider.cc" \
+    "${ROOT_DIR}/tests/unit/runtime_host/gem5_host_weight_provider_test.cc" \
+    -o "${WORK_DIR}/gem5_host_weight_provider_test"
+"${WORK_DIR}/gem5_host_weight_provider_test" \
+    "${MANIFEST}" "${MODEL_DIR}/model.npxr"
+echo "gem5_host_weight_provider=PASS"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \

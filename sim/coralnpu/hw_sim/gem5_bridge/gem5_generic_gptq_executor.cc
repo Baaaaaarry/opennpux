@@ -64,10 +64,18 @@ bool ExpertTraceEnabled() {
   return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
 }
 
-void TraceExpertValues(uint64_t expert_id, float route_weight,
-                       const char* stage, const float* values, size_t count) {
-  if (stage == nullptr || values == nullptr || count == 0) {
-    return;
+struct ExpertValueStats {
+  float minimum = std::numeric_limits<float>::infinity();
+  float maximum = -std::numeric_limits<float>::infinity();
+  double mean = 0.0;
+  double rms = 0.0;
+  size_t nonfinite = 0;
+};
+
+ExpertValueStats CollectExpertValueStats(const float* values, size_t count) {
+  ExpertValueStats stats;
+  if (values == nullptr || count == 0) {
+    return stats;
   }
   float minimum = std::numeric_limits<float>::infinity();
   float maximum = -std::numeric_limits<float>::infinity();
@@ -85,15 +93,26 @@ void TraceExpertValues(uint64_t expert_id, float route_weight,
     sum_squares += static_cast<double>(value) * value;
     ++finite;
   }
-  const double mean = finite == 0 ? 0.0 : sum / finite;
-  const double rms = finite == 0 ? 0.0 : std::sqrt(sum_squares / finite);
+  stats.minimum = minimum;
+  stats.maximum = maximum;
+  stats.mean = finite == 0 ? 0.0 : sum / finite;
+  stats.rms = finite == 0 ? 0.0 : std::sqrt(sum_squares / finite);
+  stats.nonfinite = count - finite;
+  return stats;
+}
+
+void TraceExpertValues(uint32_t row, uint32_t route, uint64_t expert_id,
+                       float route_weight, const char* stage, size_t count,
+                       const ExpertValueStats& stats) {
   std::fprintf(
       stderr,
-      "host_functional_expert_trace=expert:%llu,route_weight:%.9g,"
+      "host_functional_expert_trace=row:%u,route:%u,expert:%llu,"
+      "route_weight:%.9g,"
       "stage:%s,count:%zu,min:%.9g,max:%.9g,mean:%.9g,rms:%.9g,"
       "nonfinite:%zu\n",
-      static_cast<unsigned long long>(expert_id), route_weight, stage, count,
-      minimum, maximum, mean, rms, count - finite);
+      row, route, static_cast<unsigned long long>(expert_id), route_weight,
+      stage, count, stats.minimum, stats.maximum, stats.mean, stats.rms,
+      stats.nonfinite);
 }
 
 bool RunProjection(const opennpux_npu_operator_parameters& base,
@@ -497,16 +516,38 @@ bool RunGem5RoutedGptqExperts(
           !AddStats(expert_stats, stats)) {
         return false;
       }
-      if (row == 0 && route == 0 && ExpertTraceEnabled()) {
-        TraceExpertValues(expert_ids[route_index], route_weights[route_index],
-                          "gate", gate.data(), gate.size());
-        TraceExpertValues(expert_ids[route_index], route_weights[route_index],
-                          "up", up.data(), up.size());
-        TraceExpertValues(expert_ids[route_index], route_weights[route_index],
-                          "activated", activated.data(), activated.size());
-        TraceExpertValues(expert_ids[route_index], route_weights[route_index],
-                          "down", expert_output.data(), expert_output.size());
-        std::fflush(stderr);
+      if (ExpertTraceEnabled()) {
+        const auto gate_value_stats =
+            CollectExpertValueStats(gate.data(), gate.size());
+        const auto up_value_stats =
+            CollectExpertValueStats(up.data(), up.size());
+        const auto activated_value_stats =
+            CollectExpertValueStats(activated.data(), activated.size());
+        const auto down_value_stats = CollectExpertValueStats(
+            expert_output.data(), expert_output.size());
+        const bool suspicious = gate_value_stats.rms > 2.0 ||
+                                up_value_stats.rms > 2.0 ||
+                                activated_value_stats.rms > 5.0 ||
+                                down_value_stats.rms > 5.0 ||
+                                gate_value_stats.nonfinite != 0 ||
+                                up_value_stats.nonfinite != 0 ||
+                                activated_value_stats.nonfinite != 0 ||
+                                down_value_stats.nonfinite != 0;
+        if ((row == 0 && route == 0) || suspicious) {
+          TraceExpertValues(row, route, expert_ids[route_index],
+                            route_weights[route_index], "gate", gate.size(),
+                            gate_value_stats);
+          TraceExpertValues(row, route, expert_ids[route_index],
+                            route_weights[route_index], "up", up.size(),
+                            up_value_stats);
+          TraceExpertValues(row, route, expert_ids[route_index],
+                            route_weights[route_index], "activated",
+                            activated.size(), activated_value_stats);
+          TraceExpertValues(row, route, expert_ids[route_index],
+                            route_weights[route_index], "down",
+                            expert_output.size(), down_value_stats);
+          std::fflush(stderr);
+        }
       }
       for (uint32_t column = 0; column < parameters.output_features;
            ++column) {

@@ -554,15 +554,40 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
     if [ "${CORAL_SKIP_HOST_FUNCTIONAL_PREFLIGHT:-0}" = 0 ]; then
         PREFLIGHT_LOG="${ROOT_DIR}/simout/qwen35b-host-functional-preflight.log"
         mkdir -p "${ROOT_DIR}/simout"
+        TERMINAL_LOG="${ROOT_DIR}/logs/sim/m5out/system.terminal"
+        if [ -f "$TERMINAL_LOG" ]; then
+            mv -f "$TERMINAL_LOG" "$TERMINAL_LOG.previous"
+        fi
         echo "[coral-qwen35b-real-weights-test] running Host C++ preflight" >&2
-        if ! "${ROOT_DIR}/tools/models/run_host_functional_preflight.sh" \
+        : >"$PREFLIGHT_LOG"
+        "${ROOT_DIR}/tools/models/run_host_functional_preflight.sh" \
             "$MODEL_DIR" "$INPUT_TOKEN_IDS" "$MAX_NEW_TOKENS" \
-            >"$PREFLIGHT_LOG" 2>&1; then
-            cat "$PREFLIGHT_LOG" >&2
+            >"$PREFLIGHT_LOG" 2>&1 &
+        PREFLIGHT_PID=$!
+        PREFLIGHT_LINES=0
+        while kill -0 "$PREFLIGHT_PID" 2>/dev/null; do
+            sleep "${CORAL_PREFLIGHT_PROGRESS_INTERVAL:-5}"
+            CURRENT_LINES=$(wc -l <"$PREFLIGHT_LOG" | tr -d ' ')
+            if [ "$CURRENT_LINES" -gt "$PREFLIGHT_LINES" ]; then
+                sed -n "$((PREFLIGHT_LINES + 1)),${CURRENT_LINES}p" \
+                    "$PREFLIGHT_LOG" >&2
+                PREFLIGHT_LINES=$CURRENT_LINES
+            fi
+        done
+        if wait "$PREFLIGHT_PID"; then
+            PREFLIGHT_RC=0
+        else
+            PREFLIGHT_RC=$?
+        fi
+        CURRENT_LINES=$(wc -l <"$PREFLIGHT_LOG" | tr -d ' ')
+        if [ "$CURRENT_LINES" -gt "$PREFLIGHT_LINES" ]; then
+            sed -n "$((PREFLIGHT_LINES + 1)),${CURRENT_LINES}p" \
+                "$PREFLIGHT_LOG" >&2
+        fi
+        if [ "$PREFLIGHT_RC" -ne 0 ]; then
             echo "error: Host C++ functional preflight failed; gem5 was not started" >&2
             exit 1
         fi
-        cat "$PREFLIGHT_LOG"
         PREFLIGHT_TOKEN_IDS="$(sed -n \
             's/^host_functional_token_ids=//p' "$PREFLIGHT_LOG" | tail -n 1)"
         [ -n "$PREFLIGHT_TOKEN_IDS" ] || {

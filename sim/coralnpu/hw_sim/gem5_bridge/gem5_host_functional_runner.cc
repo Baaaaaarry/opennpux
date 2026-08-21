@@ -211,9 +211,21 @@ int main(int argc, char** argv) {
     uint32_t next_token = 0;
     ready = graph.ConfigureRuntime(submission, submission_size,
                                    UINT32_C(0x24000000), runtime) &&
-            graph.SetInputTokenIds(tokens.data(), tokens.size()) &&
-            graph.ExecuteProgram(&weights, &failed_command) &&
-            graph.ReadNextToken(&next_token);
+            graph.SetInputTokenIds(tokens.data(), tokens.size());
+    for (uint32_t command_index = 0;
+         ready && command_index < graph.command_count(); ++command_index) {
+      if (command_index % 25 == 0) {
+        std::fprintf(stderr,
+                     "host_functional_progress_step=%u command=%u/%u\n",
+                     step, command_index, graph.command_count());
+        std::fflush(stderr);
+      }
+      if (!graph.ExecuteCommand(command_index, &weights)) {
+        failed_command = command_index;
+        ready = false;
+      }
+    }
+    ready = ready && graph.ReadNextToken(&next_token);
     if (!ready) {
       std::fprintf(stderr,
                    "host_functional_failed_step=%u command=%u\n", step,

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cerrno>
 #include <cctype>
 #include <cmath>

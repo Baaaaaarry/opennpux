@@ -232,8 +232,7 @@ opennpux_npu_gptq_reference_run(
                     (size_t)group * zero_columns + column / 8];
                 const uint32_t stored_zero =
                     (packed_zero >> (4 * (column % 8))) & 0xfu;
-                const uint32_t zero = stored_zero + request.zero_bias > 15 ?
-                    15 : stored_zero + request.zero_bias;
+                const uint32_t zero = stored_zero + request.zero_bias;
                 const float scale = read_scale(
                     scales.data, (size_t)group * request.output_columns +
                     column, request.scale_data_type);

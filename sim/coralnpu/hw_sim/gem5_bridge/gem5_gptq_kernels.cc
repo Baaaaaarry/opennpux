@@ -119,7 +119,9 @@ bool RunGem5GptqInt4MatMul(
             qzeros[static_cast<size_t>(group) * zero_columns + column / 8];
         const uint32_t stored_zero =
             (packed_zero >> (4 * (column % 8))) & 0xf;
-        const uint32_t zero = std::min(stored_zero + config.zero_bias, 15u);
+        // GPTQ stores (zero_point - bias) in four bits. A stored nibble of 15
+        // with bias 1 therefore represents zero point 16, not 15.
+        const uint32_t zero = stored_zero + config.zero_bias;
         const float scale = ReadScale(
             scales, static_cast<size_t>(group) * config.output_columns + column,
             config.scale_data_type);

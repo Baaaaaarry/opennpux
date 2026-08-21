@@ -110,6 +110,21 @@ void TestBfloat16Scales() {
   assert(std::fabs(output[0] - 8.0f) < 1.0e-6f);
 }
 
+void TestStoredMaximumZeroWithBias() {
+  const Gem5GptqMatMulConfig config = {
+      1, 1, 1, 1, 1, kGem5GptqScaleFloat32};
+  const float input[] = {2.0f};
+  const uint32_t qweight[] = {UINT32_C(0x0000000f)};
+  const uint32_t qzeros[] = {UINT32_C(0x0000000f)};
+  const float scales[] = {0.5f};
+  float output[1] = {};
+  Gem5GptqKernelStats stats = {};
+
+  assert(RunGem5GptqInt4MatMul(config, input, qweight, qzeros, scales,
+                               nullptr, output, &stats));
+  assert(output[0] == -1.0f);
+}
+
 // Shared vector with the host reference in
 // tests/unit/runtime_host/npu_gptq_reference_test.c. Both implementations must
 // produce identical float32 values and the same FNV-1a output checksum,
@@ -190,6 +205,7 @@ int main() {
   TestRejectsInvalidGroupIndex();
   TestFloat16Scales();
   TestBfloat16Scales();
+  TestStoredMaximumZeroWithBias();
   TestHostReferenceVector();
   TestStreamedOutputTilesMatchContiguousKernel();
   return 0;

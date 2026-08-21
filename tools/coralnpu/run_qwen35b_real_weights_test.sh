@@ -586,7 +586,8 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         echo "[coral-qwen35b-real-weights-test] running Host C++ preflight" >&2
         : >"$PREFLIGHT_LOG"
         OPENNPUX_HOST_FUNCTIONAL_PRECISION="$HOST_FUNCTIONAL_PRECISION" \
-        OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE=1 \
+        OPENNPUX_HOST_FUNCTIONAL_PROGRESS="${CORAL_HOST_FUNCTIONAL_PROGRESS:-0}" \
+        OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE="${CORAL_HOST_FUNCTIONAL_LOGITS_TRACE:-0}" \
         OPENNPUX_HOST_FUNCTIONAL_REFERENCE_TOKENS="$EXPECTED_TOKEN_IDS" \
         "${ROOT_DIR}/tools/models/run_host_functional_preflight.sh" \
             "$MODEL_DIR" "$INPUT_TOKEN_IDS" "$MAX_NEW_TOKENS" \
@@ -805,3 +806,15 @@ CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_qwen35b_real
 CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --vio-9p --vio-9p-root=$MODEL_DIR --npu-operator-mode=hybrid --npu-dma-shared-base=0x8f000000 --npu-dma-shared-size=8MiB --npu-fast-dma --npu-fast-dma-event-batch=${CORAL_FAST_DMA_EVENT_BATCH:-1} --npu-fast-dma-sync-offset=0 --npu-fast-dma-sync-size=64KiB" \
 CORAL_RESUME_BOOTSCRIPT="$TMP_SCRIPT" \
 ./run_multicore.sh
+
+if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
+    TERMINAL_LOG="${ROOT_DIR}/logs/sim/m5out/system.terminal"
+    ACTUAL_TOKEN_IDS="$(sed -n 's/^inference_token_ids=//p' \
+        "$TERMINAL_LOG" | tail -n 1 | tr -d '\r')"
+    [ -n "$ACTUAL_TOKEN_IDS" ] || {
+        echo "error: guest did not return inference token IDs" >&2
+        exit 1
+    }
+    "$HF_PYTHON" "${ROOT_DIR}/tools/models/decode_token_ids.py" \
+        "$MODEL_DIR" --token-ids "$ACTUAL_TOKEN_IDS"
+fi

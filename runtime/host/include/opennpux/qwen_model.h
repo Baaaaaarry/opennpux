@@ -15,6 +15,11 @@ extern "C" {
 #define OPENNPUX_QWEN_OP_MAX_DIMS UINT32_C(4)
 #define OPENNPUX_QWEN_TCB_MAGIC UINT32_C(0x4e455751)
 #define OPENNPUX_QWEN_TCB_VERSION UINT32_C(1)
+
+/*
+ * Legacy tiny-model bring-up fixture. Production inference uses the generic
+ * invocation/command/tensor ABI in opennpux/npu_submission.h.
+ */
 #define OPENNPUX_QWEN_TCB_MAX_SIZE UINT32_C(8192)
 #define OPENNPUX_QWEN_TCB_TENSOR_BASE UINT32_C(0x00001000)
 #define OPENNPUX_QWEN_TCB_TENSOR_ALIGN UINT32_C(64)

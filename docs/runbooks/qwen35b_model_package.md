@@ -128,8 +128,27 @@ range-address the real 35B model without whole-model memory allocation. The
 next implementation lowers the observed graph into a generic NPU executable.
 For every prefill/decode request, the CPU runtime must still bind live tensors,
 dynamic dimensions, KV/recurrent state and synchronization, then submit a
-command-buffer job to the NPU. The existing Qwen tiny TCB remains a bring-up
-regression fixture and must not be extended into the stable platform ABI.
+command-buffer job to the NPU. The existing Qwen tiny TCB remains a frozen
+bring-up regression fixture and must not be extended into the stable platform
+ABI. The real-weight path uses generic invocation, tensor-binding,
+command-buffer and completion records; architecture material should label this
+structure "NPU invocation" or "command buffer", not "Qwen TCB".
+
+The NPU result contract ends at logits/token IDs. Text decoding is deliberately
+performed by the CPU-side tokenizer after the guest returns the actual IDs. A
+successful run therefore ends with output similar to:
+
+```text
+inference_result_source=host-functional-cpp
+inference_token_ids=<ids returned by NPU execution>
+inference_text_source=cpu-tokenizer
+inference_token_text=<decoded text>
+```
+
+Detailed numerical diagnostics are disabled by default. Enable only the needed
+stream with `CORAL_HOST_FUNCTIONAL_PROGRESS=1`,
+`CORAL_HOST_FUNCTIONAL_LOGITS_TRACE=1`, or
+`OPENNPUX_HOST_FUNCTIONAL_TRACE=1` while locating a regression.
 
 ## Execution Plan Inventory
 

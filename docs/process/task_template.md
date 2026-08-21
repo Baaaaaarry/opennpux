@@ -27,7 +27,7 @@ Mark all that apply:
 - SoC memory map:
 - NPU CSR/MMIO:
 - Shared DMA window:
-- TCB/operator descriptor:
+- Invocation/command/tensor descriptor:
 - Kernel UAPI:
 - Verilated bridge C ABI:
 - Checkpoint/image/kernel boot contract:
@@ -68,4 +68,3 @@ sim/coralnpu. Do not touch unrelated files. Implement the requested scope,
 update docs if an interface changes, run validation when possible, and report
 exact commands and outputs.
 ```
-

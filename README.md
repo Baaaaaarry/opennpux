@@ -58,8 +58,9 @@ Start here before development:
 - `docs/process/review_checklist.md`: human and Codex review checklist.
 
 Shared interfaces such as SoC memory map, NPU CSR/MMIO, shared DMA window,
-TCB/operator descriptors, kernel UAPI, Verilated bridge C ABI, checkpoint flow,
-and operator semantics must be documented and reviewed before merge.
+generic invocation/command/tensor descriptors, kernel UAPI, Verilated bridge C
+ABI, checkpoint flow, and operator semantics must be documented and reviewed
+before merge. Model-specific TCBs are compatibility tests, not platform ABIs.
 
 ## Guest MMIO Tool
 
@@ -288,8 +289,10 @@ The guest mount supplies both the fixed VirtIO mount tag `gem5` and the host
 export path as the diod `aname`; these identify the device and exported tree,
 respectively.
 Pass each test prompt with `--prompt`; this overrides the legacy
-`CORAL_QWEN_PROMPT` environment variable. The default run validates the
-fast functional-model endpoint: CPU prompt -> generic NPU executable -> token
-completion. Set `CORAL_QWEN35B_NUMERICAL=1` to enable incremental GPTQ
+`CORAL_QWEN_PROMPT` environment variable. The default run validates the fast
+functional-model endpoint: CPU prompt -> generic NPU executable -> token
+completion. The NPU returns token IDs; after guest validation, the CPU-side
+tokenizer decodes those returned IDs and prints `inference_token_text=<text>`.
+Set `CORAL_QWEN35B_NUMERICAL=1` to enable incremental GPTQ
 numerical kernels; that stricter mode is complete only when every required
 operator has a numerical backend.

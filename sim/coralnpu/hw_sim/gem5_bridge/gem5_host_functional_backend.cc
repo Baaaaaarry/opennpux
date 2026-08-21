@@ -585,7 +585,7 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
             request.input, request.weight, request.rows, request.features,
             kernel_width, request.output, &result.stats,
             (request.operator_parameters->flags &
-             OPENNPUX_NPU_PARAMETER_QWEN_DELTA_NET) != 0)) {
+             OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0)) {
       result.status = Gem5HostFunctionalStatus::kExecutionError;
     }
     return result;
@@ -675,7 +675,7 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
     case OPENNPUX_NPU_OP_RECURRENT_UPDATE:
       if (request.operator_parameters != nullptr &&
           (request.operator_parameters->flags &
-           OPENNPUX_NPU_PARAMETER_QWEN_DELTA_NET) != 0) {
+           OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0) {
         const size_t value_heads = request.kv_heads;
         const size_t value_dim = value_heads == 0 ? 0 :
             request.operator_parameters->output_features / value_heads;

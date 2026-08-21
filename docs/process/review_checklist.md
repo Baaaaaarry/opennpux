@@ -14,7 +14,7 @@ Use this checklist for human review and Codex review.
 - Are memory-map changes documented?
 - Are CSR/MMIO offsets and semantics compatible?
 - Are shared DMA base, size, and coherency assumptions explicit?
-- Are TCB/operator descriptor changes versioned or backward-compatible?
+- Are invocation/command/tensor descriptor changes versioned or backward-compatible?
 - Are bridge C ABI changes reflected on both gem5 and Coral sides?
 
 ## Overlay Discipline
@@ -37,4 +37,3 @@ Use this checklist for human review and Codex review.
 - Is the code scoped and readable?
 - Are new debug logs actionable and not excessive by default?
 - Are follow-up items captured in Issues rather than hidden in comments?
-

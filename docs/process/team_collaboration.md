@@ -67,7 +67,7 @@ as repository layout, ABI strategy, or simulation mode policy.
 | SoC memory map | gem5 modeling | `README.md`, relevant runbook |
 | NPU CSR/MMIO layout | gem5 + Coral bridge | design note, runtime header |
 | Shared DMA window | gem5 + runtime + firmware | design note, runbook |
-| TCB/operator descriptor | runtime + firmware | `docs/design/coral_operator_abi.md` |
+| Invocation/command/tensor ABI | runtime + firmware | `docs/design/coral_operator_abi.md` |
 | Kernel UAPI | kernel + runtime | UAPI header and driver runbook |
 | Verilated bridge C ABI | gem5 + Coral bridge | bridge design note |
 | Operator semantics | Coral firmware/RTL/runtime | operator table and acceptance test |
@@ -137,4 +137,3 @@ A PR is ready only when it contains:
 
 This split reduces conflicts because most work stays within one overlay or one
 runtime area.
-

@@ -199,7 +199,8 @@ qwen_e2e=PASS
 [coral-qwen-e2e-test] PASS
 ```
 
-Validate that the runtime can stage the generated Qwen Task Control Block into
+Validate the legacy tiny-model bring-up fixture by staging its frozen task
+record into
 the NPU shared DMA window:
 
 ```bash
@@ -227,7 +228,7 @@ qwen_tcb_stage=PASS
 [coral-qwen-stage-tcb-test] PASS
 ```
 
-Validate that a Verilated Coral firmware can consume the staged TCB and write
+Validate that a Verilated Coral firmware can consume the staged legacy record and write
 back device-side completion fields:
 
 ```bash

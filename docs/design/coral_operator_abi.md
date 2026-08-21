@@ -1,5 +1,12 @@
 # Coral Operator ABI
 
+> Scope: this per-operator descriptor is the Coral firmware bring-up ABI. The
+> platform execution ABI is the model-independent `opennpux_npu_invocation_header`
+> followed by tensor bindings, command records, parameter blocks and one
+> completion record in `runtime/host/include/opennpux/npu_submission.h`. The
+> historical Qwen tiny "TCB" is a frozen regression fixture, not a production
+> interface for new models or hardware features.
+
 The Coral operator ABI is shared by full-RTL and hybrid execution. It keeps
 model/runtime code independent of the simulator backend and provides one
 versioned contract for graph-level bring-up and future per-operator dispatch.
@@ -105,3 +112,25 @@ The model is configured by `CORAL_HYBRID_OPS_PER_CYCLE`,
 `1`, `16`, and `0`, respectively. These values are intentionally explicit and
 calibratable; they provide deterministic end-to-end timing placeholders until a
 validated hardware latency model is available.
+
+## Generic NPU contract
+
+The production path never submits a model name. A CPU compiler/runtime lowers
+any supported graph into these hardware-visible records:
+
+1. `invocation_header`: executable/context identity, entry point, priority,
+   dependency fence and completion address.
+2. `tensor_binding[]`: device address, byte size, data type, rank, dimensions,
+   strides, access flags and memory-object identity.
+3. `command[]`: generic opcode, binding range, dependency/completion tokens,
+   scratch range, parameters and profiling tag.
+4. `operator_parameters[]`: shape and quantization metadata used by a generic
+   execution engine. Tensor data type and strided layout are carried by the
+   bindings; an explicit accumulator data type remains a planned ABI extension.
+5. `completion`: state/error, completed commands, cycles, DMA traffic and an
+   optional trace location.
+
+Model parsing, tokenization, graph partitioning and layout selection remain CPU
+compiler/runtime responsibilities. NPU Modeling and RTL consume only this
+versioned contract. New accelerators are exposed as generic capabilities or a
+versioned `CUSTOM` opcode, never as model-specific TCB fields.

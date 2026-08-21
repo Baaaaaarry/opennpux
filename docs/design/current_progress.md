@@ -822,3 +822,22 @@ dispatcher 却没有构造 gate/up/down 三组 GPTQ weights、gate/up/activation
 Tensor 均由版本化 operand role 解析；最小 int4 SwiGLU Expert 回归已完成真实数值执行。
 下一增量将从 `.npxr`/safetensors 为每条命令构造这些额外 operand，并处理 active-expert
 循环与 route-weight combine。
+
+### 通用 Host Functional 数值闭环
+
+真实 Qwen3.5-35B GPTQ 模型已作为首个验收载荷，通过通用 `.npxe/.npxc/.npxtb`
+执行链完成 524-command prefill/decode，并由 Host C++ primitive 连续生成 8 个与 vLLM
+greedy reference 一致的 token。该结果不改变平台边界：Qwen graph parser、模型 layout
+和 tokenizer 位于 CPU compiler/runtime；NPU 只消费通用 invocation、tensor binding、
+command、operator parameter 和 completion。历史 `OPENNPUX_QWEN_TCB_*` 仅保留为 tiny
+bring-up 回归，后续不得增加生产字段。
+
+数值闭环确认 BF16 是 command 边界的数据类型语义，而非 Qwen 特例。Host backend 采用
+FP32 累加并按 tensor/模型契约执行 BF16 RNE 边界，后续应继续把 dtype、layout、stride、
+accumulator dtype 和 quantization 全部固化到通用描述符，由 Host/Hybrid/RTL 共享同一命令
+流。定位阶段加入的逐 command、expert 和 logits 输出已改为显式开关；默认验收只保留
+错误诊断、统计摘要和最终结果。
+
+NPU 完成结果仍以 logits/token ID 为硬件接口，CPU Runtime 使用模型 tokenizer 将设备
+实际返回的 token IDs 解码为 `inference_token_text`。Tokenizer 不进入 NPU RTL，也不作为
+Golden 结果替代 NPU 计算。

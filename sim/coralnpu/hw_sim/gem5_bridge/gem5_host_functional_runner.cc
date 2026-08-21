@@ -90,6 +90,13 @@ bool LogitsTraceEnabled() {
           std::strcmp(value, "0") != 0);
 }
 
+bool ProgressEnabled() {
+  const char* value = std::getenv("OPENNPUX_HOST_FUNCTIONAL_PROGRESS");
+  return TraceEnabled() ||
+         (value != nullptr && value[0] != '\0' &&
+          std::strcmp(value, "0") != 0);
+}
+
 const opennpux_npu_functional_operand* FindOperand(
     const opennpux_npu_functional_request& request, uint32_t role) {
   for (uint32_t index = 0; index < request.operand_count; ++index) {
@@ -397,6 +404,7 @@ int main(int argc, char** argv) {
   Gem5HostWeightProvider weights;
   const bool trace = TraceEnabled();
   const bool logits_trace = LogitsTraceEnabled();
+  const bool progress = ProgressEnabled();
   std::vector<uint32_t> reference_tokens;
   const char* reference_text =
       std::getenv("OPENNPUX_HOST_FUNCTIONAL_REFERENCE_TOKENS");
@@ -422,7 +430,7 @@ int main(int argc, char** argv) {
             graph.SetInputTokenIds(tokens.data(), tokens.size());
     for (uint32_t command_index = 0;
          ready && command_index < graph.command_count(); ++command_index) {
-      if (command_index % 25 == 0) {
+      if (progress && command_index % 25 == 0) {
         std::fprintf(stderr,
                      "host_functional_progress_step=%u command=%u/%u\n",
                      step, command_index, graph.command_count());
@@ -451,10 +459,12 @@ int main(int argc, char** argv) {
     }
     generated.push_back(next_token);
     tokens.push_back(next_token);
-    std::fprintf(stderr,
-                 "host_functional_step=%u token=%u cycles=%llu\n", step,
-                 next_token,
-                 static_cast<unsigned long long>(graph.stats().modeled_cycles));
+    if (progress) {
+      std::fprintf(
+          stderr, "host_functional_step=%u token=%u cycles=%llu\n", step,
+          next_token,
+          static_cast<unsigned long long>(graph.stats().modeled_cycles));
+    }
   }
   if (ready) {
     std::printf("host_functional_token_ids=");

@@ -23,7 +23,7 @@
 - If a Verilog/SystemVerilog compatibility fix is needed for Verilator, mirror
   the whole modified source file here and document why the change is required.
 - C ABI changes must update both bridge and gem5-side loader.
-- Firmware-visible mailbox/TCB/operator descriptor changes must update
+- Firmware-visible mailbox/invocation/command/tensor descriptor changes must update
   `docs/design/coral_operator_abi.md` and runtime headers.
 - Operator changes must state whether they are full RTL, sampled RTL, hybrid
   modeling, or TFLM fallback.
@@ -41,4 +41,3 @@ CORAL_OPERATOR_MODE=hybrid ./tools/coralnpu/run_rvv_mobilenet_test.sh
 
 If full RTL is too slow, provide sampled or partial validation plus the reason
 full RTL is deferred.
-

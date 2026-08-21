@@ -114,8 +114,12 @@ enum opennpux_npu_operator_parameter_flags {
     OPENNPUX_NPU_PARAMETER_GPTQ = 1u << 0,
     OPENNPUX_NPU_PARAMETER_DYNAMIC_ROWS = 1u << 1,
     OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET = 1u << 2,
-    OPENNPUX_NPU_PARAMETER_QWEN_DELTA_NET = 1u << 3,
+    OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET = 1u << 3,
 };
+
+/* Source compatibility for executables emitted before the generic name. */
+#define OPENNPUX_NPU_PARAMETER_QWEN_DELTA_NET \
+    OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET
 
 enum opennpux_npu_completion_state {
     OPENNPUX_NPU_COMPLETION_PENDING = 0,

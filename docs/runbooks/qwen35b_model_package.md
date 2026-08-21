@@ -104,6 +104,23 @@ The generated files are small offline compiler metadata artifacts:
   runtime. Runtime tensor addresses and state are deliberately unresolved.
 - Original `*.safetensors`: unchanged external weight payloads.
 
+## Host Functional Precision
+
+The real-weight validation derives the Host C++ activation-storage precision
+from `model.npxm`. A `bfloat16` model automatically uses BF16 round-to-nearest-
+even boundaries between NPU commands while retaining FP32 accumulation inside
+functional kernels. Other model dtypes default to FP32 boundaries. The same
+policy is applied to the preflight runner and the gem5 sim-host backend.
+
+Override the manifest-derived policy only for A/B diagnosis:
+
+```sh
+CORAL_HOST_FUNCTIONAL_PRECISION=fp32 \
+  ./tools/coralnpu/run_qwen35b_real_weights_test.sh --decode-mode greedy
+```
+
+Supported values are `fp32` and `bf16`.
+
 ## Current Boundary
 
 Passing this gate proves that the deployment toolchain can ingest and

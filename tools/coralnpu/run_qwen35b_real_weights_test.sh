@@ -229,6 +229,31 @@ for asset in "$EXECUTABLE_NAME" "$MANIFEST_NAME" "$RANGE_NAME"; do
         exit 1
     }
 done
+MODEL_DTYPE="$(python3 - "$MODEL_DIR/$MANIFEST_NAME" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    print(str(json.load(source).get("dtype", "float32")).lower())
+PY
+)"
+HOST_FUNCTIONAL_PRECISION="${CORAL_HOST_FUNCTIONAL_PRECISION:-}"
+if [ -z "$HOST_FUNCTIONAL_PRECISION" ]; then
+    if [ "$MODEL_DTYPE" = bfloat16 ]; then
+        HOST_FUNCTIONAL_PRECISION=bf16
+    else
+        HOST_FUNCTIONAL_PRECISION=fp32
+    fi
+fi
+case "$HOST_FUNCTIONAL_PRECISION" in
+    fp32|bf16) ;;
+    *)
+        echo "error: CORAL_HOST_FUNCTIONAL_PRECISION must be fp32 or bf16" >&2
+        exit 2
+        ;;
+esac
+echo "[coral-qwen35b-real-weights-test] model dtype: $MODEL_DTYPE" >&2
+echo "[coral-qwen35b-real-weights-test] Host functional precision: $HOST_FUNCTIONAL_PRECISION" >&2
 FUNCTIONAL_GRAPH_REFRESHED=0
 if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
    ! python3 - "$MODEL_DIR/$MANIFEST_NAME" "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" <<'PY'
@@ -560,6 +585,7 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         fi
         echo "[coral-qwen35b-real-weights-test] running Host C++ preflight" >&2
         : >"$PREFLIGHT_LOG"
+        OPENNPUX_HOST_FUNCTIONAL_PRECISION="$HOST_FUNCTIONAL_PRECISION" \
         OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE=1 \
         OPENNPUX_HOST_FUNCTIONAL_REFERENCE_TOKENS="$EXPECTED_TOKEN_IDS" \
         "${ROOT_DIR}/tools/models/run_host_functional_preflight.sh" \
@@ -763,6 +789,7 @@ EOF
 
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 cd "${ROOT_DIR}/thirdparty/gem5"
+OPENNPUX_HOST_FUNCTIONAL_PRECISION="$HOST_FUNCTIONAL_PRECISION" \
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_SIM_HOST_PAGE_BUNDLE="$SIM_HOST_BUNDLE" \
 CORAL_SIM_HOST_INFERENCE_RESULT="$SIM_HOST_RESULT" \

@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -113,6 +114,69 @@ void TraceExpertValues(uint32_t row, uint32_t route, uint64_t expert_id,
       row, route, static_cast<unsigned long long>(expert_id), route_weight,
       stage, count, stats.minimum, stats.maximum, stats.mean, stats.rms,
       stats.nonfinite);
+}
+
+void TracePackedNibbles(uint32_t row, uint32_t route, uint64_t expert_id,
+                        const char* projection, const char* component,
+                        Gem5GenericConstBuffer buffer) {
+  if (projection == nullptr || component == nullptr || buffer.data == nullptr ||
+      buffer.size == 0) {
+    return;
+  }
+  std::array<uint64_t, 16> histogram = {};
+  const auto* bytes = static_cast<const uint8_t*>(buffer.data);
+  for (size_t index = 0; index < buffer.size; ++index) {
+    ++histogram[bytes[index] & 0xf];
+    ++histogram[bytes[index] >> 4];
+  }
+  uint64_t weighted_sum = 0;
+  for (size_t value = 0; value < histogram.size(); ++value) {
+    weighted_sum += value * histogram[value];
+  }
+  const uint64_t nibble_count = static_cast<uint64_t>(buffer.size) * 2;
+  std::fprintf(
+      stderr,
+      "host_functional_expert_weight=row:%u,route:%u,expert:%llu,"
+      "projection:%s,component:%s,bytes:%zu,nibble_mean:%.9g,"
+      "hist:%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/"
+      "%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu\n",
+      row, route, static_cast<unsigned long long>(expert_id), projection,
+      component, buffer.size,
+      nibble_count == 0 ? 0.0
+                        : static_cast<double>(weighted_sum) / nibble_count,
+      static_cast<unsigned long long>(histogram[0]),
+      static_cast<unsigned long long>(histogram[1]),
+      static_cast<unsigned long long>(histogram[2]),
+      static_cast<unsigned long long>(histogram[3]),
+      static_cast<unsigned long long>(histogram[4]),
+      static_cast<unsigned long long>(histogram[5]),
+      static_cast<unsigned long long>(histogram[6]),
+      static_cast<unsigned long long>(histogram[7]),
+      static_cast<unsigned long long>(histogram[8]),
+      static_cast<unsigned long long>(histogram[9]),
+      static_cast<unsigned long long>(histogram[10]),
+      static_cast<unsigned long long>(histogram[11]),
+      static_cast<unsigned long long>(histogram[12]),
+      static_cast<unsigned long long>(histogram[13]),
+      static_cast<unsigned long long>(histogram[14]),
+      static_cast<unsigned long long>(histogram[15]));
+}
+
+void TraceExpertWeights(uint32_t row, uint32_t route, uint64_t expert_id,
+                        const char* projection,
+                        const Gem5GenericGptqWeights& weights) {
+  TracePackedNibbles(row, route, expert_id, projection, "qweight",
+                     weights.qweight);
+  TracePackedNibbles(row, route, expert_id, projection, "qzeros",
+                     weights.qzeros);
+  std::fprintf(
+      stderr,
+      "host_functional_expert_weight=row:%u,route:%u,expert:%llu,"
+      "projection:%s,component_sizes:qweight:%zu/qzeros:%zu/scales:%zu/"
+      "g_idx:%zu\n",
+      row, route, static_cast<unsigned long long>(expert_id), projection,
+      weights.qweight.size, weights.qzeros.size, weights.scales.size,
+      weights.g_idx.size);
 }
 
 bool RunProjection(const opennpux_npu_operator_parameters& base,
@@ -484,6 +548,7 @@ bool RunGem5RoutedGptqExperts(
   auto* combined = static_cast<float*>(output.data);
   std::fill(combined, combined + output_count, 0.0f);
   *stats = {};
+  bool weight_details_emitted = false;
 
   for (uint32_t row = 0; row < rows; ++row) {
     for (uint32_t route = 0; route < active_experts; ++route) {
@@ -534,6 +599,13 @@ bool RunGem5RoutedGptqExperts(
                                 activated_value_stats.nonfinite != 0 ||
                                 down_value_stats.nonfinite != 0;
         if ((row == 0 && route == 0) || suspicious) {
+          const auto input_value_stats = CollectExpertValueStats(
+              input_rows + static_cast<uint64_t>(row) *
+                               parameters.input_features,
+              parameters.input_features);
+          TraceExpertValues(row, route, expert_ids[route_index],
+                            route_weights[route_index], "input",
+                            parameters.input_features, input_value_stats);
           TraceExpertValues(row, route, expert_ids[route_index],
                             route_weights[route_index], "gate", gate.size(),
                             gate_value_stats);
@@ -546,6 +618,15 @@ bool RunGem5RoutedGptqExperts(
           TraceExpertValues(row, route, expert_ids[route_index],
                             route_weights[route_index], "down",
                             expert_output.size(), down_value_stats);
+          if (suspicious && !weight_details_emitted) {
+            TraceExpertWeights(row, route, expert_ids[route_index], "gate",
+                               gate_weights);
+            TraceExpertWeights(row, route, expert_ids[route_index], "up",
+                               up_weights);
+            TraceExpertWeights(row, route, expert_ids[route_index], "down",
+                               down_weights);
+            weight_details_emitted = true;
+          }
           std::fflush(stderr);
         }
       }

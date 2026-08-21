@@ -11,7 +11,7 @@ from typing import TextIO
 
 TRACE_PREFIX = "host_functional_expert_trace="
 PAIR_RE = re.compile(r"(?:^|,)([a-z_]+):([^,]+)")
-STAGE_ORDER = ("gate", "up", "activated", "down")
+STAGE_ORDER = ("input", "gate", "up", "activated", "down")
 
 
 @dataclass

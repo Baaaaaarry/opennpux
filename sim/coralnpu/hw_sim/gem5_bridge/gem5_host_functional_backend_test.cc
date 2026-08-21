@@ -77,7 +77,8 @@ int main() {
   convolution_parameters.intermediate_features = 2;
   const float convolution_input[] = {1.0f, 10.0f, 2.0f, 20.0f,
                                      3.0f, 30.0f};
-  const float convolution_weight[] = {2.0f, 3.0f, 4.0f, 5.0f};
+  // PyTorch depthwise Conv1d stores weights as [channel, kernel].
+  const float convolution_weight[] = {2.0f, 4.0f, 3.0f, 5.0f};
   float convolution_output[6] = {};
   request = {};
   request.opcode = OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION;

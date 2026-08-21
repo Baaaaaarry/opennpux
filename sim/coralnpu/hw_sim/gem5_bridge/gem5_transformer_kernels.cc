@@ -315,7 +315,7 @@ bool RunGem5CausalDepthwiseConvF32(
           continue;
         }
         sum += input[(row - tap) * features + feature] *
-               weight[(kernel_width - 1 - tap) * features + feature];
+               weight[feature * kernel_width + (kernel_width - 1 - tap)];
       }
       output[row * features + feature] =
           silu_activation ? sum / (1.0f + std::exp(-sum)) : sum;

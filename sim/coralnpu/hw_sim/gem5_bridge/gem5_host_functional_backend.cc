@@ -1,5 +1,6 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_backend.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>

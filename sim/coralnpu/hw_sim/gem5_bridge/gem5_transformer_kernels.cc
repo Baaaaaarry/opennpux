@@ -531,7 +531,7 @@ bool RunGem5FloatQkvF32(
     const float* k_norm_weight, size_t rows, size_t input_features,
     size_t heads, size_t kv_heads, size_t head_dim, size_t q_weight_outputs,
     float epsilon, bool norm_weight_offset, float* query, float* key,
-    float* value,
+    float* value, float* gate,
     Gem5TransformerKernelStats* stats) {
   size_t query_features = 0;
   size_t key_features = 0;
@@ -548,6 +548,7 @@ bool RunGem5FloatQkvF32(
       query_features > std::numeric_limits<size_t>::max() / 2 ||
       (q_weight_outputs != query_features &&
        q_weight_outputs != 2 * query_features) ||
+      (q_weight_outputs == 2 * query_features && gate == nullptr) ||
       !ProductFits(rows, q_weight_outputs, &raw_query_elements) ||
       !ProductFits(rows, query_features, &query_elements) ||
       !ProductFits(rows, key_features, &key_elements)) {
@@ -570,6 +571,8 @@ bool RunGem5FloatQkvF32(
     for (size_t row = 0; row < rows; ++row) {
       std::copy_n(raw_query.data() + row * q_weight_outputs, query_features,
                   query + row * query_features);
+      std::copy_n(raw_query.data() + row * q_weight_outputs + query_features,
+                  query_features, gate + row * query_features);
     }
   }
   if (!RunGem5RmsNormF32(query, q_norm_weight, rows * heads, head_dim,

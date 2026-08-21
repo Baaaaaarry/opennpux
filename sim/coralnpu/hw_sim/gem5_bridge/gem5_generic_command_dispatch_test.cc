@@ -230,6 +230,7 @@ void TestFloatQkv() {
   constexpr uint32_t kQuery = 1056;
   constexpr uint32_t kKey = 1088;
   constexpr uint32_t kValue = 1120;
+  constexpr uint32_t kGate = 1152;
   constexpr uint32_t kQWeight = 2048;
   constexpr uint32_t kKWeight = 2112;
   constexpr uint32_t kVWeight = 2144;
@@ -254,6 +255,8 @@ void TestFloatQkv() {
   AddOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY, kKey,
              2 * sizeof(float));
   AddOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY, kValue,
+             2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT_QUATERNARY, kGate,
              2 * sizeof(float));
   AddOperand(request, OPENNPUX_NPU_OPERAND_ATTENTION_Q_WEIGHT, kQWeight,
              8 * sizeof(float));
@@ -288,9 +291,11 @@ void TestFloatQkv() {
   const float* query = At<float>(&memory, kQuery);
   const float* key = At<float>(&memory, kKey);
   const float* value = At<float>(&memory, kValue);
+  const float* gate = At<float>(&memory, kGate);
   assert(std::fabs(query[0] - 0.6324555f) < 1.0e-5f);
   assert(std::fabs(key[1] - 1.2649110f) < 1.0e-5f);
   assert(value[0] == 1.0f && value[1] == 2.0f);
+  assert(gate[0] == 30.0f && gate[1] == 30.0f);
 }
 
 void TestEmbedding() {

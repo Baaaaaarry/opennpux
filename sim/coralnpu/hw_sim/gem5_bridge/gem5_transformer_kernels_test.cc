@@ -171,15 +171,17 @@ int main() {
   float query_output[2] = {};
   float key_output[2] = {};
   float value_output[2] = {};
+  float attention_gate[2] = {};
   assert(RunGem5FloatQkvF32(
       shared_input, gated_q_weight, identity_weight, identity_weight,
       head_norm, head_norm, 1, 2, 1, 1, 2, 4, 0.0f, false, query_output,
-      key_output, value_output, &stats));
+      key_output, value_output, attention_gate, &stats));
   assert(Near(query_output[0], 0.6324555f));
   assert(Near(query_output[1], 1.2649110f));
   assert(Near(key_output[0], 0.6324555f));
   assert(Near(key_output[1], 1.2649110f));
   assert(value_output[0] == 1.0f && value_output[1] == 2.0f);
+  assert(attention_gate[0] == 30.0f && attention_gate[1] == 30.0f);
 
   assert(!RunGem5RmsNormF32(norm_input, norm_weight, 0, 2, 0.0f,
                             norm_output, &stats));

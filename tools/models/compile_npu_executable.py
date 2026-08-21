@@ -343,7 +343,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 2,
-        "functional_graph_revision": 5,
+        "functional_graph_revision": 6,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -434,6 +434,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     query_tensor: int | None = None
     key_tensor: int | None = None
     value_tensor: int | None = None
+    attention_gate: int | None = None
     linear_qkv: int | None = None
     linear_alpha: int | None = None
     linear_beta: int | None = None
@@ -470,7 +471,14 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
             value_tensor = tensor(
                 f"{prefix}.value", "scratch", rows + [kv_heads * head_dim], command_id
             )
-            emit(command, [current], [query_tensor, key_tensor, value_tensor])
+            outputs = [query_tensor, key_tensor, value_tensor]
+            if "Qwen3_5" in str(manifest.get("architecture", "")):
+                attention_gate = tensor(
+                    f"{prefix}.attention_gate", "scratch",
+                    rows + [heads * head_dim], command_id,
+                )
+                outputs.append(attention_gate)
+            emit(command, [current], outputs)
             current = query_tensor
             continue
         if phase == "linear_attention_projection":
@@ -538,7 +546,10 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
                 item["id"] for item in reversed(tensors)
                 if item["name"] == f"{prefix}.kv_cache"
             )
-            emit(command, [current, state], [output])
+            inputs = [current, state]
+            if attention_gate is not None:
+                inputs.append(attention_gate)
+            emit(command, inputs, [output])
             current = output
             continue
         if phase == "causal_depthwise_conv":
@@ -675,7 +686,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
-        "functional_graph_revision": 5,
+        "functional_graph_revision": 6,
         "execution_scope": executable["execution_scope"],
         "runtime_row_expression": "runtime.batch * runtime.sequence",
         "tensor_count": len(tensors),
@@ -820,12 +831,12 @@ def write_tensor_plan_binary(plan: dict[str, Any], path: Path) -> None:
     for record in plan["command_io"]:
         inputs = [int(value) for value in record["input_tensor_ids"]]
         outputs = [int(value) for value in record["output_tensor_ids"]]
-        if len(inputs) > 4 or len(outputs) > 3:
+        if len(inputs) > 4 or len(outputs) > 4:
             raise ValueError(f"command {record['command_id']} exceeds tensor IO ABI")
         command_data += TENSOR_PLAN_COMMAND.pack(
             int(record["command_id"]), len(inputs), len(outputs), 0,
             *(inputs + [0xFFFFFFFF] * (4 - len(inputs))),
-            *(outputs + [0xFFFFFFFF] * (3 - len(outputs))), 0,
+            *(outputs + [0xFFFFFFFF] * (4 - len(outputs))),
         )
     slot_data = b"".join(
         TENSOR_PLAN_SLOT.pack(

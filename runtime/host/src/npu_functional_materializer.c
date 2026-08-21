@@ -129,6 +129,7 @@ opennpux_npu_functional_request_materialize(
         OPENNPUX_NPU_OPERAND_OUTPUT,
         OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
         OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY,
+        OPENNPUX_NPU_OPERAND_OUTPUT_QUATERNARY,
     };
     if (command == NULL || parameters == NULL || views == NULL ||
         request == NULL || command->command_id != views->command_id ||

@@ -16,7 +16,7 @@ extern "C" {
 #define OPENNPUX_NPU_TENSOR_PLAN_SLOT_SIZE UINT32_C(16)
 #define OPENNPUX_NPU_TENSOR_PLAN_MAX_RANK UINT32_C(8)
 #define OPENNPUX_NPU_TENSOR_PLAN_MAX_INPUTS UINT32_C(4)
-#define OPENNPUX_NPU_TENSOR_PLAN_MAX_OUTPUTS UINT32_C(3)
+#define OPENNPUX_NPU_TENSOR_PLAN_MAX_OUTPUTS UINT32_C(4)
 #define OPENNPUX_NPU_TENSOR_NONE UINT32_MAX
 
 enum opennpux_npu_tensor_storage {
@@ -55,7 +55,6 @@ struct opennpux_npu_tensor_plan_command {
     uint32_t command_id, input_count, output_count, reserved0;
     uint32_t input_tensor_ids[OPENNPUX_NPU_TENSOR_PLAN_MAX_INPUTS];
     uint32_t output_tensor_ids[OPENNPUX_NPU_TENSOR_PLAN_MAX_OUTPUTS];
-    uint32_t reserved1;
 };
 
 struct opennpux_npu_tensor_plan_slot {

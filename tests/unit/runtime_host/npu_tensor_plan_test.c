@@ -22,8 +22,8 @@ main(int argc, char **argv)
     check(opennpux_npu_tensor_plan_load(argv[1], &plan) == 0,
           "tensor plan load failed");
     check(plan.header->command_count == 30, "command count mismatch");
-    check(plan.header->tensor_count == 39, "tensor count mismatch");
-    check(plan.header->slot_count == 6, "slot count mismatch");
+    check(plan.header->tensor_count == 40, "tensor count mismatch");
+    check(plan.header->slot_count == 7, "slot count mismatch");
 
     uint64_t scratch_size = 0;
     check(opennpux_npu_tensor_plan_scratch_size(&plan, 2, 4, &scratch_size) == 0,
@@ -155,6 +155,10 @@ main(int argc, char **argv)
               views.outputs[0].address + views.outputs[0].size <=
                   memory.scratch_address + memory.scratch_size,
           "command output tensor view mismatch");
+    check(opennpux_npu_tensor_plan_resolve_command(
+              &plan, 2, &runtime, &memory, &views) == 0 &&
+              views.output_count == 4,
+          "gated QKV command does not expose four outputs");
     check(opennpux_npu_tensor_plan_resolve_command(
               &plan, plan.header->command_count, &runtime, &memory,
               &views) != 0 && errno == EINVAL,

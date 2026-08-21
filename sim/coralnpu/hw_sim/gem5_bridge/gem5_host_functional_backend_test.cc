@@ -65,6 +65,13 @@ int main() {
   result = backend.Execute(request);
   assert(result.status == Gem5HostFunctionalStatus::kComplete);
   assert(result.stats.operations != 0);
+  const float ungated_attention[] = {output[0], output[1]};
+  const float attention_gate[] = {0.0f, 0.0f};
+  request.tertiary = attention_gate;
+  result = backend.Execute(request);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(std::fabs(output[0] - ungated_attention[0] * 0.5f) < 1.0e-5f);
+  assert(std::fabs(output[1] - ungated_attention[1] * 0.5f) < 1.0e-5f);
 
   opennpux_npu_operator_parameters convolution_parameters = {};
   convolution_parameters.intermediate_features = 2;

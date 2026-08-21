@@ -29,6 +29,7 @@ def test_qwen35b_shape_has_complete_model_independent_tensor_plan():
         "vocab_size": 248320,
         "quantization_bits": 4,
         "quantization_group_size": 128,
+        "architecture": "Qwen3_5MoeForConditionalGeneration",
     }
     full_attention = [
         "attention_norm", "qkv_projection", "rope", "paged_kv_cache_update",
@@ -66,8 +67,11 @@ def test_qwen35b_shape_has_complete_model_independent_tensor_plan():
 
     assert len(executable["commands"]) == 524
     assert tensor_plan["command_count"] == 524
-    assert tensor_plan["tensor_count"] == 625
-    assert tensor_plan["scratch_slot_count"] == 6
+    assert tensor_plan["tensor_count"] == 695
+    assert tensor_plan["scratch_slot_count"] == 7
+    gated_qkv = [record for record in tensor_plan["command_io"]
+                 if len(record["output_tensor_ids"]) == 4]
+    assert len(gated_qkv) == 10
     assert all(record["input_tensor_ids"] for record in tensor_plan["command_io"])
     assert all(record["output_tensor_ids"] for record in tensor_plan["command_io"])
 

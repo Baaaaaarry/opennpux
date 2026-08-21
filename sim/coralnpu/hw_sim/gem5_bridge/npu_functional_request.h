@@ -65,6 +65,7 @@ enum opennpux_npu_functional_operand_role {
     OPENNPUX_NPU_OPERAND_ATTENTION_V_WEIGHT = 54,
     OPENNPUX_NPU_OPERAND_ATTENTION_Q_NORM_WEIGHT = 55,
     OPENNPUX_NPU_OPERAND_ATTENTION_K_NORM_WEIGHT = 56,
+    OPENNPUX_NPU_OPERAND_OUTPUT_QUATERNARY = 57,
 };
 
 struct opennpux_npu_functional_operand {

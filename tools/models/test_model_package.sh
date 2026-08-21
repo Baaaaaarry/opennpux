@@ -137,7 +137,7 @@ with open(sys.argv[1], encoding="utf-8") as source:
     manifest = json.load(source)
 with open(sys.argv[2], encoding="utf-8") as source:
     executable = json.load(source)
-assert manifest["functional_graph_revision"] == 5
+assert manifest["functional_graph_revision"] == 6
 assert manifest["rotary_dim"] == 4
 assert manifest["rope_theta"] == 500000
 rope = next(command for command in executable["commands"]
@@ -145,6 +145,11 @@ rope = next(command for command in executable["commands"]
 assert rope["parameters"]["intermediate_features"] == 4
 assert rope["parameters"]["quantization_group_size"] == 500000
 assert rope["parameters"]["flags"] & 4
+tensor_plan = json.load(open(sys.argv[2].replace(".npxe", ".npxt"),
+                             encoding="utf-8"))
+qkv = next(command for command in tensor_plan["command_io"]
+           if len(command["output_tensor_ids"]) == 4)
+assert len(qkv["output_tensor_ids"]) == 4
 print("qwen_rotary_and_norm_parameters=PASS")
 PY
 "${SCRIPT_DIR}/inspect_npu_tensor_plan.py" "${MODEL_DIR}/model.npxt"

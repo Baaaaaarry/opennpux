@@ -286,7 +286,8 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
               (request.operator_parameters->flags &
                OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0,
               request.output, request.output_secondary,
-              request.output_tertiary, &result.stats)) {
+              request.output_tertiary, request.output_quaternary,
+              &result.stats)) {
         result.status = Gem5HostFunctionalStatus::kExecutionError;
       }
       return result;
@@ -478,10 +479,23 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
     return result;
   }
   if (request.opcode == OPENNPUX_NPU_OP_ATTENTION) {
-    const bool success = RunGem5AttentionF32(
+    bool success = RunGem5AttentionF32(
         request.input, request.secondary, request.rows, request.heads,
         request.kv_heads, request.head_dim, request.kv_length, request.output,
         &result.stats);
+    size_t count = 0;
+    if (success && request.tertiary != nullptr &&
+        ElementCount(request, &count)) {
+      for (size_t index = 0; index < count; ++index) {
+        const float gate = 1.0f / (1.0f + std::exp(-request.tertiary[index]));
+        request.output[index] *= gate;
+        success = success && std::isfinite(request.output[index]);
+      }
+      result.stats.operations += count * 4;
+      result.stats.bytes_read += count * 2 * sizeof(float);
+      result.stats.bytes_written += count * sizeof(float);
+      result.stats.modeled_cycles += count;
+    }
     if (!success) result.status = Gem5HostFunctionalStatus::kExecutionError;
     return result;
   }

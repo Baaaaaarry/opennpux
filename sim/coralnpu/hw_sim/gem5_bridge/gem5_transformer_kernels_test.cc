@@ -30,9 +30,8 @@ int main() {
 
   const float matmul_input[] = {1.0f, 2.0f, 3.0f,
                                 4.0f, 5.0f, 6.0f};
-  const float matmul_weight[] = {1.0f, 2.0f,
-                                 3.0f, 4.0f,
-                                 5.0f, 6.0f};
+  const float matmul_weight[] = {1.0f, 3.0f, 5.0f,
+                                 2.0f, 4.0f, 6.0f};
   float matmul_output[4] = {};
   assert(RunGem5MatMulF32(matmul_input, matmul_weight, 2, 3, 2,
                           matmul_output, &stats));
@@ -176,8 +175,8 @@ int main() {
   assert(Near(shared_output[1], 3.0f * 0.8807971f));
   assert(stats.operations != 0 && stats.modeled_cycles != 0);
 
-  const float gated_q_weight[] = {1.0f, 0.0f, 10.0f, 10.0f,
-                                  0.0f, 1.0f, 10.0f, 10.0f};
+  const float gated_q_weight[] = {1.0f, 0.0f, 0.0f, 1.0f,
+                                  10.0f, 10.0f, 10.0f, 10.0f};
   const float identity_weight[] = {1.0f, 0.0f, 0.0f, 1.0f};
   const float head_norm[] = {1.0f, 1.0f};
   float query_output[2] = {};

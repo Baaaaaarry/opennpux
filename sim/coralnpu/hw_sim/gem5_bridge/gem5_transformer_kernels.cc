@@ -110,7 +110,7 @@ bool RunGem5MatMulF32(const float* input, const float* weight, size_t rows,
       float sum = 0.0f;
       for (size_t inner = 0; inner < input_features; ++inner) {
         sum += input[row * input_features + inner] *
-               weight[inner * output_features + column];
+               weight[column * input_features + inner];
       }
       output[row * output_features + column] = sum;
     }

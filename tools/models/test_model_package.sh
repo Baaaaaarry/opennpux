@@ -66,13 +66,13 @@ for name, tensors in (
             for row in range(18) for column in range(8)),
         "model.language_model.layers.1.mlp.shared_expert.gate_proj.weight": b"".join(
             struct.pack("<f", ((row + column) % 7 - 3) / 16.0)
-            for row in range(18) for column in range(32)),
+            for row in range(32) for column in range(18)),
         "model.language_model.layers.1.mlp.shared_expert.up_proj.weight": b"".join(
             struct.pack("<f", ((row * 2 + column) % 9 - 4) / 16.0)
-            for row in range(18) for column in range(32)),
+            for row in range(32) for column in range(18)),
         "model.language_model.layers.1.mlp.shared_expert.down_proj.weight": b"".join(
             struct.pack("<f", ((row + column * 3) % 11 - 5) / 16.0)
-            for row in range(32) for column in range(18)),
+            for row in range(18) for column in range(32)),
         "model.language_model.layers.1.mlp.shared_expert_gate.weight": b"".join(
             struct.pack("<f", (column % 5 - 2) / 16.0)
             for column in range(18)),

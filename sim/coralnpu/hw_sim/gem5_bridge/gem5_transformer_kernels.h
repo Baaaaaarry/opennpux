@@ -16,6 +16,7 @@ bool RunGem5EmbeddingF32(const uint32_t* token_ids, size_t token_count,
                          size_t features, float* output,
                          Gem5TransformerKernelStats* stats);
 
+// Dense weights use the native PyTorch Linear [output, input] layout.
 bool RunGem5MatMulF32(const float* input, const float* weight, size_t rows,
                       size_t input_features, size_t output_features,
                       float* output, Gem5TransformerKernelStats* stats);

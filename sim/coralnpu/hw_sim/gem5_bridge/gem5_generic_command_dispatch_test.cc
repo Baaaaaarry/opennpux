@@ -276,8 +276,8 @@ void TestFloatQkv() {
   parameters->opcode = OPENNPUX_NPU_OP_MATMUL;
   parameters->input_features = 2;
   const float input[] = {1.0f, 2.0f};
-  const float q_weight[] = {1.0f, 0.0f, 10.0f, 10.0f,
-                            0.0f, 1.0f, 10.0f, 10.0f};
+  const float q_weight[] = {1.0f, 0.0f, 0.0f, 1.0f,
+                            10.0f, 10.0f, 10.0f, 10.0f};
   const float identity[] = {1.0f, 0.0f, 0.0f, 1.0f};
   const float norm[] = {1.0f, 1.0f};
   std::memcpy(memory.data() + kInput, input, sizeof(input));
@@ -364,7 +364,7 @@ void TestDenseMatMul() {
   parameters->input_features = 2;
   parameters->output_features = 2;
   const float input[] = {2.0f, 3.0f};
-  const float weight[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  const float weight[] = {1.0f, 3.0f, 2.0f, 4.0f};
   std::memcpy(memory.data() + kInput, input, sizeof(input));
   std::memcpy(memory.data() + kWeight, weight, sizeof(weight));
 

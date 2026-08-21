@@ -195,7 +195,7 @@ int main() {
   parameters.flags = OPENNPUX_NPU_PARAMETER_GPTQ;
   parameters.input_features = 2;
   parameters.output_features = 2;
-  const float dense_weight[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  const float dense_weight[] = {1.0f, 3.0f, 2.0f, 4.0f};
   float dense_output[2] = {};
   request = {};
   request.opcode = OPENNPUX_NPU_OP_MATMUL;
@@ -215,8 +215,8 @@ int main() {
   assert(result.stats.operations == 8);
 
   const float wide_input[] = {1.0f, 2.0f, 3.0f, 4.0f};
-  const float wide_weight[] = {1.0f, 0.0f, 0.0f, 1.0f,
-                               1.0f, 1.0f, 2.0f, 1.0f};
+  const float wide_weight[] = {1.0f, 0.0f, 1.0f, 2.0f,
+                               0.0f, 1.0f, 1.0f, 1.0f};
   float wide_output[2] = {};
   parameters.input_features = 2;
   request.input = wide_input;

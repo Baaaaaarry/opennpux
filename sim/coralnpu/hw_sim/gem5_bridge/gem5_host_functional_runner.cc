@@ -81,6 +81,16 @@ bool TraceEnabled() {
          std::strcmp(value, "0") != 0;
 }
 
+const opennpux_npu_functional_operand* FindOperand(
+    const opennpux_npu_functional_request& request, uint32_t role) {
+  for (uint32_t index = 0; index < request.operand_count; ++index) {
+    if (request.operands[index].role == role) {
+      return &request.operands[index];
+    }
+  }
+  return nullptr;
+}
+
 uint32_t Fnv1a32(const uint8_t* bytes, size_t size) {
   uint32_t checksum = UINT32_C(2166136261);
   for (size_t index = 0; index < size; ++index) {
@@ -156,6 +166,93 @@ void TraceCommandOutputs(const Gem5HostFunctionalGraph& graph,
         output.tensor_id, count, checksum, minimum, maximum, mean, rms,
         count - finite_count);
   }
+  std::fflush(stderr);
+}
+
+void TraceFinalLogits(const Gem5HostFunctionalGraph& graph, uint32_t step,
+                      uint32_t host_token,
+                      const std::vector<uint32_t>& reference_tokens) {
+  uint32_t topk_command = UINT32_MAX;
+  for (uint32_t offset = 0; offset < graph.command_count(); ++offset) {
+    const uint32_t index = graph.command_count() - 1 - offset;
+    if (graph.command(index)->opcode == OPENNPUX_NPU_OP_TOPK) {
+      topk_command = index;
+      break;
+    }
+  }
+  opennpux_npu_functional_request request = {};
+  if (topk_command == UINT32_MAX ||
+      !graph.Materialize(topk_command, nullptr, 0, &request)) {
+    std::fprintf(stderr,
+                 "host_functional_logits_error=step:%u,reason:materialize\n",
+                 step);
+    return;
+  }
+  const auto* input = FindOperand(request, OPENNPUX_NPU_OPERAND_INPUT);
+  if (input == nullptr || input->byte_size % sizeof(float) != 0 ||
+      request.rows == 0 || request.features == 0) {
+    std::fprintf(stderr,
+                 "host_functional_logits_error=step:%u,reason:shape\n", step);
+    return;
+  }
+  const auto* values = reinterpret_cast<const float*>(
+      graph.arena().Translate(input->address, input->byte_size));
+  const size_t count = input->byte_size / sizeof(float);
+  const size_t required = static_cast<size_t>(request.rows) * request.features;
+  if (values == nullptr || count < required) {
+    std::fprintf(stderr,
+                 "host_functional_logits_error=step:%u,reason:storage\n",
+                 step);
+    return;
+  }
+  values += (static_cast<size_t>(request.rows) - 1) * request.features;
+  std::vector<uint32_t> indices(request.features);
+  for (uint32_t index = 0; index < request.features; ++index) {
+    indices[index] = index;
+  }
+  const size_t top_count = std::min<size_t>(10, indices.size());
+  std::partial_sort(
+      indices.begin(), indices.begin() + top_count, indices.end(),
+      [values](uint32_t left, uint32_t right) {
+        const float left_value = values[left];
+        const float right_value = values[right];
+        if (std::isnan(left_value)) {
+          return false;
+        }
+        if (std::isnan(right_value)) {
+          return true;
+        }
+        return left_value == right_value ? left < right
+                                         : left_value > right_value;
+      });
+  const uint32_t reference_token =
+      step < reference_tokens.size() ? reference_tokens[step] : UINT32_MAX;
+  uint32_t reference_rank = UINT32_MAX;
+  if (reference_token < request.features) {
+    reference_rank = 1;
+    for (uint32_t index = 0; index < request.features; ++index) {
+      if (values[index] > values[reference_token]) {
+        ++reference_rank;
+      }
+    }
+  }
+  std::fprintf(
+      stderr,
+      "host_functional_logits=step:%u,host_token:%u,host_logit:%.9g,"
+      "reference_token:%u,reference_logit:%.9g,reference_rank:%u,top:",
+      step, host_token,
+      host_token < request.features ? values[host_token]
+                                    : std::numeric_limits<float>::quiet_NaN(),
+      reference_token,
+      reference_token < request.features
+          ? values[reference_token]
+          : std::numeric_limits<float>::quiet_NaN(),
+      reference_rank);
+  for (size_t index = 0; index < top_count; ++index) {
+    std::fprintf(stderr, "%s%u@%.9g", index == 0 ? "" : "/",
+                 indices[index], values[indices[index]]);
+  }
+  std::fprintf(stderr, "\n");
   std::fflush(stderr);
 }
 
@@ -290,6 +387,17 @@ int main(int argc, char** argv) {
   Gem5HostFunctionalGraph graph;
   Gem5HostWeightProvider weights;
   const bool trace = TraceEnabled();
+  std::vector<uint32_t> reference_tokens;
+  const char* reference_text =
+      std::getenv("OPENNPUX_HOST_FUNCTIONAL_REFERENCE_TOKENS");
+  if (reference_text != nullptr && reference_text[0] != '\0' &&
+      !ParseTokens(reference_text, &reference_tokens)) {
+    std::fprintf(stderr, "invalid reference token IDs: value='%s'\n",
+                 reference_text);
+    std::free(submission);
+    opennpux_npu_executable_unload(&executable);
+    return 2;
+  }
   bool ready = instantiated && graph.LoadTensorPlan(argv[2]) &&
                weights.Load(argv[3], argv[4]);
   std::vector<uint32_t> generated;
@@ -318,6 +426,9 @@ int main(int argc, char** argv) {
       }
     }
     ready = ready && graph.ReadNextToken(&next_token);
+    if (ready && trace) {
+      TraceFinalLogits(graph, step, next_token, reference_tokens);
+    }
     if (!ready) {
       std::fprintf(stderr,
                    "host_functional_failed_step=%u command=%u\n", step,

@@ -207,10 +207,12 @@ bool ExecuteGem5FunctionalRequestInRegions(
   Gem5HostFunctionalRequest host = {};
   host.opcode = request->opcode;
   host.input = static_cast<const float*>(input.data);
+  host.input_size = input.size;
   host.input_indices = static_cast<const uint32_t*>(input_indices.data);
   host.secondary = static_cast<const float*>(secondary.data);
   host.tertiary = static_cast<const float*>(tertiary.data);
   host.weight = static_cast<const float*>(weight.data);
+  host.weight_size = weight.size;
   host.linear_qkv_weight = ConstBuffer(
       *request, OPENNPUX_NPU_OPERAND_LINEAR_QKV_WEIGHT, regions, region_count);
   host.linear_alpha_weight = ConstBuffer(
@@ -264,6 +266,7 @@ bool ExecuteGem5FunctionalRequestInRegions(
   host.epsilon = request->epsilon;
   host.rope_theta = request->rope_theta;
   host.output = static_cast<float*>(output.data);
+  host.output_size = output.size;
   host.output_secondary = static_cast<float*>(output_secondary.data);
   host.output_tertiary = static_cast<float*>(output_tertiary.data);
   host.output_indices = static_cast<uint32_t*>(output_indices.data);

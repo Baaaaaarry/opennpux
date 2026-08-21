@@ -17,10 +17,12 @@ enum class Gem5HostFunctionalStatus {
 struct Gem5HostFunctionalRequest {
   uint32_t opcode;
   const float* input;
+  size_t input_size;
   const uint32_t* input_indices;
   const float* secondary;
   const float* tertiary;
   const float* weight;
+  size_t weight_size;
   Gem5GenericConstBuffer linear_qkv_weight;
   Gem5GenericConstBuffer linear_alpha_weight;
   Gem5GenericConstBuffer linear_beta_weight;
@@ -47,6 +49,7 @@ struct Gem5HostFunctionalRequest {
   float epsilon;
   float rope_theta;
   float* output;
+  size_t output_size;
   float* output_secondary;
   float* output_tertiary;
   uint32_t* output_indices;

@@ -193,9 +193,12 @@ int main() {
   request = {};
   request.opcode = OPENNPUX_NPU_OP_MATMUL;
   request.input = matmul_input;
+  request.input_size = sizeof(matmul_input);
   request.weight = dense_weight;
+  request.weight_size = sizeof(dense_weight);
   request.rows = 1;
   request.output = dense_output;
+  request.output_size = sizeof(dense_output);
   request.operator_parameters = &parameters;
   result = backend.Execute(request);
   assert(result.status == Gem5HostFunctionalStatus::kComplete);
@@ -203,6 +206,21 @@ int main() {
   std::printf("mixed_precision_matmul_operations=%llu\n",
               static_cast<unsigned long long>(result.stats.operations));
   assert(result.stats.operations == 8);
+
+  const float wide_input[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  const float wide_weight[] = {1.0f, 0.0f, 0.0f, 1.0f,
+                               1.0f, 1.0f, 2.0f, 1.0f};
+  float wide_output[2] = {};
+  parameters.input_features = 2;
+  request.input = wide_input;
+  request.input_size = sizeof(wide_input);
+  request.weight = wide_weight;
+  request.weight_size = sizeof(wide_weight);
+  request.output = wide_output;
+  request.output_size = sizeof(wide_output);
+  result = backend.Execute(request);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(wide_output[0] == 12.0f && wide_output[1] == 9.0f);
   std::puts("gem5_host_functional_mixed_precision_matmul=PASS");
 
   assert(std::string(Gem5HostFunctionalStatusName(

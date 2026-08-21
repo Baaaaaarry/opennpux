@@ -467,8 +467,11 @@ bool Gem5HostFunctionalGraph::ExecuteFloatWeight(
     required = initial.features;
   } else if (initial.opcode == OPENNPUX_NPU_OP_MATMUL ||
              initial.opcode == OPENNPUX_NPU_OP_ROUTER) {
-    required = static_cast<uint64_t>(parameters->input_features) *
-               parameters->output_features;
+    if (parameters->output_features == 0 ||
+        weight.size() % parameters->output_features != 0) {
+      return false;
+    }
+    required = weight.size();
   } else if (initial.opcode == OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION) {
     required = static_cast<uint64_t>(parameters->intermediate_features) *
                initial.features;

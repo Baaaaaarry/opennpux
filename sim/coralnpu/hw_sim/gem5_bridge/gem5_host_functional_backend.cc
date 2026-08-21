@@ -377,11 +377,30 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
     // the materialized operand type over the capability flag.
     if (request.opcode == OPENNPUX_NPU_OP_MATMUL &&
         request.weight != nullptr) {
+      const size_t output_features =
+          request.operator_parameters->output_features;
+      if (output_features == 0 || request.rows == 0 ||
+          request.rows > SIZE_MAX / output_features ||
+          request.rows * output_features > SIZE_MAX / sizeof(float) ||
+          request.output_size !=
+              request.rows * output_features * sizeof(float)) {
+        return Result(Gem5HostFunctionalStatus::kInvalid);
+      }
+      const size_t input_elements = request.input_size / sizeof(float);
+      if (request.input_size % sizeof(float) != 0 ||
+          input_elements % request.rows != 0) {
+        return Result(Gem5HostFunctionalStatus::kInvalid);
+      }
+      const size_t input_features = input_elements / request.rows;
+      if (input_features == 0 || input_features > SIZE_MAX / output_features ||
+          input_features * output_features > SIZE_MAX / sizeof(float) ||
+          request.weight_size !=
+              input_features * output_features * sizeof(float)) {
+        return Result(Gem5HostFunctionalStatus::kInvalid);
+      }
       success = RunGem5MatMulF32(
           request.input, request.weight, request.rows,
-          request.operator_parameters->input_features,
-          request.operator_parameters->output_features, request.output,
-          &result.stats);
+          input_features, output_features, request.output, &result.stats);
     } else if (request.opcode == OPENNPUX_NPU_OP_MATMUL) {
       const bool fused_qkv = request.output_secondary != nullptr ||
                              request.output_tertiary != nullptr;

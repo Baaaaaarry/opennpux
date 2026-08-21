@@ -338,7 +338,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 2,
-        "functional_graph_revision": 3,
+        "functional_graph_revision": 4,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -522,7 +522,13 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
             emit(command, [key_tensor, value_tensor], [state])
             continue
         if phase == "scaled_dot_product_attention":
-            output = tensor(f"{prefix}.attention", "scratch", rows + [hidden], command_id)
+            # Attention produces one value vector per query head. This width
+            # can differ from the model hidden size (for example gated Qwen
+            # attention), and the following o_proj weight consumes it.
+            output = tensor(
+                f"{prefix}.attention", "scratch",
+                rows + [heads * head_dim], command_id,
+            )
             state = next(
                 item["id"] for item in reversed(tensors)
                 if item["name"] == f"{prefix}.kv_cache"
@@ -664,7 +670,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
-        "functional_graph_revision": 3,
+        "functional_graph_revision": 4,
         "execution_scope": executable["execution_scope"],
         "runtime_row_expression": "runtime.batch * runtime.sequence",
         "tensor_count": len(tensors),

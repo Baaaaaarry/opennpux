@@ -130,6 +130,20 @@ PY
     "${MANIFEST}" "${MODEL_DIR}/execution-plan.npxp" \
     "${MODEL_DIR}/model.npxe"
 "${SCRIPT_DIR}/inspect_npu_tensor_plan.py" "${MODEL_DIR}/model.npxt"
+python3 - "${MODEL_DIR}/model.npxt" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    plan = json.load(source)
+attention = [
+    tensor for tensor in plan["tensors"]
+    if tensor["name"] == "layer.0.attention"
+]
+assert len(attention) == 1
+assert attention[0]["shape"][-1] == 24
+print("tensor_plan_attention_width=PASS")
+PY
 "${SCRIPT_DIR}/compile_npu_weight_plan.py" \
     "${MANIFEST}" "${MODEL_DIR}/model.npxe" "${MODEL_DIR}/model.npxw"
 python3 - "${MODEL_DIR}/model.npxw" <<'PY'

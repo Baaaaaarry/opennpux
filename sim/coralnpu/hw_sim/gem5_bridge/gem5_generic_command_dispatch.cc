@@ -225,6 +225,18 @@ bool ExecuteGem5FunctionalRequestInRegions(
   host.linear_norm_weight = ConstBuffer(
       *request, OPENNPUX_NPU_OPERAND_LINEAR_NORM_WEIGHT, regions,
       region_count);
+  host.shared_gate_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_SHARED_GATE_WEIGHT, regions,
+      region_count);
+  host.shared_up_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_SHARED_UP_WEIGHT, regions,
+      region_count);
+  host.shared_down_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_SHARED_DOWN_WEIGHT, regions,
+      region_count);
+  host.shared_router_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_SHARED_ROUTER_WEIGHT, regions,
+      region_count);
   host.positions = static_cast<const uint32_t*>(positions.data);
   host.rows = request->rows;
   host.features = request->features;

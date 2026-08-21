@@ -116,6 +116,19 @@ int main() {
   assert(RunGem5CombineF32(lhs, rhs, 3, recurrent_output, &stats));
   assert(recurrent_output[0] == 5.0f && recurrent_output[2] == -3.0f);
 
+  const float shared_input[] = {1.0f, 2.0f};
+  const float shared_gate_weight[] = {1.0f, 0.0f, 0.0f, 1.0f};
+  const float shared_up_weight[] = {1.0f, 1.0f, 1.0f, 1.0f};
+  const float shared_down_weight[] = {1.0f, 0.0f, 0.0f, 1.0f};
+  const float shared_router_weight[] = {0.0f, 0.0f};
+  float shared_output[2] = {};
+  assert(RunGem5SharedExpertF32(
+      shared_input, shared_gate_weight, shared_up_weight, shared_down_weight,
+      shared_router_weight, 1, 2, 2, 2, shared_output, &stats));
+  assert(Near(shared_output[0], 1.5f * 0.7310586f));
+  assert(Near(shared_output[1], 3.0f * 0.8807971f));
+  assert(stats.operations != 0 && stats.modeled_cycles != 0);
+
   assert(!RunGem5RmsNormF32(norm_input, norm_weight, 0, 2, 0.0f,
                             norm_output, &stats));
   assert(!RunGem5RopeF32(rope_input, positions, 2, 1, 3, 10000.0f,

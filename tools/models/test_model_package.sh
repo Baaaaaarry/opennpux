@@ -64,6 +64,18 @@ for name, tensors in (
         "model.language_model.layers.1.mlp.router.weight": b"".join(
             struct.pack("<f", ((row * 3 + column) % 11 - 5) / 8.0)
             for row in range(18) for column in range(8)),
+        "model.language_model.layers.1.mlp.shared_expert.gate_proj.weight": b"".join(
+            struct.pack("<f", ((row + column) % 7 - 3) / 16.0)
+            for row in range(18) for column in range(32)),
+        "model.language_model.layers.1.mlp.shared_expert.up_proj.weight": b"".join(
+            struct.pack("<f", ((row * 2 + column) % 9 - 4) / 16.0)
+            for row in range(18) for column in range(32)),
+        "model.language_model.layers.1.mlp.shared_expert.down_proj.weight": b"".join(
+            struct.pack("<f", ((row + column * 3) % 11 - 5) / 16.0)
+            for row in range(32) for column in range(18)),
+        "model.language_model.layers.1.mlp.shared_expert_gate.weight": b"".join(
+            struct.pack("<f", (column % 5 - 2) / 16.0)
+            for column in range(18)),
         "model.language_model.layers.1.linear_attn.in_proj_qkv.weight": b"".join(
             struct.pack("<f", ((row + column) % 7 - 3) / 8.0)
             for row in range(18) for column in range(18)),
@@ -89,6 +101,7 @@ for name, tensors in (
         weight_map[tensor_name] = name
         dtype = "U8"
         if (tensor_name.endswith("mlp.router.weight") or
+                ".shared_expert" in tensor_name or
                 (".linear_attn." in tensor_name and
                  tensor_name.endswith(".weight"))):
             dtype = "F32"

@@ -75,4 +75,11 @@ bool RunGem5CombineF32(
     const float* routed, const float* shared, size_t count, float* output,
     Gem5TransformerKernelStats* stats);
 
+bool RunGem5SharedExpertF32(
+    const float* input, const float* gate_weight, const float* up_weight,
+    const float* down_weight, const float* router_weight, size_t rows,
+    size_t input_features, size_t intermediate_features,
+    size_t output_features, float* output,
+    Gem5TransformerKernelStats* stats);
+
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_TRANSFORMER_KERNELS_H_

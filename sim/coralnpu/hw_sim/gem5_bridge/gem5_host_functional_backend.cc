@@ -233,6 +233,50 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
       return Result(Gem5HostFunctionalStatus::kInvalid);
     }
     Gem5GptqKernelStats gptq_stats = {};
+    const bool float_shared_expert =
+        request.opcode == OPENNPUX_NPU_OP_EXPERT &&
+        request.shared_gate_weight.data != nullptr;
+    if (float_shared_expert) {
+      const size_t input_features =
+          request.operator_parameters->input_features;
+      const size_t intermediate_features =
+          request.operator_parameters->intermediate_features;
+      const size_t output_features =
+          request.operator_parameters->output_features;
+      if (request.input == nullptr || request.output == nullptr ||
+          request.shared_up_weight.data == nullptr ||
+          request.shared_down_weight.data == nullptr ||
+          request.shared_router_weight.data == nullptr ||
+          input_features == 0 || intermediate_features == 0 ||
+          output_features == 0 ||
+          input_features > SIZE_MAX / intermediate_features ||
+          intermediate_features > SIZE_MAX / output_features ||
+          input_features * intermediate_features >
+              SIZE_MAX / sizeof(float) ||
+          intermediate_features * output_features >
+              SIZE_MAX / sizeof(float) ||
+          request.shared_gate_weight.size !=
+              input_features * intermediate_features * sizeof(float) ||
+          request.shared_up_weight.size !=
+              input_features * intermediate_features * sizeof(float) ||
+          request.shared_down_weight.size !=
+              intermediate_features * output_features * sizeof(float) ||
+          request.shared_router_weight.size !=
+              input_features * sizeof(float)) {
+        return Result(Gem5HostFunctionalStatus::kInvalid);
+      }
+      if (!RunGem5SharedExpertF32(
+              request.input,
+              static_cast<const float*>(request.shared_gate_weight.data),
+              static_cast<const float*>(request.shared_up_weight.data),
+              static_cast<const float*>(request.shared_down_weight.data),
+              static_cast<const float*>(request.shared_router_weight.data),
+              request.rows, input_features, intermediate_features,
+              output_features, request.output, &result.stats)) {
+        result.status = Gem5HostFunctionalStatus::kExecutionError;
+      }
+      return result;
+    }
     const bool linear_projection =
         request.opcode == OPENNPUX_NPU_OP_MATMUL &&
         request.linear_qkv_weight.data != nullptr;

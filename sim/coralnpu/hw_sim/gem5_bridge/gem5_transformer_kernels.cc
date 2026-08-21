@@ -448,3 +448,65 @@ bool RunGem5CombineF32(
     Gem5TransformerKernelStats* stats) {
   return RunGem5AddF32(routed, shared, count, output, stats);
 }
+
+bool RunGem5SharedExpertF32(
+    const float* input, const float* gate_weight, const float* up_weight,
+    const float* down_weight, const float* router_weight, size_t rows,
+    size_t input_features, size_t intermediate_features,
+    size_t output_features, float* output,
+    Gem5TransformerKernelStats* stats) {
+  size_t intermediate_elements = 0;
+  size_t output_elements = 0;
+  if (input == nullptr || gate_weight == nullptr || up_weight == nullptr ||
+      down_weight == nullptr || router_weight == nullptr || output == nullptr ||
+      stats == nullptr || rows == 0 || input_features == 0 ||
+      intermediate_features == 0 || output_features == 0 ||
+      !ProductFits(rows, intermediate_features, &intermediate_elements) ||
+      !ProductFits(rows, output_features, &output_elements)) {
+    return false;
+  }
+  std::vector<float> gate(intermediate_elements);
+  std::vector<float> up(intermediate_elements);
+  std::vector<float> activated(intermediate_elements);
+  std::vector<float> shared(output_elements);
+  std::vector<float> router(rows);
+  Gem5TransformerKernelStats stages[6] = {};
+  if (!RunGem5MatMulF32(input, gate_weight, rows, input_features,
+                        intermediate_features, gate.data(), &stages[0]) ||
+      !RunGem5MatMulF32(input, up_weight, rows, input_features,
+                        intermediate_features, up.data(), &stages[1]) ||
+      !RunGem5SiluF32(gate.data(), intermediate_elements, gate.data(),
+                      &stages[2]) ||
+      !RunGem5MulF32(gate.data(), up.data(), intermediate_elements,
+                     activated.data(), &stages[3]) ||
+      !RunGem5MatMulF32(activated.data(), down_weight, rows,
+                        intermediate_features, output_features,
+                        shared.data(), &stages[4]) ||
+      !RunGem5MatMulF32(input, router_weight, rows, input_features, 1,
+                        router.data(), &stages[5])) {
+    return false;
+  }
+  *stats = {};
+  for (const auto& stage : stages) {
+    stats->operations += stage.operations;
+    stats->bytes_read += stage.bytes_read;
+    stats->bytes_written += stage.bytes_written;
+    stats->modeled_cycles += stage.modeled_cycles;
+  }
+  for (size_t row = 0; row < rows; ++row) {
+    const float scale = 1.0f / (1.0f + std::exp(-router[row]));
+    for (size_t column = 0; column < output_features; ++column) {
+      output[row * output_features + column] =
+          shared[row * output_features + column] * scale;
+    }
+  }
+  const uint64_t scale_operations = rows * 4 + output_elements;
+  const uint64_t scale_bytes = (rows + output_elements) * sizeof(float);
+  stats->operations += scale_operations;
+  stats->bytes_read += scale_bytes;
+  stats->bytes_written += output_elements * sizeof(float);
+  stats->modeled_cycles += std::max<uint64_t>(
+      DivCeil(scale_operations, kOperationsPerCycle),
+      DivCeil(scale_bytes + output_elements * sizeof(float), kBytesPerCycle));
+  return true;
+}

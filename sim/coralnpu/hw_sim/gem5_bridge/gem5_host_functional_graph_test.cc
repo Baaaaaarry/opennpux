@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -278,6 +279,38 @@ int main(int argc, char** argv) {
   }
   assert(linear_gate_norm_index != UINT32_MAX);
   assert(graph.ExecuteCommand(linear_gate_norm_index, &weights));
+  uint32_t shared_expert_index = UINT32_MAX;
+  for (uint32_t index = 0; index < graph.command_count(); ++index) {
+    std::vector<Gem5HostWeightBinding> floating;
+    if (!weights.FindFloatBindings(index, &floating) ||
+        floating.size() != 4) {
+      continue;
+    }
+    const bool shared =
+        std::all_of(floating.begin(), floating.end(), [](const auto& binding) {
+          return binding.role_id ==
+                 OPENNPUX_NPU_WEIGHT_ROLE_SHARED_EXPERT;
+        });
+    if (shared) {
+      shared_expert_index = index;
+      break;
+    }
+  }
+  assert(shared_expert_index != UINT32_MAX);
+  assert(graph.ExecuteCommand(shared_expert_index, &weights));
+  opennpux_npu_functional_request shared_expert = {};
+  assert(graph.Materialize(shared_expert_index, nullptr, 0, &shared_expert));
+  const auto* shared_output =
+      FindOperand(shared_expert, OPENNPUX_NPU_OPERAND_OUTPUT);
+  assert(shared_output != nullptr);
+  const auto* shared_output_data = reinterpret_cast<const float*>(
+      graph.arena().Translate(shared_output->address,
+                              shared_output->byte_size));
+  assert(shared_output_data != nullptr);
+  for (size_t index = 0; index < shared_output->byte_size / sizeof(float);
+       ++index) {
+    assert(std::isfinite(shared_output_data[index]));
+  }
   std::printf("functional_graph_add_elements=%zu\n", count);
   std::puts("functional_graph_gptq_projection=PASS");
   std::puts("functional_graph_routed_expert=PASS");
@@ -289,6 +322,7 @@ int main(int argc, char** argv) {
   std::puts("functional_graph_autoregressive_reconfigure=PASS");
   std::puts("functional_graph_linear_attention_projection=PASS");
   std::puts("functional_graph_linear_attention_gate_norm=PASS");
+  std::puts("functional_graph_float_shared_expert=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

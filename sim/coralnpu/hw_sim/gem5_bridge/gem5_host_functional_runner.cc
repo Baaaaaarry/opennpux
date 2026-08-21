@@ -82,6 +82,14 @@ bool TraceEnabled() {
          std::strcmp(value, "0") != 0;
 }
 
+bool LogitsTraceEnabled() {
+  const char* value =
+      std::getenv("OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE");
+  return TraceEnabled() ||
+         (value != nullptr && value[0] != '\0' &&
+          std::strcmp(value, "0") != 0);
+}
+
 const opennpux_npu_functional_operand* FindOperand(
     const opennpux_npu_functional_request& request, uint32_t role) {
   for (uint32_t index = 0; index < request.operand_count; ++index) {
@@ -388,6 +396,7 @@ int main(int argc, char** argv) {
   Gem5HostFunctionalGraph graph;
   Gem5HostWeightProvider weights;
   const bool trace = TraceEnabled();
+  const bool logits_trace = LogitsTraceEnabled();
   std::vector<uint32_t> reference_tokens;
   const char* reference_text =
       std::getenv("OPENNPUX_HOST_FUNCTIONAL_REFERENCE_TOKENS");
@@ -427,7 +436,7 @@ int main(int argc, char** argv) {
       }
     }
     ready = ready && graph.ReadNextToken(&next_token);
-    if (ready && trace) {
+    if (ready && logits_trace) {
       TraceFinalLogits(graph, step, next_token, reference_tokens);
     }
     if (!ready) {

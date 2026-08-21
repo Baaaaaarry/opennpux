@@ -560,6 +560,7 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         fi
         echo "[coral-qwen35b-real-weights-test] running Host C++ preflight" >&2
         : >"$PREFLIGHT_LOG"
+        OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE=1 \
         OPENNPUX_HOST_FUNCTIONAL_REFERENCE_TOKENS="$EXPECTED_TOKEN_IDS" \
         "${ROOT_DIR}/tools/models/run_host_functional_preflight.sh" \
             "$MODEL_DIR" "$INPUT_TOKEN_IDS" "$MAX_NEW_TOKENS" \

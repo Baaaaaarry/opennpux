@@ -1,9 +1,11 @@
 #include <cerrno>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -68,6 +70,93 @@ bool ParseCount(const char* text, uint32_t* count) {
   }
   *count = static_cast<uint32_t>(value);
   return true;
+}
+
+bool TraceEnabled() {
+  const char* value = std::getenv("OPENNPUX_HOST_FUNCTIONAL_TRACE");
+  if (value == nullptr || value[0] == '\0') {
+    value = std::getenv("CORAL_HOST_FUNCTIONAL_TRACE");
+  }
+  return value != nullptr && value[0] != '\0' &&
+         std::strcmp(value, "0") != 0;
+}
+
+uint32_t Fnv1a32(const uint8_t* bytes, size_t size) {
+  uint32_t checksum = UINT32_C(2166136261);
+  for (size_t index = 0; index < size; ++index) {
+    checksum ^= bytes[index];
+    checksum *= UINT32_C(16777619);
+  }
+  return checksum;
+}
+
+void TraceCommandOutputs(const Gem5HostFunctionalGraph& graph,
+                         uint32_t step, uint32_t command_index) {
+  opennpux_npu_command_tensor_views views = {};
+  const auto* command = graph.command(command_index);
+  if (command == nullptr ||
+      !graph.arena().ResolveCommand(command_index, &views)) {
+    std::fprintf(stderr,
+                 "host_functional_trace_error=step:%u,command:%u\n",
+                 step, command_index);
+    return;
+  }
+  for (uint32_t output_index = 0; output_index < views.output_count;
+       ++output_index) {
+    const auto& output = views.outputs[output_index];
+    const auto* bytes = graph.arena().Translate(output.address, output.size);
+    if (bytes == nullptr || output.size > SIZE_MAX) {
+      std::fprintf(stderr,
+                   "host_functional_trace_error=step:%u,command:%u,output:%u\n",
+                   step, command_index, output_index);
+      continue;
+    }
+    const size_t size = static_cast<size_t>(output.size);
+    const uint32_t checksum = Fnv1a32(bytes, size);
+    if (output.data_type != OPENNPUX_NPU_DTYPE_FLOAT32 ||
+        size % sizeof(float) != 0) {
+      std::fprintf(
+          stderr,
+          "host_functional_trace=step:%u,command:%u,opcode:%u,tag:0x%llx,"
+          "output:%u,tensor:%u,dtype:%u,bytes:%zu,checksum:0x%08x\n",
+          step, command_index, command->opcode,
+          static_cast<unsigned long long>(command->profiling_tag),
+          output_index, output.tensor_id, output.data_type, size, checksum);
+      continue;
+    }
+    const auto* values = reinterpret_cast<const float*>(bytes);
+    const size_t count = size / sizeof(float);
+    float minimum = std::numeric_limits<float>::infinity();
+    float maximum = -std::numeric_limits<float>::infinity();
+    double sum = 0.0;
+    double sum_squares = 0.0;
+    size_t finite_count = 0;
+    for (size_t index = 0; index < count; ++index) {
+      const float value = values[index];
+      if (!std::isfinite(value)) {
+        continue;
+      }
+      minimum = value < minimum ? value : minimum;
+      maximum = value > maximum ? value : maximum;
+      sum += value;
+      sum_squares += static_cast<double>(value) * value;
+      ++finite_count;
+    }
+    const double mean = finite_count == 0 ? 0.0 : sum / finite_count;
+    const double rms = finite_count == 0
+                           ? 0.0
+                           : std::sqrt(sum_squares / finite_count);
+    std::fprintf(
+        stderr,
+        "host_functional_trace=step:%u,command:%u,opcode:%u,tag:0x%llx,"
+        "output:%u,tensor:%u,count:%zu,checksum:0x%08x,min:%.9g,max:%.9g,"
+        "mean:%.9g,rms:%.9g,nonfinite:%zu\n",
+        step, command_index, command->opcode,
+        static_cast<unsigned long long>(command->profiling_tag), output_index,
+        output.tensor_id, count, checksum, minimum, maximum, mean, rms,
+        count - finite_count);
+  }
+  std::fflush(stderr);
 }
 
 void PrintCommandFailure(const Gem5HostFunctionalGraph& graph,
@@ -200,6 +289,7 @@ int main(int argc, char** argv) {
           bindings, 5, submission, kSubmissionCapacity, &submission_size) == 0;
   Gem5HostFunctionalGraph graph;
   Gem5HostWeightProvider weights;
+  const bool trace = TraceEnabled();
   bool ready = instantiated && graph.LoadTensorPlan(argv[2]) &&
                weights.Load(argv[3], argv[4]);
   std::vector<uint32_t> generated;
@@ -223,6 +313,8 @@ int main(int argc, char** argv) {
       if (!graph.ExecuteCommand(command_index, &weights)) {
         failed_command = command_index;
         ready = false;
+      } else if (trace && step == 0) {
+        TraceCommandOutputs(graph, step, command_index);
       }
     }
     ready = ready && graph.ReadNextToken(&next_token);

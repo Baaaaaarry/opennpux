@@ -31,7 +31,8 @@ bool RunGem5SiluF32(const float* input, size_t count, float* output,
 
 bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
                        size_t features, float epsilon, float* output,
-                       Gem5TransformerKernelStats* stats);
+                       Gem5TransformerKernelStats* stats,
+                       bool weight_offset = false);
 
 bool RunGem5GatedRmsNormF32(
     const float* input, const float* gate, const float* weight, size_t rows,
@@ -41,10 +42,11 @@ bool RunGem5GatedRmsNormF32(
 bool RunGem5SoftmaxF32(const float* input, size_t rows, size_t features,
                        float* output, Gem5TransformerKernelStats* stats);
 
-// Applies the standard adjacent-pair rotary embedding independently to each
-// [row, head]. Positions has one entry per row.
+// Applies rotate-half rotary embedding to rotary_dim elements of each head.
+// Remaining head elements pass through unchanged.
 bool RunGem5RopeF32(const float* input, const uint32_t* positions, size_t rows,
-                    size_t heads, size_t head_dim, float theta, float* output,
+                    size_t heads, size_t head_dim, size_t rotary_dim,
+                    float theta, float* output,
                     Gem5TransformerKernelStats* stats);
 bool RunGem5CausalDepthwiseConvF32(
     const float* input, const float* weight, size_t rows, size_t features,
@@ -87,7 +89,8 @@ bool RunGem5FloatQkvF32(
     const float* v_weight, const float* q_norm_weight,
     const float* k_norm_weight, size_t rows, size_t input_features,
     size_t heads, size_t kv_heads, size_t head_dim, size_t q_weight_outputs,
-    float epsilon, float* query, float* key, float* value,
+    float epsilon, bool norm_weight_offset, float* query, float* key,
+    float* value,
     Gem5TransformerKernelStats* stats);
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_TRANSFORMER_KERNELS_H_

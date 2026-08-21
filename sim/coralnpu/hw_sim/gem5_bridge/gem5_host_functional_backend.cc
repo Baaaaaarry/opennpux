@@ -283,6 +283,8 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
                   request.attention_k_norm_weight.data),
               request.rows, input_features, request.heads, request.kv_heads,
               request.head_dim, q_weight_outputs, request.epsilon,
+              (request.operator_parameters->flags &
+               OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0,
               request.output, request.output_secondary,
               request.output_tertiary, &result.stats)) {
         result.status = Gem5HostFunctionalStatus::kExecutionError;
@@ -527,7 +529,10 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
     case OPENNPUX_NPU_OP_NORMALIZE:
       success = RunGem5RmsNormF32(
           request.input, request.weight, request.rows, request.features,
-          request.epsilon, request.output, &result.stats);
+          request.epsilon, request.output, &result.stats,
+          request.operator_parameters != nullptr &&
+              (request.operator_parameters->flags &
+               OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0);
       break;
     case OPENNPUX_NPU_OP_ROPE:
       if (request.heads == 0 || request.head_dim == 0 ||
@@ -538,7 +543,12 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
       }
       success = RunGem5RopeF32(
           request.input, request.positions, request.rows, request.heads,
-          request.head_dim, request.rope_theta, request.output, &result.stats);
+          request.head_dim,
+          request.operator_parameters != nullptr &&
+                  request.operator_parameters->intermediate_features != 0
+              ? request.operator_parameters->intermediate_features
+              : request.head_dim,
+          request.rope_theta, request.output, &result.stats);
       break;
     case OPENNPUX_NPU_OP_SOFTMAX:
       success = RunGem5SoftmaxF32(request.input, request.rows, request.features,

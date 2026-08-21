@@ -161,7 +161,8 @@ bool RunGem5SiluF32(const float* input, size_t count, float* output,
 
 bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
                        size_t features, float epsilon, float* output,
-                       Gem5TransformerKernelStats* stats) {
+                       Gem5TransformerKernelStats* stats,
+                       bool weight_offset) {
   size_t count = 0;
   if (!ProductFits(rows, features, &count) ||
       !ValidBuffers(input, count, output, stats) || weight == nullptr ||
@@ -180,8 +181,9 @@ bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
       return false;
     }
     for (size_t column = 0; column < features; ++column) {
+      const float scale = weight[column] + (weight_offset ? 1.0f : 0.0f);
       output[row * features + column] =
-          input[row * features + column] * inverse_rms * weight[column];
+          input[row * features + column] * inverse_rms * scale;
     }
   }
   const uint64_t operations = static_cast<uint64_t>(count) * 4 + rows * 2;
@@ -256,32 +258,37 @@ bool RunGem5SoftmaxF32(const float* input, size_t rows, size_t features,
 }
 
 bool RunGem5RopeF32(const float* input, const uint32_t* positions, size_t rows,
-                    size_t heads, size_t head_dim, float theta, float* output,
+                    size_t heads, size_t head_dim, size_t rotary_dim,
+                    float theta, float* output,
                     Gem5TransformerKernelStats* stats) {
   size_t row_elements = 0;
   size_t count = 0;
   if (!ProductFits(heads, head_dim, &row_elements) ||
       !ProductFits(rows, row_elements, &count) ||
       !ValidBuffers(input, count, output, stats) || positions == nullptr ||
-      head_dim == 0 || head_dim % 2 != 0 || !(theta > 0.0f) ||
+      head_dim == 0 || rotary_dim == 0 || rotary_dim > head_dim ||
+      rotary_dim % 2 != 0 || !(theta > 0.0f) ||
       !std::isfinite(theta) || count > UINT64_MAX / 3) {
     return false;
   }
   for (size_t row = 0; row < rows; ++row) {
     for (size_t head = 0; head < heads; ++head) {
       const size_t base = row * row_elements + head * head_dim;
-      for (size_t pair = 0; pair < head_dim / 2; ++pair) {
+      const size_t half = rotary_dim / 2;
+      for (size_t pair = 0; pair < half; ++pair) {
         const float exponent =
-            -2.0f * static_cast<float>(pair) / static_cast<float>(head_dim);
+            -2.0f * static_cast<float>(pair) / static_cast<float>(rotary_dim);
         const float angle = static_cast<float>(positions[row]) *
                             std::pow(theta, exponent);
         const float cosine = std::cos(angle);
         const float sine = std::sin(angle);
-        const float first = input[base + pair * 2];
-        const float second = input[base + pair * 2 + 1];
-        output[base + pair * 2] = first * cosine - second * sine;
-        output[base + pair * 2 + 1] = first * sine + second * cosine;
+        const float first = input[base + pair];
+        const float second = input[base + half + pair];
+        output[base + pair] = first * cosine - second * sine;
+        output[base + half + pair] = second * cosine + first * sine;
       }
+      std::copy(input + base + rotary_dim, input + base + head_dim,
+                output + base + rotary_dim);
     }
   }
   return FinishStats(static_cast<uint64_t>(count) * 3, count + rows, count,
@@ -523,7 +530,8 @@ bool RunGem5FloatQkvF32(
     const float* v_weight, const float* q_norm_weight,
     const float* k_norm_weight, size_t rows, size_t input_features,
     size_t heads, size_t kv_heads, size_t head_dim, size_t q_weight_outputs,
-    float epsilon, float* query, float* key, float* value,
+    float epsilon, bool norm_weight_offset, float* query, float* key,
+    float* value,
     Gem5TransformerKernelStats* stats) {
   size_t query_features = 0;
   size_t key_features = 0;
@@ -565,9 +573,10 @@ bool RunGem5FloatQkvF32(
     }
   }
   if (!RunGem5RmsNormF32(query, q_norm_weight, rows * heads, head_dim,
-                         epsilon, query, &stages[3]) ||
+                         epsilon, query, &stages[3], norm_weight_offset) ||
       !RunGem5RmsNormF32(raw_key.data(), k_norm_weight, rows * kv_heads,
-                         head_dim, epsilon, key, &stages[4])) {
+                         head_dim, epsilon, key, &stages[4],
+                         norm_weight_offset)) {
     return false;
   }
   *stats = {};

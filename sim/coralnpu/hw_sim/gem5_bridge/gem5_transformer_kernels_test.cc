@@ -66,6 +66,11 @@ int main() {
                            norm_output, &stats));
   assert(Near(norm_output[0], 0.8485281f));
   assert(Near(norm_output[1], 2.2627417f));
+  const float zero_norm_weight[] = {0.0f, 0.0f};
+  assert(RunGem5RmsNormF32(norm_input, zero_norm_weight, 1, 2, 0.0f,
+                           norm_output, &stats, true));
+  assert(Near(norm_output[0], 0.8485281f));
+  assert(Near(norm_output[1], 1.1313708f));
 
   const float softmax_input[] = {0.0f, 0.0f, 0.0f, 0.0f,
                                  1000.0f, 999.0f, 998.0f, 997.0f};
@@ -81,11 +86,21 @@ int main() {
   const float rope_input[] = {1.0f, 0.0f, 2.0f, 0.0f};
   const uint32_t positions[] = {0, 1};
   float rope_output[4] = {};
-  assert(RunGem5RopeF32(rope_input, positions, 2, 1, 2, 10000.0f,
+  assert(RunGem5RopeF32(rope_input, positions, 2, 1, 2, 2, 10000.0f,
                         rope_output, &stats));
   assert(rope_output[0] == 1.0f && rope_output[1] == 0.0f);
   assert(Near(rope_output[2], 2.0f * std::cos(1.0f)));
   assert(Near(rope_output[3], 2.0f * std::sin(1.0f)));
+  const float partial_rope_input[] = {2.0f, 3.0f, 5.0f, 7.0f};
+  float partial_rope_output[4] = {};
+  const uint32_t partial_position[] = {1};
+  assert(RunGem5RopeF32(partial_rope_input, partial_position, 1, 1, 4, 2,
+                        10000.0f, partial_rope_output, &stats));
+  assert(Near(partial_rope_output[0],
+              2.0f * std::cos(1.0f) - 3.0f * std::sin(1.0f)));
+  assert(Near(partial_rope_output[1],
+              3.0f * std::cos(1.0f) + 2.0f * std::sin(1.0f)));
+  assert(partial_rope_output[2] == 5.0f && partial_rope_output[3] == 7.0f);
 
   const float logits[] = {1.0f, 3.0f, 3.0f, 2.0f};
   float top_values[2] = {};
@@ -158,7 +173,7 @@ int main() {
   float value_output[2] = {};
   assert(RunGem5FloatQkvF32(
       shared_input, gated_q_weight, identity_weight, identity_weight,
-      head_norm, head_norm, 1, 2, 1, 1, 2, 4, 0.0f, query_output,
+      head_norm, head_norm, 1, 2, 1, 1, 2, 4, 0.0f, false, query_output,
       key_output, value_output, &stats));
   assert(Near(query_output[0], 0.6324555f));
   assert(Near(query_output[1], 1.2649110f));
@@ -168,7 +183,7 @@ int main() {
 
   assert(!RunGem5RmsNormF32(norm_input, norm_weight, 0, 2, 0.0f,
                             norm_output, &stats));
-  assert(!RunGem5RopeF32(rope_input, positions, 2, 1, 3, 10000.0f,
+  assert(!RunGem5RopeF32(rope_input, positions, 2, 1, 3, 3, 10000.0f,
                          rope_output, &stats));
   assert(!RunGem5TopKF32(logits, 4, 5, top_values, top_indices, &stats));
   const uint32_t invalid_token[] = {3};

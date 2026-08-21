@@ -221,10 +221,22 @@ def build_manifest(
             ),
         )
     )
+    rope_parameters = model_config.get("rope_parameters", {})
+    if not isinstance(rope_parameters, dict):
+        rope_parameters = {}
+    partial_rotary_factor = float(
+        rope_parameters.get(
+            "partial_rotary_factor",
+            model_config.get("partial_rotary_factor", 1.0),
+        )
+    )
+    rotary_dim = int(explicit_head_dim * partial_rotary_factor)
+    if rotary_dim <= 0 or rotary_dim > explicit_head_dim or rotary_dim % 2:
+        raise ValueError("rotary dimension must be positive, even, and <= head_dim")
 
     manifest = {
         "format": FORMAT,
-        "functional_graph_revision": 4,
+        "functional_graph_revision": 5,
         "version": 2,
         "name": name or str(config.get("name_or_path", model_dir.name)),
         "architecture": architecture,
@@ -236,6 +248,12 @@ def build_manifest(
         "head_count": heads,
         "kv_head_count": config_u32(model_config, "num_key_value_heads", heads),
         "head_dim": explicit_head_dim,
+        "rotary_dim": rotary_dim,
+        "rope_theta": int(
+            rope_parameters.get(
+                "rope_theta", model_config.get("rope_theta", 10000)
+            )
+        ),
         "linear_key_head_dim": config_u32(
             model_config, "linear_key_head_dim", explicit_head_dim
         ),

@@ -158,7 +158,11 @@ opennpux_npu_functional_request_materialize(
     request->kv_heads = parameters->kv_head_count;
     request->vocabulary_size = parameters->input_features;
     request->epsilon = 1.0e-5f;
-    request->rope_theta = 10000.0f;
+    request->rope_theta =
+        parameters->opcode == OPENNPUX_NPU_OP_ROPE &&
+                parameters->quantization_group_size != 0
+            ? (float)parameters->quantization_group_size
+            : 10000.0f;
     const struct opennpux_npu_tensor_view *shape_view =
         command->opcode == OPENNPUX_NPU_OP_DMA ||
                 command->opcode == OPENNPUX_NPU_OP_TOPK ?

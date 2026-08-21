@@ -154,6 +154,11 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
     flags = 2
     if opcode in {"MATMUL", "EXPERT", "ROUTER", "EMBED"} and quant_bits == 4:
         flags |= 1
+    if "Qwen3_5" in str(manifest.get("architecture", "")):
+        flags |= 4
+    if phase == "rope":
+        intermediate = max(1, int(manifest.get("rotary_dim", head_dim)))
+        group_size = max(1, int(manifest.get("rope_theta", 10000)))
     return {
         "phase": PHASE_KIND.get(phase, 0),
         "flags": flags,
@@ -338,7 +343,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 2,
-        "functional_graph_revision": 4,
+        "functional_graph_revision": 5,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -670,7 +675,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
-        "functional_graph_revision": 4,
+        "functional_graph_revision": 5,
         "execution_scope": executable["execution_scope"],
         "runtime_row_expression": "runtime.batch * runtime.sequence",
         "tensor_count": len(tensors),

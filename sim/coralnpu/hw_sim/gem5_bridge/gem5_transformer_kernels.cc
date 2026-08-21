@@ -381,19 +381,24 @@ bool RunGem5AttentionF32(
       !ProductFits(kv_length, kv_features, &plane_elements) ||
       query == nullptr || state == nullptr || output == nullptr ||
       stats == nullptr || heads == 0 || kv_heads == 0 || head_dim == 0 ||
-      kv_length == 0) {
+      kv_length == 0 || query_rows > kv_length || heads % kv_heads != 0) {
     return false;
   }
   const float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
   std::vector<float> scores(kv_length);
   const float* keys = state;
   const float* values = state + plane_elements;
+  const size_t query_start = kv_length - query_rows;
+  const size_t query_heads_per_kv_head = heads / kv_heads;
   for (size_t row = 0; row < query_rows; ++row) {
+    const size_t visible_positions = query_start + row + 1;
     for (size_t head = 0; head < heads; ++head) {
-      const size_t kv_head = head % kv_heads;
+      // repeat_kv expands each KV head into one contiguous group of query
+      // heads. A modulo mapping incorrectly interleaves those groups.
+      const size_t kv_head = head / query_heads_per_kv_head;
       const float* q = query + row * query_features + head * head_dim;
       float maximum = -std::numeric_limits<float>::infinity();
-      for (size_t position = 0; position < kv_length; ++position) {
+      for (size_t position = 0; position < visible_positions; ++position) {
         const float* k = keys + position * kv_features + kv_head * head_dim;
         float score = 0.0f;
         for (size_t column = 0; column < head_dim; ++column) {
@@ -403,9 +408,9 @@ bool RunGem5AttentionF32(
         maximum = std::max(maximum, scores[position]);
       }
       float sum = 0.0f;
-      for (float& score : scores) {
-        score = std::exp(score - maximum);
-        sum += score;
+      for (size_t position = 0; position < visible_positions; ++position) {
+        scores[position] = std::exp(scores[position] - maximum);
+        sum += scores[position];
       }
       if (!(sum > 0.0f) || !std::isfinite(sum)) {
         return false;
@@ -413,7 +418,7 @@ bool RunGem5AttentionF32(
       float* destination =
           output + row * query_features + head * head_dim;
       std::fill_n(destination, head_dim, 0.0f);
-      for (size_t position = 0; position < kv_length; ++position) {
+      for (size_t position = 0; position < visible_positions; ++position) {
         const float probability = scores[position] / sum;
         const float* v =
             values + position * kv_features + kv_head * head_dim;
@@ -423,8 +428,10 @@ bool RunGem5AttentionF32(
       }
     }
   }
-  const uint64_t operations = static_cast<uint64_t>(query_rows) * heads *
-      kv_length * head_dim * 4;
+  const uint64_t visible_position_count =
+      static_cast<uint64_t>(query_rows) * (query_start + 1) +
+      static_cast<uint64_t>(query_rows) * (query_rows - 1) / 2;
+  const uint64_t operations = visible_position_count * heads * head_dim * 4;
   return FinishStats(operations, query_elements + plane_elements * 2,
                      query_elements, stats);
 }

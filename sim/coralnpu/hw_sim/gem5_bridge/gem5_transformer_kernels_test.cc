@@ -108,6 +108,26 @@ int main() {
   assert(attention_output[0] > 1.0f && attention_output[0] < 2.0f);
   assert(attention_output[1] > 0.0f && attention_output[1] < 2.0f);
 
+  const float causal_query[] = {1.0f, 0.0f, 1.0f, 0.0f};
+  float causal_output[4] = {};
+  assert(RunGem5AttentionF32(causal_query, kv_state, 2, 1, 1, 2, 2,
+                             causal_output, &stats));
+  assert(causal_output[0] == 2.0f && causal_output[1] == 0.0f);
+  assert(causal_output[2] > 1.0f && causal_output[2] < 2.0f);
+  assert(causal_output[3] > 0.0f && causal_output[3] < 2.0f);
+
+  const float grouped_query[] = {1.0f, 0.0f, 1.0f, 0.0f,
+                                 1.0f, 0.0f, 1.0f, 0.0f};
+  const float grouped_state[] = {
+      1.0f, 0.0f, 0.0f, 1.0f,
+      10.0f, 0.0f, 20.0f, 0.0f,
+  };
+  float grouped_output[8] = {};
+  assert(RunGem5AttentionF32(grouped_query, grouped_state, 1, 4, 2, 2, 1,
+                             grouped_output, &stats));
+  assert(grouped_output[0] == 10.0f && grouped_output[2] == 10.0f);
+  assert(grouped_output[4] == 20.0f && grouped_output[6] == 20.0f);
+
   float recurrent_output[3] = {};
   float recurrent_state[3] = {};
   assert(RunGem5RecurrentUpdateF32(lhs, 1, 3, recurrent_output,

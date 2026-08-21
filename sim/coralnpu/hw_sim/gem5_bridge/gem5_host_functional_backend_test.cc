@@ -188,6 +188,29 @@ int main() {
          v_output[0] == 4.0f);
   assert(result.stats.operations == 12);
 
+  const uint32_t gated_qweight[] = {
+      UINT32_C(0x21), UINT32_C(0x43),
+      UINT32_C(0x65), UINT32_C(0x87)};
+  const float gated_scales[] = {0.5f, 0.5f, 0.5f, 0.5f};
+  float gated_query[2] = {};
+  float gated_output[2] = {};
+  const Gem5GenericGptqOperands gated_q_operands = {
+      {matmul_input, sizeof(matmul_input)},
+      {gated_qweight, sizeof(gated_qweight)},
+      {qzeros, sizeof(qzeros)},
+      {gated_scales, sizeof(gated_scales)},
+      {nullptr, 0},
+      {gated_query, sizeof(gated_query)},
+  };
+  request.output = gated_query;
+  request.output_quaternary = gated_output;
+  request.heads = 2;
+  request.q_gptq_operands = &gated_q_operands;
+  result = backend.Execute(request);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  assert(gated_query[0] == 4.0f && gated_query[1] == 14.0f);
+  assert(gated_output[0] == 9.0f && gated_output[1] == 19.0f);
+
   parameters = {};
   parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
   parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;

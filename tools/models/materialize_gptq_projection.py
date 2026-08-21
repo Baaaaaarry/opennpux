@@ -82,8 +82,12 @@ def projection_shape(manifest: dict[str, Any], slot: str) -> tuple[int, int]:
     kv_heads = int(manifest["kv_head_count"])
     head_dim = int(manifest["head_dim"])
     moe = int(manifest["moe_intermediate_size"])
+    query_heads = heads
+    if "Qwen3_5" in str(manifest.get("architecture", "")):
+        # Qwen3.5 stores query and attention-gate values interleaved per head.
+        query_heads *= 2
     shapes = {
-        "q_proj": (hidden, heads * head_dim),
+        "q_proj": (hidden, query_heads * head_dim),
         "k_proj": (hidden, kv_heads * head_dim),
         "v_proj": (hidden, kv_heads * head_dim),
         "o_proj": (heads * head_dim, hidden),

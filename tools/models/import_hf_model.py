@@ -236,7 +236,7 @@ def build_manifest(
 
     manifest = {
         "format": FORMAT,
-        "functional_graph_revision": 7,
+        "functional_graph_revision": 8,
         "version": 2,
         "name": name or str(config.get("name_or_path", model_dir.name)),
         "architecture": architecture,

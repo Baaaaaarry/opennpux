@@ -240,7 +240,7 @@ def build_weight_plan(
     plan = {
         "format": FORMAT,
         "version": 1,
-        "functional_graph_revision": 7,
+        "functional_graph_revision": 8,
         "tensor_domain": "text",
         "executable": manifest_path.with_name("model.npxc").name,
         "tensor_index": str(manifest["tensor_index"]),

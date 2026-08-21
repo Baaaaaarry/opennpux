@@ -116,7 +116,10 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
     output_features = hidden
     intermediate = 0
     if phase == "qkv_projection":
-        output_features = (heads + 2 * kv_heads) * head_dim
+        query_outputs = 2 * heads if "Qwen3_5" in str(
+            manifest.get("architecture", "")
+        ) else heads
+        output_features = (query_outputs + 2 * kv_heads) * head_dim
     elif phase == "linear_attention_projection":
         output_features = linear_qkv_features
         intermediate = linear_value_heads
@@ -353,7 +356,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 2,
-        "functional_graph_revision": 7,
+        "functional_graph_revision": 8,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -700,7 +703,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
-        "functional_graph_revision": 7,
+        "functional_graph_revision": 8,
         "execution_scope": executable["execution_scope"],
         "runtime_row_expression": "runtime.batch * runtime.sequence",
         "tensor_count": len(tensors),

@@ -25,9 +25,9 @@ for name, tensors in (
     ("model-00001-of-00002.safetensors", {
         "model.language_model.embed_tokens.weight": bytes(range(8)),
         "model.language_model.layers.0.self_attn.q_proj.qweight": bytes(
-            index % 256 for index in range(288)),
-        "model.language_model.layers.0.self_attn.q_proj.qzeros": bytes(range(12)),
-        "model.language_model.layers.0.self_attn.q_proj.scales": bytes(range(48)),
+            index % 256 for index in range(576)),
+        "model.language_model.layers.0.self_attn.q_proj.qzeros": bytes(range(24)),
+        "model.language_model.layers.0.self_attn.q_proj.scales": bytes(range(96)),
         # 18 input columns at group size 128 all belong to group 0, so the
         # numerical reference can consume this g_idx instead of rejecting it.
         "model.language_model.layers.0.self_attn.q_proj.g_idx": bytes(72),
@@ -41,7 +41,8 @@ for name, tensors in (
         "model.language_model.layers.0.self_attn.v_proj.qzeros": bytes(range(8)),
         "model.language_model.layers.0.self_attn.v_proj.scales": bytes(range(24)),
         "model.language_model.layers.0.self_attn.v_proj.g_idx": bytes(72),
-        "model.language_model.layers.0.self_attn.q_norm.weight": bytes(range(8)),
+        "model.language_model.layers.0.self_attn.q_norm.weight": bytes(range(12)),
+        "model.language_model.layers.0.self_attn.k_norm.weight": bytes(range(12)),
         "model.language_model.layers.0.input_layernorm.weight": bytes(36),
         # MTP can reuse a decoder layer index and role. It must not be bound
         # to the text decoder's attention_norm command.
@@ -112,7 +113,7 @@ for name, tensors in (
                   tensor_name.endswith(".dt_bias")))):
             dtype = "F32"
         elif (tensor_name.endswith(".scales") or
-              tensor_name.endswith("input_layernorm.weight")):
+              tensor_name.endswith("norm.weight")):
             dtype = "F16"
         elif tensor_name.endswith(".g_idx") or tensor_name.endswith(".qzeros"):
             dtype = "I32"
@@ -143,7 +144,7 @@ with open(sys.argv[1], encoding="utf-8") as source:
     manifest = json.load(source)
 with open(sys.argv[2], encoding="utf-8") as source:
     executable = json.load(source)
-assert manifest["functional_graph_revision"] == 7
+assert manifest["functional_graph_revision"] == 8
 assert manifest["rotary_dim"] == 4
 assert manifest["rope_theta"] == 500000
 rope = next(command for command in executable["commands"]

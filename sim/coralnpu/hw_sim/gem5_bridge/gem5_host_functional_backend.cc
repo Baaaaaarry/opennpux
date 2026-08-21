@@ -419,11 +419,36 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
         opennpux_npu_operator_parameters projection =
             *request.operator_parameters;
         Gem5GptqKernelStats projection_stats = {};
-        projection.output_features = request.heads * request.head_dim;
+        const size_t query_features = request.heads * request.head_dim;
+        const bool gated_query = request.output_quaternary != nullptr;
+        std::vector<float> raw_query;
+        Gem5GenericGptqOperands query_operands = *request.q_gptq_operands;
+        if (gated_query) {
+          raw_query.resize(request.rows * query_features * 2);
+          query_operands.output = {
+              raw_query.data(), raw_query.size() * sizeof(float)};
+        }
+        projection.output_features =
+            query_features * (gated_query ? 2 : 1);
         success = RunGem5GenericGptqMatMul(
             projection, static_cast<uint32_t>(request.rows),
-            *request.q_gptq_operands, &projection_stats);
+            query_operands, &projection_stats);
         if (success) AddStats(projection_stats, &result.stats);
+        if (success && gated_query) {
+          for (size_t row = 0; row < request.rows; ++row) {
+            for (size_t head = 0; head < request.heads; ++head) {
+              const size_t raw_base = row * query_features * 2 +
+                                      head * request.head_dim * 2;
+              const size_t output_base = row * query_features +
+                                         head * request.head_dim;
+              std::copy_n(raw_query.data() + raw_base, request.head_dim,
+                          request.output + output_base);
+              std::copy_n(raw_query.data() + raw_base + request.head_dim,
+                          request.head_dim,
+                          request.output_quaternary + output_base);
+            }
+          }
+        }
         projection.output_features = request.kv_heads * request.head_dim;
         projection_stats = {};
         success = success && RunGem5GenericGptqMatMul(
@@ -435,6 +460,44 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
             projection, static_cast<uint32_t>(request.rows),
             *request.v_gptq_operands, &projection_stats);
         if (success) AddStats(projection_stats, &result.stats);
+        const bool has_q_norm = request.attention_q_norm_weight.data != nullptr;
+        const bool has_k_norm = request.attention_k_norm_weight.data != nullptr;
+        if (success && (has_q_norm || has_k_norm)) {
+          Gem5TransformerKernelStats q_norm_stats = {};
+          Gem5TransformerKernelStats k_norm_stats = {};
+          const bool norm_weight_offset =
+              (request.operator_parameters->flags &
+               OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0;
+          success = has_q_norm && has_k_norm &&
+              request.attention_q_norm_weight.size ==
+                  request.head_dim * sizeof(float) &&
+              request.attention_k_norm_weight.size ==
+                  request.head_dim * sizeof(float) &&
+              RunGem5RmsNormF32(
+                  request.output,
+                  static_cast<const float*>(
+                      request.attention_q_norm_weight.data),
+                  request.rows * request.heads, request.head_dim,
+                  request.epsilon, request.output, &q_norm_stats,
+                  norm_weight_offset) &&
+              RunGem5RmsNormF32(
+                  request.output_secondary,
+                  static_cast<const float*>(
+                      request.attention_k_norm_weight.data),
+                  request.rows * request.kv_heads, request.head_dim,
+                  request.epsilon, request.output_secondary, &k_norm_stats,
+                  norm_weight_offset);
+          if (success) {
+            result.stats.operations +=
+                q_norm_stats.operations + k_norm_stats.operations;
+            result.stats.bytes_read +=
+                q_norm_stats.bytes_read + k_norm_stats.bytes_read;
+            result.stats.bytes_written +=
+                q_norm_stats.bytes_written + k_norm_stats.bytes_written;
+            result.stats.modeled_cycles +=
+                q_norm_stats.modeled_cycles + k_norm_stats.modeled_cycles;
+          }
+        }
         if (!success) result.status = Gem5HostFunctionalStatus::kExecutionError;
         return result;
       }

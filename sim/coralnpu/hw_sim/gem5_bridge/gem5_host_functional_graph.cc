@@ -215,8 +215,8 @@ bool Gem5HostFunctionalGraph::ExecuteGptqQkv(
        OPENNPUX_NPU_OPERAND_V_QZEROS,
        OPENNPUX_NPU_OPERAND_V_SCALES, OPENNPUX_NPU_OPERAND_V_G_IDX}};
   Gem5HostGptqWeights loaded[3] = {};
-  opennpux_npu_functional_operand operands[12] = {};
-  Gem5FunctionalMemoryRegion regions[12] = {};
+  opennpux_npu_functional_operand operands[14] = {};
+  Gem5FunctionalMemoryRegion regions[14] = {};
   uint32_t count = 0;
   uint64_t address = UINT32_C(0x50000000);
   for (uint32_t projection = 0; projection < 3; ++projection) {
@@ -248,6 +248,44 @@ bool Gem5HostFunctionalGraph::ExecuteGptqQkv(
               components[component].data)),
           components[component].size};
       address += components[component].size;
+      ++count;
+    }
+  }
+  std::vector<Gem5HostWeightBinding> floating;
+  std::vector<float> norm_weights[2];
+  const uint32_t norm_semantic_roles[] = {
+      OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_Q_NORM,
+      OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_K_NORM};
+  const uint32_t norm_operand_roles[] = {
+      OPENNPUX_NPU_OPERAND_ATTENTION_Q_NORM_WEIGHT,
+      OPENNPUX_NPU_OPERAND_ATTENTION_K_NORM_WEIGHT};
+  if (weights->FindFloatBindings(command_index, &floating)) {
+    for (size_t index = 0; index < 2; ++index) {
+      const auto binding = std::find_if(
+          floating.begin(), floating.end(), [&](const auto& candidate) {
+            return candidate.role_id == norm_semantic_roles[index] &&
+                   candidate.expert_id == OPENNPUX_NPU_WEIGHT_EXPERT_NONE;
+          });
+      if (binding == floating.end() ||
+          !weights->LoadFloatWeight(command_index, binding->role_id,
+                                    binding->expert_id, binding->slot_id,
+                                    &norm_weights[index]) ||
+          norm_weights[index].empty()) {
+        return false;
+      }
+      address = (address + 63) & ~UINT64_C(63);
+      const size_t bytes = norm_weights[index].size() * sizeof(float);
+      if (bytes > UINT32_MAX ||
+          address + bytes > (UINT64_C(1) << 32)) {
+        return false;
+      }
+      operands[count] = {norm_operand_roles[index],
+                         static_cast<uint32_t>(address),
+                         static_cast<uint32_t>(bytes), 0};
+      regions[count] = {
+          static_cast<uint32_t>(address),
+          reinterpret_cast<uint8_t*>(norm_weights[index].data()), bytes};
+      address += bytes;
       ++count;
     }
   }

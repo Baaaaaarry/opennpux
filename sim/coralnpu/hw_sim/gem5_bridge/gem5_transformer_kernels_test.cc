@@ -194,6 +194,19 @@ int main() {
   assert(value_output[0] == 1.0f && value_output[1] == 2.0f);
   assert(attention_gate[0] == 30.0f && attention_gate[1] == 30.0f);
 
+  const float multihead_q_weight[] = {
+      1.0f, 0.0f, 10.0f, 10.0f,
+      0.0f, 1.0f, 20.0f, 20.0f};
+  float multihead_query[2] = {};
+  float multihead_gate[2] = {};
+  assert(RunGem5FloatQkvF32(
+      shared_input, multihead_q_weight, identity_weight, identity_weight,
+      head_norm, head_norm, 1, 2, 2, 2, 1, 4, 0.0f, false,
+      multihead_query, key_output, value_output, multihead_gate, &stats));
+  assert(Near(multihead_query[0], 1.0f));
+  assert(Near(multihead_query[1], 1.0f));
+  assert(multihead_gate[0] == 30.0f && multihead_gate[1] == 60.0f);
+
   assert(!RunGem5RmsNormF32(norm_input, norm_weight, 0, 2, 0.0f,
                             norm_output, &stats));
   assert(!RunGem5RopeF32(rope_input, positions, 2, 1, 3, 3, 10000.0f,

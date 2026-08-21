@@ -673,10 +673,15 @@ bool RunGem5FloatQkvF32(
     std::copy_n(raw_query.data(), query_elements, query);
   } else {
     for (size_t row = 0; row < rows; ++row) {
-      std::copy_n(raw_query.data() + row * q_weight_outputs, query_features,
-                  query + row * query_features);
-      std::copy_n(raw_query.data() + row * q_weight_outputs + query_features,
-                  query_features, gate + row * query_features);
+      for (size_t head = 0; head < heads; ++head) {
+        const size_t raw_base = row * q_weight_outputs +
+                                head * 2 * head_dim;
+        const size_t output_base = row * query_features + head * head_dim;
+        std::copy_n(raw_query.data() + raw_base, head_dim,
+                    query + output_base);
+        std::copy_n(raw_query.data() + raw_base + head_dim, head_dim,
+                    gate + output_base);
+      }
     }
   }
   if (!RunGem5RmsNormF32(query, q_norm_weight, rows * heads, head_dim,

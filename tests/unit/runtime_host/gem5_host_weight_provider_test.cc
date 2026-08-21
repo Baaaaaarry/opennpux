@@ -34,8 +34,8 @@ int main(int argc, char** argv) {
       q_command, OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_Q_PROJ,
       OPENNPUX_NPU_WEIGHT_EXPERT_NONE, OPENNPUX_NPU_WEIGHT_SLOT_Q_PROJ,
       &projection));
-  assert(projection.qweight.data != nullptr && projection.qweight.size == 288);
-  assert(projection.scales.data != nullptr && projection.scales.size == 48);
+  assert(projection.qweight.data != nullptr && projection.qweight.size == 576);
+  assert(projection.scales.data != nullptr && projection.scales.size == 96);
   assert(embedding_command != UINT32_MAX);
   std::vector<float> embedding;
   assert(provider.LoadFloatWeight(

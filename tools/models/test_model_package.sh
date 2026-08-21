@@ -250,7 +250,7 @@ grep -q '^gptq_binding_scales_dtypes=float16:6$' \
     "${MODEL_DIR}/gptq-projection.bin" --layer 0 --phase qkv_projection \
     --role attention_q_proj --expert -1 --slot q_proj \
     | tee "${WORK_DIR}/gptq-projection.log"
-grep -q '^gptq_projection_shape=1x18x24$' \
+grep -q '^gptq_projection_shape=1x18x48$' \
     "${WORK_DIR}/gptq-projection.log"
 grep -q '^gptq_projection_scale_dtype=4$' \
     "${WORK_DIR}/gptq-projection.log"
@@ -300,7 +300,7 @@ grep -q '^gptq_expert_materialize=PASS$' "${WORK_DIR}/gptq-expert.log"
 echo "PASS: NPU stable top-K router tests"
 "${SCRIPT_DIR}/gptq_reference.sh" "${MODEL_DIR}/gptq-projection.bin" \
     | tee "${WORK_DIR}/gptq-reference.log"
-grep -q '^gptq_reference_shape=1x18x24$' "${WORK_DIR}/gptq-reference.log"
+grep -q '^gptq_reference_shape=1x18x48$' "${WORK_DIR}/gptq-reference.log"
 grep -q '^gptq_reference_scale_dtype=4$' "${WORK_DIR}/gptq-reference.log"
 grep -q '^gptq_reference=PASS$' "${WORK_DIR}/gptq-reference.log"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \

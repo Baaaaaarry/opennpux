@@ -36,7 +36,7 @@ main(int argc, char **argv)
               info.quantization_bits == 4 &&
               info.quantization_group_size == 128,
           "GPTQ configuration mismatch");
-    check(info.tensor_count == 42 && info.shard_count == 2,
+    check(info.tensor_count == 43 && info.shard_count == 2,
           "tensor/shard count mismatch");
     check(info.total_weight_bytes > 48, "weight byte count missing");
     check(opennpux_model_package_validate_shards(argv[1], &info) == 0,

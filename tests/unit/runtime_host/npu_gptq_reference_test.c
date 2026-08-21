@@ -136,12 +136,12 @@ run_image(const char *path)
               NULL, 0, &result) == 0,
           "staged projection reference failed");
     check(result.rows == 1 && result.input_columns == 18 &&
-              result.output_columns == 24,
+              result.output_columns == 48,
           "staged projection shape mismatch");
     check(result.scale_data_type == CORAL_GPTQ_SCALE_FLOAT16,
           "staged projection scale dtype mismatch");
     check(result.has_g_idx == 1, "staged projection is missing g_idx");
-    check(result.operations == 2u * 18u * 24u,
+    check(result.operations == 2u * 18u * 48u,
           "staged projection operation count mismatch");
     check(result.output_checksum != 0,
           "staged projection checksum is unset");

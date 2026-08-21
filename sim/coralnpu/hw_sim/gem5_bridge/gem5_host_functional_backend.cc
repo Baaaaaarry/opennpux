@@ -38,6 +38,14 @@ void AddStats(const Gem5GptqKernelStats& source,
   destination->modeled_cycles += source.modeled_cycles;
 }
 
+void AddStats(const Gem5TransformerKernelStats& source,
+              Gem5TransformerKernelStats* destination) {
+  destination->operations += source.operations;
+  destination->bytes_read += source.bytes_read;
+  destination->bytes_written += source.bytes_written;
+  destination->modeled_cycles += source.modeled_cycles;
+}
+
 bool RunTopKRows(const Gem5HostFunctionalRequest& request,
                  Gem5TransformerKernelStats* stats) {
   if (request.input == nullptr || request.output_indices == nullptr ||
@@ -614,22 +622,40 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
               (request.operator_parameters->flags &
                OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0);
       break;
-    case OPENNPUX_NPU_OP_ROPE:
+    case OPENNPUX_NPU_OP_ROPE: {
       if (request.heads == 0 || request.head_dim == 0 ||
           request.head_dim > std::numeric_limits<size_t>::max() /
                                  request.heads ||
-          request.features != request.heads * request.head_dim) {
+          request.features != request.heads * request.head_dim ||
+          ((request.secondary == nullptr) !=
+           (request.output_secondary == nullptr)) ||
+          (request.secondary != nullptr &&
+           (request.kv_heads == 0 ||
+            request.head_dim > std::numeric_limits<size_t>::max() /
+                                   request.kv_heads))) {
         return Result(Gem5HostFunctionalStatus::kInvalid);
       }
-      success = RunGem5RopeF32(
-          request.input, request.positions, request.rows, request.heads,
-          request.head_dim,
+      const size_t rotary_dim =
           request.operator_parameters != nullptr &&
                   request.operator_parameters->intermediate_features != 0
               ? request.operator_parameters->intermediate_features
-              : request.head_dim,
+              : request.head_dim;
+      success = RunGem5RopeF32(
+          request.input, request.positions, request.rows, request.heads,
+          request.head_dim, rotary_dim,
           request.rope_theta, request.output, &result.stats);
+      if (success && request.secondary != nullptr) {
+        Gem5TransformerKernelStats key_stats = {};
+        success = RunGem5RopeF32(
+            request.secondary, request.positions, request.rows,
+            request.kv_heads, request.head_dim, rotary_dim,
+            request.rope_theta, request.output_secondary, &key_stats);
+        if (success) {
+          AddStats(key_stats, &result.stats);
+        }
+      }
       break;
+    }
     case OPENNPUX_NPU_OP_SOFTMAX:
       success = RunGem5SoftmaxF32(request.input, request.rows, request.features,
                                   request.output, &result.stats);

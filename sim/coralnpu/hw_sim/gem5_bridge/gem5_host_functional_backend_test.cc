@@ -73,6 +73,37 @@ int main() {
   assert(std::fabs(output[0] - ungated_attention[0] * 0.5f) < 1.0e-5f);
   assert(std::fabs(output[1] - ungated_attention[1] * 0.5f) < 1.0e-5f);
 
+  const float rope_query[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  const float rope_key[] = {5.0f, 6.0f};
+  const uint32_t rope_positions[] = {1};
+  float rope_query_output[4] = {};
+  float rope_key_output[2] = {};
+  opennpux_npu_operator_parameters rope_parameters = {};
+  rope_parameters.intermediate_features = 2;
+  request = {};
+  request.opcode = OPENNPUX_NPU_OP_ROPE;
+  request.input = rope_query;
+  request.secondary = rope_key;
+  request.positions = rope_positions;
+  request.rows = 1;
+  request.features = 4;
+  request.heads = 2;
+  request.kv_heads = 1;
+  request.head_dim = 2;
+  request.rope_theta = 10000.0f;
+  request.output = rope_query_output;
+  request.output_secondary = rope_key_output;
+  request.operator_parameters = &rope_parameters;
+  result = backend.Execute(request);
+  assert(result.status == Gem5HostFunctionalStatus::kComplete);
+  const float cosine = std::cos(1.0f);
+  const float sine = std::sin(1.0f);
+  assert(std::fabs(rope_key_output[0] - (5.0f * cosine - 6.0f * sine)) <
+         1.0e-5f);
+  assert(std::fabs(rope_key_output[1] - (6.0f * cosine + 5.0f * sine)) <
+         1.0e-5f);
+  assert(result.stats.operations == 18);
+
   opennpux_npu_operator_parameters convolution_parameters = {};
   convolution_parameters.intermediate_features = 2;
   const float convolution_input[] = {1.0f, 10.0f, 2.0f, 20.0f,

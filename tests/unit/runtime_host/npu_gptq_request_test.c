@@ -60,7 +60,7 @@ main(int argc, char **argv)
         command_id, OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_Q_PROJ,
         OPENNPUX_NPU_WEIGHT_EXPERT_NONE, OPENNPUX_NPU_WEIGHT_SLOT_Q_PROJ};
     const struct opennpux_npu_gptq_projection_shape shape = {
-        1, model.hidden_size, model.head_count * model.head_dim,
+        1, model.hidden_size, model.head_count * model.head_dim * 2,
         model.quantization_group_size, 1};
     struct opennpux_npu_gptq_request_layout layout;
     check(opennpux_npu_gptq_request_layout(&shape, 2, 1, &layout) == 0,

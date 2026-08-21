@@ -233,6 +233,62 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
       return Result(Gem5HostFunctionalStatus::kInvalid);
     }
     Gem5GptqKernelStats gptq_stats = {};
+    const bool float_qkv =
+        request.opcode == OPENNPUX_NPU_OP_MATMUL &&
+        request.attention_q_weight.data != nullptr;
+    if (float_qkv) {
+      const size_t input_features =
+          request.operator_parameters->input_features;
+      size_t query_features = 0;
+      size_t key_features = 0;
+      if (request.input == nullptr || request.output == nullptr ||
+          request.output_secondary == nullptr ||
+          request.output_tertiary == nullptr ||
+          request.attention_k_weight.data == nullptr ||
+          request.attention_v_weight.data == nullptr ||
+          request.attention_q_norm_weight.data == nullptr ||
+          request.attention_k_norm_weight.data == nullptr ||
+          input_features == 0 || request.heads == 0 || request.kv_heads == 0 ||
+          request.head_dim == 0 || request.heads > SIZE_MAX / request.head_dim ||
+          request.kv_heads > SIZE_MAX / request.head_dim) {
+        return Result(Gem5HostFunctionalStatus::kInvalid);
+      }
+      query_features = request.heads * request.head_dim;
+      key_features = request.kv_heads * request.head_dim;
+      if (request.features != query_features ||
+          input_features > SIZE_MAX / key_features ||
+          request.attention_q_weight.size % sizeof(float) != 0 ||
+          request.attention_q_weight.size / sizeof(float) % input_features !=
+              0 ||
+          request.attention_k_weight.size !=
+              input_features * key_features * sizeof(float) ||
+          request.attention_v_weight.size !=
+              input_features * key_features * sizeof(float) ||
+          request.attention_q_norm_weight.size !=
+              request.head_dim * sizeof(float) ||
+          request.attention_k_norm_weight.size !=
+              request.head_dim * sizeof(float)) {
+        return Result(Gem5HostFunctionalStatus::kInvalid);
+      }
+      const size_t q_weight_outputs =
+          request.attention_q_weight.size / sizeof(float) / input_features;
+      if (!RunGem5FloatQkvF32(
+              request.input,
+              static_cast<const float*>(request.attention_q_weight.data),
+              static_cast<const float*>(request.attention_k_weight.data),
+              static_cast<const float*>(request.attention_v_weight.data),
+              static_cast<const float*>(
+                  request.attention_q_norm_weight.data),
+              static_cast<const float*>(
+                  request.attention_k_norm_weight.data),
+              request.rows, input_features, request.heads, request.kv_heads,
+              request.head_dim, q_weight_outputs, request.epsilon,
+              request.output, request.output_secondary,
+              request.output_tertiary, &result.stats)) {
+        result.status = Gem5HostFunctionalStatus::kExecutionError;
+      }
+      return result;
+    }
     const bool float_shared_expert =
         request.opcode == OPENNPUX_NPU_OP_EXPERT &&
         request.shared_gate_weight.data != nullptr;

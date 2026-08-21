@@ -237,6 +237,21 @@ bool ExecuteGem5FunctionalRequestInRegions(
   host.shared_router_weight = ConstBuffer(
       *request, OPENNPUX_NPU_OPERAND_SHARED_ROUTER_WEIGHT, regions,
       region_count);
+  host.attention_q_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_ATTENTION_Q_WEIGHT, regions,
+      region_count);
+  host.attention_k_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_ATTENTION_K_WEIGHT, regions,
+      region_count);
+  host.attention_v_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_ATTENTION_V_WEIGHT, regions,
+      region_count);
+  host.attention_q_norm_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_ATTENTION_Q_NORM_WEIGHT, regions,
+      region_count);
+  host.attention_k_norm_weight = ConstBuffer(
+      *request, OPENNPUX_NPU_OPERAND_ATTENTION_K_NORM_WEIGHT, regions,
+      region_count);
   host.positions = static_cast<const uint32_t*>(positions.data);
   host.rows = request->rows;
   host.features = request->features;

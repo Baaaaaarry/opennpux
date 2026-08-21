@@ -82,4 +82,12 @@ bool RunGem5SharedExpertF32(
     size_t output_features, float* output,
     Gem5TransformerKernelStats* stats);
 
+bool RunGem5FloatQkvF32(
+    const float* input, const float* q_weight, const float* k_weight,
+    const float* v_weight, const float* q_norm_weight,
+    const float* k_norm_weight, size_t rows, size_t input_features,
+    size_t heads, size_t kv_heads, size_t head_dim, size_t q_weight_outputs,
+    float epsilon, float* query, float* key, float* value,
+    Gem5TransformerKernelStats* stats);
+
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_TRANSFORMER_KERNELS_H_

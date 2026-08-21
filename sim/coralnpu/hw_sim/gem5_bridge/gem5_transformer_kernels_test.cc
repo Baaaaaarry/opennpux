@@ -129,6 +129,23 @@ int main() {
   assert(Near(shared_output[1], 3.0f * 0.8807971f));
   assert(stats.operations != 0 && stats.modeled_cycles != 0);
 
+  const float gated_q_weight[] = {1.0f, 0.0f, 10.0f, 10.0f,
+                                  0.0f, 1.0f, 10.0f, 10.0f};
+  const float identity_weight[] = {1.0f, 0.0f, 0.0f, 1.0f};
+  const float head_norm[] = {1.0f, 1.0f};
+  float query_output[2] = {};
+  float key_output[2] = {};
+  float value_output[2] = {};
+  assert(RunGem5FloatQkvF32(
+      shared_input, gated_q_weight, identity_weight, identity_weight,
+      head_norm, head_norm, 1, 2, 1, 1, 2, 4, 0.0f, query_output,
+      key_output, value_output, &stats));
+  assert(Near(query_output[0], 0.6324555f));
+  assert(Near(query_output[1], 1.2649110f));
+  assert(Near(key_output[0], 0.6324555f));
+  assert(Near(key_output[1], 1.2649110f));
+  assert(value_output[0] == 1.0f && value_output[1] == 2.0f);
+
   assert(!RunGem5RmsNormF32(norm_input, norm_weight, 0, 2, 0.0f,
                             norm_output, &stats));
   assert(!RunGem5RopeF32(rope_input, positions, 2, 1, 3, 10000.0f,

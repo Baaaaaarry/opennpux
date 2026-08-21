@@ -510,3 +510,65 @@ bool RunGem5SharedExpertF32(
       DivCeil(scale_bytes + output_elements * sizeof(float), kBytesPerCycle));
   return true;
 }
+
+bool RunGem5FloatQkvF32(
+    const float* input, const float* q_weight, const float* k_weight,
+    const float* v_weight, const float* q_norm_weight,
+    const float* k_norm_weight, size_t rows, size_t input_features,
+    size_t heads, size_t kv_heads, size_t head_dim, size_t q_weight_outputs,
+    float epsilon, float* query, float* key, float* value,
+    Gem5TransformerKernelStats* stats) {
+  size_t query_features = 0;
+  size_t key_features = 0;
+  size_t raw_query_elements = 0;
+  size_t query_elements = 0;
+  size_t key_elements = 0;
+  if (input == nullptr || q_weight == nullptr || k_weight == nullptr ||
+      v_weight == nullptr || q_norm_weight == nullptr ||
+      k_norm_weight == nullptr || query == nullptr || key == nullptr ||
+      value == nullptr || stats == nullptr || rows == 0 ||
+      input_features == 0 || heads == 0 || kv_heads == 0 || head_dim == 0 ||
+      !ProductFits(heads, head_dim, &query_features) ||
+      !ProductFits(kv_heads, head_dim, &key_features) ||
+      query_features > std::numeric_limits<size_t>::max() / 2 ||
+      (q_weight_outputs != query_features &&
+       q_weight_outputs != 2 * query_features) ||
+      !ProductFits(rows, q_weight_outputs, &raw_query_elements) ||
+      !ProductFits(rows, query_features, &query_elements) ||
+      !ProductFits(rows, key_features, &key_elements)) {
+    return false;
+  }
+  std::vector<float> raw_query(raw_query_elements);
+  std::vector<float> raw_key(key_elements);
+  Gem5TransformerKernelStats stages[5] = {};
+  if (!RunGem5MatMulF32(input, q_weight, rows, input_features,
+                        q_weight_outputs, raw_query.data(), &stages[0]) ||
+      !RunGem5MatMulF32(input, k_weight, rows, input_features, key_features,
+                        raw_key.data(), &stages[1]) ||
+      !RunGem5MatMulF32(input, v_weight, rows, input_features, key_features,
+                        value, &stages[2])) {
+    return false;
+  }
+  if (q_weight_outputs == query_features) {
+    std::copy_n(raw_query.data(), query_elements, query);
+  } else {
+    for (size_t row = 0; row < rows; ++row) {
+      std::copy_n(raw_query.data() + row * q_weight_outputs, query_features,
+                  query + row * query_features);
+    }
+  }
+  if (!RunGem5RmsNormF32(query, q_norm_weight, rows * heads, head_dim,
+                         epsilon, query, &stages[3]) ||
+      !RunGem5RmsNormF32(raw_key.data(), k_norm_weight, rows * kv_heads,
+                         head_dim, epsilon, key, &stages[4])) {
+    return false;
+  }
+  *stats = {};
+  for (const auto& stage : stages) {
+    stats->operations += stage.operations;
+    stats->bytes_read += stage.bytes_read;
+    stats->bytes_written += stage.bytes_written;
+    stats->modeled_cycles += stage.modeled_cycles;
+  }
+  return true;
+}

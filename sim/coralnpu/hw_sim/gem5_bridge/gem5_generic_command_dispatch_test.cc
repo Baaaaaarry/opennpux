@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_generic_command_dispatch.h"
 
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -221,6 +222,77 @@ void TestGptqExpert() {
   assert(request->operation_count != 0);
 }
 
+void TestFloatQkv() {
+  std::vector<uint8_t> memory(8192);
+  constexpr uint32_t kRequest = 64;
+  constexpr uint32_t kParameters = 768;
+  constexpr uint32_t kInput = 1024;
+  constexpr uint32_t kQuery = 1056;
+  constexpr uint32_t kKey = 1088;
+  constexpr uint32_t kValue = 1120;
+  constexpr uint32_t kQWeight = 2048;
+  constexpr uint32_t kKWeight = 2112;
+  constexpr uint32_t kVWeight = 2144;
+  constexpr uint32_t kQNorm = 2176;
+  constexpr uint32_t kKNorm = 2208;
+  auto* request = At<opennpux_npu_functional_request>(&memory, kRequest);
+  *request = {};
+  request->magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  request->version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  request->struct_size = sizeof(*request);
+  request->opcode = OPENNPUX_NPU_OP_MATMUL;
+  request->rows = 1;
+  request->features = 2;
+  request->heads = 1;
+  request->kv_heads = 1;
+  request->head_dim = 2;
+  request->epsilon = 0.0f;
+  request->parameter_address = kBase + kParameters;
+  request->parameter_size = sizeof(opennpux_npu_operator_parameters);
+  AddOperand(request, OPENNPUX_NPU_OPERAND_INPUT, kInput, 2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT, kQuery, 2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY, kKey,
+             2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY, kValue,
+             2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_ATTENTION_Q_WEIGHT, kQWeight,
+             8 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_ATTENTION_K_WEIGHT, kKWeight,
+             4 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_ATTENTION_V_WEIGHT, kVWeight,
+             4 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_ATTENTION_Q_NORM_WEIGHT, kQNorm,
+             2 * sizeof(float));
+  AddOperand(request, OPENNPUX_NPU_OPERAND_ATTENTION_K_NORM_WEIGHT, kKNorm,
+             2 * sizeof(float));
+  auto* parameters = At<opennpux_npu_operator_parameters>(&memory, kParameters);
+  *parameters = {};
+  parameters->magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  parameters->version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  parameters->struct_size = sizeof(*parameters);
+  parameters->opcode = OPENNPUX_NPU_OP_MATMUL;
+  parameters->input_features = 2;
+  const float input[] = {1.0f, 2.0f};
+  const float q_weight[] = {1.0f, 0.0f, 10.0f, 10.0f,
+                            0.0f, 1.0f, 10.0f, 10.0f};
+  const float identity[] = {1.0f, 0.0f, 0.0f, 1.0f};
+  const float norm[] = {1.0f, 1.0f};
+  std::memcpy(memory.data() + kInput, input, sizeof(input));
+  std::memcpy(memory.data() + kQWeight, q_weight, sizeof(q_weight));
+  std::memcpy(memory.data() + kKWeight, identity, sizeof(identity));
+  std::memcpy(memory.data() + kVWeight, identity, sizeof(identity));
+  std::memcpy(memory.data() + kQNorm, norm, sizeof(norm));
+  std::memcpy(memory.data() + kKNorm, norm, sizeof(norm));
+  assert(ExecuteGem5FunctionalRequest(request, memory.data(), kBase,
+                                      memory.size()));
+  const float* query = At<float>(&memory, kQuery);
+  const float* key = At<float>(&memory, kKey);
+  const float* value = At<float>(&memory, kValue);
+  assert(std::fabs(query[0] - 0.6324555f) < 1.0e-5f);
+  assert(std::fabs(key[1] - 1.2649110f) < 1.0e-5f);
+  assert(value[0] == 1.0f && value[1] == 2.0f);
+}
+
 void TestEmbedding() {
   std::vector<uint8_t> memory(4096);
   constexpr uint32_t kRequest = 64;
@@ -384,6 +456,7 @@ int main() {
   TestDiscontiguousAddressSpace();
   TestGptqMatMul();
   TestGptqExpert();
+  TestFloatQkv();
   TestRejectsOpcodeMismatch();
   std::puts("gem5_generic_command_dispatch=PASS");
   return 0;

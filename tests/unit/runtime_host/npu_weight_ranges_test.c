@@ -25,7 +25,7 @@ main(int argc, char **argv)
     struct opennpux_npu_weight_ranges ranges;
     check(opennpux_npu_weight_ranges_load(argv[2], &ranges) == 0,
           "range index load failed");
-    check(ranges.header->range_count == 39, "range count mismatch");
+    check(ranges.header->range_count == 41, "range count mismatch");
     int found_expert = 0;
     for (uint32_t command = 0; command < ranges.header->command_count; ++command) {
         const struct opennpux_npu_weight_range_record *records;
@@ -85,6 +85,30 @@ main(int argc, char **argv)
               gptq.qweight != NULL && gptq.qzeros != NULL &&
               gptq.scales != NULL && gptq.g_idx != NULL,
           "V projection GPTQ component set lookup failed");
+    uint32_t decay_command = UINT32_MAX;
+    for (uint32_t index = 0; index < ranges.header->range_count; ++index) {
+        if (ranges.records[index].role_id ==
+                OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_DECAY) {
+            decay_command = ranges.records[index].command_id;
+            break;
+        }
+    }
+    check(decay_command != UINT32_MAX, "linear decay ranges missing");
+    const struct opennpux_npu_weight_range_record *decay;
+    check(opennpux_npu_weight_range_find_slot(
+              &ranges, decay_command, OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_DECAY,
+              OPENNPUX_NPU_WEIGHT_COMPONENT_WEIGHT,
+              OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
+              OPENNPUX_NPU_WEIGHT_SLOT_A_LOG, &decay) == 0 &&
+              decay->byte_size == 2 * sizeof(float),
+          "A_log range lookup failed");
+    check(opennpux_npu_weight_range_find_slot(
+              &ranges, decay_command, OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_DECAY,
+              OPENNPUX_NPU_WEIGHT_COMPONENT_WEIGHT,
+              OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
+              OPENNPUX_NPU_WEIGHT_SLOT_DT_BIAS, &decay) == 0 &&
+              decay->byte_size == 2 * sizeof(float),
+          "dt_bias range lookup failed");
     unsigned char sample[4];
     check(opennpux_model_package_read_shard_range(
               argv[1], &model, ranges.records[0].shard_index,

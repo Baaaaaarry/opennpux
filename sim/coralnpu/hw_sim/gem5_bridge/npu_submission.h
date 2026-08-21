@@ -72,6 +72,7 @@
 #define OPENNPUX_NPU_OP_COMBINE UINT32_C(17)
 #define OPENNPUX_NPU_PARAMETER_GPTQ UINT32_C(1)
 #define OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET UINT32_C(4)
+#define OPENNPUX_NPU_PARAMETER_QWEN_DELTA_NET UINT32_C(8)
 
 struct opennpux_npu_invocation_header {
     uint32_t magic, version, header_size, total_size;

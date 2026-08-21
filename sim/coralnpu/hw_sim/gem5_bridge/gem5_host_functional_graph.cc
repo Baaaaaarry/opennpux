@@ -581,6 +581,54 @@ bool Gem5HostFunctionalGraph::ExecuteLinearAttentionGateNorm(
          Execute(&request, regions, 2);
 }
 
+bool Gem5HostFunctionalGraph::ExecuteLinearAttentionRecurrent(
+    uint32_t command_index, Gem5HostWeightProvider* weights,
+    const std::vector<Gem5HostWeightBinding>& bindings) {
+  if (!configured_ || weights == nullptr || bindings.size() != 2) {
+    return false;
+  }
+  const uint32_t slots[] = {
+      OPENNPUX_NPU_WEIGHT_SLOT_A_LOG,
+      OPENNPUX_NPU_WEIGHT_SLOT_DT_BIAS};
+  const uint32_t operand_roles[] = {
+      OPENNPUX_NPU_OPERAND_LINEAR_A_LOG_WEIGHT,
+      OPENNPUX_NPU_OPERAND_LINEAR_DT_BIAS_WEIGHT};
+  std::vector<float> loaded[2];
+  opennpux_npu_functional_operand operands[2] = {};
+  Gem5FunctionalMemoryRegion regions[2] = {};
+  uint64_t address = UINT32_C(0x50000000);
+  for (size_t index = 0; index < 2; ++index) {
+    const auto binding = std::find_if(
+        bindings.begin(), bindings.end(), [&](const auto& candidate) {
+          return candidate.role_id == OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_DECAY &&
+                 candidate.expert_id == OPENNPUX_NPU_WEIGHT_EXPERT_NONE &&
+                 candidate.slot_id == slots[index];
+        });
+    if (binding == bindings.end() ||
+        !weights->LoadFloatWeight(command_index, binding->role_id,
+                                  binding->expert_id, binding->slot_id,
+                                  &loaded[index]) ||
+        loaded[index].empty() ||
+        loaded[index].size() > UINT32_MAX / sizeof(float)) {
+      return false;
+    }
+    address = (address + 63) & ~UINT64_C(63);
+    const size_t bytes = loaded[index].size() * sizeof(float);
+    if (address + bytes > (UINT64_C(1) << 32)) {
+      return false;
+    }
+    operands[index] = {operand_roles[index], static_cast<uint32_t>(address),
+                       static_cast<uint32_t>(bytes), 0};
+    regions[index] = {static_cast<uint32_t>(address),
+                      reinterpret_cast<uint8_t*>(loaded[index].data()), bytes};
+    address += bytes;
+  }
+  opennpux_npu_functional_request request = {};
+  return Materialize(command_index, operands, 2, &request) &&
+         request.opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE &&
+         Execute(&request, regions, 2);
+}
+
 bool Gem5HostFunctionalGraph::ExecuteFloatSharedExpert(
     uint32_t command_index, Gem5HostWeightProvider* weights,
     const std::vector<Gem5HostWeightBinding>& bindings) {
@@ -784,6 +832,16 @@ bool Gem5HostFunctionalGraph::ExecuteCommand(
         has_role(OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_GATE) &&
         has_role(OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_NORM)) {
       return ExecuteLinearAttentionGateNorm(command_index, weights, floating);
+    }
+    if (selected->opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE &&
+        floating.size() == 2 &&
+        std::all_of(floating.begin(), floating.end(), [](const auto& binding) {
+          return binding.role_id ==
+                     OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_DECAY &&
+                 binding.expert_id == OPENNPUX_NPU_WEIGHT_EXPERT_NONE;
+        })) {
+      return ExecuteLinearAttentionRecurrent(command_index, weights,
+                                             floating);
     }
     if (selected->opcode == OPENNPUX_NPU_OP_EXPERT &&
         floating.size() == 4 &&

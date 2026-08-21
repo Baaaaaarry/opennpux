@@ -297,7 +297,8 @@ bool RunGem5RopeF32(const float* input, const uint32_t* positions, size_t rows,
 
 bool RunGem5CausalDepthwiseConvF32(
     const float* input, const float* weight, size_t rows, size_t features,
-    size_t kernel_width, float* output, Gem5TransformerKernelStats* stats) {
+    size_t kernel_width, float* output, Gem5TransformerKernelStats* stats,
+    bool silu_activation) {
   size_t count = 0;
   size_t weight_count = 0;
   if (!ProductFits(rows, features, &count) ||
@@ -316,7 +317,8 @@ bool RunGem5CausalDepthwiseConvF32(
         sum += input[(row - tap) * features + feature] *
                weight[(kernel_width - 1 - tap) * features + feature];
       }
-      output[row * features + feature] = sum;
+      output[row * features + feature] =
+          silu_activation ? sum / (1.0f + std::exp(-sum)) : sum;
     }
   }
   return FinishStats(static_cast<uint64_t>(count) * kernel_width * 2,
@@ -455,6 +457,108 @@ bool RunGem5RecurrentUpdateF32(
   std::copy_n(input, count, output);
   std::copy_n(input + (rows - 1) * features, features, state);
   return FinishStats(count + features, count, count + features, stats);
+}
+
+bool RunGem5GatedDeltaNetF32(
+    const float* qkv, const float* alpha, const float* beta,
+    const float* a_log, const float* dt_bias, size_t rows,
+    size_t key_heads, size_t value_heads, size_t key_dim, size_t value_dim,
+    float* output, float* state, Gem5TransformerKernelStats* stats) {
+  if (qkv == nullptr || alpha == nullptr || beta == nullptr ||
+      a_log == nullptr || dt_bias == nullptr || output == nullptr ||
+      state == nullptr || stats == nullptr || rows == 0 || key_heads == 0 ||
+      value_heads == 0 || key_dim == 0 || value_dim == 0 ||
+      value_heads % key_heads != 0) {
+    return false;
+  }
+  size_t key_features = 0;
+  size_t value_features = 0;
+  size_t state_per_head = 0;
+  size_t qkv_count = 0;
+  size_t output_count = 0;
+  size_t state_count = 0;
+  if (!ProductFits(key_heads, key_dim, &key_features) ||
+      !ProductFits(value_heads, value_dim, &value_features) ||
+      !ProductFits(key_dim, value_dim, &state_per_head) ||
+      key_features >
+          (std::numeric_limits<size_t>::max() - value_features) / 2) {
+    return false;
+  }
+  const size_t qkv_features = 2 * key_features + value_features;
+  if (!ProductFits(rows, qkv_features, &qkv_count) ||
+      !ProductFits(rows, value_features, &output_count) ||
+      !ProductFits(value_heads, state_per_head, &state_count)) {
+    return false;
+  }
+  const size_t key_head_repeat = value_heads / key_heads;
+  const float query_scale = 1.0f / std::sqrt(static_cast<float>(key_dim));
+  std::vector<float> normalized_q(key_dim);
+  std::vector<float> normalized_k(key_dim);
+  std::vector<float> delta(value_dim);
+  uint64_t operations = 0;
+
+  for (size_t row = 0; row < rows; ++row) {
+    const float* row_q = qkv + row * qkv_features;
+    const float* row_k = row_q + key_features;
+    const float* row_v = row_k + key_features;
+    for (size_t value_head = 0; value_head < value_heads; ++value_head) {
+      const size_t key_head = value_head / key_head_repeat;
+      const float* q = row_q + key_head * key_dim;
+      const float* k = row_k + key_head * key_dim;
+      const float* v = row_v + value_head * value_dim;
+      double q_sum = 0.0;
+      double k_sum = 0.0;
+      for (size_t index = 0; index < key_dim; ++index) {
+        q_sum += static_cast<double>(q[index]) * q[index];
+        k_sum += static_cast<double>(k[index]) * k[index];
+      }
+      const float q_norm = 1.0f / std::sqrt(static_cast<float>(q_sum) + 1e-6f);
+      const float k_norm = 1.0f / std::sqrt(static_cast<float>(k_sum) + 1e-6f);
+      for (size_t index = 0; index < key_dim; ++index) {
+        normalized_q[index] = q[index] * q_norm * query_scale;
+        normalized_k[index] = k[index] * k_norm;
+      }
+      const float beta_value =
+          1.0f / (1.0f + std::exp(-beta[row * value_heads + value_head]));
+      const float alpha_value = alpha[row * value_heads + value_head] +
+                                dt_bias[value_head];
+      const float softplus = alpha_value > 20.0f
+                                 ? alpha_value
+                                 : std::log1p(std::exp(alpha_value));
+      const float decay = std::exp(-std::exp(a_log[value_head]) * softplus);
+      float* head_state = state + value_head * state_per_head;
+      for (size_t value_index = 0; value_index < value_dim; ++value_index) {
+        float memory_value = 0.0f;
+        for (size_t key_index = 0; key_index < key_dim; ++key_index) {
+          float& cell = head_state[key_index * value_dim + value_index];
+          cell *= decay;
+          memory_value += cell * normalized_k[key_index];
+        }
+        delta[value_index] = (v[value_index] - memory_value) * beta_value;
+      }
+      for (size_t key_index = 0; key_index < key_dim; ++key_index) {
+        for (size_t value_index = 0; value_index < value_dim; ++value_index) {
+          head_state[key_index * value_dim + value_index] +=
+              normalized_k[key_index] * delta[value_index];
+        }
+      }
+      float* head_output = output + row * value_features +
+                           value_head * value_dim;
+      for (size_t value_index = 0; value_index < value_dim; ++value_index) {
+        float value = 0.0f;
+        for (size_t key_index = 0; key_index < key_dim; ++key_index) {
+          value += head_state[key_index * value_dim + value_index] *
+                   normalized_q[key_index];
+        }
+        head_output[value_index] = value;
+      }
+      operations += key_dim * 4 + value_dim * key_dim * 6 + value_dim * 3 + 8;
+    }
+  }
+  return FinishStats(operations,
+                     qkv_count + rows * value_heads * 2 + value_heads * 2 +
+                         state_count,
+                     output_count + state_count, stats);
 }
 
 bool RunGem5CombineF32(

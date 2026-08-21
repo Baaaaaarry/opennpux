@@ -154,6 +154,8 @@ def layer_phases(kind: str) -> list[str]:
 
 def tensor_component(name: str) -> str:
     suffix = name.rsplit(".", 1)[-1]
+    if suffix.lower() in {"a_log", "dt_bias"}:
+        return "weight"
     if suffix in {"qweight", "qzeros", "scales", "g_idx", "bias", "weight"}:
         return suffix
     return "other"

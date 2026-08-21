@@ -156,6 +156,16 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
         flags |= 1
     if "Qwen3_5" in str(manifest.get("architecture", "")):
         flags |= 4
+        if phase in {"causal_depthwise_conv", "recurrent_state_update",
+                     "linear_attention_gate_norm"}:
+            flags |= 8
+    parameter_heads = heads
+    parameter_kv_heads = kv_heads
+    parameter_head_dim = head_dim
+    if phase == "recurrent_state_update":
+        parameter_heads = linear_key_heads
+        parameter_kv_heads = linear_value_heads
+        parameter_head_dim = linear_key_dim
     if phase == "rope":
         intermediate = max(1, int(manifest.get("rotary_dim", head_dim)))
         group_size = max(1, int(manifest.get("rope_theta", 10000)))
@@ -165,9 +175,9 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
         "input_features": input_features,
         "output_features": output_features,
         "intermediate_features": intermediate,
-        "head_count": heads,
-        "kv_head_count": kv_heads,
-        "head_dim": head_dim,
+        "head_count": parameter_heads,
+        "kv_head_count": parameter_kv_heads,
+        "head_dim": parameter_head_dim,
         "quantization_bits": quant_bits,
         "quantization_group_size": group_size,
         "scale_data_type": int(manifest.get("quantization_scale_data_type", 6)),
@@ -343,7 +353,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 2,
-        "functional_graph_revision": 6,
+        "functional_graph_revision": 7,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -568,7 +578,11 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
             )) * max(1, int(manifest.get("linear_value_head_dim", head_dim)))
             state = tensor(
                 f"{prefix}.recurrent_state", "persistent",
-                ["runtime.batch", value_features], command_id,
+                ["runtime.batch",
+                 max(1, int(manifest.get("linear_num_value_heads", heads))),
+                 max(1, int(manifest.get("linear_key_head_dim", head_dim))),
+                 max(1, int(manifest.get("linear_value_head_dim", head_dim)))],
+                command_id,
             )
             output = tensor(
                 f"{prefix}.recurrent", "scratch", rows + [value_features],
@@ -686,7 +700,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
-        "functional_graph_revision": 6,
+        "functional_graph_revision": 7,
         "execution_scope": executable["execution_scope"],
         "runtime_row_expression": "runtime.batch * runtime.sequence",
         "tensor_count": len(tensors),

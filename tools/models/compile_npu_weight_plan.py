@@ -36,9 +36,9 @@ PHASE_ROLES = {
         "linear_attention_beta",
     ),
     "causal_depthwise_conv": ("linear_attention_conv",),
+    "recurrent_state_update": ("linear_attention_decay",),
     "linear_attention_gate_norm": (
         "linear_attention_gate", "linear_attention_norm",
-        "linear_attention_decay",
     ),
     "linear_attention_output_projection": ("linear_attention_output",),
     "ffn_norm": ("ffn_norm",),
@@ -58,6 +58,8 @@ TENSOR_SLOTS = {
     "up_proj": 6,
     "down_proj": 7,
     "in_proj_qkv": 8,
+    "dt_bias": 9,
+    "a_log": 10,
 }
 
 TENSOR_INDEX_TO_NPU_DTYPE = {
@@ -84,9 +86,10 @@ def hash64(value: str) -> int:
 
 def tensor_slot(name: str) -> int:
     fields = name.split(".")
-    for field in reversed(fields[:-1]):
-        if field in TENSOR_SLOTS:
-            return TENSOR_SLOTS[field]
+    for field in reversed(fields):
+        normalized = field.lower()
+        if normalized in TENSOR_SLOTS:
+            return TENSOR_SLOTS[normalized]
     return 0
 
 

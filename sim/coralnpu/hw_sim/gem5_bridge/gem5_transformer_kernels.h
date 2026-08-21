@@ -50,7 +50,8 @@ bool RunGem5RopeF32(const float* input, const uint32_t* positions, size_t rows,
                     Gem5TransformerKernelStats* stats);
 bool RunGem5CausalDepthwiseConvF32(
     const float* input, const float* weight, size_t rows, size_t features,
-    size_t kernel_width, float* output, Gem5TransformerKernelStats* stats);
+    size_t kernel_width, float* output, Gem5TransformerKernelStats* stats,
+    bool silu_activation = false);
 
 // Returns values in descending order. Equal values retain the lower source
 // index first so functional-model results are deterministic across hosts.
@@ -72,6 +73,12 @@ bool RunGem5RecurrentUpdateF32(
     const float* input, size_t rows, size_t features, float* output,
     float* state,
     Gem5TransformerKernelStats* stats);
+
+bool RunGem5GatedDeltaNetF32(
+    const float* qkv, const float* alpha, const float* beta,
+    const float* a_log, const float* dt_bias, size_t rows,
+    size_t key_heads, size_t value_heads, size_t key_dim, size_t value_dim,
+    float* output, float* state, Gem5TransformerKernelStats* stats);
 
 bool RunGem5CombineF32(
     const float* routed, const float* shared, size_t count, float* output,

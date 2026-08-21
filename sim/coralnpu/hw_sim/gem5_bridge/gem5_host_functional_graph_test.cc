@@ -269,10 +269,32 @@ int main(int argc, char** argv) {
   }
   assert(linear_projection_index != UINT32_MAX);
   assert(graph.ExecuteCommand(linear_projection_index, &weights));
+  uint32_t linear_recurrent_index = UINT32_MAX;
+  for (uint32_t index = 0; index < graph.command_count(); ++index) {
+    std::vector<Gem5HostWeightBinding> floating;
+    if (weights.FindFloatBindings(index, &floating) && floating.size() == 2 &&
+        std::all_of(floating.begin(), floating.end(), [](const auto& binding) {
+          return binding.role_id ==
+                 OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_DECAY;
+        })) {
+      linear_recurrent_index = index;
+      break;
+    }
+  }
+  assert(linear_recurrent_index != UINT32_MAX);
+  assert(graph.ExecuteCommand(linear_recurrent_index, &weights));
   uint32_t linear_gate_norm_index = UINT32_MAX;
   for (uint32_t index = 0; index < graph.command_count(); ++index) {
     std::vector<Gem5HostWeightBinding> floating;
-    if (weights.FindFloatBindings(index, &floating) && floating.size() == 2) {
+    const bool gate_norm = weights.FindFloatBindings(index, &floating) &&
+        floating.size() == 2 &&
+        std::any_of(floating.begin(), floating.end(), [](const auto& binding) {
+          return binding.role_id == OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_GATE;
+        }) &&
+        std::any_of(floating.begin(), floating.end(), [](const auto& binding) {
+          return binding.role_id == OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_NORM;
+        });
+    if (gate_norm) {
       linear_gate_norm_index = index;
       break;
     }
@@ -321,6 +343,7 @@ int main(int argc, char** argv) {
   std::puts("functional_graph_token_io=PASS");
   std::puts("functional_graph_autoregressive_reconfigure=PASS");
   std::puts("functional_graph_linear_attention_projection=PASS");
+  std::puts("functional_graph_linear_attention_recurrent=PASS");
   std::puts("functional_graph_linear_attention_gate_norm=PASS");
   std::puts("functional_graph_float_shared_expert=PASS");
   std::puts("gem5_host_functional_graph=PASS");

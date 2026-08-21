@@ -511,7 +511,9 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
         request.operator_parameters->intermediate_features;
     if (!RunGem5CausalDepthwiseConvF32(
             request.input, request.weight, request.rows, request.features,
-            kernel_width, request.output, &result.stats)) {
+            kernel_width, request.output, &result.stats,
+            (request.operator_parameters->flags &
+             OPENNPUX_NPU_PARAMETER_QWEN_DELTA_NET) != 0)) {
       result.status = Gem5HostFunctionalStatus::kExecutionError;
     }
     return result;
@@ -581,9 +583,32 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
                                &result.stats);
       break;
     case OPENNPUX_NPU_OP_RECURRENT_UPDATE:
-      success = RunGem5RecurrentUpdateF32(
-          request.input, request.rows, request.features, request.output,
-          request.output_secondary, &result.stats);
+      if (request.operator_parameters != nullptr &&
+          (request.operator_parameters->flags &
+           OPENNPUX_NPU_PARAMETER_QWEN_DELTA_NET) != 0) {
+        const size_t value_heads = request.kv_heads;
+        const size_t value_dim = value_heads == 0 ? 0 :
+            request.operator_parameters->output_features / value_heads;
+        success = request.linear_a_log_weight.data != nullptr &&
+                  request.linear_dt_bias_weight.data != nullptr &&
+                  request.linear_a_log_weight.size ==
+                      value_heads * sizeof(float) &&
+                  request.linear_dt_bias_weight.size ==
+                      value_heads * sizeof(float) &&
+                  RunGem5GatedDeltaNetF32(
+                      request.input, request.secondary, request.tertiary,
+                      static_cast<const float*>(
+                          request.linear_a_log_weight.data),
+                      static_cast<const float*>(
+                          request.linear_dt_bias_weight.data),
+                      request.rows, request.heads, value_heads,
+                      request.head_dim, value_dim, request.output,
+                      request.output_secondary, &result.stats);
+      } else {
+        success = RunGem5RecurrentUpdateF32(
+            request.input, request.rows, request.features, request.output,
+            request.output_secondary, &result.stats);
+      }
       break;
     case OPENNPUX_NPU_OP_COMBINE:
       success = RunGem5CombineF32(request.input, request.secondary, count,

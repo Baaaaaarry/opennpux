@@ -85,6 +85,10 @@ for name, tensors in (
         "model.language_model.layers.1.linear_attn.in_proj_b.weight": b"".join(
             struct.pack("<f", ((row * 2 + column) % 5 - 2) / 8.0)
             for row in range(2) for column in range(18)),
+        "model.language_model.layers.1.linear_attn.A_log": b"".join(
+            struct.pack("<f", value) for value in (0.0, 0.69314718)),
+        "model.language_model.layers.1.linear_attn.dt_bias": b"".join(
+            struct.pack("<f", value) for value in (0.5, 1.0)),
         "model.language_model.layers.1.linear_attn.in_proj_z.weight": b"".join(
             struct.pack("<f", ((row + column) % 7 - 3) / 8.0)
             for row in range(6) for column in range(18)),
@@ -103,7 +107,9 @@ for name, tensors in (
         if (tensor_name.endswith("mlp.router.weight") or
                 ".shared_expert" in tensor_name or
                 (".linear_attn." in tensor_name and
-                 tensor_name.endswith(".weight"))):
+                 (tensor_name.endswith(".weight") or
+                  tensor_name.endswith(".A_log") or
+                  tensor_name.endswith(".dt_bias")))):
             dtype = "F32"
         elif (tensor_name.endswith(".scales") or
               tensor_name.endswith("input_layernorm.weight")):
@@ -137,7 +143,7 @@ with open(sys.argv[1], encoding="utf-8") as source:
     manifest = json.load(source)
 with open(sys.argv[2], encoding="utf-8") as source:
     executable = json.load(source)
-assert manifest["functional_graph_revision"] == 6
+assert manifest["functional_graph_revision"] == 7
 assert manifest["rotary_dim"] == 4
 assert manifest["rope_theta"] == 500000
 rope = next(command for command in executable["commands"]

@@ -114,6 +114,7 @@ enum opennpux_npu_operator_parameter_flags {
     OPENNPUX_NPU_PARAMETER_GPTQ = 1u << 0,
     OPENNPUX_NPU_PARAMETER_DYNAMIC_ROWS = 1u << 1,
     OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET = 1u << 2,
+    OPENNPUX_NPU_PARAMETER_QWEN_DELTA_NET = 1u << 3,
 };
 
 enum opennpux_npu_completion_state {

@@ -148,6 +148,18 @@ int main() {
   assert(RunGem5RecurrentUpdateF32(lhs, 1, 3, recurrent_output,
                                    recurrent_state, &stats));
   assert(recurrent_output[2] == 3.0f && recurrent_state[1] == -2.0f);
+  const float delta_qkv[] = {1.0f, 1.0f, 2.0f};
+  const float delta_alpha[] = {0.0f};
+  const float delta_beta[] = {0.0f};
+  const float delta_a_log[] = {0.0f};
+  const float delta_dt_bias[] = {0.0f};
+  float delta_output[] = {0.0f};
+  float delta_state[] = {0.0f};
+  assert(RunGem5GatedDeltaNetF32(
+      delta_qkv, delta_alpha, delta_beta, delta_a_log, delta_dt_bias, 1, 1,
+      1, 1, 1, delta_output, delta_state, &stats));
+  assert(Near(delta_state[0], 1.0f, 1.0e-4f));
+  assert(Near(delta_output[0], 1.0f, 1.0e-4f));
   assert(RunGem5CombineF32(lhs, rhs, 3, recurrent_output, &stats));
   assert(recurrent_output[0] == 5.0f && recurrent_output[2] == -3.0f);
 

@@ -28,6 +28,8 @@ struct Gem5HostFunctionalRequest {
   Gem5GenericConstBuffer linear_beta_weight;
   Gem5GenericConstBuffer linear_gate_weight;
   Gem5GenericConstBuffer linear_norm_weight;
+  Gem5GenericConstBuffer linear_a_log_weight;
+  Gem5GenericConstBuffer linear_dt_bias_weight;
   Gem5GenericConstBuffer shared_gate_weight;
   Gem5GenericConstBuffer shared_up_weight;
   Gem5GenericConstBuffer shared_down_weight;

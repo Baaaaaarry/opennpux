@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <vector>
 #include <limits>
+#include <vector>
 
 namespace {
 
@@ -52,6 +54,46 @@ bool AddStats(const Gem5GptqKernelStats& source,
   destination->bytes_written += source.bytes_written;
   destination->modeled_cycles += source.modeled_cycles;
   return true;
+}
+
+bool ExpertTraceEnabled() {
+  const char* value = std::getenv("OPENNPUX_HOST_FUNCTIONAL_TRACE");
+  if (value == nullptr || value[0] == '\0') {
+    value = std::getenv("CORAL_HOST_FUNCTIONAL_TRACE");
+  }
+  return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+}
+
+void TraceExpertValues(uint64_t expert_id, float route_weight,
+                       const char* stage, const float* values, size_t count) {
+  if (stage == nullptr || values == nullptr || count == 0) {
+    return;
+  }
+  float minimum = std::numeric_limits<float>::infinity();
+  float maximum = -std::numeric_limits<float>::infinity();
+  double sum = 0.0;
+  double sum_squares = 0.0;
+  size_t finite = 0;
+  for (size_t index = 0; index < count; ++index) {
+    const float value = values[index];
+    if (!std::isfinite(value)) {
+      continue;
+    }
+    minimum = std::min(minimum, value);
+    maximum = std::max(maximum, value);
+    sum += value;
+    sum_squares += static_cast<double>(value) * value;
+    ++finite;
+  }
+  const double mean = finite == 0 ? 0.0 : sum / finite;
+  const double rms = finite == 0 ? 0.0 : std::sqrt(sum_squares / finite);
+  std::fprintf(
+      stderr,
+      "host_functional_expert_trace=expert:%llu,route_weight:%.9g,"
+      "stage:%s,count:%zu,min:%.9g,max:%.9g,mean:%.9g,rms:%.9g,"
+      "nonfinite:%zu\n",
+      static_cast<unsigned long long>(expert_id), route_weight, stage, count,
+      minimum, maximum, mean, rms, count - finite);
 }
 
 bool RunProjection(const opennpux_npu_operator_parameters& base,
@@ -454,6 +496,17 @@ bool RunGem5RoutedGptqExperts(
       if (!RunGem5GenericGptqExpert(parameters, 1, operands, &expert_stats) ||
           !AddStats(expert_stats, stats)) {
         return false;
+      }
+      if (row == 0 && route == 0 && ExpertTraceEnabled()) {
+        TraceExpertValues(expert_ids[route_index], route_weights[route_index],
+                          "gate", gate.data(), gate.size());
+        TraceExpertValues(expert_ids[route_index], route_weights[route_index],
+                          "up", up.data(), up.size());
+        TraceExpertValues(expert_ids[route_index], route_weights[route_index],
+                          "activated", activated.data(), activated.size());
+        TraceExpertValues(expert_ids[route_index], route_weights[route_index],
+                          "down", expert_output.data(), expert_output.size());
+        std::fflush(stderr);
       }
       for (uint32_t column = 0; column < parameters.output_features;
            ++column) {

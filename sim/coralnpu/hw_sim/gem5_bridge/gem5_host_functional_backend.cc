@@ -272,9 +272,11 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
       }
       return result;
     }
+    // The executable carries model-level quantization capabilities, while
+    // individual Qwen layers may still store dense F32/BF16 weights. Prefer
+    // the materialized operand type over the capability flag.
     if (request.opcode == OPENNPUX_NPU_OP_MATMUL &&
-        (request.operator_parameters->flags & OPENNPUX_NPU_PARAMETER_GPTQ) ==
-            0) {
+        request.weight != nullptr) {
       success = RunGem5MatMulF32(
           request.input, request.weight, request.rows,
           request.operator_parameters->input_features,
@@ -328,10 +330,7 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
           *request.operator_parameters, static_cast<uint32_t>(request.rows),
           *request.gptq_expert_operands, &gptq_stats);
     }
-    if (success &&
-        (request.opcode == OPENNPUX_NPU_OP_EXPERT ||
-         (request.operator_parameters->flags & OPENNPUX_NPU_PARAMETER_GPTQ) !=
-             0)) {
+    if (success && request.weight == nullptr) {
       CopyStats(gptq_stats, &result.stats);
     } else if (!success) {
       result.status = Gem5HostFunctionalStatus::kExecutionError;

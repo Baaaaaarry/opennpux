@@ -185,6 +185,7 @@ int main() {
   parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
   parameters.struct_size = sizeof(parameters);
   parameters.opcode = OPENNPUX_NPU_OP_MATMUL;
+  parameters.flags = OPENNPUX_NPU_PARAMETER_GPTQ;
   parameters.input_features = 2;
   parameters.output_features = 2;
   const float dense_weight[] = {1.0f, 2.0f, 3.0f, 4.0f};
@@ -199,7 +200,10 @@ int main() {
   result = backend.Execute(request);
   assert(result.status == Gem5HostFunctionalStatus::kComplete);
   assert(dense_output[0] == 11.0f && dense_output[1] == 16.0f);
+  std::printf("mixed_precision_matmul_operations=%llu\n",
+              static_cast<unsigned long long>(result.stats.operations));
   assert(result.stats.operations == 8);
+  std::puts("gem5_host_functional_mixed_precision_matmul=PASS");
 
   assert(std::string(Gem5HostFunctionalStatusName(
              Gem5HostFunctionalStatus::kUnsupported)) == "unsupported");

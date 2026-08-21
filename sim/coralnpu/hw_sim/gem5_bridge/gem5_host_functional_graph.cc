@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
@@ -49,6 +50,62 @@ const opennpux_npu_functional_operand* FindOperand(
     }
   }
   return nullptr;
+}
+
+bool UseBfloat16Boundaries() {
+  const char* precision =
+      std::getenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION");
+  return precision != nullptr && std::strcmp(precision, "bf16") == 0;
+}
+
+bool IsFloatingOutputRole(uint32_t role) {
+  return role == OPENNPUX_NPU_OPERAND_OUTPUT ||
+         role == OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY ||
+         role == OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY ||
+         role == OPENNPUX_NPU_OPERAND_OUTPUT_QUATERNARY;
+}
+
+uint8_t* TranslateRegion(const std::vector<Gem5FunctionalMemoryRegion>& regions,
+                         uint32_t address, uint32_t size) {
+  for (const auto& region : regions) {
+    if (address < region.base) {
+      continue;
+    }
+    const uint64_t offset = static_cast<uint64_t>(address) - region.base;
+    if (offset <= region.size && size <= region.size - offset) {
+      return region.data + offset;
+    }
+  }
+  return nullptr;
+}
+
+void RoundOutputsToBfloat16(
+    const opennpux_npu_functional_request& request,
+    const std::vector<Gem5FunctionalMemoryRegion>& regions) {
+  for (uint32_t operand_index = 0; operand_index < request.operand_count;
+       ++operand_index) {
+    const auto& operand = request.operands[operand_index];
+    if (!IsFloatingOutputRole(operand.role) ||
+        operand.byte_size % sizeof(float) != 0) {
+      continue;
+    }
+    auto* values = reinterpret_cast<float*>(
+        TranslateRegion(regions, operand.address, operand.byte_size));
+    if (values == nullptr) {
+      continue;
+    }
+    const size_t count = operand.byte_size / sizeof(float);
+    for (size_t index = 0; index < count; ++index) {
+      uint32_t bits = 0;
+      std::memcpy(&bits, values + index, sizeof(bits));
+      const uint32_t exponent = bits & UINT32_C(0x7f800000);
+      if (exponent != UINT32_C(0x7f800000)) {
+        bits += UINT32_C(0x00007fff) + ((bits >> 16) & 1U);
+        bits &= UINT32_C(0xffff0000);
+        std::memcpy(values + index, &bits, sizeof(bits));
+      }
+    }
+  }
 }
 
 }  // namespace
@@ -139,6 +196,9 @@ bool Gem5HostFunctionalGraph::Execute(
   if (!ExecuteGem5FunctionalRequestInRegions(request, regions.data(),
                                               regions.size())) {
     return false;
+  }
+  if (UseBfloat16Boundaries()) {
+    RoundOutputsToBfloat16(*request, regions);
   }
   ++stats_.completed_commands;
   stats_.operations += request->operation_count;

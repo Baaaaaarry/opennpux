@@ -86,8 +86,13 @@ int main(int argc, char** argv) {
     lhs_data[index] = static_cast<float>(index + 1);
     rhs_data[index] = static_cast<float>((index + 1) * 2);
   }
+  lhs_data[0] = 1.001f;
+  rhs_data[0] = 0.0f;
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION", "bf16", 1) == 0);
   assert(graph.Execute(&request));
-  for (size_t index = 0; index < count; ++index) {
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION") == 0);
+  assert(output_data[0] == 1.0f);
+  for (size_t index = 1; index < count; ++index) {
     assert(output_data[index] == static_cast<float>((index + 1) * 3));
   }
   assert(graph.stats().completed_commands == 1 &&

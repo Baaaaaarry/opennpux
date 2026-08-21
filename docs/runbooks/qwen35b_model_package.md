@@ -135,8 +135,10 @@ command-buffer and completion records; architecture material should label this
 structure "NPU invocation" or "command buffer", not "Qwen TCB".
 
 The NPU result contract ends at logits/token IDs. Text decoding is deliberately
-performed by the CPU-side tokenizer after the guest returns the actual IDs. A
-successful run therefore ends with output similar to:
+performed by the CPU-side tokenizer. The acceptance harness injects that
+decoded text into the guest result script and prints it only after the guest's
+actual token IDs exactly match the validated sequence. A successful run
+therefore ends with output similar to:
 
 ```text
 inference_result_source=host-functional-cpp
@@ -144,6 +146,12 @@ inference_token_ids=<ids returned by NPU execution>
 inference_text_source=cpu-tokenizer
 inference_token_text=<decoded text>
 ```
+
+Host C++ exact-token acceptance uses deterministic greedy decoding. The
+`model` decode mode can enable temperature/top-p/top-k sampling from the
+model's generation configuration and is not a token-for-token golden for the
+current argmax-only Host C++ backend. Sampling acceptance requires a shared
+sampler algorithm and RNG-state ABI.
 
 Detailed numerical diagnostics are disabled by default. Enable only the needed
 stream with `CORAL_HOST_FUNCTIONAL_PROGRESS=1`,

@@ -33,6 +33,11 @@ def main() -> None:
         action="store_true",
         help="retain special tokens in decoded text",
     )
+    parser.add_argument(
+        "--text-only",
+        action="store_true",
+        help="print only decoded text for an embedding caller",
+    )
     args = parser.parse_args()
 
     token_ids = parse_token_ids(args.token_ids)
@@ -42,8 +47,11 @@ def main() -> None:
     decoded = tokenizer.decode(
         token_ids, skip_special_tokens=not args.include_special_tokens
     )
-    print("inference_text_source=cpu-tokenizer")
-    print(f"inference_token_text={decoded}")
+    if args.text_only:
+        print(decoded)
+    else:
+        print("inference_text_source=cpu-tokenizer")
+        print(f"inference_token_text={decoded}")
 
 
 if __name__ == "__main__":

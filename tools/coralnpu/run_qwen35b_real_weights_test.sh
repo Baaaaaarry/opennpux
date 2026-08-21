@@ -14,7 +14,7 @@ Test input:
 Inference options:
   --max-new-tokens N         Generate 1..32 tokens (default: 8)
   --prompt-format FORMAT     chat or raw (default: chat)
-  --decode-mode MODE         model or greedy (default: model)
+  --decode-mode MODE         model or greedy (default: greedy)
   --generation-seed N        Non-negative generation seed (default: 42)
   --model-loader LOADER      vllm, transformers, or gptqmodel (default: vllm)
   --gptq-backend BACKEND     GPTQ backend used by the reference runner
@@ -40,7 +40,7 @@ BASE="${CORAL_NPU_BASE:-0x1d000000}"
 PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
 PROMPT_FORMAT="${CORAL_QWEN_PROMPT_FORMAT:-chat}"
 MAX_NEW_TOKENS="${CORAL_QWEN_MAX_NEW_TOKENS:-8}"
-DECODE_MODE="${CORAL_QWEN_DECODE_MODE:-model}"
+DECODE_MODE="${CORAL_QWEN_DECODE_MODE:-greedy}"
 GENERATION_SEED="${CORAL_QWEN_GENERATION_SEED:-42}"
 MODEL_LOADER="${CORAL_QWEN_MODEL_LOADER:-vllm}"
 GPTQ_BACKEND="${CORAL_QWEN_GPTQ_BACKEND:-${OPENNPUX_GPTQ_BACKEND:-gptq_torch}}"
@@ -191,6 +191,13 @@ case "$DECODE_MODE" in
         exit 1
         ;;
 esac
+if [ "$SIM_HOST_FUNCTIONAL" != 0 ] && [ "$TOKEN_REFERENCE" != 0 ] &&
+   [ "$DECODE_MODE" != greedy ]; then
+    echo "error: Host C++ token acceptance requires --decode-mode greedy" >&2
+    echo "model mode applies sampling; Host C++ currently implements deterministic argmax only" >&2
+    echo "rerun with --decode-mode greedy, or disable exact token-reference acceptance" >&2
+    exit 1
+fi
 case "$MODEL_LOADER" in
     transformers|gptqmodel|vllm) ;;
     *)
@@ -433,6 +440,7 @@ INPUT_TOKEN_COUNT=1
 INPUT_TOKEN_IDS=""
 EXPECTED_GENERATED_TOKENS=0
 EXPECTED_TOKEN_IDS=""
+PREFLIGHT_TOKEN_IDS=""
 if [ "$TOKEN_REFERENCE" != 0 ] || [ "$SIM_HOST_NUMERICAL" != 0 ]; then
     PROMPT_TAG="$(python3 - "$PROMPT" <<'PY'
 import sys
@@ -634,6 +642,19 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
     fi
 fi
 
+CPU_DECODE_TOKEN_IDS="$EXPECTED_TOKEN_IDS"
+if [ -z "$CPU_DECODE_TOKEN_IDS" ]; then
+    CPU_DECODE_TOKEN_IDS="$PREFLIGHT_TOKEN_IDS"
+fi
+DECODED_TOKEN_TEXT_B64=""
+if [ -n "$CPU_DECODE_TOKEN_IDS" ]; then
+    DECODED_TOKEN_TEXT="$($HF_PYTHON \
+        "${ROOT_DIR}/tools/models/decode_token_ids.py" "$MODEL_DIR" \
+        --token-ids "$CPU_DECODE_TOKEN_IDS" --text-only)"
+    DECODED_TOKEN_TEXT_B64="$(printf '%s' "$DECODED_TOKEN_TEXT" | \
+        base64 | tr -d '\n')"
+fi
+
 if [ -z "${CORAL_KERNEL_IMAGE:-}" ]; then
     if [ ! -r "$KERNEL_RELEASE_FILE" ]; then
         echo "error: kernel release metadata missing: $KERNEL_RELEASE_FILE" >&2
@@ -783,6 +804,12 @@ if [ '$TOKEN_REFERENCE' != 0 ]; then
     echo '[coral-qwen35b-real-weights-test] token_reference=$MODEL_LOADER'
     echo '[coral-qwen35b-real-weights-test] token_golden=PASS'
 fi
+if [ -n '$DECODED_TOKEN_TEXT_B64' ]; then
+    echo 'inference_text_source=cpu-tokenizer'
+    printf 'inference_token_text='
+    printf '%s' '$DECODED_TOKEN_TEXT_B64' | decode_base64
+    printf '\n'
+fi
 echo '[coral-qwen35b-real-weights-test] PASS'
 m5 --inst exit
 exit 0
@@ -806,15 +833,3 @@ CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_qwen35b_real
 CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --vio-9p --vio-9p-root=$MODEL_DIR --npu-operator-mode=hybrid --npu-dma-shared-base=0x8f000000 --npu-dma-shared-size=8MiB --npu-fast-dma --npu-fast-dma-event-batch=${CORAL_FAST_DMA_EVENT_BATCH:-1} --npu-fast-dma-sync-offset=0 --npu-fast-dma-sync-size=64KiB" \
 CORAL_RESUME_BOOTSCRIPT="$TMP_SCRIPT" \
 ./run_multicore.sh
-
-if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
-    TERMINAL_LOG="${ROOT_DIR}/logs/sim/m5out/system.terminal"
-    ACTUAL_TOKEN_IDS="$(sed -n 's/^inference_token_ids=//p' \
-        "$TERMINAL_LOG" | tail -n 1 | tr -d '\r')"
-    [ -n "$ACTUAL_TOKEN_IDS" ] || {
-        echo "error: guest did not return inference token IDs" >&2
-        exit 1
-    }
-    "$HF_PYTHON" "${ROOT_DIR}/tools/models/decode_token_ids.py" \
-        "$MODEL_DIR" --token-ids "$ACTUAL_TOKEN_IDS"
-fi

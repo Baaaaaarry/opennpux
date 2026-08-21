@@ -32,6 +32,8 @@ DTYPES = {
 }
 
 NPU_DTYPES = {"F16": 4, "BF16": 5, "F32": 6}
+GPTQ_ZERO_SAMPLE_BYTES = 4096
+GPTQ_ZERO_CONFIDENCE = 0.99
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -156,20 +158,76 @@ def text_model_config(config: dict[str, Any]) -> dict[str, Any]:
     return nested
 
 
-def quantization_info(config: dict[str, Any]) -> dict[str, Any]:
+def sample_gptq_zero_nibbles(shards: list[Path]) -> list[int]:
+    histogram = [0] * 16
+    for shard in shards:
+        header = safetensors_header(shard)
+        with shard.open("rb") as source:
+            header_size = struct.unpack("<Q", source.read(8))[0]
+            payload_base = 8 + header_size
+            for name in sorted(header):
+                if name == "__metadata__" or not name.endswith(".qzeros"):
+                    continue
+                tensor = header[name]
+                offsets = tensor.get("data_offsets") if isinstance(tensor, dict) else None
+                if (
+                    not isinstance(offsets, list) or len(offsets) != 2
+                    or not all(isinstance(value, int) for value in offsets)
+                    or offsets[1] <= offsets[0]
+                ):
+                    raise ValueError(f"invalid qzeros offsets: {name}")
+                sample_size = min(offsets[1] - offsets[0], GPTQ_ZERO_SAMPLE_BYTES)
+                source.seek(payload_base + offsets[0])
+                sample = source.read(sample_size)
+                if len(sample) != sample_size:
+                    raise ValueError(f"truncated qzeros tensor: {name}")
+                for byte in sample:
+                    histogram[byte & 0xF] += 1
+                    histogram[byte >> 4] += 1
+                return histogram
+    return histogram
+
+
+def gptq_zero_bias(
+    quant: dict[str, Any], shards: list[Path]
+) -> tuple[int, str]:
+    checkpoint_format = str(
+        quant.get("checkpoint_format", quant.get("format", ""))
+    ).lower()
+    if checkpoint_format in {"gptq_v2", "gptq-v2", "v2"}:
+        return 0, "config-gptq-v2"
+    if bool(quant.get("sym", False)):
+        histogram = sample_gptq_zero_nibbles(shards)
+        total = sum(histogram)
+        if total != 0 and histogram[8] / total >= GPTQ_ZERO_CONFIDENCE:
+            return 0, "sampled-direct-zero"
+        if total != 0 and histogram[7] / total >= GPTQ_ZERO_CONFIDENCE:
+            return 1, "sampled-legacy-zero-minus-one"
+    return 1, "legacy-default"
+
+
+def quantization_info(
+    config: dict[str, Any], shards: list[Path]
+) -> dict[str, Any]:
     quant = config.get("quantization_config", {})
     if not isinstance(quant, dict):
         raise ValueError("config field quantization_config must be an object")
     method = str(quant.get("quant_method", "none"))
     bits = config_u32(quant, "bits")
     group_size = config_u32(quant, "group_size")
+    zero_bias, zero_encoding = (
+        gptq_zero_bias(quant, shards)
+        if method.lower() == "gptq"
+        else (0, "not-gptq")
+    )
     return {
         "quantization_method": method,
         "quantization_bits": bits,
         "quantization_group_size": group_size,
         "quantization_desc_act": int(bool(quant.get("desc_act", False))),
         "quantization_sym": int(bool(quant.get("sym", False))),
-        "quantization_zero_bias": 1 if method.lower() == "gptq" else 0,
+        "quantization_zero_bias": zero_bias,
+        "quantization_zero_encoding": zero_encoding,
     }
 
 
@@ -289,7 +347,7 @@ def build_manifest(
         "quantization_scale_data_type": scale_data_type,
         "shards": shard_entries,
     }
-    manifest.update(quantization_info(config))
+    manifest.update(quantization_info(config, shards))
     return manifest
 
 

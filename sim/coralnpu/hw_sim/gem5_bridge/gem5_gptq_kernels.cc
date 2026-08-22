@@ -19,8 +19,13 @@ enum class AccumulationMode {
   kMma16Bfloat16,
 };
 
-bool ReadAccumulationMode(AccumulationMode* mode) {
-  const char* value = std::getenv("OPENNPUX_GPTQ_ACCUMULATION");
+bool ReadAccumulationMode(uint32_t domain, AccumulationMode* mode) {
+  const char* value = domain == kGem5GptqAccumulationExpert
+      ? std::getenv("OPENNPUX_GPTQ_EXPERT_ACCUMULATION")
+      : nullptr;
+  if (value == nullptr || value[0] == '\0') {
+    value = std::getenv("OPENNPUX_GPTQ_ACCUMULATION");
+  }
   if (value == nullptr || value[0] == '\0' || std::strcmp(value, "fp32") == 0) {
     *mode = AccumulationMode::kFloat32;
     return true;
@@ -166,7 +171,7 @@ bool RunGem5GptqInt4MatMul(
     return false;
   }
   AccumulationMode accumulation_mode = AccumulationMode::kFloat32;
-  if (!ReadAccumulationMode(&accumulation_mode)) {
+  if (!ReadAccumulationMode(config.accumulation_domain, &accumulation_mode)) {
     return false;
   }
 
@@ -347,7 +352,7 @@ bool RunGem5GptqInt4MatMulStreamed(
     }
     const Gem5GptqMatMulConfig tile_config = {
         config.rows, config.input_columns, tile_columns, config.group_size,
-        config.zero_bias, config.scale_data_type};
+        config.zero_bias, config.scale_data_type, config.accumulation_domain};
     Gem5GptqKernelStats tile_stats = {};
     if (!RunGem5GptqInt4MatMul(
             tile_config, input, qweight.data(), qzeros.data(), scales.data(),

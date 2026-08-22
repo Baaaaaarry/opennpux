@@ -179,6 +179,8 @@ centered INT4 value within each quantization group, then applies the group
 scale. Production and checksum tests default to the existing sequential
 `fp32` contract. The `mma16` modes use fixed pairwise K=16 reduction;
 `mma16-bf16` additionally rounds dequantized weights to BF16.
+`CORAL_GPTQ_EXPERT_ACCUMULATION` can select a separate contract for routed
+expert gate/up/down projections; it defaults to the generic mode.
 An exact-token mismatch is always reported once with the divergent step,
 context length, reference-token rank and top logits, then the preflight stops
 without executing the remaining decode steps.

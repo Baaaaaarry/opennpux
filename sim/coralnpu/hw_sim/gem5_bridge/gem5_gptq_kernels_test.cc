@@ -219,6 +219,13 @@ void TestAccumulationModes() {
   assert(setenv("OPENNPUX_GPTQ_ACCUMULATION", "invalid", 1) == 0);
   assert(!RunGem5GptqInt4MatMul(config, input, qweight, qzeros, scales,
                                 nullptr, output, &stats));
+  auto expert_config = config;
+  expert_config.accumulation_domain = kGem5GptqAccumulationExpert;
+  assert(setenv("OPENNPUX_GPTQ_EXPERT_ACCUMULATION", "grouped", 1) == 0);
+  assert(RunGem5GptqInt4MatMul(expert_config, input, qweight, qzeros, scales,
+                               nullptr, output, &stats));
+  assert(output[0] == 30.0f);
+  assert(unsetenv("OPENNPUX_GPTQ_EXPERT_ACCUMULATION") == 0);
   assert(unsetenv("OPENNPUX_GPTQ_ACCUMULATION") == 0);
 }
 

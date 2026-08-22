@@ -10,6 +10,11 @@ enum Gem5GptqScaleDataType : uint32_t {
   kGem5GptqScaleFloat32 = 6,
 };
 
+enum Gem5GptqAccumulationDomain : uint32_t {
+  kGem5GptqAccumulationGeneric = 0,
+  kGem5GptqAccumulationExpert = 1,
+};
+
 struct Gem5GptqMatMulConfig {
   uint32_t rows;
   uint32_t input_columns;
@@ -17,6 +22,7 @@ struct Gem5GptqMatMulConfig {
   uint32_t group_size;
   uint32_t zero_bias;
   uint32_t scale_data_type;
+  uint32_t accumulation_domain = kGem5GptqAccumulationGeneric;
 };
 
 struct Gem5GptqKernelStats {

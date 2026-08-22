@@ -81,7 +81,8 @@ bool BuildGem5GenericGptqResidentSpans(
 
 bool RunGem5GenericGptqMatMul(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,
-    const Gem5GenericGptqOperands& operands, Gem5GptqKernelStats* stats);
+    const Gem5GenericGptqOperands& operands, Gem5GptqKernelStats* stats,
+    bool expert_accumulation = false);
 
 bool RunGem5GenericGptqMatMulStreamed(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,

@@ -194,7 +194,7 @@ bool RunProjection(const opennpux_npu_operator_parameters& base,
       parameters, rows,
       {input, weights.qweight, weights.qzeros, weights.scales, weights.g_idx,
        output},
-      stats);
+      stats, true);
 }
 
 }  // namespace
@@ -350,7 +350,8 @@ bool BuildGem5GenericGptqResidentSpans(
 
 bool RunGem5GenericGptqMatMul(
     const opennpux_npu_operator_parameters& parameters, uint32_t rows,
-    const Gem5GenericGptqOperands& operands, Gem5GptqKernelStats* stats) {
+    const Gem5GenericGptqOperands& operands, Gem5GptqKernelStats* stats,
+    bool expert_accumulation) {
   if (parameters.magic != OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC ||
       parameters.version != OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION ||
       parameters.struct_size != sizeof(parameters) ||
@@ -399,7 +400,9 @@ bool RunGem5GenericGptqMatMul(
   const Gem5GptqMatMulConfig config = {
       rows, parameters.input_features, parameters.output_features,
       parameters.quantization_group_size, parameters.quantized_zero_bias,
-      parameters.scale_data_type};
+      parameters.scale_data_type,
+      expert_accumulation ? kGem5GptqAccumulationExpert
+                          : kGem5GptqAccumulationGeneric};
   return RunGem5GptqInt4MatMul(
       config, static_cast<const float*>(operands.input.data),
       static_cast<const uint32_t*>(operands.qweight.data),

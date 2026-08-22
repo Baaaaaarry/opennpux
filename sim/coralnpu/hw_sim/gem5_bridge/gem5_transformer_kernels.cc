@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <numeric>
@@ -70,6 +71,176 @@ bool FinishByteStats(uint64_t operations, uint64_t bytes_read,
 bool ValidBuffers(const float* input, size_t count, float* output,
                   Gem5TransformerKernelStats* stats) {
   return input != nullptr && count != 0 && output != nullptr && stats != nullptr;
+}
+
+bool UseChunkGatedDeltaPrefill() {
+  const char* mode = std::getenv("OPENNPUX_LINEAR_ATTENTION_PREFILL");
+  return mode != nullptr && std::strcmp(mode, "chunk") == 0;
+}
+
+bool RunChunkGatedDeltaHead(
+    const float* qkv, const float* alpha, const float* beta,
+    const float* a_log, const float* dt_bias, size_t rows,
+    size_t key_heads, size_t value_heads, size_t key_dim, size_t value_dim,
+    size_t value_head, float* output, float* state) {
+  constexpr size_t kChunkSize = 64;
+  const size_t key_features = key_heads * key_dim;
+  const size_t value_features = value_heads * value_dim;
+  const size_t qkv_features = 2 * key_features + value_features;
+  const size_t state_per_head = key_dim * value_dim;
+  const size_t key_head = value_head / (value_heads / key_heads);
+  const float query_scale = 1.0f / std::sqrt(static_cast<float>(key_dim));
+  float* head_state = state + value_head * state_per_head;
+
+  for (size_t chunk_start = 0; chunk_start < rows;
+       chunk_start += kChunkSize) {
+    const size_t count = std::min(kChunkSize, rows - chunk_start);
+    std::vector<float> query(count * key_dim);
+    std::vector<float> key(count * key_dim);
+    std::vector<float> value(count * value_dim);
+    std::vector<float> beta_value(count);
+    std::vector<float> cumulative_decay(count);
+    std::vector<float> transform(count * count, 0.0f);
+    std::vector<float> transformed_value(count * value_dim, 0.0f);
+    std::vector<float> cumulative_key(count * key_dim, 0.0f);
+    std::vector<float> new_value(count * value_dim, 0.0f);
+    const std::vector<float> initial_state(
+        head_state, head_state + state_per_head);
+
+    float accumulated_decay = 0.0f;
+    for (size_t local = 0; local < count; ++local) {
+      const size_t row = chunk_start + local;
+      const float* row_q = qkv + row * qkv_features + key_head * key_dim;
+      const float* row_k =
+          qkv + row * qkv_features + key_features + key_head * key_dim;
+      const float* row_v = qkv + row * qkv_features + 2 * key_features +
+                           value_head * value_dim;
+      double q_sum = 0.0;
+      double k_sum = 0.0;
+      for (size_t column = 0; column < key_dim; ++column) {
+        q_sum += static_cast<double>(row_q[column]) * row_q[column];
+        k_sum += static_cast<double>(row_k[column]) * row_k[column];
+      }
+      const float q_norm =
+          1.0f / std::sqrt(static_cast<float>(q_sum) + 1.0e-6f);
+      const float k_norm =
+          1.0f / std::sqrt(static_cast<float>(k_sum) + 1.0e-6f);
+      for (size_t column = 0; column < key_dim; ++column) {
+        query[local * key_dim + column] =
+            row_q[column] * q_norm * query_scale;
+        key[local * key_dim + column] = row_k[column] * k_norm;
+      }
+      std::copy_n(row_v, value_dim, value.data() + local * value_dim);
+      beta_value[local] = 1.0f /
+          (1.0f + std::exp(-beta[row * value_heads + value_head]));
+      const float alpha_value =
+          alpha[row * value_heads + value_head] + dt_bias[value_head];
+      const float softplus = alpha_value > 20.0f
+                                 ? alpha_value
+                                 : std::log1p(std::exp(alpha_value));
+      accumulated_decay +=
+          -std::exp(a_log[value_head]) * softplus;
+      cumulative_decay[local] = accumulated_decay;
+    }
+
+    for (size_t row = 1; row < count; ++row) {
+      for (size_t column = 0; column < row; ++column) {
+        float dot = 0.0f;
+        for (size_t key_index = 0; key_index < key_dim; ++key_index) {
+          dot += key[row * key_dim + key_index] * beta_value[row] *
+                 key[column * key_dim + key_index];
+        }
+        transform[row * count + column] =
+            -dot * std::exp(cumulative_decay[row] -
+                            cumulative_decay[column]);
+      }
+    }
+    for (size_t row = 1; row < count; ++row) {
+      const std::vector<float> original(
+          transform.begin() + row * count,
+          transform.begin() + (row + 1) * count);
+      for (size_t column = 0; column < row; ++column) {
+        float correction = 0.0f;
+        for (size_t inner = 0; inner < row; ++inner) {
+          correction += original[inner] *
+                        transform[inner * count + column];
+        }
+        transform[row * count + column] =
+            original[column] + correction;
+      }
+    }
+    for (size_t row = 0; row < count; ++row) {
+      transform[row * count + row] = 1.0f;
+    }
+
+    for (size_t row = 0; row < count; ++row) {
+      for (size_t source = 0; source <= row; ++source) {
+        const float coefficient = transform[row * count + source];
+        for (size_t value_index = 0; value_index < value_dim;
+             ++value_index) {
+          transformed_value[row * value_dim + value_index] +=
+              coefficient * beta_value[source] *
+              value[source * value_dim + value_index];
+        }
+        const float key_coefficient =
+            coefficient * beta_value[source] *
+            std::exp(cumulative_decay[source]);
+        for (size_t key_index = 0; key_index < key_dim; ++key_index) {
+          cumulative_key[row * key_dim + key_index] +=
+              key_coefficient * key[source * key_dim + key_index];
+        }
+      }
+      for (size_t value_index = 0; value_index < value_dim; ++value_index) {
+        float previous = 0.0f;
+        for (size_t key_index = 0; key_index < key_dim; ++key_index) {
+          previous += cumulative_key[row * key_dim + key_index] *
+                      initial_state[key_index * value_dim + value_index];
+        }
+        new_value[row * value_dim + value_index] =
+            transformed_value[row * value_dim + value_index] - previous;
+      }
+    }
+
+    for (size_t row = 0; row < count; ++row) {
+      float* row_output = output + (chunk_start + row) * value_features +
+                          value_head * value_dim;
+      for (size_t value_index = 0; value_index < value_dim; ++value_index) {
+        float result = 0.0f;
+        for (size_t key_index = 0; key_index < key_dim; ++key_index) {
+          result += query[row * key_dim + key_index] *
+                    std::exp(cumulative_decay[row]) *
+                    initial_state[key_index * value_dim + value_index];
+        }
+        for (size_t source = 0; source <= row; ++source) {
+          float score = 0.0f;
+          for (size_t key_index = 0; key_index < key_dim; ++key_index) {
+            score += query[row * key_dim + key_index] *
+                     key[source * key_dim + key_index];
+          }
+          result += score *
+                    std::exp(cumulative_decay[row] -
+                             cumulative_decay[source]) *
+                    new_value[source * value_dim + value_index];
+        }
+        row_output[value_index] = result;
+      }
+    }
+
+    const float final_decay = cumulative_decay[count - 1];
+    for (size_t key_index = 0; key_index < key_dim; ++key_index) {
+      for (size_t value_index = 0; value_index < value_dim; ++value_index) {
+        float next = initial_state[key_index * value_dim + value_index] *
+                     std::exp(final_decay);
+        for (size_t row = 0; row < count; ++row) {
+          next += key[row * key_dim + key_index] *
+                  std::exp(final_decay - cumulative_decay[row]) *
+                  new_value[row * value_dim + value_index];
+        }
+        head_state[key_index * value_dim + value_index] = next;
+      }
+    }
+  }
+  return true;
 }
 
 }  // namespace
@@ -556,6 +727,22 @@ bool RunGem5GatedDeltaNetF32(
   std::vector<float> normalized_k(key_dim);
   std::vector<float> delta(value_dim);
   uint64_t operations = 0;
+
+  if (rows > 1 && UseChunkGatedDeltaPrefill()) {
+    for (size_t value_head = 0; value_head < value_heads; ++value_head) {
+      if (!RunChunkGatedDeltaHead(
+              qkv, alpha, beta, a_log, dt_bias, rows, key_heads,
+              value_heads, key_dim, value_dim, value_head, output, state)) {
+        return false;
+      }
+    }
+    operations = static_cast<uint64_t>(rows) * value_heads *
+                 (key_dim * 4 + value_dim * key_dim * 8 + value_dim * 3 + 8);
+    return FinishStats(operations,
+                       qkv_count + rows * value_heads * 2 + value_heads * 2 +
+                           state_count,
+                       output_count + state_count, stats);
+  }
 
   for (size_t row = 0; row < rows; ++row) {
     const float* row_q = qkv + row * qkv_features;

@@ -1,8 +1,11 @@
 #include "hw_sim/gem5_bridge/gem5_transformer_kernels.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <iterator>
 
 namespace {
 
@@ -201,6 +204,20 @@ int main() {
       1, 1, 1, delta_output, delta_state, &stats));
   assert(Near(delta_state[0], 1.0f, 1.0e-4f));
   assert(Near(delta_output[0], 1.0f, 1.0e-4f));
+  const float chunk_qkv[] = {1.0f, 1.0f, 2.0f,
+                             1.0f, 1.0f, 2.0f};
+  const float chunk_alpha[] = {0.0f, 0.0f};
+  const float chunk_beta[] = {0.0f, 0.0f};
+  float chunk_output[] = {0.0f, 0.0f};
+  float chunk_state[] = {0.0f};
+  assert(setenv("OPENNPUX_LINEAR_ATTENTION_PREFILL", "chunk", 1) == 0);
+  assert(RunGem5GatedDeltaNetF32(
+      chunk_qkv, chunk_alpha, chunk_beta, delta_a_log, delta_dt_bias, 2, 1,
+      1, 1, 1, chunk_output, chunk_state, &stats));
+  assert(unsetenv("OPENNPUX_LINEAR_ATTENTION_PREFILL") == 0);
+  assert(Near(chunk_output[0], 1.0f, 1.0e-4f));
+  assert(Near(chunk_output[1], 1.25f, 1.0e-4f));
+  assert(Near(chunk_state[0], 1.25f, 1.0e-4f));
   assert(RunGem5CombineF32(lhs, rhs, 3, recurrent_output, &stats));
   assert(recurrent_output[0] == 5.0f && recurrent_output[2] == -3.0f);
 

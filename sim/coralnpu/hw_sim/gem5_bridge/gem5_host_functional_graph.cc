@@ -88,6 +88,19 @@ uint8_t* TranslateRegion(const std::vector<Gem5FunctionalMemoryRegion>& regions,
   return nullptr;
 }
 
+void RoundToBfloat16(float* values, size_t count) {
+  for (size_t index = 0; index < count; ++index) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, values + index, sizeof(bits));
+    const uint32_t exponent = bits & UINT32_C(0x7f800000);
+    if (exponent != UINT32_C(0x7f800000)) {
+      bits += UINT32_C(0x00007fff) + ((bits >> 16) & 1U);
+      bits &= UINT32_C(0xffff0000);
+      std::memcpy(values + index, &bits, sizeof(bits));
+    }
+  }
+}
+
 }  // namespace
 
 void ApplyGem5HostBfloat16OutputBoundaries(
@@ -106,17 +119,7 @@ void ApplyGem5HostBfloat16OutputBoundaries(
     if (values == nullptr) {
       continue;
     }
-    const size_t count = operand.byte_size / sizeof(float);
-    for (size_t index = 0; index < count; ++index) {
-      uint32_t bits = 0;
-      std::memcpy(&bits, values + index, sizeof(bits));
-      const uint32_t exponent = bits & UINT32_C(0x7f800000);
-      if (exponent != UINT32_C(0x7f800000)) {
-        bits += UINT32_C(0x00007fff) + ((bits >> 16) & 1U);
-        bits &= UINT32_C(0xffff0000);
-        std::memcpy(values + index, &bits, sizeof(bits));
-      }
-    }
+    RoundToBfloat16(values, operand.byte_size / sizeof(float));
   }
 }
 
@@ -452,6 +455,12 @@ bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
           route_data, arena_.runtime().active_experts, output_data,
           output->byte_size, weights, &routed_stats)) {
     return false;
+  }
+  if (UseBfloat16Boundaries()) {
+    if (output->byte_size % sizeof(float) != 0) {
+      return false;
+    }
+    RoundToBfloat16(output_data, output->byte_size / sizeof(float));
   }
   ++stats_.completed_commands;
   stats_.operations += routed_stats.operations;

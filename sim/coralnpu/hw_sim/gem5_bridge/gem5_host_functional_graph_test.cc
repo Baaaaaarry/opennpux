@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "opennpux/npu_executable.h"
 
@@ -183,10 +185,15 @@ int main(int argc, char** argv) {
     expert_route_data[index] =
         index % graph.arena().runtime().active_experts == 0 ? 1.0f : 0.0f;
   }
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION", "bf16", 1) == 0);
   assert(graph.ExecuteRoutedExpert(expert_index, &weights));
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION") == 0);
   for (size_t index = 0; index < expert_output->byte_size / sizeof(float);
        ++index) {
     assert(std::isfinite(expert_output_data[index]));
+    uint32_t bits = 0;
+    std::memcpy(&bits, expert_output_data + index, sizeof(bits));
+    assert((bits & UINT32_C(0x0000ffff)) == 0);
   }
   const Gem5HostWeightBinding direct_expert = {
       OPENNPUX_NPU_WEIGHT_ROLE_ROUTED_EXPERT, 0,

@@ -15,6 +15,7 @@ from build_qwen_execution_plan import (
 
 
 FORMAT = "OPENNPUX_NPU_WEIGHT_PLAN_V1"
+FUNCTIONAL_GRAPH_REVISION = 12
 HEADER = struct.Struct("<8I")
 RECORD = struct.Struct("<160s4I8Q2Q")
 MAGIC = 0x5458504E
@@ -240,7 +241,7 @@ def build_weight_plan(
     plan = {
         "format": FORMAT,
         "version": 1,
-        "functional_graph_revision": 11,
+        "functional_graph_revision": FUNCTIONAL_GRAPH_REVISION,
         "tensor_domain": "text",
         "executable": manifest_path.with_name("model.npxc").name,
         "tensor_index": str(manifest["tensor_index"]),

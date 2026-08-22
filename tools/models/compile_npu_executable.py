@@ -12,6 +12,7 @@ from typing import Any
 
 FORMAT = "OPENNPUX_NPU_EXECUTABLE_V2"
 TENSOR_PLAN_FORMAT = "OPENNPUX_NPU_TENSOR_PLAN_V1"
+FUNCTIONAL_GRAPH_REVISION = 12
 HEADER = struct.Struct("<8I3Q2I3Q")
 ENTRY = struct.Struct("<4I4Q")
 COMMAND = struct.Struct("<8I4Q2IQ")
@@ -365,7 +366,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 2,
-        "functional_graph_revision": 11,
+        "functional_graph_revision": FUNCTIONAL_GRAPH_REVISION,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -718,7 +719,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
-        "functional_graph_revision": 11,
+        "functional_graph_revision": FUNCTIONAL_GRAPH_REVISION,
         "execution_scope": executable["execution_scope"],
         "runtime_row_expression": "runtime.batch * runtime.sequence",
         "tensor_count": len(tensors),

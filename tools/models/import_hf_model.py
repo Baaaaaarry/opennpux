@@ -14,6 +14,7 @@ from typing import Any
 
 
 FORMAT = "OPENNPUX_MODEL_PACKAGE_V2"
+FUNCTIONAL_GRAPH_REVISION = 12
 REQUIRED_QWEN_OP_MASK = 0x1FF
 TENSOR_INDEX_MAGIC = 0x5458504E
 TENSOR_INDEX_VERSION = 1
@@ -307,7 +308,7 @@ def build_manifest(
 
     manifest = {
         "format": FORMAT,
-        "functional_graph_revision": 11,
+        "functional_graph_revision": FUNCTIONAL_GRAPH_REVISION,
         "version": 2,
         "name": name or str(config.get("name_or_path", model_dir.name)),
         "architecture": architecture,

@@ -173,11 +173,12 @@ stream with `CORAL_HOST_FUNCTIONAL_PROGRESS=1`,
 `CORAL_HOST_FUNCTIONAL_TRACE=1`. Use
 `CORAL_HOST_FUNCTIONAL_TRACE_STEP=<decode-step>` to restrict command output
 traces to one decode step.
-`CORAL_GPTQ_ACCUMULATION=fp32|fp64|grouped|wna16` selects an explicit
+`CORAL_GPTQ_ACCUMULATION=fp32|fp64|grouped|wna16|mma16|mma16-bf16` selects an explicit
 diagnostic accumulation contract. `wna16` accumulates activation times the
 centered INT4 value within each quantization group, then applies the group
 scale. Production and checksum tests default to the existing sequential
-`fp32` contract.
+`fp32` contract. The `mma16` modes use fixed pairwise K=16 reduction;
+`mma16-bf16` additionally rounds dequantized weights to BF16.
 An exact-token mismatch is always reported once with the divergent step,
 context length, reference-token rank and top logits, then the preflight stops
 without executing the remaining decode steps.

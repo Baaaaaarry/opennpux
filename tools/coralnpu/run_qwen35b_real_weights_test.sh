@@ -261,9 +261,9 @@ case "$HOST_FUNCTIONAL_PRECISION" in
 esac
 GPTQ_ACCUMULATION="${CORAL_GPTQ_ACCUMULATION:-fp32}"
 case "$GPTQ_ACCUMULATION" in
-    fp32|fp64|grouped|wna16) ;;
+    fp32|fp64|grouped|wna16|mma16|mma16-bf16) ;;
     *)
-        echo "error: CORAL_GPTQ_ACCUMULATION must be fp32, fp64, grouped or wna16" >&2
+        echo "error: unsupported CORAL_GPTQ_ACCUMULATION mode: $GPTQ_ACCUMULATION" >&2
         exit 2
         ;;
 esac

@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_gptq_kernels.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -14,6 +15,8 @@ enum class AccumulationMode {
   kFloat64,
   kGroupedFloat32,
   kWna16Grouped,
+  kMma16,
+  kMma16Bfloat16,
 };
 
 bool ReadAccumulationMode(AccumulationMode* mode) {
@@ -34,7 +37,39 @@ bool ReadAccumulationMode(AccumulationMode* mode) {
     *mode = AccumulationMode::kWna16Grouped;
     return true;
   }
+  if (std::strcmp(value, "mma16") == 0) {
+    *mode = AccumulationMode::kMma16;
+    return true;
+  }
+  if (std::strcmp(value, "mma16-bf16") == 0) {
+    *mode = AccumulationMode::kMma16Bfloat16;
+    return true;
+  }
   return false;
+}
+
+float RoundBfloat16(float value) {
+  uint32_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+  if ((bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000)) {
+    bits += UINT32_C(0x00007fff) + ((bits >> 16) & 1U);
+    bits &= UINT32_C(0xffff0000);
+    std::memcpy(&value, &bits, sizeof(bits));
+  }
+  return value;
+}
+
+float ReduceMmaTile(std::array<float, 16>* values, uint32_t count) {
+  while (count > 1) {
+    uint32_t write = 0;
+    for (uint32_t read = 0; read < count; read += 2) {
+      (*values)[write++] = read + 1 < count
+          ? (*values)[read] + (*values)[read + 1]
+          : (*values)[read];
+    }
+    count = write;
+  }
+  return count == 0 ? 0.0f : (*values)[0];
 }
 
 uint32_t CeilDiv(uint32_t value, uint32_t divisor) {
@@ -142,6 +177,8 @@ bool RunGem5GptqInt4MatMul(
       float group_accumulator = 0.0f;
       float active_scale = 0.0f;
       uint32_t active_group = UINT32_MAX;
+      std::array<float, 16> mma_products = {};
+      uint32_t mma_product_count = 0;
       for (uint32_t k = 0; k < config.input_columns; ++k) {
         const uint32_t group =
             g_idx == nullptr ? k / config.group_size : g_idx[k];
@@ -167,7 +204,10 @@ bool RunGem5GptqInt4MatMul(
         }
         const int32_t centered_weight =
             static_cast<int32_t>(quantized) - static_cast<int32_t>(zero);
-        const float weight = static_cast<float>(centered_weight) * scale;
+        float weight = static_cast<float>(centered_weight) * scale;
+        if (accumulation_mode == AccumulationMode::kMma16Bfloat16) {
+          weight = RoundBfloat16(weight);
+        }
         const float product =
             input[static_cast<size_t>(row) * config.input_columns + k] * weight;
         if (accumulation_mode == AccumulationMode::kFloat64) {
@@ -189,6 +229,13 @@ bool RunGem5GptqInt4MatMul(
           group_accumulator +=
               input[static_cast<size_t>(row) * config.input_columns + k] *
               static_cast<float>(centered_weight);
+        } else if (accumulation_mode == AccumulationMode::kMma16 ||
+                   accumulation_mode == AccumulationMode::kMma16Bfloat16) {
+          mma_products[mma_product_count++] = product;
+          if (mma_product_count == mma_products.size()) {
+            accumulator += ReduceMmaTile(&mma_products, mma_product_count);
+            mma_product_count = 0;
+          }
         } else {
           accumulator += product;
         }
@@ -199,6 +246,9 @@ bool RunGem5GptqInt4MatMul(
         accumulator += group_accumulator;
       } else if (accumulation_mode == AccumulationMode::kWna16Grouped) {
         accumulator += group_accumulator * active_scale;
+      } else if (accumulation_mode == AccumulationMode::kMma16 ||
+                 accumulation_mode == AccumulationMode::kMma16Bfloat16) {
+        accumulator += ReduceMmaTile(&mma_products, mma_product_count);
       }
       output[static_cast<size_t>(row) * config.output_columns + column] =
           accumulator;

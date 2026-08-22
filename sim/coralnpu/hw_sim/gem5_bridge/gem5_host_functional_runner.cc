@@ -103,6 +103,13 @@ bool ProgressEnabled() {
           std::strcmp(value, "0") != 0);
 }
 
+bool TeacherForcingEnabled() {
+  const char* value =
+      std::getenv("OPENNPUX_HOST_FUNCTIONAL_TEACHER_FORCE");
+  return value != nullptr && value[0] != '\0' &&
+         std::strcmp(value, "0") != 0;
+}
+
 const char* LayerTracePath() {
   const char* value = std::getenv("OPENNPUX_HOST_FUNCTIONAL_LAYER_TRACE");
   return value != nullptr && value[0] != '\0' ? value : nullptr;
@@ -570,6 +577,7 @@ int main(int argc, char** argv) {
   const bool trace = TraceEnabled();
   const bool logits_trace = LogitsTraceEnabled();
   const bool progress = ProgressEnabled();
+  const bool teacher_forcing = TeacherForcingEnabled();
   const char* layer_trace_path = LayerTracePath();
   bool layer_trace_ready = true;
   if (layer_trace_path != nullptr) {
@@ -646,7 +654,7 @@ int main(int argc, char** argv) {
                    "host_functional_mismatch=step:%u,context_tokens:%zu,"
                    "host_token:%u,reference_token:%u\n",
                    step, tokens.size(), next_token, reference_tokens[step]);
-      ready = false;
+      ready = teacher_forcing;
     }
     if (!ready) {
       if (!token_mismatch) {
@@ -661,7 +669,9 @@ int main(int argc, char** argv) {
       break;
     }
     generated.push_back(next_token);
-    tokens.push_back(next_token);
+    tokens.push_back(teacher_forcing && step < reference_tokens.size()
+                         ? reference_tokens[step]
+                         : next_token);
     if (progress) {
       std::fprintf(
           stderr, "host_functional_step=%u token=%u cycles=%llu\n", step,

@@ -650,6 +650,7 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         OPENNPUX_HOST_FUNCTIONAL_TRACE="${CORAL_HOST_FUNCTIONAL_TRACE:-0}" \
         OPENNPUX_HOST_FUNCTIONAL_TRACE_STEP="$EFFECTIVE_TRACE_STEP" \
         OPENNPUX_HOST_FUNCTIONAL_LAYER_TRACE="$HOST_LAYER_TRACE_ENV" \
+        OPENNPUX_HOST_FUNCTIONAL_TEACHER_FORCE="$LAYER_TRACE" \
         OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE="${CORAL_HOST_FUNCTIONAL_LOGITS_TRACE:-0}" \
         OPENNPUX_GPTQ_ACCUMULATION="$GPTQ_ACCUMULATION" \
         OPENNPUX_GPTQ_EXPERT_ACCUMULATION="$GPTQ_EXPERT_ACCUMULATION" \
@@ -700,6 +701,14 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         }
         if [ "$TOKEN_REFERENCE" != 0 ] &&
            [ "$PREFLIGHT_TOKEN_IDS" != "$EXPECTED_TOKEN_IDS" ]; then
+            if [ "$LAYER_TRACE" != 0 ] && [ -s "$VLLM_LAYER_TRACE" ] &&
+               [ -s "$HOST_LAYER_TRACE" ]; then
+                "$HF_PYTHON" "${ROOT_DIR}/tools/models/compare_layer_traces.py" \
+                    "$VLLM_LAYER_TRACE" "$HOST_LAYER_TRACE" \
+                    --step "$LAYER_TRACE_STEP" \
+                    --execution-plan "$MODEL_DIR/$EXECUTION_PLAN_NAME" \
+                    >&2 || true
+            fi
             echo "error: Host C++ preflight token IDs differ from $MODEL_LOADER" >&2
             echo "host_cpp=$PREFLIGHT_TOKEN_IDS" >&2
             echo "reference=$EXPECTED_TOKEN_IDS" >&2

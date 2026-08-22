@@ -11,12 +11,17 @@ from pathlib import Path
 
 def load_records(path: Path, source: str, step: int) -> list[dict]:
     records: list[dict] = []
+    available_steps: set[int] = set()
     with path.open(encoding="utf-8") as trace:
         for line_number, line in enumerate(trace, 1):
             if not line.strip():
                 continue
             value = json.loads(line)
-            if value.get("source") != source or int(value.get("step", -1)) != step:
+            if value.get("source") != source:
+                continue
+            record_step = int(value.get("step", -1))
+            available_steps.add(record_step)
+            if record_step != step:
                 continue
             if source == "vllm" and int(value.get("rank", 0)) != 0:
                 continue
@@ -26,7 +31,11 @@ def load_records(path: Path, source: str, step: int) -> list[dict]:
             value["values"] = vector
             records.append(value)
     if not records:
-        raise ValueError(f"{path}: no {source} records for step {step}")
+        available = ",".join(str(value) for value in sorted(available_steps))
+        raise ValueError(
+            f"{path}: no {source} records for step {step}; "
+            f"available steps: {available or 'none'}"
+        )
     return records
 
 

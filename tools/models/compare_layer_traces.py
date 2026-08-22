@@ -47,39 +47,57 @@ def layer_boundaries(records: list[dict]) -> dict[int, list[float]]:
     }
 
 
-def phase_names(path: Path) -> dict[tuple[int, int], str]:
+def plan_metadata(
+    path: Path,
+) -> tuple[dict[tuple[int, int], str], dict[int, str]]:
     plan = json.loads(path.read_text())
     names: dict[tuple[int, int], str] = {}
+    layer_types: dict[int, str] = {}
     for layer in plan.get("layers", []):
         layer_index = int(layer["index"])
+        layer_types[layer_index] = str(layer.get("type", "unknown"))
         for phase_index, phase in enumerate(layer.get("phases", [])):
             names[(layer_index, phase_index)] = str(phase)
-    return names
+    return names, layer_types
 
 
 def phase_points(records: list[dict], plan_path: Path) -> dict[tuple[int, str], list[float]]:
-    names = phase_names(plan_path)
+    names, _ = plan_metadata(plan_path)
     residual_count: dict[int, int] = {}
     points: dict[tuple[int, str], list[float]] = {}
-    phase_to_point = {
-        "attention_norm": "attention_norm",
-        "attention_output_projection": "token_mixer",
-        "linear_attention_output_projection": "token_mixer",
-        "ffn_norm": "ffn_norm",
-        "moe_combine": "moe",
+    phase_output_to_point = {
+        ("attention_norm", 0): "attention_norm",
+        ("qkv_projection", 0): "qkv_query",
+        ("qkv_projection", 1): "qkv_key",
+        ("rope", 0): "rope_query",
+        ("rope", 1): "rope_key",
+        ("scaled_dot_product_attention", 0): "attention_core",
+        ("attention_output_projection", 0): "attention_output_projection",
+        ("recurrent_state_update", 0): "recurrent_state_update",
+        ("linear_attention_gate_norm", 0): "linear_attention_gate_norm",
+        ("linear_attention_output_projection", 0):
+            "linear_attention_output_projection",
+        ("ffn_norm", 0): "ffn_norm",
+        ("moe_combine", 0): "moe",
     }
     for record in records:
-        if record.get("point") != "command" or int(record.get("output", -1)) != 0:
+        if record.get("point") != "command":
             continue
         layer = int(record["layer"])
         phase = names.get((layer, int(record["phase_index"])))
-        point = phase_to_point.get(phase or "")
-        if phase == "residual_add":
+        output = int(record.get("output", -1))
+        point = phase_output_to_point.get((phase or "", output))
+        if phase == "residual_add" and output == 0:
             index = residual_count.get(layer, 0)
             residual_count[layer] = index + 1
             point = "attention_residual" if index == 0 else "layer_boundary"
         if point is not None:
             points[(layer, point)] = record["values"]
+        if phase in {
+            "attention_output_projection",
+            "linear_attention_output_projection",
+        } and output == 0:
+            points[(layer, "token_mixer")] = record["values"]
     return points
 
 
@@ -146,6 +164,7 @@ def main() -> None:
     )
     print(f"layer_trace_compared_layers={len(common)}")
     if args.execution_plan is not None:
+        _, layer_types = plan_metadata(args.execution_plan)
         reference_embedding = next(
             (
                 record["values"]
@@ -180,6 +199,15 @@ def main() -> None:
         host_phases = phase_points(host_records, args.execution_plan)
         phase_order = (
             "attention_norm",
+            "qkv_query",
+            "qkv_key",
+            "rope_query",
+            "rope_key",
+            "attention_core",
+            "attention_output_projection",
+            "recurrent_state_update",
+            "linear_attention_gate_norm",
+            "linear_attention_output_projection",
             "token_mixer",
             "attention_residual",
             "ffn_norm",
@@ -197,7 +225,9 @@ def main() -> None:
                     reference_phases[key], host_phases[key]
                 )
                 print(
-                    f"phase_trace=step:{args.step},layer:{layer},point:{point},"
+                    f"phase_trace=step:{args.step},layer:{layer},"
+                    f"layer_type:{layer_types.get(layer, 'unknown')},"
+                    f"point:{point},"
                     f"rmse:{rmse:.9g},max_abs:{maximum:.9g},cosine:{cosine:.9g},"
                     f"reference_over_host_scale:{scale:.9g},"
                     f"scale_aligned_rmse:{aligned_rmse:.9g}"

@@ -64,13 +64,19 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
     rank = int(os.environ.get("LOCAL_RANK", "0"))
     counters: dict[tuple[int, str], int] = {}
 
-    def record_tensor(layer_index: int, point: str, tensor) -> None:
+    def record_tensor(
+        layer_index: int, point: str, tensor, *, width: int | None = None
+    ) -> None:
         key = (layer_index, point)
         invocation = counters.get(key, 0)
         counters[key] = invocation + 1
         if invocation != trace_step or not isinstance(tensor, torch.Tensor):
             return
-        vector = tensor.detach().reshape(-1, tensor.shape[-1])[-1]
+        if width is None:
+            width = int(tensor.shape[-1])
+        if width <= 0 or tensor.numel() % width != 0:
+            return
+        vector = tensor.detach().reshape(-1, width)[-1]
         values = vector.float().cpu().tolist()
         finite = [
             value
@@ -113,16 +119,56 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
 
         return trace_layer
 
-    def make_tensor_hook(layer_index: int, point: str, output_index: int = 0):
+    def make_tensor_hook(
+        layer_index: int,
+        point: str,
+        output_index: int = 0,
+        *,
+        width: int | None = None,
+    ):
         def trace_tensor(_module, _inputs, output):
             tensor = output
             if isinstance(output, tuple):
                 if output_index >= len(output):
                     return
                 tensor = output[output_index]
-            record_tensor(layer_index, point, tensor)
+            record_tensor(layer_index, point, tensor, width=width)
 
         return trace_tensor
+
+    def make_input_hook(
+        layer_index: int, point: str, *, width: int | None = None
+    ):
+        def trace_input(_module, inputs):
+            if inputs:
+                record_tensor(layer_index, point, inputs[0], width=width)
+
+        return trace_input
+
+    registered_points: set[str] = set()
+
+    def register_output(
+        module, layer_index: int, point: str, output_index: int = 0,
+        *, width: int | None = None,
+    ) -> None:
+        if module is None:
+            return
+        module.register_forward_hook(
+            make_tensor_hook(
+                layer_index, point, output_index, width=width
+            )
+        )
+        registered_points.add(point)
+
+    def register_input(
+        module, layer_index: int, point: str, *, width: int | None = None
+    ) -> None:
+        if module is None:
+            return
+        module.register_forward_pre_hook(
+            make_input_hook(layer_index, point, width=width)
+        )
+        registered_points.add(point)
 
     decoder_model.embed_tokens.register_forward_hook(
         make_tensor_hook(-1, "embedding")
@@ -137,6 +183,47 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
         if mixer is None:
             raise RuntimeError(f"decoder layer {layer_index} has no token mixer")
         mixer.register_forward_hook(make_tensor_hook(layer_index, "token_mixer"))
+        if getattr(layer, "self_attn", None) is mixer:
+            query_width = int(getattr(mixer, "q_size", 0)) or None
+            key_width = int(getattr(mixer, "kv_size", 0)) or None
+            register_output(
+                getattr(mixer, "q_norm", None), layer_index,
+                "qkv_query", width=query_width,
+            )
+            register_output(
+                getattr(mixer, "k_norm", None), layer_index,
+                "qkv_key", width=key_width,
+            )
+            register_output(
+                getattr(mixer, "rotary_emb", None), layer_index,
+                "rope_query", 0, width=query_width,
+            )
+            register_output(
+                getattr(mixer, "rotary_emb", None), layer_index,
+                "rope_key", 1, width=key_width,
+            )
+            register_input(
+                getattr(mixer, "o_proj", None), layer_index,
+                "attention_core", width=query_width,
+            )
+            register_output(
+                getattr(mixer, "o_proj", None), layer_index,
+                "attention_output_projection",
+            )
+        else:
+            value_width = int(getattr(mixer, "value_dim", 0)) or None
+            register_output(
+                getattr(mixer, "chunk_gated_delta_rule", None), layer_index,
+                "recurrent_state_update", 0, width=value_width,
+            )
+            register_output(
+                getattr(mixer, "norm", None), layer_index,
+                "linear_attention_gate_norm", width=value_width,
+            )
+            register_output(
+                getattr(mixer, "out_proj", None), layer_index,
+                "linear_attention_output_projection",
+            )
         layer.post_attention_layernorm.register_forward_hook(
             make_tensor_hook(layer_index, "ffn_norm")
         )
@@ -145,7 +232,12 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
         )
         layer.mlp.register_forward_hook(make_tensor_hook(layer_index, "moe"))
         layer.register_forward_hook(make_hook(layer_index))
-    return {"rank": rank, "layers": len(layers), "path": selected_path}
+    return {
+        "rank": rank,
+        "layers": len(layers),
+        "path": selected_path,
+        "points": sorted(registered_points),
+    }
 
 
 def main() -> None:

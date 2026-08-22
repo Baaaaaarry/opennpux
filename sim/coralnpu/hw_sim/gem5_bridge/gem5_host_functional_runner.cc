@@ -419,6 +419,7 @@ int main(int argc, char** argv) {
   bool ready = instantiated && graph.LoadTensorPlan(argv[2]) &&
                weights.Load(argv[3], argv[4]);
   std::vector<uint32_t> generated;
+  bool token_mismatch = false;
   for (uint32_t step = 0; ready && step < max_new_tokens; ++step) {
     const opennpux_npu_tensor_plan_runtime runtime = {
         1, static_cast<uint32_t>(tokens.size()),
@@ -444,14 +445,26 @@ int main(int argc, char** argv) {
       }
     }
     ready = ready && graph.ReadNextToken(&next_token);
-    if (ready && logits_trace) {
+    token_mismatch =
+        ready && step < reference_tokens.size() &&
+        next_token != reference_tokens[step];
+    if (ready && (logits_trace || token_mismatch)) {
       TraceFinalLogits(graph, step, next_token, reference_tokens);
     }
-    if (!ready) {
+    if (token_mismatch) {
       std::fprintf(stderr,
-                   "host_functional_failed_step=%u command=%u\n", step,
-                   failed_command);
-      if (failed_command != UINT32_MAX) {
+                   "host_functional_mismatch=step:%u,context_tokens:%zu,"
+                   "host_token:%u,reference_token:%u\n",
+                   step, tokens.size(), next_token, reference_tokens[step]);
+      ready = false;
+    }
+    if (!ready) {
+      if (!token_mismatch) {
+        std::fprintf(stderr,
+                     "host_functional_failed_step=%u command=%u\n", step,
+                     failed_command);
+      }
+      if (!token_mismatch && failed_command != UINT32_MAX) {
         PrintCommandFailure(graph, &weights, submission, submission_size,
                             failed_command);
       }

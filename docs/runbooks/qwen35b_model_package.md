@@ -157,6 +157,9 @@ Detailed numerical diagnostics are disabled by default. Enable only the needed
 stream with `CORAL_HOST_FUNCTIONAL_PROGRESS=1`,
 `CORAL_HOST_FUNCTIONAL_LOGITS_TRACE=1`, or
 `OPENNPUX_HOST_FUNCTIONAL_TRACE=1` while locating a regression.
+An exact-token mismatch is always reported once with the divergent step,
+context length, reference-token rank and top logits, then the preflight stops
+without executing the remaining decode steps.
 
 ## Execution Plan Inventory
 

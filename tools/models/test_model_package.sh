@@ -144,7 +144,7 @@ with open(sys.argv[1], encoding="utf-8") as source:
     manifest = json.load(source)
 with open(sys.argv[2], encoding="utf-8") as source:
     executable = json.load(source)
-assert manifest["functional_graph_revision"] == 10
+assert manifest["functional_graph_revision"] == 11
 assert manifest["rotary_dim"] == 4
 assert manifest["rope_theta"] == 500000
 rope = next(command for command in executable["commands"]
@@ -155,7 +155,7 @@ assert rope["parameters"]["flags"] & 4
 gate_norm = next(command for command in executable["commands"]
                  if command["attributes"]["phase"] ==
                     "linear_attention_gate_norm")
-assert gate_norm["parameters"]["flags"] & 16
+assert not gate_norm["parameters"]["flags"] & 16
 tensor_plan = json.load(open(sys.argv[2].replace(".npxe", ".npxt"),
                              encoding="utf-8"))
 qkv = next(command for command in tensor_plan["command_io"]

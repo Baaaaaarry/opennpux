@@ -1,7 +1,9 @@
 #include "hw_sim/gem5_bridge/gem5_gptq_kernels.h"
 
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 
 namespace {
 
@@ -197,6 +199,28 @@ void TestStreamedOutputTilesMatchContiguousKernel() {
       &streamed_stats));
 }
 
+void TestAccumulationModes() {
+  const Gem5GptqMatMulConfig config = {
+      1, 4, 1, 2, 0, kGem5GptqScaleFloat32};
+  const float input[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  const uint32_t qweight[] = {UINT32_C(0x00004321)};
+  const uint32_t qzeros[] = {0, 0};
+  const float scales[] = {1.0f, 1.0f};
+  float output[1] = {};
+  Gem5GptqKernelStats stats = {};
+
+  for (const char* mode : {"fp32", "fp64", "grouped"}) {
+    assert(setenv("OPENNPUX_GPTQ_ACCUMULATION", mode, 1) == 0);
+    assert(RunGem5GptqInt4MatMul(config, input, qweight, qzeros, scales,
+                                 nullptr, output, &stats));
+    assert(output[0] == 30.0f);
+  }
+  assert(setenv("OPENNPUX_GPTQ_ACCUMULATION", "invalid", 1) == 0);
+  assert(!RunGem5GptqInt4MatMul(config, input, qweight, qzeros, scales,
+                                nullptr, output, &stats));
+  assert(unsetenv("OPENNPUX_GPTQ_ACCUMULATION") == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -208,5 +232,6 @@ int main() {
   TestStoredMaximumZeroWithBias();
   TestHostReferenceVector();
   TestStreamedOutputTilesMatchContiguousKernel();
+  TestAccumulationModes();
   return 0;
 }

@@ -2,11 +2,35 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <vector>
 
 namespace {
+
+enum class AccumulationMode {
+  kFloat32,
+  kFloat64,
+  kGroupedFloat32,
+};
+
+bool ReadAccumulationMode(AccumulationMode* mode) {
+  const char* value = std::getenv("OPENNPUX_GPTQ_ACCUMULATION");
+  if (value == nullptr || value[0] == '\0' || std::strcmp(value, "fp32") == 0) {
+    *mode = AccumulationMode::kFloat32;
+    return true;
+  }
+  if (std::strcmp(value, "fp64") == 0) {
+    *mode = AccumulationMode::kFloat64;
+    return true;
+  }
+  if (std::strcmp(value, "grouped") == 0) {
+    *mode = AccumulationMode::kGroupedFloat32;
+    return true;
+  }
+  return false;
+}
 
 uint32_t CeilDiv(uint32_t value, uint32_t divisor) {
   return value / divisor + (value % divisor != 0 ? 1 : 0);
@@ -101,10 +125,17 @@ bool RunGem5GptqInt4MatMul(
        !MultiplyFits(config.input_columns, sizeof(uint32_t)))) {
     return false;
   }
+  AccumulationMode accumulation_mode = AccumulationMode::kFloat32;
+  if (!ReadAccumulationMode(&accumulation_mode)) {
+    return false;
+  }
 
   for (uint32_t row = 0; row < config.rows; ++row) {
     for (uint32_t column = 0; column < config.output_columns; ++column) {
       float accumulator = 0.0f;
+      double wide_accumulator = 0.0;
+      float group_accumulator = 0.0f;
+      uint32_t active_group = UINT32_MAX;
       for (uint32_t k = 0; k < config.input_columns; ++k) {
         const uint32_t group =
             g_idx == nullptr ? k / config.group_size : g_idx[k];
@@ -131,8 +162,25 @@ bool RunGem5GptqInt4MatMul(
         const float weight =
             (static_cast<int32_t>(quantized) - static_cast<int32_t>(zero)) *
             scale;
-        accumulator +=
+        const float product =
             input[static_cast<size_t>(row) * config.input_columns + k] * weight;
+        if (accumulation_mode == AccumulationMode::kFloat64) {
+          wide_accumulator += static_cast<double>(product);
+        } else if (accumulation_mode == AccumulationMode::kGroupedFloat32) {
+          if (active_group != UINT32_MAX && active_group != group) {
+            accumulator += group_accumulator;
+            group_accumulator = 0.0f;
+          }
+          active_group = group;
+          group_accumulator += product;
+        } else {
+          accumulator += product;
+        }
+      }
+      if (accumulation_mode == AccumulationMode::kFloat64) {
+        accumulator = static_cast<float>(wide_accumulator);
+      } else if (accumulation_mode == AccumulationMode::kGroupedFloat32) {
+        accumulator += group_accumulator;
       }
       output[static_cast<size_t>(row) * config.output_columns + column] =
           accumulator;

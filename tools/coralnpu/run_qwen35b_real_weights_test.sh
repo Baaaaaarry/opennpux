@@ -259,8 +259,17 @@ case "$HOST_FUNCTIONAL_PRECISION" in
         exit 2
         ;;
 esac
+GPTQ_ACCUMULATION="${CORAL_GPTQ_ACCUMULATION:-fp32}"
+case "$GPTQ_ACCUMULATION" in
+    fp32|fp64|grouped) ;;
+    *)
+        echo "error: CORAL_GPTQ_ACCUMULATION must be fp32, fp64 or grouped" >&2
+        exit 2
+        ;;
+esac
 echo "[coral-qwen35b-real-weights-test] model dtype: $MODEL_DTYPE" >&2
 echo "[coral-qwen35b-real-weights-test] Host functional precision: $HOST_FUNCTIONAL_PRECISION" >&2
+echo "[coral-qwen35b-real-weights-test] GPTQ accumulation: $GPTQ_ACCUMULATION" >&2
 FUNCTIONAL_GRAPH_REFRESHED=0
 if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
    ! python3 - "$MODEL_DIR/$MANIFEST_NAME" "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" <<'PY'
@@ -280,8 +289,8 @@ linear_fields = (
     "linear_conv_kernel_dim",
 )
 valid = (
-    manifest.get("functional_graph_revision", 0) >= 10
-    and executable.get("functional_graph_revision", 0) >= 10
+    manifest.get("functional_graph_revision", 0) >= 11
+    and executable.get("functional_graph_revision", 0) >= 11
     and all(int(manifest.get(field, 0)) > 0 for field in linear_fields)
 )
 raise SystemExit(0 if valid else 1)
@@ -314,7 +323,7 @@ try:
 except (OSError, ValueError):
     raise SystemExit(1)
 valid = (plan.get("tensor_domain") == "text" and
-         plan.get("functional_graph_revision", 0) >= 10)
+         plan.get("functional_graph_revision", 0) >= 11)
 raise SystemExit(0 if valid else 1)
 PY
 then
@@ -595,7 +604,10 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         : >"$PREFLIGHT_LOG"
         OPENNPUX_HOST_FUNCTIONAL_PRECISION="$HOST_FUNCTIONAL_PRECISION" \
         OPENNPUX_HOST_FUNCTIONAL_PROGRESS="${CORAL_HOST_FUNCTIONAL_PROGRESS:-0}" \
+        OPENNPUX_HOST_FUNCTIONAL_TRACE="${CORAL_HOST_FUNCTIONAL_TRACE:-0}" \
+        OPENNPUX_HOST_FUNCTIONAL_TRACE_STEP="${CORAL_HOST_FUNCTIONAL_TRACE_STEP:-0}" \
         OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE="${CORAL_HOST_FUNCTIONAL_LOGITS_TRACE:-0}" \
+        OPENNPUX_GPTQ_ACCUMULATION="$GPTQ_ACCUMULATION" \
         OPENNPUX_HOST_FUNCTIONAL_REFERENCE_TOKENS="$EXPECTED_TOKEN_IDS" \
         "${ROOT_DIR}/tools/models/run_host_functional_preflight.sh" \
             "$MODEL_DIR" "$INPUT_TOKEN_IDS" "$MAX_NEW_TOKENS" \
@@ -818,6 +830,9 @@ EOF
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 cd "${ROOT_DIR}/thirdparty/gem5"
 OPENNPUX_HOST_FUNCTIONAL_PRECISION="$HOST_FUNCTIONAL_PRECISION" \
+OPENNPUX_HOST_FUNCTIONAL_TRACE="${CORAL_HOST_FUNCTIONAL_TRACE:-0}" \
+OPENNPUX_HOST_FUNCTIONAL_TRACE_STEP="${CORAL_HOST_FUNCTIONAL_TRACE_STEP:-0}" \
+OPENNPUX_GPTQ_ACCUMULATION="$GPTQ_ACCUMULATION" \
 CORAL_NPU_BACKEND=verilated-coral \
 CORAL_SIM_HOST_PAGE_BUNDLE="$SIM_HOST_BUNDLE" \
 CORAL_SIM_HOST_INFERENCE_RESULT="$SIM_HOST_RESULT" \

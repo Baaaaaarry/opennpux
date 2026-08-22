@@ -157,21 +157,24 @@ model's generation configuration and is not a token-for-token golden for the
 current argmax-only Host C++ backend. Sampling acceptance requires a shared
 sampler algorithm and RNG-state ABI.
 
-Functional graph revision 10 uses the same lifecycle expected from a general
+Functional graph revision 11 uses the same lifecycle expected from a general
 inference NPU: the first invocation prefills the prompt, while later
 invocations execute one decode token and retain persistent KV cache, linear
 attention recurrent state and causal-convolution history. RoPE positions use
 the accumulated KV length. The test script automatically regenerates stale
 executable, tensor-plan and weight-plan metadata; model shards are reused.
-BF16 gated-normalization commands also preserve their internal storage
-boundaries: projected gates and normalized activations are rounded before the
-fused gate multiply, matching the precision contract independently of model
-names.
+The optional BF16-intermediate operator flag remains available for hardware
+experiments, but the generic compiler does not enable it: fused-kernel internal
+rounding is backend-specific and must not be inferred from the model dtype.
 
 Detailed numerical diagnostics are disabled by default. Enable only the needed
 stream with `CORAL_HOST_FUNCTIONAL_PROGRESS=1`,
 `CORAL_HOST_FUNCTIONAL_LOGITS_TRACE=1`, or
-`OPENNPUX_HOST_FUNCTIONAL_TRACE=1` while locating a regression.
+`CORAL_HOST_FUNCTIONAL_TRACE=1`. Use
+`CORAL_HOST_FUNCTIONAL_TRACE_STEP=<decode-step>` to restrict command output
+traces to one decode step. `CORAL_GPTQ_ACCUMULATION=fp32|fp64|grouped`
+selects an explicit diagnostic accumulation contract; production and checksum
+tests default to the existing sequential `fp32` contract.
 An exact-token mismatch is always reported once with the divergent step,
 context length, reference-token rank and top logits, then the preflight stops
 without executing the remaining decode steps.

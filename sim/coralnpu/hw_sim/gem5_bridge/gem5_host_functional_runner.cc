@@ -82,6 +82,12 @@ bool TraceEnabled() {
          std::strcmp(value, "0") != 0;
 }
 
+uint32_t TraceStep() {
+  const char* value = std::getenv("OPENNPUX_HOST_FUNCTIONAL_TRACE_STEP");
+  uint32_t step = 0;
+  return value != nullptr && ParseCount(value, &step) ? step : 0;
+}
+
 bool LogitsTraceEnabled() {
   const char* value =
       std::getenv("OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE");
@@ -448,7 +454,7 @@ int main(int argc, char** argv) {
       if (!graph.ExecuteCommand(command_index, &weights)) {
         failed_command = command_index;
         ready = false;
-      } else if (trace && step == 0) {
+      } else if (trace && step == TraceStep()) {
         TraceCommandOutputs(graph, step, command_index);
       }
     }

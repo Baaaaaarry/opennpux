@@ -209,7 +209,7 @@ void TestAccumulationModes() {
   float output[1] = {};
   Gem5GptqKernelStats stats = {};
 
-  for (const char* mode : {"fp32", "fp64", "grouped"}) {
+  for (const char* mode : {"fp32", "fp64", "grouped", "wna16"}) {
     assert(setenv("OPENNPUX_GPTQ_ACCUMULATION", mode, 1) == 0);
     assert(RunGem5GptqInt4MatMul(config, input, qweight, qzeros, scales,
                                  nullptr, output, &stats));

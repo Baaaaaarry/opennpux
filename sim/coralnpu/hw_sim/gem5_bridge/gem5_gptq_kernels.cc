@@ -13,6 +13,7 @@ enum class AccumulationMode {
   kFloat32,
   kFloat64,
   kGroupedFloat32,
+  kWna16Grouped,
 };
 
 bool ReadAccumulationMode(AccumulationMode* mode) {
@@ -27,6 +28,10 @@ bool ReadAccumulationMode(AccumulationMode* mode) {
   }
   if (std::strcmp(value, "grouped") == 0) {
     *mode = AccumulationMode::kGroupedFloat32;
+    return true;
+  }
+  if (std::strcmp(value, "wna16") == 0) {
+    *mode = AccumulationMode::kWna16Grouped;
     return true;
   }
   return false;
@@ -135,6 +140,7 @@ bool RunGem5GptqInt4MatMul(
       float accumulator = 0.0f;
       double wide_accumulator = 0.0;
       float group_accumulator = 0.0f;
+      float active_scale = 0.0f;
       uint32_t active_group = UINT32_MAX;
       for (uint32_t k = 0; k < config.input_columns; ++k) {
         const uint32_t group =
@@ -159,9 +165,9 @@ bool RunGem5GptqInt4MatMul(
         if (!std::isfinite(scale)) {
           return false;
         }
-        const float weight =
-            (static_cast<int32_t>(quantized) - static_cast<int32_t>(zero)) *
-            scale;
+        const int32_t centered_weight =
+            static_cast<int32_t>(quantized) - static_cast<int32_t>(zero);
+        const float weight = static_cast<float>(centered_weight) * scale;
         const float product =
             input[static_cast<size_t>(row) * config.input_columns + k] * weight;
         if (accumulation_mode == AccumulationMode::kFloat64) {
@@ -173,6 +179,16 @@ bool RunGem5GptqInt4MatMul(
           }
           active_group = group;
           group_accumulator += product;
+        } else if (accumulation_mode == AccumulationMode::kWna16Grouped) {
+          if (active_group != UINT32_MAX && active_group != group) {
+            accumulator += group_accumulator * active_scale;
+            group_accumulator = 0.0f;
+          }
+          active_group = group;
+          active_scale = scale;
+          group_accumulator +=
+              input[static_cast<size_t>(row) * config.input_columns + k] *
+              static_cast<float>(centered_weight);
         } else {
           accumulator += product;
         }
@@ -181,6 +197,8 @@ bool RunGem5GptqInt4MatMul(
         accumulator = static_cast<float>(wide_accumulator);
       } else if (accumulation_mode == AccumulationMode::kGroupedFloat32) {
         accumulator += group_accumulator;
+      } else if (accumulation_mode == AccumulationMode::kWna16Grouped) {
+        accumulator += group_accumulator * active_scale;
       }
       output[static_cast<size_t>(row) * config.output_columns + column] =
           accumulator;

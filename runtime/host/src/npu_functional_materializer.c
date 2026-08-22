@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -159,6 +160,15 @@ opennpux_npu_functional_request_materialize(
     request->kv_heads = parameters->kv_head_count;
     request->vocabulary_size = parameters->input_features;
     request->epsilon = 1.0e-5f;
+    if (parameters->opcode == OPENNPUX_NPU_OP_NORMALIZE &&
+        parameters->quantized_zero_bias != 0) {
+        uint32_t epsilon_bits = parameters->quantized_zero_bias;
+        memcpy(&request->epsilon, &epsilon_bits, sizeof(request->epsilon));
+        if (!isfinite(request->epsilon) || !(request->epsilon > 0.0f)) {
+            errno = EINVAL;
+            return -1;
+        }
+    }
     request->rope_theta =
         parameters->opcode == OPENNPUX_NPU_OP_ROPE &&
                 parameters->quantization_group_size != 0

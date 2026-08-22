@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import math
 import struct
 from pathlib import Path
 from typing import Any
@@ -172,6 +173,14 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
     if phase == "rope":
         intermediate = max(1, int(manifest.get("rotary_dim", head_dim)))
         group_size = max(1, int(manifest.get("rope_theta", 10000)))
+    quantized_zero_bias = int(manifest.get("quantization_zero_bias", 0))
+    if opcode == "NORMALIZE":
+        epsilon = float(manifest.get("normalization_epsilon", 1.0e-5))
+        if not math.isfinite(epsilon) or epsilon <= 0.0:
+            raise ValueError("normalization_epsilon must be positive")
+        # Quantization fields are operator-specific for NORMALIZE. Preserve the
+        # 64-byte v2 parameter ABI while carrying the model's exact epsilon.
+        quantized_zero_bias = struct.unpack("<I", struct.pack("<f", epsilon))[0]
     return {
         "phase": PHASE_KIND.get(phase, 0),
         "flags": flags,
@@ -184,7 +193,7 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
         "quantization_bits": quant_bits,
         "quantization_group_size": group_size,
         "scale_data_type": int(manifest.get("quantization_scale_data_type", 6)),
-        "quantized_zero_bias": int(manifest.get("quantization_zero_bias", 0)),
+        "quantized_zero_bias": quantized_zero_bias,
     }
 
 

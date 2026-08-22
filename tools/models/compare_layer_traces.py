@@ -74,7 +74,9 @@ def phase_points(records: list[dict], plan_path: Path) -> dict[tuple[int, str], 
     return points
 
 
-def metrics(left: list[float], right: list[float]) -> tuple[float, float, float]:
+def metrics(
+    left: list[float], right: list[float]
+) -> tuple[float, float, float, float, float]:
     if len(left) != len(right):
         raise ValueError(f"vector size differs: {len(left)} != {len(right)}")
     square_error = 0.0
@@ -92,7 +94,12 @@ def metrics(left: list[float], right: list[float]) -> tuple[float, float, float]
     rmse = math.sqrt(square_error / len(left))
     denominator = math.sqrt(left_square * right_square)
     cosine = dot / denominator if denominator else 0.0
-    return rmse, maximum, cosine
+    scale = dot / right_square if right_square else 0.0
+    aligned_square_error = sum(
+        (lhs - scale * rhs) ** 2 for lhs, rhs in zip(left, right)
+    )
+    aligned_rmse = math.sqrt(aligned_square_error / len(left))
+    return rmse, maximum, cosine, scale, aligned_rmse
 
 
 def main() -> None:
@@ -113,10 +120,14 @@ def main() -> None:
         raise SystemExit("layer_trace_compare=FAIL reason=no-common-layers")
     first_divergent = None
     for layer in common:
-        rmse, maximum, cosine = metrics(reference[layer], host[layer])
+        rmse, maximum, cosine, scale, aligned_rmse = metrics(
+            reference[layer], host[layer]
+        )
         print(
             f"layer_trace=step:{args.step},layer:{layer},rmse:{rmse:.9g},"
-            f"max_abs:{maximum:.9g},cosine:{cosine:.9g}"
+            f"max_abs:{maximum:.9g},cosine:{cosine:.9g},"
+            f"reference_over_host_scale:{scale:.9g},"
+            f"scale_aligned_rmse:{aligned_rmse:.9g}"
         )
         if first_divergent is None and rmse > args.rmse_threshold:
             first_divergent = layer
@@ -143,10 +154,14 @@ def main() -> None:
             None,
         )
         if reference_embedding is not None and host_embedding is not None:
-            rmse, maximum, cosine = metrics(reference_embedding, host_embedding)
+            rmse, maximum, cosine, scale, aligned_rmse = metrics(
+                reference_embedding, host_embedding
+            )
             print(
                 f"phase_trace=step:{args.step},layer:-1,point:embedding,"
-                f"rmse:{rmse:.9g},max_abs:{maximum:.9g},cosine:{cosine:.9g}"
+                f"rmse:{rmse:.9g},max_abs:{maximum:.9g},cosine:{cosine:.9g},"
+                f"reference_over_host_scale:{scale:.9g},"
+                f"scale_aligned_rmse:{aligned_rmse:.9g}"
             )
         reference_phases = {
             (int(record["layer"]), str(record["point"])): record["values"]
@@ -169,12 +184,14 @@ def main() -> None:
                 key = (layer, point)
                 if key not in reference_phases or key not in host_phases:
                     continue
-                rmse, maximum, cosine = metrics(
+                rmse, maximum, cosine, scale, aligned_rmse = metrics(
                     reference_phases[key], host_phases[key]
                 )
                 print(
                     f"phase_trace=step:{args.step},layer:{layer},point:{point},"
-                    f"rmse:{rmse:.9g},max_abs:{maximum:.9g},cosine:{cosine:.9g}"
+                    f"rmse:{rmse:.9g},max_abs:{maximum:.9g},cosine:{cosine:.9g},"
+                    f"reference_over_host_scale:{scale:.9g},"
+                    f"scale_aligned_rmse:{aligned_rmse:.9g}"
                 )
                 compared_phases += 1
                 if first_phase is None and rmse > args.rmse_threshold:

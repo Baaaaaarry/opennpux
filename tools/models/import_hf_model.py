@@ -7,6 +7,7 @@ or loads tensor payloads. This keeps import memory bounded for 35B-class models.
 
 import argparse
 import json
+import math
 import struct
 from pathlib import Path
 from typing import Any
@@ -147,6 +148,18 @@ def config_u32(config: dict[str, Any], key: str, fallback: int = 0) -> int:
     if not isinstance(value, int) or value < 0 or value > 0xFFFFFFFF:
         raise ValueError(f"invalid config field {key}: {value!r}")
     return value
+
+
+def config_positive_float(
+    config: dict[str, Any], key: str, fallback: float
+) -> float:
+    value = config.get(key, fallback)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"invalid config field {key}: {value!r}")
+    result = float(value)
+    if not math.isfinite(result) or not (result > 0.0):
+        raise ValueError(f"invalid config field {key}: {value!r}")
+    return result
 
 
 def text_model_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -306,6 +319,9 @@ def build_manifest(
         "head_count": heads,
         "kv_head_count": config_u32(model_config, "num_key_value_heads", heads),
         "head_dim": explicit_head_dim,
+        "normalization_epsilon": config_positive_float(
+            model_config, "rms_norm_eps", 1.0e-5
+        ),
         "rotary_dim": rotary_dim,
         "rope_theta": int(
             rope_parameters.get(

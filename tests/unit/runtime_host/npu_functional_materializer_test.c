@@ -85,6 +85,16 @@ main(void)
               request.operands[2].role == OPENNPUX_NPU_OPERAND_OUTPUT,
           "map router indices and weights");
 
+    command.opcode = OPENNPUX_NPU_OP_NORMALIZE;
+    parameters.opcode = OPENNPUX_NPU_OP_NORMALIZE;
+    parameters.quantized_zero_bias = UINT32_C(0x358637bd); /* 1.0e-6f */
+    views.output_count = 1;
+    check(opennpux_npu_functional_request_materialize(
+              &command, &parameters, &views, 0x20000100, NULL, 0,
+              &request) == 0,
+          "materialize normalize request");
+    check(request.epsilon == 1.0e-6f, "preserve normalization epsilon");
+
     const struct opennpux_npu_functional_gptq_views q_views = {
         .qweight_address = 0x20300000,
         .qweight_size = 48,

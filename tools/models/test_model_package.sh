@@ -12,7 +12,7 @@ CXX="${CXX:-c++}"
 
 rm -rf "${WORK_DIR}"
 mkdir -p "${MODEL_DIR}"
-printf '%s\n' '{"architectures":["Qwen3_5MoeForConditionalGeneration"],"model_type":"qwen3_5_moe","name_or_path":"qwen-test","quantization_config":{"quant_method":"gptq","bits":4,"group_size":128,"desc_act":false,"sym":true},"text_config":{"dtype":"bfloat16","num_hidden_layers":2,"vocab_size":32,"hidden_size":18,"intermediate_size":48,"num_attention_heads":4,"num_key_value_heads":2,"head_dim":6,"partial_rotary_factor":0.6666666666666666,"rope_theta":500000,"linear_num_key_heads":2,"linear_num_value_heads":2,"linear_key_head_dim":3,"linear_value_head_dim":3,"linear_conv_kernel_dim":4,"max_position_embeddings":4096,"num_experts":8,"num_experts_per_tok":2,"moe_intermediate_size":24,"shared_expert_intermediate_size":32}}' > "${MODEL_DIR}/config.json"
+printf '%s\n' '{"architectures":["Qwen3_5MoeForConditionalGeneration"],"model_type":"qwen3_5_moe","name_or_path":"qwen-test","quantization_config":{"quant_method":"gptq","bits":4,"group_size":128,"desc_act":false,"sym":true},"text_config":{"dtype":"bfloat16","num_hidden_layers":2,"vocab_size":32,"hidden_size":18,"intermediate_size":48,"num_attention_heads":4,"num_key_value_heads":2,"head_dim":6,"rms_norm_eps":0.000001,"partial_rotary_factor":0.6666666666666666,"rope_theta":500000,"linear_num_key_heads":2,"linear_num_value_heads":2,"linear_key_head_dim":3,"linear_value_head_dim":3,"linear_conv_kernel_dim":4,"max_position_embeddings":4096,"num_experts":8,"num_experts_per_tok":2,"moe_intermediate_size":24,"shared_expert_intermediate_size":32}}' > "${MODEL_DIR}/config.json"
 python3 - "${MODEL_DIR}" <<'PY'
 import json
 import struct
@@ -138,6 +138,7 @@ PY
     "${MODEL_DIR}/model.npxe"
 python3 - "${MANIFEST}" "${MODEL_DIR}/model.npxe" <<'PY'
 import json
+import struct
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as source:
@@ -147,6 +148,11 @@ with open(sys.argv[2], encoding="utf-8") as source:
 assert manifest["functional_graph_revision"] == 11
 assert manifest["rotary_dim"] == 4
 assert manifest["rope_theta"] == 500000
+assert manifest["normalization_epsilon"] == 1.0e-6
+normalization = next(command for command in executable["commands"]
+                     if command["opcode"] == "NORMALIZE")
+epsilon_bits = normalization["parameters"]["quantized_zero_bias"]
+assert abs(struct.unpack("<f", struct.pack("<I", epsilon_bits))[0] - 1.0e-6) < 1.0e-12
 rope = next(command for command in executable["commands"]
             if command["opcode"] == "ROPE")
 assert rope["parameters"]["intermediate_features"] == 4

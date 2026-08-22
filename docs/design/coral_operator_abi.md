@@ -134,3 +134,12 @@ Model parsing, tokenization, graph partitioning and layout selection remain CPU
 compiler/runtime responsibilities. NPU Modeling and RTL consume only this
 versioned contract. New accelerators are exposed as generic capabilities or a
 versioned `CUSTOM` opcode, never as model-specific TCB fields.
+
+Operator-parameter fields are interpreted by opcode. For `NORMALIZE`, the
+`quantized_zero_bias` word carries the IEEE-754 binary32 bits of the model's
+normalization epsilon; it is not a GPTQ field for that opcode. HF import reads
+`rms_norm_eps`, executable compilation encodes it, and functional request
+materialization decodes it. A zero word remains compatible with older
+executables and selects the legacy `1e-5` default. This keeps the v2 parameter
+record at 64 bytes while allowing different model families to specify their
+normalization semantics without architecture-specific runtime code.

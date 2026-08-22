@@ -203,6 +203,7 @@ struct opennpux_npu_operator_parameters {
     uint32_t quantization_bits;
     uint32_t quantization_group_size;
     uint32_t scale_data_type;
+    /* GPTQ zero bias, or IEEE-754 epsilon bits for NORMALIZE. */
     uint32_t quantized_zero_bias;
 };
 

@@ -103,6 +103,11 @@ bool ProgressEnabled() {
           std::strcmp(value, "0") != 0);
 }
 
+const char* LayerTracePath() {
+  const char* value = std::getenv("OPENNPUX_HOST_FUNCTIONAL_LAYER_TRACE");
+  return value != nullptr && value[0] != '\0' ? value : nullptr;
+}
+
 const opennpux_npu_functional_operand* FindOperand(
     const opennpux_npu_functional_request& request, uint32_t role) {
   for (uint32_t index = 0; index < request.operand_count; ++index) {
@@ -189,6 +194,70 @@ void TraceCommandOutputs(const Gem5HostFunctionalGraph& graph,
         count - finite_count);
   }
   std::fflush(stderr);
+}
+
+bool CommandLayer(const opennpux_npu_command* command, uint32_t* layer) {
+  if (command == nullptr || layer == nullptr ||
+      (command->profiling_tag & UINT64_C(0xff000000)) ==
+          UINT64_C(0xff000000)) {
+    return false;
+  }
+  *layer = static_cast<uint32_t>(command->profiling_tag >> 16);
+  return true;
+}
+
+bool IsLayerBoundary(const Gem5HostFunctionalGraph& graph,
+                     uint32_t command_index, uint32_t* layer) {
+  if (!CommandLayer(graph.command(command_index), layer)) {
+    return false;
+  }
+  uint32_t next_layer = 0;
+  return command_index + 1 == graph.command_count() ||
+         !CommandLayer(graph.command(command_index + 1), &next_layer) ||
+         next_layer != *layer;
+}
+
+void TraceLayerBoundary(const Gem5HostFunctionalGraph& graph, uint32_t step,
+                        uint32_t command_index, const char* path) {
+  uint32_t layer = 0;
+  opennpux_npu_command_tensor_views views = {};
+  if (path == nullptr || !IsLayerBoundary(graph, command_index, &layer) ||
+      !graph.arena().ResolveCommand(command_index, &views) ||
+      views.output_count == 0) {
+    return;
+  }
+  const auto& output = views.outputs[views.output_count - 1];
+  if (output.data_type != OPENNPUX_NPU_DTYPE_FLOAT32 ||
+      output.size % sizeof(float) != 0) {
+    return;
+  }
+  const auto* values = reinterpret_cast<const float*>(
+      graph.arena().Translate(output.address, output.size));
+  const size_t total_count = output.size / sizeof(float);
+  if (values == nullptr || output.rank == 0 ||
+      output.rank > OPENNPUX_NPU_TENSOR_PLAN_MAX_RANK) {
+    return;
+  }
+  const size_t count = output.dimensions[output.rank - 1];
+  if (count == 0 || count > total_count) {
+    return;
+  }
+  values += total_count - count;
+  FILE* trace = std::fopen(path, "a");
+  if (trace == nullptr) {
+    std::fprintf(stderr, "host_functional_layer_trace_error=%s\n",
+                 std::strerror(errno));
+    return;
+  }
+  std::fprintf(trace,
+               "{\"source\":\"host-cpp\",\"step\":%u,\"layer\":%u,"
+               "\"count\":%zu,\"values\":[",
+               step, layer, count);
+  for (size_t index = 0; index < count; ++index) {
+    std::fprintf(trace, "%s%.9g", index == 0 ? "" : ",", values[index]);
+  }
+  std::fprintf(trace, "]}\n");
+  std::fclose(trace);
 }
 
 void TraceFinalLogits(const Gem5HostFunctionalGraph& graph, uint32_t step,
@@ -411,6 +480,18 @@ int main(int argc, char** argv) {
   const bool trace = TraceEnabled();
   const bool logits_trace = LogitsTraceEnabled();
   const bool progress = ProgressEnabled();
+  const char* layer_trace_path = LayerTracePath();
+  bool layer_trace_ready = true;
+  if (layer_trace_path != nullptr) {
+    FILE* trace = std::fopen(layer_trace_path, "w");
+    if (trace == nullptr) {
+      std::fprintf(stderr, "unable to initialize layer trace '%s': %s\n",
+                   layer_trace_path, std::strerror(errno));
+      layer_trace_ready = false;
+    } else {
+      std::fclose(trace);
+    }
+  }
   std::vector<uint32_t> reference_tokens;
   const char* reference_text =
       std::getenv("OPENNPUX_HOST_FUNCTIONAL_REFERENCE_TOKENS");
@@ -422,8 +503,8 @@ int main(int argc, char** argv) {
     opennpux_npu_executable_unload(&executable);
     return 2;
   }
-  bool ready = instantiated && graph.LoadTensorPlan(argv[2]) &&
-               weights.Load(argv[3], argv[4]);
+  bool ready = instantiated && layer_trace_ready &&
+               graph.LoadTensorPlan(argv[2]) && weights.Load(argv[3], argv[4]);
   std::vector<uint32_t> generated;
   bool token_mismatch = false;
   for (uint32_t step = 0; ready && step < max_new_tokens; ++step) {
@@ -456,6 +537,9 @@ int main(int argc, char** argv) {
         ready = false;
       } else if (trace && step == TraceStep()) {
         TraceCommandOutputs(graph, step, command_index);
+      }
+      if (ready && layer_trace_path != nullptr && step == TraceStep()) {
+        TraceLayerBoundary(graph, step, command_index, layer_trace_path);
       }
     }
     ready = ready && graph.ReadNextToken(&next_token);

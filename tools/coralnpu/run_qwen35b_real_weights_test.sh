@@ -477,6 +477,16 @@ INPUT_TOKEN_IDS=""
 EXPECTED_GENERATED_TOKENS=0
 EXPECTED_TOKEN_IDS=""
 PREFLIGHT_TOKEN_IDS=""
+LAYER_TRACE="${CORAL_LAYER_TRACE:-0}"
+LAYER_TRACE_STEP="${CORAL_LAYER_TRACE_STEP:-3}"
+VLLM_LAYER_TRACE="${CORAL_VLLM_LAYER_TRACE:-${ROOT_DIR}/simout/qwen35b-vllm-layers.jsonl}"
+HOST_LAYER_TRACE="${CORAL_HOST_LAYER_TRACE:-${ROOT_DIR}/simout/qwen35b-host-layers.jsonl}"
+HOST_LAYER_TRACE_ENV=""
+EFFECTIVE_TRACE_STEP="${CORAL_HOST_FUNCTIONAL_TRACE_STEP:-0}"
+if [ "$LAYER_TRACE" != 0 ]; then
+    HOST_LAYER_TRACE_ENV="$HOST_LAYER_TRACE"
+    EFFECTIVE_TRACE_STEP="$LAYER_TRACE_STEP"
+fi
 if [ "$TOKEN_REFERENCE" != 0 ] || [ "$SIM_HOST_NUMERICAL" != 0 ]; then
     PROMPT_TAG="$(python3 - "$PROMPT" <<'PY'
 import sys
@@ -499,6 +509,9 @@ PY
     if [ "$result_stale" -eq 0 ] &&
        find "$MODEL_DIR" -maxdepth 1 -type f -name '*.safetensors' \
            -newer "$SIM_HOST_RESULT" -print -quit | grep -q .; then
+        result_stale=1
+    fi
+    if [ "$LAYER_TRACE" != 0 ]; then
         result_stale=1
     fi
     if [ "$result_stale" -eq 1 ] ||
@@ -548,6 +561,9 @@ PY
                 set -- "$@" --model-loader "$MODEL_LOADER" \
                     --gptq-backend "$GPTQ_BACKEND" \
                     --device-map "$HF_DEVICE"
+            elif [ "$LAYER_TRACE" != 0 ]; then
+                set -- "$@" --layer-trace "$VLLM_LAYER_TRACE" \
+                    --layer-trace-step "$LAYER_TRACE_STEP"
             fi
             exec "$HF_PYTHON" "$GENERATOR" "$@"
         )
@@ -632,7 +648,8 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         OPENNPUX_HOST_FUNCTIONAL_PRECISION="$HOST_FUNCTIONAL_PRECISION" \
         OPENNPUX_HOST_FUNCTIONAL_PROGRESS="${CORAL_HOST_FUNCTIONAL_PROGRESS:-0}" \
         OPENNPUX_HOST_FUNCTIONAL_TRACE="${CORAL_HOST_FUNCTIONAL_TRACE:-0}" \
-        OPENNPUX_HOST_FUNCTIONAL_TRACE_STEP="${CORAL_HOST_FUNCTIONAL_TRACE_STEP:-0}" \
+        OPENNPUX_HOST_FUNCTIONAL_TRACE_STEP="$EFFECTIVE_TRACE_STEP" \
+        OPENNPUX_HOST_FUNCTIONAL_LAYER_TRACE="$HOST_LAYER_TRACE_ENV" \
         OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE="${CORAL_HOST_FUNCTIONAL_LOGITS_TRACE:-0}" \
         OPENNPUX_GPTQ_ACCUMULATION="$GPTQ_ACCUMULATION" \
         OPENNPUX_GPTQ_EXPERT_ACCUMULATION="$GPTQ_EXPERT_ACCUMULATION" \
@@ -664,6 +681,12 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
                 "$PREFLIGHT_LOG" >&2
         fi
         if [ "$PREFLIGHT_RC" -ne 0 ]; then
+            if [ "$LAYER_TRACE" != 0 ] && [ -s "$VLLM_LAYER_TRACE" ] &&
+               [ -s "$HOST_LAYER_TRACE" ]; then
+                "$HF_PYTHON" "${ROOT_DIR}/tools/models/compare_layer_traces.py" \
+                    "$VLLM_LAYER_TRACE" "$HOST_LAYER_TRACE" \
+                    --step "$LAYER_TRACE_STEP" >&2 || true
+            fi
             echo "error: Host C++ functional preflight failed; gem5 was not started" >&2
             exit 1
         fi

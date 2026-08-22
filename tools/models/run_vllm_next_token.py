@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import struct
@@ -32,6 +33,82 @@ def vocabulary_size(config: dict) -> int:
     raise ValueError("model config does not define a vocabulary size")
 
 
+def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> dict:
+    """Install worker-local hooks without returning tensors through RPC."""
+    import torch
+
+    candidates = (
+        ("language_model", "model", "layers"),
+        ("model", "layers"),
+        ("language_model", "language_model", "model", "layers"),
+    )
+    layers = None
+    selected_path = ""
+    for path in candidates:
+        value = model
+        for component in path:
+            value = getattr(value, component, None)
+            if value is None:
+                break
+        if value is not None:
+            layers = value
+            selected_path = ".".join(path)
+            break
+    if layers is None:
+        raise RuntimeError("unable to locate decoder layers in vLLM model")
+
+    rank = int(os.environ.get("LOCAL_RANK", "0"))
+    counters = [0] * len(layers)
+
+    def make_hook(layer_index: int):
+        def trace_layer(_module, _inputs, output):
+            invocation = counters[layer_index]
+            counters[layer_index] += 1
+            if invocation != trace_step:
+                return
+            hidden = output[0] if isinstance(output, tuple) else output
+            residual = (
+                output[1]
+                if isinstance(output, tuple) and len(output) > 1
+                else None
+            )
+            if not isinstance(hidden, torch.Tensor):
+                return
+            # vLLM carries the residual separately between decoder layers.
+            # The next layer consumes their sum, which is the canonical layer
+            # boundary corresponding to OpenNPUX's second residual_add.
+            boundary = (
+                hidden
+                if not isinstance(residual, torch.Tensor)
+                else hidden + residual
+            )
+            vector = boundary.detach().reshape(-1, boundary.shape[-1])[-1]
+            values = vector.float().cpu().tolist()
+            finite = [
+                value
+                for value in values
+                if float("-inf") < value < float("inf")
+            ]
+            record = {
+                "source": "vllm",
+                "rank": rank,
+                "step": invocation,
+                "layer": layer_index,
+                "count": len(values),
+                "minimum": min(finite) if finite else 0.0,
+                "maximum": max(finite) if finite else 0.0,
+                "values": values,
+            }
+            with open(output_path, "a", encoding="utf-8") as trace:
+                trace.write(json.dumps(record, separators=(",", ":")) + "\n")
+
+        return trace_layer
+
+    for layer_index, layer in enumerate(layers):
+        layer.register_forward_hook(make_hook(layer_index))
+    return {"rank": rank, "layers": len(layers), "path": selected_path}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("model_dir", type=Path)
@@ -42,9 +119,13 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=8)
     parser.add_argument("--decode-mode", choices=("model", "greedy"), default="model")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--layer-trace", type=Path)
+    parser.add_argument("--layer-trace-step", type=int, default=0)
     args = parser.parse_args()
     if not 1 <= args.max_new_tokens <= MAX_RESULT_TOKENS:
         parser.error(f"--max-new-tokens must be between 1 and {MAX_RESULT_TOKENS}")
+    if args.layer_trace_step < 0:
+        parser.error("--layer-trace-step must be non-negative")
 
     # FlashInfer's sampler architecture gate misclassifies some SM120/SM121
     # wheel combinations. vLLM's native sampler is the supported fallback.
@@ -89,6 +170,10 @@ def main() -> None:
         "OPENNPUX_VLLM_ATTENTION_BACKEND", "TRITON_ATTN"
     )
     enforce_eager = os.environ.get("OPENNPUX_VLLM_ENFORCE_EAGER", "1") != "0"
+    if args.layer_trace is not None:
+        # Callable RPC serialization is opt-in in current vLLM releases and
+        # must be enabled before worker processes are created.
+        os.environ.setdefault("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
     llm = LLM(
         model=str(args.model_dir),
         trust_remote_code=True,
@@ -101,6 +186,19 @@ def main() -> None:
             os.environ.get("OPENNPUX_VLLM_GPU_MEMORY_UTILIZATION", "0.9")
         ),
     )
+    if args.layer_trace is not None:
+        args.layer_trace.parent.mkdir(parents=True, exist_ok=True)
+        args.layer_trace.unlink(missing_ok=True)
+        registrations = llm.apply_model(
+            functools.partial(
+                _install_layer_trace_hooks,
+                output_path=str(args.layer_trace),
+                trace_step=args.layer_trace_step,
+            )
+        )
+        print("hf_numerical_layer_trace=" + str(args.layer_trace))
+        print(f"hf_numerical_layer_trace_step={args.layer_trace_step}")
+        print("hf_numerical_layer_trace_workers=" + json.dumps(registrations))
     request = llm.generate([formatted_prompt], sampling, use_tqdm=True)[0]
     completion = request.outputs[0]
     generated_ids = [int(value) for value in completion.token_ids]

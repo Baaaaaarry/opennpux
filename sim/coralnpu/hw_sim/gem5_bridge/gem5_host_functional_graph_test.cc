@@ -95,6 +95,24 @@ int main(int argc, char** argv) {
   for (size_t index = 1; index < count; ++index) {
     assert(output_data[index] == static_cast<float>((index + 1) * 3));
   }
+  float recurrent_values[] = {1.001f, 1.001f};
+  opennpux_npu_functional_request recurrent_boundary = {};
+  recurrent_boundary.opcode = OPENNPUX_NPU_OP_RECURRENT_UPDATE;
+  recurrent_boundary.operand_count = 2;
+  recurrent_boundary.operands[0] = {
+      OPENNPUX_NPU_OPERAND_OUTPUT, UINT32_C(0x60000000), sizeof(float), 0};
+  recurrent_boundary.operands[1] = {
+      OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY, UINT32_C(0x60000004),
+      sizeof(float), 0};
+  const std::vector<Gem5FunctionalMemoryRegion> recurrent_regions = {{
+      UINT32_C(0x60000000),
+      reinterpret_cast<uint8_t*>(recurrent_values),
+      sizeof(recurrent_values),
+  }};
+  ApplyGem5HostBfloat16OutputBoundaries(recurrent_boundary,
+                                        recurrent_regions);
+  assert(recurrent_values[0] == 1.0f);
+  assert(recurrent_values[1] == 1.001f);
   assert(graph.stats().completed_commands == 1 &&
          graph.stats().operations == count);
   uint32_t matmul_index = UINT32_MAX;

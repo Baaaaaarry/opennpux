@@ -21,6 +21,10 @@ struct Gem5HostFunctionalGraphStats {
   uint64_t bytes_written;
 };
 
+void ApplyGem5HostBfloat16OutputBoundaries(
+    const opennpux_npu_functional_request& request,
+    const std::vector<Gem5FunctionalMemoryRegion>& regions);
+
 // Joins one instantiated invocation with its SSA tensor plan. Weight operands
 // remain caller supplied because they may come from a page cache or a direct
 // host mapping without changing graph scheduling.

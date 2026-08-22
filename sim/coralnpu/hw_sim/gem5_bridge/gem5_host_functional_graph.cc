@@ -65,6 +65,15 @@ bool IsFloatingOutputRole(uint32_t role) {
          role == OPENNPUX_NPU_OPERAND_OUTPUT_QUATERNARY;
 }
 
+bool PreserveFloat32Output(
+    const opennpux_npu_functional_request& request,
+    const opennpux_npu_functional_operand& operand) {
+  // Gated-delta recurrent state is an FP32 accumulator across decode tokens.
+  // Its primary activation still observes the model's BF16 command boundary.
+  return request.opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE &&
+         operand.role == OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY;
+}
+
 uint8_t* TranslateRegion(const std::vector<Gem5FunctionalMemoryRegion>& regions,
                          uint32_t address, uint32_t size) {
   for (const auto& region : regions) {
@@ -79,13 +88,16 @@ uint8_t* TranslateRegion(const std::vector<Gem5FunctionalMemoryRegion>& regions,
   return nullptr;
 }
 
-void RoundOutputsToBfloat16(
+}  // namespace
+
+void ApplyGem5HostBfloat16OutputBoundaries(
     const opennpux_npu_functional_request& request,
     const std::vector<Gem5FunctionalMemoryRegion>& regions) {
   for (uint32_t operand_index = 0; operand_index < request.operand_count;
        ++operand_index) {
     const auto& operand = request.operands[operand_index];
     if (!IsFloatingOutputRole(operand.role) ||
+        PreserveFloat32Output(request, operand) ||
         operand.byte_size % sizeof(float) != 0) {
       continue;
     }
@@ -107,8 +119,6 @@ void RoundOutputsToBfloat16(
     }
   }
 }
-
-}  // namespace
 
 bool Gem5HostFunctionalGraph::LoadTensorPlan(
     const std::string& tensor_plan_path) {
@@ -221,7 +231,7 @@ bool Gem5HostFunctionalGraph::Execute(
     return false;
   }
   if (UseBfloat16Boundaries()) {
-    RoundOutputsToBfloat16(*request, regions);
+    ApplyGem5HostBfloat16OutputBoundaries(*request, regions);
   }
   ++stats_.completed_commands;
   stats_.operations += request->operation_count;

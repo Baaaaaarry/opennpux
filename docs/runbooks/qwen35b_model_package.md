@@ -111,6 +111,10 @@ from `model.npxm`. A `bfloat16` model automatically uses BF16 round-to-nearest-
 even boundaries between NPU commands while retaining FP32 accumulation inside
 functional kernels. Other model dtypes default to FP32 boundaries. The same
 policy is applied to the preflight runner and the gem5 sim-host backend.
+Persistent linear-attention recurrent accumulators remain FP32 across decode
+invocations; only their externally visible activation output observes the BF16
+command boundary. Rounding recurrent state after every token changes later
+router and logit decisions even when a full-context run initially agrees.
 
 Override the manifest-derived policy only for A/B diagnosis:
 

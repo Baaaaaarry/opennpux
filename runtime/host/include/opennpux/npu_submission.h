@@ -115,6 +115,7 @@ enum opennpux_npu_operator_parameter_flags {
     OPENNPUX_NPU_PARAMETER_DYNAMIC_ROWS = 1u << 1,
     OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET = 1u << 2,
     OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET = 1u << 3,
+    OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE = 1u << 4,
 };
 
 /* Source compatibility for executables emitted before the generic name. */

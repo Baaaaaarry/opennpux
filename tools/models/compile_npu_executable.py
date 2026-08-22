@@ -162,6 +162,9 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
         if phase in {"causal_depthwise_conv", "recurrent_state_update",
                      "linear_attention_gate_norm"}:
             flags |= 8
+    if (str(manifest.get("dtype", "")).lower() == "bfloat16" and
+            phase == "linear_attention_gate_norm"):
+        flags |= 16
     parameter_heads = heads
     parameter_kv_heads = kv_heads
     parameter_head_dim = head_dim
@@ -356,7 +359,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 2,
-        "functional_graph_revision": 9,
+        "functional_graph_revision": 10,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -709,7 +712,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
-        "functional_graph_revision": 9,
+        "functional_graph_revision": 10,
         "execution_scope": executable["execution_scope"],
         "runtime_row_expression": "runtime.batch * runtime.sequence",
         "tensor_count": len(tensors),

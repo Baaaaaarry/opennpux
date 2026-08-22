@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <numeric>
 #include <vector>
@@ -10,6 +11,17 @@ namespace {
 
 constexpr uint64_t kOperationsPerCycle = 16;
 constexpr uint64_t kBytesPerCycle = 16;
+
+float RoundBfloat16(float value) {
+  uint32_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+  if ((bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000)) {
+    bits += UINT32_C(0x00007fff) + ((bits >> 16) & 1U);
+    bits &= UINT32_C(0xffff0000);
+    std::memcpy(&value, &bits, sizeof(bits));
+  }
+  return value;
+}
 
 bool ProductFits(size_t first, size_t second, size_t* result) {
   if (result == nullptr ||
@@ -193,7 +205,7 @@ bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
 bool RunGem5GatedRmsNormF32(
     const float* input, const float* gate, const float* weight, size_t rows,
     size_t heads, size_t head_dim, float epsilon, float* output,
-    Gem5TransformerKernelStats* stats) {
+    Gem5TransformerKernelStats* stats, bool bfloat16_intermediate) {
   size_t features = 0;
   size_t count = 0;
   if (!ProductFits(heads, head_dim, &features) ||
@@ -216,10 +228,16 @@ bool RunGem5GatedRmsNormF32(
         return false;
       }
       for (size_t column = 0; column < head_dim; ++column) {
-        const float gate_value = gate[base + column];
+        float normalized = input[base + column] * inverse_rms;
+        float gate_value = gate[base + column];
+        if (bfloat16_intermediate) {
+          // The projected gate and normalized activation are independently
+          // materialized at the BF16 boundary before the fused multiply.
+          normalized = RoundBfloat16(normalized);
+          gate_value = RoundBfloat16(gate_value);
+        }
         const float silu_gate = gate_value / (1.0f + std::exp(-gate_value));
-        output[base + column] = input[base + column] * inverse_rms *
-                                weight[column] * silu_gate;
+        output[base + column] = normalized * weight[column] * silu_gate;
         if (!std::isfinite(output[base + column])) {
           return false;
         }

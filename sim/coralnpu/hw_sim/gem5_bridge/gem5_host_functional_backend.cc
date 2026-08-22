@@ -222,7 +222,9 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
             request.input, gate.data(),
             static_cast<const float*>(request.linear_norm_weight.data),
             request.rows, output_features / head_dim, head_dim,
-            request.epsilon, request.output, &norm_stats)) {
+            request.epsilon, request.output, &norm_stats,
+            (request.operator_parameters->flags &
+             OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0)) {
       return Result(Gem5HostFunctionalStatus::kExecutionError);
     }
     result.stats.operations =

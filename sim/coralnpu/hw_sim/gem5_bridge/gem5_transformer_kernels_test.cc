@@ -70,6 +70,21 @@ int main() {
                            norm_output, &stats, true));
   assert(Near(norm_output[0], 0.8485281f));
   assert(Near(norm_output[1], 1.1313708f));
+  const float gated_norm_input[] = {1.001f, 2.003f};
+  const float gated_norm_gate[] = {0.501f, 0.777f};
+  const float gated_norm_weight[] = {1.0f, 1.0f};
+  float gated_norm_fp32[2] = {};
+  float gated_norm_bf16[2] = {};
+  assert(RunGem5GatedRmsNormF32(
+      gated_norm_input, gated_norm_gate, gated_norm_weight, 1, 1, 2,
+      1.0e-6f, gated_norm_fp32, &stats));
+  assert(RunGem5GatedRmsNormF32(
+      gated_norm_input, gated_norm_gate, gated_norm_weight, 1, 1, 2,
+      1.0e-6f, gated_norm_bf16, &stats, true));
+  assert(std::isfinite(gated_norm_bf16[0]) &&
+         std::isfinite(gated_norm_bf16[1]));
+  assert(gated_norm_fp32[0] != gated_norm_bf16[0] ||
+         gated_norm_fp32[1] != gated_norm_bf16[1]);
 
   const float softmax_input[] = {0.0f, 0.0f, 0.0f, 0.0f,
                                  1000.0f, 999.0f, 998.0f, 997.0f};

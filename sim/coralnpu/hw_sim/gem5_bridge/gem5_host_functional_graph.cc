@@ -456,12 +456,9 @@ bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
           output->byte_size, weights, &routed_stats)) {
     return false;
   }
-  if (UseBfloat16Boundaries()) {
-    if (output->byte_size % sizeof(float) != 0) {
-      return false;
-    }
-    RoundToBfloat16(output_data, output->byte_size / sizeof(float));
-  }
+  // Routed expert execution models the fused expert/combine domain. Its FP32
+  // result is consumed by the following residual command, which establishes
+  // the externally visible BF16 boundary.
   ++stats_.completed_commands;
   stats_.operations += routed_stats.operations;
   stats_.modeled_cycles += routed_stats.modeled_cycles;

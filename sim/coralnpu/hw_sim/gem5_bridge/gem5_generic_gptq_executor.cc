@@ -11,6 +11,35 @@
 
 namespace {
 
+bool UseBfloat16ExpertIntermediates(bool* enabled) {
+  if (enabled == nullptr) {
+    return false;
+  }
+  const char* precision =
+      std::getenv("OPENNPUX_GPTQ_EXPERT_INTERMEDIATE_PRECISION");
+  if (precision == nullptr || precision[0] == '\0' ||
+      std::strcmp(precision, "fp32") == 0) {
+    *enabled = false;
+    return true;
+  }
+  if (std::strcmp(precision, "bf16") == 0) {
+    *enabled = true;
+    return true;
+  }
+  return false;
+}
+
+float RoundBfloat16(float value) {
+  uint32_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+  if ((bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000)) {
+    bits += UINT32_C(0x00007fff) + ((bits >> 16) & 1U);
+    bits &= UINT32_C(0xffff0000);
+    std::memcpy(&value, &bits, sizeof(bits));
+  }
+  return value;
+}
+
 constexpr uint32_t kMatMulOpcode = 2;
 constexpr uint32_t kExpertOpcode = 13;
 constexpr uint32_t kGptqFlag = 1;
@@ -489,12 +518,25 @@ bool RunGem5GenericGptqExpert(
     return false;
   }
 
-  const auto* gate = static_cast<const float*>(operands.gate_output.data);
-  const auto* up = static_cast<const float*>(operands.up_output.data);
+  auto* gate = static_cast<float*>(operands.gate_output.data);
+  auto* up = static_cast<float*>(operands.up_output.data);
   auto* activated = static_cast<float*>(operands.activated.data);
+  bool bfloat16_intermediates = false;
+  if (!UseBfloat16ExpertIntermediates(&bfloat16_intermediates)) {
+    return false;
+  }
+  if (bfloat16_intermediates) {
+    for (uint64_t index = 0; index < intermediate_count; ++index) {
+      gate[index] = RoundBfloat16(gate[index]);
+      up[index] = RoundBfloat16(up[index]);
+    }
+  }
   for (uint64_t index = 0; index < intermediate_count; ++index) {
     const float sigmoid = 1.0f / (1.0f + std::exp(-gate[index]));
     activated[index] = gate[index] * sigmoid * up[index];
+    if (bfloat16_intermediates) {
+      activated[index] = RoundBfloat16(activated[index]);
+    }
     if (!std::isfinite(activated[index])) {
       return false;
     }

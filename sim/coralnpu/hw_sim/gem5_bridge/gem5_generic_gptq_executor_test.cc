@@ -1,7 +1,9 @@
 #include "hw_sim/gem5_bridge/gem5_generic_gptq_executor.h"
 
 #include <cassert>
+#include <cstdint>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -246,6 +248,16 @@ int main() {
                    6.0f / (1.0f + std::exp(-2.0f))) < 1e-6f);
   assert(stats.operations == 36);
   assert(stats.modeled_cycles > 0);
+  assert(setenv("OPENNPUX_GPTQ_EXPERT_INTERMEDIATE_PRECISION", "bf16", 1) ==
+         0);
+  assert(RunGem5GenericGptqExpert(
+      expert_parameters, 1, expert_operands, &stats));
+  assert(unsetenv("OPENNPUX_GPTQ_EXPERT_INTERMEDIATE_PRECISION") == 0);
+  for (float value : activated) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    assert((bits & UINT32_C(0x0000ffff)) == 0);
+  }
 
   const uint32_t doubled_qweight[] = {
       UINT32_C(0x00000002), UINT32_C(0x00000020)};

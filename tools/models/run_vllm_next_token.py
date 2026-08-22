@@ -43,6 +43,7 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
         ("language_model", "language_model", "model", "layers"),
     )
     layers = None
+    decoder_model = None
     selected_path = ""
     for path in candidates:
         value = model
@@ -52,20 +53,46 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
                 break
         if value is not None:
             layers = value
+            decoder_model = model
+            for component in path[:-1]:
+                decoder_model = getattr(decoder_model, component)
             selected_path = ".".join(path)
             break
-    if layers is None:
+    if layers is None or decoder_model is None:
         raise RuntimeError("unable to locate decoder layers in vLLM model")
 
     rank = int(os.environ.get("LOCAL_RANK", "0"))
-    counters = [0] * len(layers)
+    counters: dict[tuple[int, str], int] = {}
+
+    def record_tensor(layer_index: int, point: str, tensor) -> None:
+        key = (layer_index, point)
+        invocation = counters.get(key, 0)
+        counters[key] = invocation + 1
+        if invocation != trace_step or not isinstance(tensor, torch.Tensor):
+            return
+        vector = tensor.detach().reshape(-1, tensor.shape[-1])[-1]
+        values = vector.float().cpu().tolist()
+        finite = [
+            value
+            for value in values
+            if float("-inf") < value < float("inf")
+        ]
+        record = {
+            "source": "vllm",
+            "rank": rank,
+            "step": invocation,
+            "layer": layer_index,
+            "point": point,
+            "count": len(values),
+            "minimum": min(finite) if finite else 0.0,
+            "maximum": max(finite) if finite else 0.0,
+            "values": values,
+        }
+        with open(output_path, "a", encoding="utf-8") as trace:
+            trace.write(json.dumps(record, separators=(",", ":")) + "\n")
 
     def make_hook(layer_index: int):
         def trace_layer(_module, _inputs, output):
-            invocation = counters[layer_index]
-            counters[layer_index] += 1
-            if invocation != trace_step:
-                return
             hidden = output[0] if isinstance(output, tuple) else output
             residual = (
                 output[1]
@@ -82,29 +109,41 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
                 if not isinstance(residual, torch.Tensor)
                 else hidden + residual
             )
-            vector = boundary.detach().reshape(-1, boundary.shape[-1])[-1]
-            values = vector.float().cpu().tolist()
-            finite = [
-                value
-                for value in values
-                if float("-inf") < value < float("inf")
-            ]
-            record = {
-                "source": "vllm",
-                "rank": rank,
-                "step": invocation,
-                "layer": layer_index,
-                "count": len(values),
-                "minimum": min(finite) if finite else 0.0,
-                "maximum": max(finite) if finite else 0.0,
-                "values": values,
-            }
-            with open(output_path, "a", encoding="utf-8") as trace:
-                trace.write(json.dumps(record, separators=(",", ":")) + "\n")
+            record_tensor(layer_index, "layer_boundary", boundary)
 
         return trace_layer
 
+    def make_tensor_hook(layer_index: int, point: str, output_index: int = 0):
+        def trace_tensor(_module, _inputs, output):
+            tensor = output
+            if isinstance(output, tuple):
+                if output_index >= len(output):
+                    return
+                tensor = output[output_index]
+            record_tensor(layer_index, point, tensor)
+
+        return trace_tensor
+
+    decoder_model.embed_tokens.register_forward_hook(
+        make_tensor_hook(-1, "embedding")
+    )
     for layer_index, layer in enumerate(layers):
+        layer.input_layernorm.register_forward_hook(
+            make_tensor_hook(layer_index, "attention_norm")
+        )
+        mixer = getattr(layer, "linear_attn", None)
+        if mixer is None:
+            mixer = getattr(layer, "self_attn", None)
+        if mixer is None:
+            raise RuntimeError(f"decoder layer {layer_index} has no token mixer")
+        mixer.register_forward_hook(make_tensor_hook(layer_index, "token_mixer"))
+        layer.post_attention_layernorm.register_forward_hook(
+            make_tensor_hook(layer_index, "ffn_norm")
+        )
+        layer.post_attention_layernorm.register_forward_hook(
+            make_tensor_hook(layer_index, "attention_residual", 1)
+        )
+        layer.mlp.register_forward_hook(make_tensor_hook(layer_index, "moe"))
         layer.register_forward_hook(make_hook(layer_index))
     return {"rank": rank, "layers": len(layers), "path": selected_path}
 

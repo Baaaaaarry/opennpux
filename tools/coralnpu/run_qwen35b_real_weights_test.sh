@@ -685,7 +685,9 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
                [ -s "$HOST_LAYER_TRACE" ]; then
                 "$HF_PYTHON" "${ROOT_DIR}/tools/models/compare_layer_traces.py" \
                     "$VLLM_LAYER_TRACE" "$HOST_LAYER_TRACE" \
-                    --step "$LAYER_TRACE_STEP" >&2 || true
+                    --step "$LAYER_TRACE_STEP" \
+                    --execution-plan "$MODEL_DIR/$EXECUTION_PLAN_NAME" \
+                    >&2 || true
             fi
             echo "error: Host C++ functional preflight failed; gem5 was not started" >&2
             exit 1

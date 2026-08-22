@@ -251,8 +251,98 @@ void TraceLayerBoundary(const Gem5HostFunctionalGraph& graph, uint32_t step,
   }
   std::fprintf(trace,
                "{\"source\":\"host-cpp\",\"step\":%u,\"layer\":%u,"
-               "\"count\":%zu,\"values\":[",
+               "\"point\":\"layer_boundary\",\"count\":%zu,"
+               "\"values\":[",
                step, layer, count);
+  for (size_t index = 0; index < count; ++index) {
+    std::fprintf(trace, "%s%.9g", index == 0 ? "" : ",", values[index]);
+  }
+  std::fprintf(trace, "]}\n");
+  std::fclose(trace);
+}
+
+void TraceLayerCommand(const Gem5HostFunctionalGraph& graph, uint32_t step,
+                       uint32_t command_index, const char* path) {
+  uint32_t layer = 0;
+  opennpux_npu_command_tensor_views views = {};
+  const auto* command = graph.command(command_index);
+  if (path == nullptr || !CommandLayer(command, &layer) ||
+      !graph.arena().ResolveCommand(command_index, &views)) {
+    return;
+  }
+  for (uint32_t output_index = 0; output_index < views.output_count;
+       ++output_index) {
+    const auto& output = views.outputs[output_index];
+    if (output.data_type != OPENNPUX_NPU_DTYPE_FLOAT32 ||
+        output.size % sizeof(float) != 0 || output.rank == 0 ||
+        output.rank > OPENNPUX_NPU_TENSOR_PLAN_MAX_RANK) {
+      continue;
+    }
+    const auto* values = reinterpret_cast<const float*>(
+        graph.arena().Translate(output.address, output.size));
+    const size_t total_count = output.size / sizeof(float);
+    const size_t count = output.dimensions[output.rank - 1];
+    if (values == nullptr || count == 0 || count > total_count) {
+      continue;
+    }
+    values += total_count - count;
+    FILE* trace = std::fopen(path, "a");
+    if (trace == nullptr) {
+      std::fprintf(stderr, "host_functional_layer_trace_error=%s\n",
+                   std::strerror(errno));
+      return;
+    }
+    std::fprintf(trace,
+                 "{\"source\":\"host-cpp\",\"step\":%u,"
+                 "\"layer\":%u,\"point\":\"command\","
+                 "\"phase_index\":%llu,\"opcode\":%u,\"output\":%u,"
+                 "\"count\":%zu,\"values\":[",
+                 step, layer,
+                 static_cast<unsigned long long>(command->profiling_tag &
+                                                 UINT64_C(0xffff)),
+                 command->opcode, output_index, count);
+    for (size_t index = 0; index < count; ++index) {
+      std::fprintf(trace, "%s%.9g", index == 0 ? "" : ",", values[index]);
+    }
+    std::fprintf(trace, "]}\n");
+    std::fclose(trace);
+  }
+}
+
+void TraceEmbedding(const Gem5HostFunctionalGraph& graph, uint32_t step,
+                    uint32_t command_index, const char* path) {
+  const auto* command = graph.command(command_index);
+  opennpux_npu_command_tensor_views views = {};
+  if (path == nullptr || command == nullptr ||
+      command->profiling_tag != UINT64_C(0xff000001) ||
+      !graph.arena().ResolveCommand(command_index, &views) ||
+      views.output_count == 0) {
+    return;
+  }
+  const auto& output = views.outputs[0];
+  if (output.data_type != OPENNPUX_NPU_DTYPE_FLOAT32 ||
+      output.size % sizeof(float) != 0 || output.rank == 0 ||
+      output.rank > OPENNPUX_NPU_TENSOR_PLAN_MAX_RANK) {
+    return;
+  }
+  const auto* values = reinterpret_cast<const float*>(
+      graph.arena().Translate(output.address, output.size));
+  const size_t total_count = output.size / sizeof(float);
+  const size_t count = output.dimensions[output.rank - 1];
+  if (values == nullptr || count == 0 || count > total_count) {
+    return;
+  }
+  values += total_count - count;
+  FILE* trace = std::fopen(path, "a");
+  if (trace == nullptr) {
+    std::fprintf(stderr, "host_functional_layer_trace_error=%s\n",
+                 std::strerror(errno));
+    return;
+  }
+  std::fprintf(trace,
+               "{\"source\":\"host-cpp\",\"step\":%u,\"layer\":-1,"
+               "\"point\":\"embedding\",\"count\":%zu,\"values\":[",
+               step, count);
   for (size_t index = 0; index < count; ++index) {
     std::fprintf(trace, "%s%.9g", index == 0 ? "" : ",", values[index]);
   }
@@ -539,6 +629,8 @@ int main(int argc, char** argv) {
         TraceCommandOutputs(graph, step, command_index);
       }
       if (ready && layer_trace_path != nullptr && step == TraceStep()) {
+        TraceEmbedding(graph, step, command_index, layer_trace_path);
+        TraceLayerCommand(graph, step, command_index, layer_trace_path);
         TraceLayerBoundary(graph, step, command_index, layer_trace_path);
       }
     }

@@ -131,7 +131,27 @@ bool Gem5HostFunctionalGraph::Configure(const void* submission,
 bool Gem5HostFunctionalGraph::ConfigureRuntime(
     const void* submission, size_t submission_size, uint32_t submission_base,
     const opennpux_npu_tensor_plan_runtime& runtime, uint32_t arena_base) {
-  ResetInvocation();
+  return ConfigureRuntimeInternal(submission, submission_size, submission_base,
+                                  runtime, arena_base, false);
+}
+
+bool Gem5HostFunctionalGraph::ConfigureRuntimePreservingPersistent(
+    const void* submission, size_t submission_size, uint32_t submission_base,
+    const opennpux_npu_tensor_plan_runtime& runtime, uint32_t arena_base) {
+  return ConfigureRuntimeInternal(submission, submission_size, submission_base,
+                                  runtime, arena_base, true);
+}
+
+bool Gem5HostFunctionalGraph::ConfigureRuntimeInternal(
+    const void* submission, size_t submission_size, uint32_t submission_base,
+    const opennpux_npu_tensor_plan_runtime& runtime, uint32_t arena_base,
+    bool preserve_persistent) {
+  submission_.clear();
+  submission_base_ = 0;
+  program_ = {};
+  stats_ = {};
+  configured_ = false;
+  if (!preserve_persistent) arena_.Reset();
   if (!arena_.loaded() || submission == nullptr || submission_size == 0 ||
       submission_size > UINT32_MAX || runtime.batch_size == 0 ||
       runtime.sequence_length == 0 ||
@@ -146,7 +166,10 @@ bool Gem5HostFunctionalGraph::ConfigureRuntime(
     ResetInvocation();
     return false;
   }
-  if (!arena_.Configure(runtime, arena_base) ||
+  const bool arena_configured = preserve_persistent
+      ? arena_.ConfigurePreservingPersistent(runtime, arena_base)
+      : arena_.Configure(runtime, arena_base);
+  if (!arena_configured ||
       RegionsOverlap(submission_base, submission_.size(), arena_.base(),
                      arena_.size()) ||
       opennpux_npu_functional_program_init(
@@ -839,8 +862,12 @@ bool Gem5HostFunctionalGraph::ExecutePositioned(uint32_t command_index) {
     return false;
   }
   std::vector<uint32_t> positions(initial.rows);
+  const uint32_t position_base =
+      arena_.runtime().kv_length >= initial.rows
+          ? arena_.runtime().kv_length - initial.rows
+          : 0;
   for (uint32_t row = 0; row < initial.rows; ++row) {
-    positions[row] = row;
+    positions[row] = position_base + row;
   }
   constexpr uint32_t kPositionAddress = UINT32_C(0x50000000);
   const opennpux_npu_functional_operand operand = {

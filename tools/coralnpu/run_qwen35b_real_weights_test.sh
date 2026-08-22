@@ -280,8 +280,8 @@ linear_fields = (
     "linear_conv_kernel_dim",
 )
 valid = (
-    manifest.get("functional_graph_revision", 0) >= 8
-    and executable.get("functional_graph_revision", 0) >= 8
+    manifest.get("functional_graph_revision", 0) >= 9
+    and executable.get("functional_graph_revision", 0) >= 9
     and all(int(manifest.get(field, 0)) > 0 for field in linear_fields)
 )
 raise SystemExit(0 if valid else 1)
@@ -314,7 +314,7 @@ try:
 except (OSError, ValueError):
     raise SystemExit(1)
 valid = (plan.get("tensor_domain") == "text" and
-         plan.get("functional_graph_revision", 0) >= 8)
+         plan.get("functional_graph_revision", 0) >= 9)
 raise SystemExit(0 if valid else 1)
 PY
 then

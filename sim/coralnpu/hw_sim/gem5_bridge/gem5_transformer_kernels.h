@@ -53,6 +53,11 @@ bool RunGem5CausalDepthwiseConvF32(
     const float* input, const float* weight, size_t rows, size_t features,
     size_t kernel_width, float* output, Gem5TransformerKernelStats* stats,
     bool silu_activation = false);
+bool RunGem5CausalDepthwiseConvStatefulF32(
+    const float* input, const float* weight, size_t rows, size_t features,
+    size_t kernel_width, const float* previous_state, float* next_state,
+    float* output, Gem5TransformerKernelStats* stats,
+    bool silu_activation = false);
 
 // Returns values in descending order. Equal values retain the lower source
 // index first so functional-model results are deterministic across hosts.

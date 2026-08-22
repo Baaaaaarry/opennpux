@@ -325,6 +325,48 @@ bool RunGem5CausalDepthwiseConvF32(
                      count + weight_count, count, stats);
 }
 
+bool RunGem5CausalDepthwiseConvStatefulF32(
+    const float* input, const float* weight, size_t rows, size_t features,
+    size_t kernel_width, const float* previous_state, float* next_state,
+    float* output, Gem5TransformerKernelStats* stats,
+    bool silu_activation) {
+  if (kernel_width <= 1) {
+    return RunGem5CausalDepthwiseConvF32(
+        input, weight, rows, features, kernel_width, output, stats,
+        silu_activation);
+  }
+  size_t state_count = 0;
+  if (!ProductFits(kernel_width - 1, features, &state_count) ||
+      previous_state == nullptr || next_state == nullptr) {
+    return false;
+  }
+  std::vector<float> history(previous_state, previous_state + state_count);
+  size_t count = 0;
+  if (!ProductFits(rows, features, &count) ||
+      !ValidBuffers(input, count, output, stats) || weight == nullptr) {
+    return false;
+  }
+  for (size_t row = 0; row < rows; ++row) {
+    for (size_t feature = 0; feature < features; ++feature) {
+      float sum = input[row * features + feature] *
+                  weight[feature * kernel_width + kernel_width - 1];
+      for (size_t tap = 1; tap < kernel_width; ++tap) {
+        sum += history[(kernel_width - 1 - tap) * features + feature] *
+               weight[feature * kernel_width + kernel_width - 1 - tap];
+      }
+      output[row * features + feature] =
+          silu_activation ? sum / (1.0f + std::exp(-sum)) : sum;
+    }
+    std::move(history.begin() + features, history.end(), history.begin());
+    std::copy_n(input + row * features, features,
+                history.end() - features);
+  }
+  std::copy(history.begin(), history.end(), next_state);
+  return FinishStats(static_cast<uint64_t>(count) * kernel_width * 2,
+                     count + kernel_width * features + state_count,
+                     count + state_count, stats);
+}
+
 bool RunGem5TopKF32(const float* input, size_t count, size_t k,
                     float* output_values, uint32_t* output_indices,
                     Gem5TransformerKernelStats* stats) {

@@ -144,7 +144,7 @@ with open(sys.argv[1], encoding="utf-8") as source:
     manifest = json.load(source)
 with open(sys.argv[2], encoding="utf-8") as source:
     executable = json.load(source)
-assert manifest["functional_graph_revision"] == 8
+assert manifest["functional_graph_revision"] == 9
 assert manifest["rotary_dim"] == 4
 assert manifest["rope_theta"] == 500000
 rope = next(command for command in executable["commands"]

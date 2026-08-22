@@ -421,14 +421,22 @@ int main(int argc, char** argv) {
   std::vector<uint32_t> generated;
   bool token_mismatch = false;
   for (uint32_t step = 0; ready && step < max_new_tokens; ++step) {
+    const bool prefill = step == 0;
+    const uint32_t sequence_length =
+        prefill ? static_cast<uint32_t>(tokens.size()) : 1;
     const opennpux_npu_tensor_plan_runtime runtime = {
-        1, static_cast<uint32_t>(tokens.size()),
+        1, sequence_length,
         static_cast<uint32_t>(tokens.size()), active_experts};
     uint32_t failed_command = UINT32_MAX;
     uint32_t next_token = 0;
-    ready = graph.ConfigureRuntime(submission, submission_size,
-                                   UINT32_C(0x24000000), runtime) &&
-            graph.SetInputTokenIds(tokens.data(), tokens.size());
+    ready = (prefill
+                 ? graph.ConfigureRuntime(submission, submission_size,
+                                          UINT32_C(0x24000000), runtime)
+                 : graph.ConfigureRuntimePreservingPersistent(
+                       submission, submission_size, UINT32_C(0x24000000),
+                       runtime)) &&
+            graph.SetInputTokenIds(prefill ? tokens.data() : &tokens.back(),
+                                   sequence_length);
     for (uint32_t command_index = 0;
          ready && command_index < graph.command_count(); ++command_index) {
       if (progress && command_index % 25 == 0) {

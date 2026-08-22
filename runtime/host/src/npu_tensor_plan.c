@@ -190,8 +190,14 @@ validate_plan(struct opennpux_npu_tensor_plan *plan)
         }
         for (uint32_t input = 0; input < command->input_count; ++input) {
             const uint32_t tensor_id = command->input_tensor_ids[input];
+            const int state_feedback = tensor_id < header->tensor_count &&
+                plan->tensors[tensor_id].storage ==
+                    OPENNPUX_NPU_TENSOR_PERSISTENT &&
+                plan->tensors[tensor_id].producer_command == index;
             if (tensor_id >= header->tensor_count ||
-                (plan->tensors[tensor_id].producer_command != OPENNPUX_NPU_TENSOR_NONE &&
+                (!state_feedback &&
+                 plan->tensors[tensor_id].producer_command !=
+                     OPENNPUX_NPU_TENSOR_NONE &&
                  plan->tensors[tensor_id].producer_command >= index)) {
                 errno = EINVAL;
                 return -1;

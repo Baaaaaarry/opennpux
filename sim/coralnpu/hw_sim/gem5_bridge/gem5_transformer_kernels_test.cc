@@ -101,6 +101,33 @@ int main() {
               3.0f * std::cos(1.0f) + 2.0f * std::sin(1.0f)));
   assert(partial_rope_output[2] == 5.0f && partial_rope_output[3] == 7.0f);
 
+  const float conv_input[] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  const float conv_weight[] = {0.25f, 0.5f, 1.0f,
+                               1.0f, -0.5f, 0.25f};
+  float conv_full[6] = {};
+  float conv_prefill[6] = {};
+  float conv_prefill_state[4] = {};
+  const float conv_zero_state[4] = {};
+  assert(RunGem5CausalDepthwiseConvF32(
+      conv_input, conv_weight, 3, 2, 3, conv_full, &stats));
+  assert(RunGem5CausalDepthwiseConvStatefulF32(
+      conv_input, conv_weight, 3, 2, 3, conv_zero_state,
+      conv_prefill_state, conv_prefill, &stats));
+  float conv_decode[6] = {};
+  float conv_decode_state[4] = {};
+  for (size_t row = 0; row < 3; ++row) {
+    float next_state[4] = {};
+    assert(RunGem5CausalDepthwiseConvStatefulF32(
+        conv_input + row * 2, conv_weight, 1, 2, 3, conv_decode_state,
+        next_state, conv_decode + row * 2, &stats));
+    std::copy(std::begin(next_state), std::end(next_state),
+              std::begin(conv_decode_state));
+  }
+  for (size_t index = 0; index < 6; ++index) {
+    assert(Near(conv_full[index], conv_prefill[index]));
+    assert(Near(conv_full[index], conv_decode[index]));
+  }
+
   const float logits[] = {1.0f, 3.0f, 3.0f, 2.0f};
   float top_values[2] = {};
   uint32_t top_indices[2] = {};

@@ -153,6 +153,13 @@ model's generation configuration and is not a token-for-token golden for the
 current argmax-only Host C++ backend. Sampling acceptance requires a shared
 sampler algorithm and RNG-state ABI.
 
+Functional graph revision 9 uses the same lifecycle expected from a general
+inference NPU: the first invocation prefills the prompt, while later
+invocations execute one decode token and retain persistent KV cache, linear
+attention recurrent state and causal-convolution history. RoPE positions use
+the accumulated KV length. The test script automatically regenerates stale
+executable, tensor-plan and weight-plan metadata; model shards are reused.
+
 Detailed numerical diagnostics are disabled by default. Enable only the needed
 stream with `CORAL_HOST_FUNCTIONAL_PROGRESS=1`,
 `CORAL_HOST_FUNCTIONAL_LOGITS_TRACE=1`, or

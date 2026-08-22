@@ -34,6 +34,10 @@ class Gem5HostFunctionalGraph {
       const void* submission, size_t submission_size, uint32_t submission_base,
       const opennpux_npu_tensor_plan_runtime& runtime,
       uint32_t arena_base = UINT32_C(0x30000000));
+  bool ConfigureRuntimePreservingPersistent(
+      const void* submission, size_t submission_size, uint32_t submission_base,
+      const opennpux_npu_tensor_plan_runtime& runtime,
+      uint32_t arena_base = UINT32_C(0x30000000));
   bool Materialize(
       uint32_t command_index,
       const opennpux_npu_functional_operand* extra_operands,
@@ -92,6 +96,10 @@ class Gem5HostFunctionalGraph {
       uint32_t command_index, Gem5HostWeightProvider* weights,
       const std::vector<Gem5HostWeightBinding>& bindings);
   bool ExecutePositioned(uint32_t command_index);
+  bool ConfigureRuntimeInternal(
+      const void* submission, size_t submission_size, uint32_t submission_base,
+      const opennpux_npu_tensor_plan_runtime& runtime, uint32_t arena_base,
+      bool preserve_persistent);
   std::vector<uint8_t> submission_;
   uint32_t submission_base_ = 0;
   Gem5HostTensorArena arena_;

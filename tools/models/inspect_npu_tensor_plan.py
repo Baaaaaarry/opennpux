@@ -54,7 +54,15 @@ def validate(plan: dict[str, Any]) -> None:
                 raise ValueError(f"command {command_id} reads unknown tensor {tensor_id}")
             producer = tensor.get("producer_command")
             if producer is not None and int(producer) >= command_id:
-                raise ValueError(f"command {command_id} reads tensor before production")
+                state_feedback = (
+                    tensor.get("storage") == "persistent"
+                    and int(producer) == command_id
+                    and int(tensor_id) in outputs
+                )
+                if not state_feedback:
+                    raise ValueError(
+                        f"command {command_id} reads tensor before production"
+                    )
         for tensor_id in outputs:
             tensor = by_id.get(int(tensor_id))
             if tensor is None or int(tensor.get("producer_command", -1)) != command_id:

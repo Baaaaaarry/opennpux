@@ -22,6 +22,9 @@ class Gem5HostTensorArena {
   bool Load(const std::string& tensor_plan_path);
   bool Configure(const opennpux_npu_tensor_plan_runtime& runtime,
                  uint32_t arena_base = UINT32_C(0x30000000));
+  bool ConfigurePreservingPersistent(
+      const opennpux_npu_tensor_plan_runtime& runtime,
+      uint32_t arena_base = UINT32_C(0x30000000));
   bool ResolveCommand(uint32_t command_id,
                       opennpux_npu_command_tensor_views* views) const;
   uint8_t* Translate(uint64_t address, uint64_t size);

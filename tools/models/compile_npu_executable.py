@@ -356,7 +356,7 @@ def build_executable(
     return {
         "format": FORMAT,
         "version": 2,
-        "functional_graph_revision": 8,
+        "functional_graph_revision": 9,
         "default_active_experts": int(manifest.get("experts_per_token", 1)),
         "target": "opennpux-coral-generic-v1",
         "source": {
@@ -566,11 +566,17 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
             current = output
             continue
         if phase == "causal_depthwise_conv":
+            kernel_width = max(1, int(manifest.get("linear_conv_kernel_dim", 4)))
+            state = tensor(
+                f"{prefix}.conv_state", "persistent",
+                ["runtime.batch", max(1, kernel_width - 1),
+                 int(tensors[current]["shape"][-1])], command_id,
+            )
             output = tensor(
                 f"{prefix}.conv", "scratch",
                 list(tensors[current]["shape"]), command_id,
             )
-            emit(command, [current], [output])
+            emit(command, [current, state], [output, state])
             current = output
             continue
         if phase == "recurrent_state_update":
@@ -703,7 +709,7 @@ def build_tensor_plan(executable: dict[str, Any], manifest: dict[str, Any]) -> d
     return {
         "format": TENSOR_PLAN_FORMAT,
         "version": 1,
-        "functional_graph_revision": 8,
+        "functional_graph_revision": 9,
         "execution_scope": executable["execution_scope"],
         "runtime_row_expression": "runtime.batch * runtime.sequence",
         "tensor_count": len(tensors),

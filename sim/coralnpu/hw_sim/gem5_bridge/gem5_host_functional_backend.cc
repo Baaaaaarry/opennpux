@@ -581,11 +581,21 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
     }
     const size_t kernel_width =
         request.operator_parameters->intermediate_features;
-    if (!RunGem5CausalDepthwiseConvF32(
-            request.input, request.weight, request.rows, request.features,
-            kernel_width, request.output, &result.stats,
-            (request.operator_parameters->flags &
-             OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0)) {
+    const bool stateful = request.secondary != nullptr &&
+                          request.output_secondary != nullptr;
+    const bool executed = stateful
+        ? RunGem5CausalDepthwiseConvStatefulF32(
+              request.input, request.weight, request.rows, request.features,
+              kernel_width, request.secondary, request.output_secondary,
+              request.output, &result.stats,
+              (request.operator_parameters->flags &
+               OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0)
+        : RunGem5CausalDepthwiseConvF32(
+              request.input, request.weight, request.rows, request.features,
+              kernel_width, request.output, &result.stats,
+              (request.operator_parameters->flags &
+               OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0);
+    if (!executed) {
       result.status = Gem5HostFunctionalStatus::kExecutionError;
     }
     return result;

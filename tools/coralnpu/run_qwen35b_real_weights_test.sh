@@ -711,9 +711,8 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         PREFLIGHT_LOG="${ROOT_DIR}/simout/qwen35b-host-functional-preflight.log"
         mkdir -p "${ROOT_DIR}/simout"
         TERMINAL_LOG="${ROOT_DIR}/logs/sim/m5out/system.terminal"
-        if [ -f "$TERMINAL_LOG" ]; then
-            mv -f "$TERMINAL_LOG" "$TERMINAL_LOG.previous"
-        fi
+        mkdir -p "$(dirname -- "$TERMINAL_LOG")"
+        : >"$TERMINAL_LOG"
         echo "[coral-qwen35b-real-weights-test] running Host C++ preflight" >&2
         : >"$PREFLIGHT_LOG"
         OPENNPUX_HOST_FUNCTIONAL_PRECISION="$HOST_FUNCTIONAL_PRECISION" \

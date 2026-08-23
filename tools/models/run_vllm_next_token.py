@@ -271,6 +271,7 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--prompt-format", choices=("chat", "raw"), default="chat")
+    parser.add_argument("--thinking-mode", choices=("off", "on"), default="off")
     parser.add_argument("--max-new-tokens", type=int, default=8)
     parser.add_argument("--decode-mode", choices=("model", "greedy"), default="model")
     parser.add_argument("--seed", type=int, default=42)
@@ -296,7 +297,10 @@ def main() -> None:
     if args.prompt_format == "chat":
         messages = [{"role": "user", "content": [{"type": "text", "text": args.prompt}]}]
         formatted_prompt = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=args.thinking_mode == "on",
         )
     else:
         formatted_prompt = args.prompt
@@ -406,6 +410,7 @@ def main() -> None:
     )
     print("hf_numerical_model_loader=vllm")
     print(f"hf_numerical_prompt_checksum=0x{fnv1a(prompt_bytes):08x}")
+    print(f"hf_numerical_thinking_mode={args.thinking_mode}")
     print(f"hf_numerical_input_tokens={input_tokens}")
     print(f"hf_numerical_generated_tokens={len(generated_ids)}")
     print("hf_numerical_token_ids=" + ",".join(str(value) for value in generated_ids))

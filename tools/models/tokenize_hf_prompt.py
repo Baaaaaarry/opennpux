@@ -51,6 +51,7 @@ def main() -> None:
     parser.add_argument("model", type=Path)
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--prompt-format", choices=("raw", "chat"), default="raw")
+    parser.add_argument("--thinking-mode", choices=("off", "on"), default="off")
     args = parser.parse_args()
 
     tokenizer = AutoTokenizer.from_pretrained(
@@ -61,6 +62,7 @@ def main() -> None:
             [{"role": "user", "content": args.prompt}],
             tokenize=True,
             add_generation_prompt=True,
+            enable_thinking=args.thinking_mode == "on",
         )
     else:
         encoded = tokenizer.encode(args.prompt, add_special_tokens=True)

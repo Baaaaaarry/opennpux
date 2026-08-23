@@ -14,6 +14,7 @@ Test input:
 Inference options:
   --max-new-tokens N         Generate 1..32 tokens (default: 8)
   --prompt-format FORMAT     chat or raw (default: chat)
+  --thinking-mode MODE       off for direct answers, on for reasoning (default: off)
   --decode-mode MODE         model or greedy (default: greedy)
   --generation-seed N        Non-negative generation seed (default: 42)
   --model-loader LOADER      vllm, transformers, or gptqmodel (default: vllm)
@@ -39,6 +40,7 @@ POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
 BASE="${CORAL_NPU_BASE:-0x1d000000}"
 PROMPT="${CORAL_QWEN_PROMPT:-OpenNPUX heterogeneous inference}"
 PROMPT_FORMAT="${CORAL_QWEN_PROMPT_FORMAT:-chat}"
+THINKING_MODE="${CORAL_QWEN_THINKING_MODE:-off}"
 MAX_NEW_TOKENS="${CORAL_QWEN_MAX_NEW_TOKENS:-8}"
 DECODE_MODE="${CORAL_QWEN_DECODE_MODE:-greedy}"
 GENERATION_SEED="${CORAL_QWEN_GENERATION_SEED:-42}"
@@ -80,6 +82,14 @@ while [ "$#" -gt 0 ]; do
                 exit 2
             }
             PROMPT_FORMAT=$2
+            shift 2
+            ;;
+        --thinking-mode)
+            [ "$#" -ge 2 ] || {
+                echo "error: --thinking-mode requires a value" >&2
+                exit 2
+            }
+            THINKING_MODE=$2
             shift 2
             ;;
         --decode-mode)
@@ -182,6 +192,13 @@ case "$PROMPT_FORMAT" in
     chat|raw) ;;
     *)
         echo "error: CORAL_QWEN_PROMPT_FORMAT must be chat or raw" >&2
+        exit 1
+        ;;
+esac
+case "$THINKING_MODE" in
+    off|on) ;;
+    *)
+        echo "error: CORAL_QWEN_THINKING_MODE must be off or on" >&2
         exit 1
         ;;
 esac
@@ -547,7 +564,7 @@ for byte in sys.argv[1].encode():
 print(f"{value:08x}")
 PY
 )"
-    SIM_HOST_RESULT="${CORAL_SIM_HOST_INFERENCE_RESULT:-${ROOT_DIR}/build/model-results/qwen35b-${PROMPT_TAG}-${PROMPT_FORMAT}-${MODEL_LOADER}-${GPTQ_BACKEND}-${HF_DEVICE}-${DECODE_MODE}-s${GENERATION_SEED}-t${MAX_NEW_TOKENS}.npxo}"
+    SIM_HOST_RESULT="${CORAL_SIM_HOST_INFERENCE_RESULT:-${ROOT_DIR}/build/model-results/qwen35b-${PROMPT_TAG}-${PROMPT_FORMAT}-${THINKING_MODE}-${MODEL_LOADER}-${GPTQ_BACKEND}-${HF_DEVICE}-${DECODE_MODE}-s${GENERATION_SEED}-t${MAX_NEW_TOKENS}.npxo}"
     result_stale=0
     [ -r "$SIM_HOST_RESULT" ] || result_stale=1
     if [ "$result_stale" -eq 0 ] &&
@@ -605,6 +622,7 @@ PY
             set -- "$MODEL_DIR" "$MODEL_DIR/$EXECUTABLE_NAME" \
                 "$SIM_HOST_RESULT" --prompt "$PROMPT" \
                 --prompt-format "$PROMPT_FORMAT" \
+                --thinking-mode "$THINKING_MODE" \
                 --decode-mode "$DECODE_MODE" \
                 --seed "$GENERATION_SEED" \
                 --max-new-tokens "$MAX_NEW_TOKENS"
@@ -659,6 +677,7 @@ PY
 )"
     echo "[coral-qwen35b-real-weights-test] numerical result: $SIM_HOST_RESULT" >&2
     echo "[coral-qwen35b-real-weights-test] prompt format: $PROMPT_FORMAT" >&2
+    echo "[coral-qwen35b-real-weights-test] thinking mode: $THINKING_MODE" >&2
     echo "[coral-qwen35b-real-weights-test] decode mode: $DECODE_MODE seed=$GENERATION_SEED" >&2
     echo "[coral-qwen35b-real-weights-test] model loader: $MODEL_LOADER" >&2
     echo "[coral-qwen35b-real-weights-test] GPTQ backend: $GPTQ_BACKEND" >&2
@@ -673,7 +692,8 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         exit 1
     fi
     TOKENIZED="$($HF_PYTHON "${ROOT_DIR}/tools/models/tokenize_hf_prompt.py" \
-        "$MODEL_DIR" --prompt "$PROMPT" --prompt-format "$PROMPT_FORMAT")"
+        "$MODEL_DIR" --prompt "$PROMPT" --prompt-format "$PROMPT_FORMAT" \
+        --thinking-mode "$THINKING_MODE")"
     INPUT_TOKEN_COUNT="$(printf '%s\n' "$TOKENIZED" |
         sed -n 's/^input_token_count=//p')"
     INPUT_TOKEN_IDS="$(printf '%s\n' "$TOKENIZED" |

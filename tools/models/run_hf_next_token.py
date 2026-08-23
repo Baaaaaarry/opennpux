@@ -139,7 +139,9 @@ def load_model(
     raise ValueError("gptqmodel loader requires a GPTQ model package")
 
 
-def format_prompt(tokenizer, prompt: str, prompt_format: str) -> str:
+def format_prompt(
+    tokenizer, prompt: str, prompt_format: str, thinking_mode: str
+) -> str:
     if prompt_format == "raw":
         return prompt
     if not getattr(tokenizer, "chat_template", None):
@@ -150,10 +152,13 @@ def format_prompt(tokenizer, prompt: str, prompt_format: str) -> str:
         [{"role": "user", "content": prompt}],
         tokenize=False,
         add_generation_prompt=True,
+        enable_thinking=thinking_mode == "on",
     )
 
 
-def prepare_inputs(model_dir: Path, prompt: str, prompt_format: str):
+def prepare_inputs(
+    model_dir: Path, prompt: str, prompt_format: str, thinking_mode: str
+):
     from transformers import AutoProcessor
 
     processor = AutoProcessor.from_pretrained(
@@ -171,12 +176,16 @@ def prepare_inputs(model_dir: Path, prompt: str, prompt_format: str):
             }
         ]
         formatted_prompt = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=thinking_mode == "on",
         )
         encoded = processor.apply_chat_template(
             messages,
             tokenize=True,
             add_generation_prompt=True,
+            enable_thinking=thinking_mode == "on",
             return_dict=True,
             return_tensors="pt",
         )
@@ -194,6 +203,12 @@ def main() -> None:
         choices=("chat", "raw"),
         default=os.environ.get("OPENNPUX_PROMPT_FORMAT", "chat"),
         help="format the CPU prompt with the model chat template or use it verbatim",
+    )
+    parser.add_argument(
+        "--thinking-mode",
+        choices=("off", "on"),
+        default=os.environ.get("OPENNPUX_THINKING_MODE", "off"),
+        help="disable or enable reasoning in chat-template prompts",
     )
     parser.add_argument(
         "--gptq-backend",
@@ -248,7 +263,7 @@ def main() -> None:
     )
     model.eval()
     processor, tokenizer, formatted_prompt, encoded = prepare_inputs(
-        args.model_dir, args.prompt, args.prompt_format
+        args.model_dir, args.prompt, args.prompt_format, args.thinking_mode
     )
     del processor
     input_device = next(model.parameters()).device
@@ -349,6 +364,7 @@ def main() -> None:
     print(f"hf_numerical_device_map={args.device_map}")
     print(f"hf_numerical_torch_cse_compat={int(cse_compat)}")
     print(f"hf_numerical_prompt_format={args.prompt_format}")
+    print(f"hf_numerical_thinking_mode={args.thinking_mode}")
     print(f"hf_numerical_decode_mode={args.decode_mode}")
     print(f"hf_numerical_generation_seed={args.seed}")
     print(

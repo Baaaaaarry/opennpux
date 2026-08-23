@@ -216,8 +216,13 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
                 getattr(mixer, "chunk_gated_delta_rule", None), layer_index,
                 "recurrent_state_update", 0, width=value_width,
             )
-            register_output(
-                getattr(mixer, "norm", None), layer_index,
+            # Optimized GDN paths may invoke the fused gate/norm kernel
+            # without passing through nn.Module.__call__, so a hook on
+            # mixer.norm is not reliable. The out-projection input is the
+            # architectural boundary immediately after gate/norm in every
+            # backend path.
+            register_input(
+                getattr(mixer, "out_proj", None), layer_index,
                 "linear_attention_gate_norm", width=value_width,
             )
             register_output(

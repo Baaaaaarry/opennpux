@@ -781,9 +781,16 @@ bool Gem5HostFunctionalGraph::ComputeLinearAttentionGateProjection(
     return false;
   }
   Gem5TransformerKernelStats stats = {};
-  return RunGem5MatMulF32(
+  if (!RunGem5MatMulF32(
       input + (request.rows - 1) * input_features, gate_weight.data(), 1,
-      input_features, output_features, output->data(), &stats);
+      input_features, output_features, output->data(), &stats)) {
+    return false;
+  }
+  if ((parameters->flags &
+       OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0) {
+    RoundToBfloat16(output->data(), output->size());
+  }
+  return true;
 }
 
 bool Gem5HostFunctionalGraph::ExecuteLinearAttentionRecurrent(

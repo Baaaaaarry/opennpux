@@ -12,7 +12,7 @@ from typing import Any
 
 FORMAT = "OPENNPUX_NPU_EXECUTABLE_V2"
 TENSOR_PLAN_FORMAT = "OPENNPUX_NPU_TENSOR_PLAN_V1"
-FUNCTIONAL_GRAPH_REVISION = 12
+FUNCTIONAL_GRAPH_REVISION = 13
 HEADER = struct.Struct("<8I3Q2I3Q")
 ENTRY = struct.Struct("<4I4Q")
 COMMAND = struct.Struct("<8I4Q2IQ")
@@ -164,6 +164,14 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
         if phase in {"causal_depthwise_conv", "recurrent_state_update",
                      "linear_attention_gate_norm"}:
             flags |= 8
+    model_dtype = str(manifest.get("dtype", "")).lower()
+    if phase == "linear_attention_gate_norm" and model_dtype in {
+        "bfloat16", "bf16"
+    }:
+        # This command fuses a projection with gated normalization. Preserve
+        # the model's architectural precision boundary for the otherwise
+        # hidden projection result.
+        flags |= 16
     parameter_heads = heads
     parameter_kv_heads = kv_heads
     parameter_head_dim = head_dim

@@ -161,7 +161,7 @@ assert rope["parameters"]["flags"] & 4
 gate_norm = next(command for command in executable["commands"]
                  if command["attributes"]["phase"] ==
                     "linear_attention_gate_norm")
-assert not gate_norm["parameters"]["flags"] & 16
+assert gate_norm["parameters"]["flags"] & 16
 tensor_plan = json.load(open(sys.argv[2].replace(".npxe", ".npxt"),
                              encoding="utf-8"))
 qkv = next(command for command in tensor_plan["command_io"]

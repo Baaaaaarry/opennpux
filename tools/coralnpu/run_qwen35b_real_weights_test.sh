@@ -919,12 +919,12 @@ if [ '$TOKEN_REFERENCE' != 0 ]; then
         m5 --inst exit
         exit 1
     fi
-    actual_token_ids=$(sed -n 's/^inference_token_ids=//p' \
+    actual_token_ids=\$(sed -n 's/^inference_token_ids=//p' \
         /tmp/opennpux-inference.log | tail -n 1)
     token_equivalence=strict
-    if [ "$actual_token_ids" != '$EXPECTED_TOKEN_IDS' ]; then
+    if [ "\$actual_token_ids" != '$EXPECTED_TOKEN_IDS' ]; then
         if [ -n '$PREFLIGHT_TIE_STEP' ] &&
-           awk -v actual="$actual_token_ids" \
+           awk -v actual="\$actual_token_ids" \
                -v expected='$EXPECTED_TOKEN_IDS' \
                -v step='$PREFLIGHT_TIE_STEP' \
                -v host_token='$PREFLIGHT_TIE_HOST_TOKEN' \
@@ -950,7 +950,7 @@ if [ '$TOKEN_REFERENCE' != 0 ]; then
         fi
     fi
     echo '[coral-qwen35b-real-weights-test] token_reference=$MODEL_LOADER'
-    echo "[coral-qwen35b-real-weights-test] token_golden=PASS equivalence=$token_equivalence"
+    echo "[coral-qwen35b-real-weights-test] token_golden=PASS equivalence=\$token_equivalence"
 fi
 if [ -n '$DECODED_TOKEN_TEXT_B64' ]; then
     echo 'inference_text_source=cpu-tokenizer'

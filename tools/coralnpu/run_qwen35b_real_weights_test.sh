@@ -510,6 +510,9 @@ INPUT_TOKEN_IDS=""
 EXPECTED_GENERATED_TOKENS=0
 EXPECTED_TOKEN_IDS=""
 PREFLIGHT_TOKEN_IDS=""
+PREFLIGHT_TIE_STEP=""
+PREFLIGHT_TIE_HOST_TOKEN=""
+PREFLIGHT_TIE_REFERENCE_TOKEN=""
 LAYER_TRACE="${CORAL_LAYER_TRACE:-0}"
 LAYER_TRACE_STEP="${CORAL_LAYER_TRACE_STEP:-3}"
 VLLM_LAYER_TRACE="${CORAL_VLLM_LAYER_TRACE:-${ROOT_DIR}/simout/qwen35b-vllm-layers.jsonl}"
@@ -742,6 +745,16 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
             echo "error: Host C++ preflight did not produce token IDs" >&2
             exit 1
         }
+        PREFLIGHT_TIE="$(sed -n \
+            's/^host_functional_tie=step:\([0-9][0-9]*\),host_token:\([0-9][0-9]*\),reference_token:\([0-9][0-9]*\),.*/\1,\2,\3/p' \
+            "$PREFLIGHT_LOG" | head -n 1)"
+        if [ -n "$PREFLIGHT_TIE" ]; then
+            PREFLIGHT_TIE_STEP=${PREFLIGHT_TIE%%,*}
+            PREFLIGHT_TIE_REST=${PREFLIGHT_TIE#*,}
+            PREFLIGHT_TIE_HOST_TOKEN=${PREFLIGHT_TIE_REST%%,*}
+            PREFLIGHT_TIE_REFERENCE_TOKEN=${PREFLIGHT_TIE_REST#*,}
+            echo "[coral-qwen35b-real-weights-test] exact-logit tie: step=$PREFLIGHT_TIE_STEP host=$PREFLIGHT_TIE_HOST_TOKEN reference=$PREFLIGHT_TIE_REFERENCE_TOKEN" >&2
+        fi
         if [ "$TOKEN_REFERENCE" != 0 ] &&
            [ "$PREFLIGHT_TOKEN_IDS" != "$EXPECTED_TOKEN_IDS" ]; then
             echo "error: Host C++ preflight token IDs differ from $MODEL_LOADER" >&2
@@ -758,7 +771,7 @@ if [ -z "$CPU_DECODE_TOKEN_IDS" ]; then
     CPU_DECODE_TOKEN_IDS="$PREFLIGHT_TOKEN_IDS"
 fi
 DECODED_TOKEN_TEXT_B64=""
-if [ -n "$CPU_DECODE_TOKEN_IDS" ]; then
+if [ -n "$CPU_DECODE_TOKEN_IDS" ] && [ -z "$PREFLIGHT_TIE_STEP" ]; then
     DECODED_TOKEN_TEXT="$($HF_PYTHON \
         "${ROOT_DIR}/tools/models/decode_token_ids.py" "$MODEL_DIR" \
         --token-ids "$CPU_DECODE_TOKEN_IDS" --text-only)"
@@ -906,14 +919,38 @@ if [ '$TOKEN_REFERENCE' != 0 ]; then
         m5 --inst exit
         exit 1
     fi
-    if ! grep -Fqx 'inference_token_ids=$EXPECTED_TOKEN_IDS' \
-        /tmp/opennpux-inference.log; then
-        echo '[coral-qwen35b-real-weights-test] FAIL: token IDs differ from HF golden'
-        m5 --inst exit
-        exit 1
+    actual_token_ids=$(sed -n 's/^inference_token_ids=//p' \
+        /tmp/opennpux-inference.log | tail -n 1)
+    token_equivalence=strict
+    if [ "$actual_token_ids" != '$EXPECTED_TOKEN_IDS' ]; then
+        if [ -n '$PREFLIGHT_TIE_STEP' ] &&
+           awk -v actual="$actual_token_ids" \
+               -v expected='$EXPECTED_TOKEN_IDS' \
+               -v step='$PREFLIGHT_TIE_STEP' \
+               -v host_token='$PREFLIGHT_TIE_HOST_TOKEN' \
+               -v reference_token='$PREFLIGHT_TIE_REFERENCE_TOKEN' '
+            BEGIN {
+                actual_count = split(actual, actual_values, ",")
+                expected_count = split(expected, expected_values, ",")
+                if (actual_count != expected_count || step >= actual_count)
+                    exit 1
+                for (index = 1; index <= step; ++index)
+                    if (actual_values[index] != expected_values[index])
+                        exit 1
+                exit !(actual_values[step + 1] == host_token &&
+                       expected_values[step + 1] == reference_token)
+            }
+        '; then
+            token_equivalence=exact-logit-tie
+            echo '[coral-qwen35b-real-weights-test] token_equivalence=exact-logit-tie step=$PREFLIGHT_TIE_STEP host_token=$PREFLIGHT_TIE_HOST_TOKEN reference_token=$PREFLIGHT_TIE_REFERENCE_TOKEN'
+        else
+            echo '[coral-qwen35b-real-weights-test] FAIL: token IDs differ from HF golden'
+            m5 --inst exit
+            exit 1
+        fi
     fi
     echo '[coral-qwen35b-real-weights-test] token_reference=$MODEL_LOADER'
-    echo '[coral-qwen35b-real-weights-test] token_golden=PASS'
+    echo "[coral-qwen35b-real-weights-test] token_golden=PASS equivalence=$token_equivalence"
 fi
 if [ -n '$DECODED_TOKEN_TEXT_B64' ]; then
     echo 'inference_text_source=cpu-tokenizer'
@@ -928,7 +965,7 @@ EOF
 
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 cd "${ROOT_DIR}/thirdparty/gem5"
-OPENNPUX_HOST_FUNCTIONAL_PRECISION="$HOST_FUNCTIONAL_PRECISION" \
+if OPENNPUX_HOST_FUNCTIONAL_PRECISION="$HOST_FUNCTIONAL_PRECISION" \
 OPENNPUX_HOST_FUNCTIONAL_TRACE="${CORAL_HOST_FUNCTIONAL_TRACE:-0}" \
 OPENNPUX_HOST_FUNCTIONAL_TRACE_STEP="${CORAL_HOST_FUNCTIONAL_TRACE_STEP:-0}" \
 OPENNPUX_GPTQ_ACCUMULATION="$GPTQ_ACCUMULATION" \
@@ -949,4 +986,22 @@ CORAL_AUTO_RESUME_AFTER_CKPT="${CORAL_AUTO_RESUME_AFTER_CKPT:-1}" \
 CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_qwen35b_real_9p_ckpt}" \
 CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --vio-9p --vio-9p-root=$MODEL_DIR --npu-operator-mode=hybrid --npu-dma-shared-base=0x8f000000 --npu-dma-shared-size=8MiB --npu-fast-dma --npu-fast-dma-event-batch=${CORAL_FAST_DMA_EVENT_BATCH:-1} --npu-fast-dma-sync-offset=0 --npu-fast-dma-sync-size=64KiB" \
 CORAL_RESUME_BOOTSCRIPT="$TMP_SCRIPT" \
-./run_multicore.sh
+./run_multicore.sh; then
+    RUN_RC=0
+else
+    RUN_RC=$?
+fi
+
+if [ -n "$PREFLIGHT_TIE_STEP" ]; then
+    TERMINAL_LOG="${ROOT_DIR}/logs/sim/m5out/system.terminal"
+    ACTUAL_TOKEN_IDS="$(sed -n 's/^inference_token_ids=//p' \
+        "$TERMINAL_LOG" 2>/dev/null | tail -n 1)"
+    if [ -n "$ACTUAL_TOKEN_IDS" ]; then
+        ACTUAL_TOKEN_TEXT="$($HF_PYTHON \
+            "${ROOT_DIR}/tools/models/decode_token_ids.py" "$MODEL_DIR" \
+            --token-ids "$ACTUAL_TOKEN_IDS" --text-only)"
+        printf '[coral-qwen35b-real-weights-test] inference_actual_token_text=%s\n' \
+            "$ACTUAL_TOKEN_TEXT"
+    fi
+fi
+exit "$RUN_RC"

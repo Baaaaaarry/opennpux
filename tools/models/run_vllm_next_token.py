@@ -145,6 +145,17 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
 
         return trace_input
 
+    def make_tail_hook(
+        layer_index: int, point: str, *, width: int
+    ):
+        def trace_tail(_module, _inputs, output):
+            tensor = output[0] if isinstance(output, tuple) else output
+            if not isinstance(tensor, torch.Tensor) or tensor.shape[-1] < width:
+                return
+            record_tensor(layer_index, point, tensor[..., -width:], width=width)
+
+        return trace_tail
+
     registered_points: set[str] = set()
 
     def register_output(
@@ -212,6 +223,14 @@ def _install_layer_trace_hooks(model, *, output_path: str, trace_step: int) -> d
             )
         else:
             value_width = int(getattr(mixer, "value_dim", 0)) or None
+            if value_width is not None and getattr(mixer, "in_proj_qkvz", None):
+                mixer.in_proj_qkvz.register_forward_hook(
+                    make_tail_hook(
+                        layer_index, "linear_attention_gate_projection",
+                        width=value_width,
+                    )
+                )
+                registered_points.add("linear_attention_gate_projection")
             register_output(
                 getattr(mixer, "chunk_gated_delta_rule", None), layer_index,
                 "recurrent_state_update", 0, width=value_width,

@@ -66,6 +66,9 @@ class Gem5HostFunctionalGraph {
                          const Gem5HostWeightBinding& binding);
   bool ExecuteCommand(uint32_t command_index,
                       Gem5HostWeightProvider* weights);
+  bool ComputeLinearAttentionGateProjection(
+      uint32_t command_index, Gem5HostWeightProvider* weights,
+      std::vector<float>* output) const;
   bool ExecuteProgram(Gem5HostWeightProvider* weights,
                       uint32_t* failed_command = nullptr);
   bool SetInputTokenIds(const uint32_t* token_ids, size_t token_count);

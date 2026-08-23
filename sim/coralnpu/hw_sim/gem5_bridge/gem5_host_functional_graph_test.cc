@@ -324,6 +324,13 @@ int main(int argc, char** argv) {
   }
   assert(linear_gate_norm_index != UINT32_MAX);
   assert(graph.ExecuteCommand(linear_gate_norm_index, &weights));
+  std::vector<float> linear_gate_projection;
+  assert(graph.ComputeLinearAttentionGateProjection(
+      linear_gate_norm_index, &weights, &linear_gate_projection));
+  assert(!linear_gate_projection.empty());
+  assert(std::all_of(linear_gate_projection.begin(),
+                     linear_gate_projection.end(),
+                     [](float value) { return std::isfinite(value); }));
   uint32_t shared_expert_index = UINT32_MAX;
   for (uint32_t index = 0; index < graph.command_count(); ++index) {
     std::vector<Gem5HostWeightBinding> floating;

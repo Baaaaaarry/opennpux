@@ -206,6 +206,7 @@ def main() -> None:
             "attention_core",
             "attention_output_projection",
             "recurrent_state_update",
+            "linear_attention_gate_projection",
             "linear_attention_gate_norm",
             "linear_attention_output_projection",
             "token_mixer",

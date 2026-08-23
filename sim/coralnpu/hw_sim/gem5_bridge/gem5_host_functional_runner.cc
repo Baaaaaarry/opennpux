@@ -268,7 +268,8 @@ void TraceLayerBoundary(const Gem5HostFunctionalGraph& graph, uint32_t step,
   std::fclose(trace);
 }
 
-void TraceLayerCommand(const Gem5HostFunctionalGraph& graph, uint32_t step,
+void TraceLayerCommand(const Gem5HostFunctionalGraph& graph,
+                       Gem5HostWeightProvider* weights, uint32_t step,
                        uint32_t command_index, const char* path) {
   uint32_t layer = 0;
   opennpux_npu_command_tensor_views views = {};
@@ -276,6 +277,27 @@ void TraceLayerCommand(const Gem5HostFunctionalGraph& graph, uint32_t step,
   if (path == nullptr || !CommandLayer(command, &layer) ||
       !graph.arena().ResolveCommand(command_index, &views)) {
     return;
+  }
+  std::vector<float> gate;
+  if (graph.ComputeLinearAttentionGateProjection(command_index, weights,
+                                                  &gate)) {
+    FILE* trace = std::fopen(path, "a");
+    if (trace == nullptr) {
+      std::fprintf(stderr, "host_functional_layer_trace_error=%s\n",
+                   std::strerror(errno));
+      return;
+    }
+    std::fprintf(trace,
+                 "{\"source\":\"host-cpp\",\"step\":%u,"
+                 "\"layer\":%u,\"point\":"
+                 "\"linear_attention_gate_projection\","
+                 "\"count\":%zu,\"values\":[",
+                 step, layer, gate.size());
+    for (size_t index = 0; index < gate.size(); ++index) {
+      std::fprintf(trace, "%s%.9g", index == 0 ? "" : ",", gate[index]);
+    }
+    std::fprintf(trace, "]}\n");
+    std::fclose(trace);
   }
   for (uint32_t output_index = 0; output_index < views.output_count;
        ++output_index) {
@@ -638,7 +660,8 @@ int main(int argc, char** argv) {
       }
       if (ready && layer_trace_path != nullptr && step == TraceStep()) {
         TraceEmbedding(graph, step, command_index, layer_trace_path);
-        TraceLayerCommand(graph, step, command_index, layer_trace_path);
+        TraceLayerCommand(graph, &weights, step, command_index,
+                          layer_trace_path);
         TraceLayerBoundary(graph, step, command_index, layer_trace_path);
       }
     }

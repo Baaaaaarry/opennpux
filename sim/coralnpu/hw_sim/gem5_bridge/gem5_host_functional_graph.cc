@@ -6,6 +6,7 @@
 
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
 #include "hw_sim/gem5_bridge/gem5_host_routed_expert.h"
+#include "hw_sim/gem5_bridge/gem5_transformer_kernels.h"
 
 namespace {
 
@@ -716,6 +717,73 @@ bool Gem5HostFunctionalGraph::ExecuteLinearAttentionGateNorm(
   return Materialize(command_index, operands, 2, &request) &&
          request.opcode == OPENNPUX_NPU_OP_NORMALIZE &&
          Execute(&request, regions, 2);
+}
+
+bool Gem5HostFunctionalGraph::ComputeLinearAttentionGateProjection(
+    uint32_t command_index, Gem5HostWeightProvider* weights,
+    std::vector<float>* output) const {
+  if (!configured_ || weights == nullptr || output == nullptr) {
+    return false;
+  }
+  std::vector<Gem5HostWeightBinding> bindings;
+  if (!weights->FindFloatBindings(command_index, &bindings)) {
+    return false;
+  }
+  const auto gate = std::find_if(
+      bindings.begin(), bindings.end(), [](const auto& binding) {
+        return binding.role_id == OPENNPUX_NPU_WEIGHT_ROLE_LINEAR_GATE;
+      });
+  if (gate == bindings.end()) {
+    return false;
+  }
+  std::vector<float> gate_weight;
+  opennpux_npu_functional_request request = {};
+  if (!weights->LoadFloatWeight(command_index, gate->role_id,
+                                gate->expert_id, gate->slot_id,
+                                &gate_weight) ||
+      !Materialize(command_index, nullptr, 0, &request) || request.rows == 0) {
+    return false;
+  }
+  const opennpux_npu_functional_operand* secondary = nullptr;
+  for (uint32_t index = 0; index < request.operand_count; ++index) {
+    if (request.operands[index].role == OPENNPUX_NPU_OPERAND_SECONDARY) {
+      secondary = &request.operands[index];
+      break;
+    }
+  }
+  if (secondary == nullptr || request.parameter_address < submission_base_) {
+    return false;
+  }
+  const size_t parameter_offset = request.parameter_address - submission_base_;
+  if (parameter_offset > submission_.size() ||
+      sizeof(opennpux_npu_operator_parameters) >
+          submission_.size() - parameter_offset) {
+    return false;
+  }
+  const auto* parameters =
+      reinterpret_cast<const opennpux_npu_operator_parameters*>(
+          submission_.data() + parameter_offset);
+  const size_t input_features = parameters->input_features;
+  const size_t output_features = parameters->output_features;
+  if (input_features == 0 || output_features == 0 ||
+      gate_weight.size() != input_features * output_features ||
+      secondary->byte_size < request.rows * input_features * sizeof(float)) {
+    return false;
+  }
+  const auto* input = reinterpret_cast<const float*>(
+      arena_.Translate(secondary->address, secondary->byte_size));
+  if (input == nullptr) {
+    return false;
+  }
+  try {
+    output->resize(output_features);
+  } catch (...) {
+    return false;
+  }
+  Gem5TransformerKernelStats stats = {};
+  return RunGem5MatMulF32(
+      input + (request.rows - 1) * input_features, gate_weight.data(), 1,
+      input_features, output_features, output->data(), &stats);
 }
 
 bool Gem5HostFunctionalGraph::ExecuteLinearAttentionRecurrent(

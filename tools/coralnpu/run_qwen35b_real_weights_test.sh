@@ -52,6 +52,7 @@ SIM_HOST_FUNCTIONAL="${CORAL_SIM_HOST_FUNCTIONAL_CPP:-1}"
 TOKEN_REFERENCE="${CORAL_QWEN_TOKEN_REFERENCE:-1}"
 REUSE_DECODE_WEIGHTS="${CORAL_REUSE_DECODE_WEIGHTS:-1}"
 HF_PYTHON="${CORAL_HF_PYTHON:-${ROOT_DIR}/.venv/hf-numerical/bin/python}"
+FUNCTIONAL_GRAPH_REVISION=13
 
 prompt_from_cli=0
 while [ "$#" -gt 0 ]; do
@@ -299,7 +300,8 @@ echo "[coral-qwen35b-real-weights-test] linear attention prefill: $LINEAR_ATTENT
 echo "[coral-qwen35b-real-weights-test] GPTQ expert intermediate precision: $EXPERT_INTERMEDIATE_PRECISION" >&2
 FUNCTIONAL_GRAPH_REFRESHED=0
 if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
-   ! python3 - "$MODEL_DIR/$MANIFEST_NAME" "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" <<'PY'
+   ! python3 - "$MODEL_DIR/$MANIFEST_NAME" \
+       "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" "$FUNCTIONAL_GRAPH_REVISION" <<'PY'
 import json
 import sys
 
@@ -315,9 +317,10 @@ linear_fields = (
     "linear_num_key_heads", "linear_num_value_heads",
     "linear_conv_kernel_dim",
 )
+revision = int(sys.argv[3])
 valid = (
-    manifest.get("functional_graph_revision", 0) >= 12
-    and executable.get("functional_graph_revision", 0) >= 12
+    manifest.get("functional_graph_revision", 0) >= revision
+    and executable.get("functional_graph_revision", 0) >= revision
     and all(int(manifest.get(field, 0)) > 0 for field in linear_fields)
 )
 raise SystemExit(0 if valid else 1)
@@ -338,9 +341,39 @@ then
         "$MODEL_DIR/$EXECUTABLE_PLAN_NAME"
     FUNCTIONAL_GRAPH_REFRESHED=1
 fi
+python3 - "$MODEL_DIR/$MANIFEST_NAME" \
+    "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    manifest = json.load(source)
+with open(sys.argv[2], encoding="utf-8") as source:
+    executable = json.load(source)
+gate_norm = [
+    command for command in executable.get("commands", [])
+    if "linear_attention_gate_norm" in command.get("parameter_symbol", "")
+]
+dtype = str(manifest.get("dtype", "")).lower()
+if dtype in {"bfloat16", "bf16"} and any(
+    not int(command.get("parameters", {}).get("flags", 0)) & 16
+    for command in gate_norm
+):
+    raise SystemExit("BF16 gate-norm command lacks internal precision boundary")
+flags = sorted({
+    int(command.get("parameters", {}).get("flags", 0))
+    for command in gate_norm
+})
+print(
+    "[coral-qwen35b-real-weights-test] gate-norm commands: "
+    f"{len(gate_norm)} parameter_flags="
+    f"{','.join(f'0x{value:08x}' for value in flags) or 'none'}",
+    file=sys.stderr,
+)
+PY
 WEIGHT_PLAN_VALID=1
 if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
-   ! python3 - "$MODEL_DIR/model.npxw" <<'PY'
+   ! python3 - "$MODEL_DIR/model.npxw" "$FUNCTIONAL_GRAPH_REVISION" <<'PY'
 import json
 import sys
 
@@ -350,7 +383,7 @@ try:
 except (OSError, ValueError):
     raise SystemExit(1)
 valid = (plan.get("tensor_domain") == "text" and
-         plan.get("functional_graph_revision", 0) >= 12)
+         plan.get("functional_graph_revision", 0) >= int(sys.argv[2]))
 raise SystemExit(0 if valid else 1)
 PY
 then

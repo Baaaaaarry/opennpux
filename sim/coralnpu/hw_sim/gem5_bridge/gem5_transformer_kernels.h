@@ -33,7 +33,8 @@ bool RunGem5SiluF32(const float* input, size_t count, float* output,
 bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
                        size_t features, float epsilon, float* output,
                        Gem5TransformerKernelStats* stats,
-                       bool weight_offset = false);
+                       bool weight_offset = false,
+                       bool bfloat16_input = false);
 
 bool RunGem5GatedRmsNormF32(
     const float* input, const float* gate, const float* weight, size_t rows,
@@ -105,6 +106,7 @@ bool RunGem5FloatQkvF32(
     size_t heads, size_t kv_heads, size_t head_dim, size_t q_weight_outputs,
     float epsilon, bool norm_weight_offset, float* query, float* key,
     float* value, float* gate,
-    Gem5TransformerKernelStats* stats);
+    Gem5TransformerKernelStats* stats,
+    bool bfloat16_projection = false);
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_TRANSFORMER_KERNELS_H_

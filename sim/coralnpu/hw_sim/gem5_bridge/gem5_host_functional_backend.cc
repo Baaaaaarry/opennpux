@@ -298,7 +298,9 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
                OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0,
               request.output, request.output_secondary,
               request.output_tertiary, request.output_quaternary,
-              &result.stats)) {
+              &result.stats,
+              (request.operator_parameters->flags &
+               OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0)) {
         result.status = Gem5HostFunctionalStatus::kExecutionError;
       }
       return result;
@@ -490,14 +492,18 @@ Gem5HostFunctionalResult Gem5HostFunctionalBackend::Execute(
                       request.attention_q_norm_weight.data),
                   request.rows * request.heads, request.head_dim,
                   request.epsilon, request.output, &q_norm_stats,
-                  norm_weight_offset) &&
+                  norm_weight_offset,
+                  (request.operator_parameters->flags &
+                   OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0) &&
               RunGem5RmsNormF32(
                   request.output_secondary,
                   static_cast<const float*>(
                       request.attention_k_norm_weight.data),
                   request.rows * request.kv_heads, request.head_dim,
                   request.epsilon, request.output_secondary, &k_norm_stats,
-                  norm_weight_offset);
+                  norm_weight_offset,
+                  (request.operator_parameters->flags &
+                   OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0);
           if (success) {
             result.stats.operations +=
                 q_norm_stats.operations + k_norm_stats.operations;

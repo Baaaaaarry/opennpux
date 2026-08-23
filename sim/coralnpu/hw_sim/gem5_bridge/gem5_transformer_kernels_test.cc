@@ -73,6 +73,16 @@ int main() {
                            norm_output, &stats, true));
   assert(Near(norm_output[0], 0.8485281f));
   assert(Near(norm_output[1], 1.1313708f));
+  const float precision_norm_input[] = {1.001f, 2.003f};
+  float precision_norm_fp32[2] = {};
+  float precision_norm_bf16[2] = {};
+  assert(RunGem5RmsNormF32(
+      precision_norm_input, norm_weight, 1, 2, 1.0e-6f,
+      precision_norm_fp32, &stats));
+  assert(RunGem5RmsNormF32(
+      precision_norm_input, norm_weight, 1, 2, 1.0e-6f,
+      precision_norm_bf16, &stats, false, true));
+  assert(!Near(precision_norm_fp32[0], precision_norm_bf16[0]));
   const float gated_norm_input[] = {1.001f, 2.003f};
   const float gated_norm_gate[] = {0.501f, 0.777f};
   const float gated_norm_weight[] = {1.0f, 1.0f};

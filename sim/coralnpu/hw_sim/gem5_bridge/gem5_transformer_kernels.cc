@@ -345,7 +345,7 @@ bool RunGem5SiluF32(const float* input, size_t count, float* output,
 bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
                        size_t features, float epsilon, float* output,
                        Gem5TransformerKernelStats* stats,
-                       bool weight_offset) {
+                       bool weight_offset, bool bfloat16_input) {
   size_t count = 0;
   if (!ProductFits(rows, features, &count) ||
       !ValidBuffers(input, count, output, stats) || weight == nullptr ||
@@ -355,7 +355,8 @@ bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
   for (size_t row = 0; row < rows; ++row) {
     double sum_squares = 0.0;
     for (size_t column = 0; column < features; ++column) {
-      const float value = input[row * features + column];
+      const float source = input[row * features + column];
+      const float value = bfloat16_input ? RoundBfloat16(source) : source;
       sum_squares += static_cast<double>(value) * value;
     }
     const float inverse_rms = 1.0f / std::sqrt(
@@ -365,8 +366,10 @@ bool RunGem5RmsNormF32(const float* input, const float* weight, size_t rows,
     }
     for (size_t column = 0; column < features; ++column) {
       const float scale = weight[column] + (weight_offset ? 1.0f : 0.0f);
+      const float source = input[row * features + column];
+      const float value = bfloat16_input ? RoundBfloat16(source) : source;
       output[row * features + column] =
-          input[row * features + column] * inverse_rms * scale;
+          value * inverse_rms * scale;
     }
   }
   const uint64_t operations = static_cast<uint64_t>(count) * 4 + rows * 2;
@@ -883,7 +886,7 @@ bool RunGem5FloatQkvF32(
     size_t heads, size_t kv_heads, size_t head_dim, size_t q_weight_outputs,
     float epsilon, bool norm_weight_offset, float* query, float* key,
     float* value, float* gate,
-    Gem5TransformerKernelStats* stats) {
+    Gem5TransformerKernelStats* stats, bool bfloat16_projection) {
   size_t query_features = 0;
   size_t key_features = 0;
   size_t raw_query_elements = 0;
@@ -932,10 +935,11 @@ bool RunGem5FloatQkvF32(
     }
   }
   if (!RunGem5RmsNormF32(query, q_norm_weight, rows * heads, head_dim,
-                         epsilon, query, &stages[3], norm_weight_offset) ||
+                         epsilon, query, &stages[3], norm_weight_offset,
+                         bfloat16_projection) ||
       !RunGem5RmsNormF32(raw_key.data(), k_norm_weight, rows * kv_heads,
                          head_dim, epsilon, key, &stages[4],
-                         norm_weight_offset)) {
+                         norm_weight_offset, bfloat16_projection)) {
     return false;
   }
   *stats = {};

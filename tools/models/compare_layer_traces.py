@@ -81,7 +81,11 @@ def phase_points(records: list[dict], plan_path: Path) -> dict[tuple[int, str], 
         ("moe_combine", 0): "moe",
     }
     for record in records:
-        if record.get("point") != "command":
+        record_point = str(record.get("point", ""))
+        if record_point not in {"", "command", "layer_boundary"}:
+            points[(int(record["layer"]), record_point)] = record["values"]
+            continue
+        if record_point != "command":
             continue
         layer = int(record["layer"])
         phase = names.get((layer, int(record["phase_index"])))
@@ -215,6 +219,45 @@ def main() -> None:
             "moe",
             "layer_boundary",
         )
+        reference_keys = set(reference_phases)
+        host_keys = set(host_phases)
+        linear_points = {
+            "recurrent_state_update",
+            "linear_attention_gate_projection",
+            "linear_attention_gate_norm",
+            "linear_attention_output_projection",
+        }
+        full_attention_points = {
+            "qkv_query", "qkv_key", "rope_query", "rope_key",
+            "attention_core", "attention_output_projection",
+        }
+        for point in phase_order:
+            if point in linear_points:
+                expected_layers = {
+                    layer for layer in common
+                    if layer_types.get(layer) == "linear_attention_moe"
+                }
+            elif point in full_attention_points:
+                expected_layers = {
+                    layer for layer in common
+                    if layer_types.get(layer) == "full_attention_moe"
+                }
+            else:
+                expected_layers = set(common)
+            missing_reference = sorted(
+                layer for layer in expected_layers
+                if (layer, point) not in reference_keys
+            )
+            missing_host = sorted(
+                layer for layer in expected_layers
+                if (layer, point) not in host_keys
+            )
+            if missing_reference or missing_host:
+                print(
+                    f"phase_trace_missing=point:{point},"
+                    f"reference:{','.join(map(str, missing_reference)) or 'none'},"
+                    f"host:{','.join(map(str, missing_host)) or 'none'}"
+                )
         first_phase = None
         compared_phases = 0
         for layer in common:

@@ -54,6 +54,20 @@ sync_tree()
         done
 }
 
+verify_tree()
+{
+    source_root="$1"
+    destination_root="$2"
+    (cd "${source_root}" && find . -type f -print) |
+        while IFS= read -r relative_path; do
+            if ! cmp -s "${source_root}/${relative_path}" \
+                "${destination_root}/${relative_path}"; then
+                echo "error: Coral overlay sync mismatch: ${relative_path}" >&2
+                exit 1
+            fi
+        done
+}
+
 echo "[coralnpu-patchset] syncing mirrored paths into ${CORAL_REPO}"
 if [ -f "${RESTORE_LIST}" ]; then
     while IFS= read -r path; do
@@ -85,8 +99,13 @@ for path in doc examples hdl hw_sim internal rules sw tests toolchain third_part
     if [ -e "${SCRIPT_DIR}/${path}" ]; then
         if [ -d "${SCRIPT_DIR}/${path}" ]; then
             sync_tree "${SCRIPT_DIR}/${path}" "${CORAL_REPO}/${path}"
+            verify_tree "${SCRIPT_DIR}/${path}" "${CORAL_REPO}/${path}"
         else
             copy_if_changed "${SCRIPT_DIR}/${path}" "${CORAL_REPO}/${path}"
+            if ! cmp -s "${SCRIPT_DIR}/${path}" "${CORAL_REPO}/${path}"; then
+                echo "error: Coral overlay sync mismatch: ${path}" >&2
+                exit 1
+            fi
         fi
     fi
 done

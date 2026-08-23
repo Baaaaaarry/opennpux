@@ -109,6 +109,15 @@ if ! awk '
     exit 1
 fi
 "${ROOT_DIR}/sim/coralnpu/apply_patchset.sh"
+if ! grep -q 'name = "gem5_transformer_kernel_headers"' \
+    "${CORAL_REPO}/hw_sim/BUILD" ||
+   ! cmp -s \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_transformer_kernels.h" \
+    "${CORAL_REPO}/hw_sim/gem5_bridge/gem5_transformer_kernels.h"; then
+    echo "error: Coral overlay is missing the Transformer kernel header target" >&2
+    echo "rerun ${ROOT_DIR}/sim/coralnpu/apply_patchset.sh and verify the checked-out revision" >&2
+    exit 1
+fi
 "${ROOT_DIR}/tools/coralnpu/check_overlay_boundary.sh"
 "${ROOT_DIR}/tools/coralnpu/test_axi_adapter.sh"
 "${ROOT_DIR}/tools/coralnpu/test_coprocessor_command.sh"

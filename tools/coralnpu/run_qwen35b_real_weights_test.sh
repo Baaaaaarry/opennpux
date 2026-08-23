@@ -481,12 +481,26 @@ LAYER_TRACE="${CORAL_LAYER_TRACE:-0}"
 LAYER_TRACE_STEP="${CORAL_LAYER_TRACE_STEP:-3}"
 VLLM_LAYER_TRACE="${CORAL_VLLM_LAYER_TRACE:-${ROOT_DIR}/simout/qwen35b-vllm-layers.jsonl}"
 HOST_LAYER_TRACE="${CORAL_HOST_LAYER_TRACE:-${ROOT_DIR}/simout/qwen35b-host-layers.jsonl}"
+LAYER_COMPARE_LOG="${CORAL_LAYER_COMPARE_LOG:-${ROOT_DIR}/simout/qwen35b-layer-compare.log}"
 HOST_LAYER_TRACE_ENV=""
 EFFECTIVE_TRACE_STEP="${CORAL_HOST_FUNCTIONAL_TRACE_STEP:-0}"
 if [ "$LAYER_TRACE" != 0 ]; then
     HOST_LAYER_TRACE_ENV="$HOST_LAYER_TRACE"
     EFFECTIVE_TRACE_STEP="$LAYER_TRACE_STEP"
+    mkdir -p "$(dirname -- "$LAYER_COMPARE_LOG")"
+    : >"$LAYER_COMPARE_LOG"
 fi
+
+compare_layer_traces() {
+    status=0
+    "$HF_PYTHON" "${ROOT_DIR}/tools/models/compare_layer_traces.py" \
+        "$VLLM_LAYER_TRACE" "$HOST_LAYER_TRACE" \
+        --step "$LAYER_TRACE_STEP" \
+        --execution-plan "$MODEL_DIR/$EXECUTION_PLAN_NAME" \
+        >"$LAYER_COMPARE_LOG" 2>&1 || status=$?
+    cat "$LAYER_COMPARE_LOG" >&2
+    return "$status"
+}
 if [ "$TOKEN_REFERENCE" != 0 ] || [ "$SIM_HOST_NUMERICAL" != 0 ]; then
     PROMPT_TAG="$(python3 - "$PROMPT" <<'PY'
 import sys
@@ -681,15 +695,11 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
             sed -n "$((PREFLIGHT_LINES + 1)),${CURRENT_LINES}p" \
                 "$PREFLIGHT_LOG" >&2
         fi
+        if [ "$LAYER_TRACE" != 0 ] && [ -s "$VLLM_LAYER_TRACE" ] &&
+           [ -s "$HOST_LAYER_TRACE" ]; then
+            compare_layer_traces || true
+        fi
         if [ "$PREFLIGHT_RC" -ne 0 ]; then
-            if [ "$LAYER_TRACE" != 0 ] && [ -s "$VLLM_LAYER_TRACE" ] &&
-               [ -s "$HOST_LAYER_TRACE" ]; then
-                "$HF_PYTHON" "${ROOT_DIR}/tools/models/compare_layer_traces.py" \
-                    "$VLLM_LAYER_TRACE" "$HOST_LAYER_TRACE" \
-                    --step "$LAYER_TRACE_STEP" \
-                    --execution-plan "$MODEL_DIR/$EXECUTION_PLAN_NAME" \
-                    >&2 || true
-            fi
             echo "error: Host C++ functional preflight failed; gem5 was not started" >&2
             exit 1
         fi
@@ -701,14 +711,6 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         }
         if [ "$TOKEN_REFERENCE" != 0 ] &&
            [ "$PREFLIGHT_TOKEN_IDS" != "$EXPECTED_TOKEN_IDS" ]; then
-            if [ "$LAYER_TRACE" != 0 ] && [ -s "$VLLM_LAYER_TRACE" ] &&
-               [ -s "$HOST_LAYER_TRACE" ]; then
-                "$HF_PYTHON" "${ROOT_DIR}/tools/models/compare_layer_traces.py" \
-                    "$VLLM_LAYER_TRACE" "$HOST_LAYER_TRACE" \
-                    --step "$LAYER_TRACE_STEP" \
-                    --execution-plan "$MODEL_DIR/$EXECUTION_PLAN_NAME" \
-                    >&2 || true
-            fi
             echo "error: Host C++ preflight token IDs differ from $MODEL_LOADER" >&2
             echo "host_cpp=$PREFLIGHT_TOKEN_IDS" >&2
             echo "reference=$EXPECTED_TOKEN_IDS" >&2

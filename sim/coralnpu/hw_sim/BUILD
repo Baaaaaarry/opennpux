@@ -176,6 +176,11 @@ cc_library(
 )
 
 cc_library(
+    name = "gem5_transformer_kernel_headers",
+    hdrs = ["gem5_bridge/gem5_transformer_kernels.h"],
+)
+
+cc_library(
     name = "gem5_host_functional_graph",
     srcs = ["gem5_bridge/gem5_host_functional_graph.cc"],
     hdrs = ["gem5_bridge/gem5_host_functional_graph.h"],
@@ -184,6 +189,7 @@ cc_library(
         ":gem5_generic_command_dispatch_headers",
         ":gem5_host_routed_expert",
         ":gem5_host_tensor_arena",
+        ":gem5_transformer_kernel_headers",
     ],
 )
 

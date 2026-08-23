@@ -466,6 +466,48 @@ void TraceFinalLogits(const Gem5HostFunctionalGraph& graph, uint32_t step,
   std::fflush(stderr);
 }
 
+bool ReferenceTokenTiesHostSelection(const Gem5HostFunctionalGraph& graph,
+                                     uint32_t host_token,
+                                     uint32_t reference_token,
+                                     float* tied_logit) {
+  uint32_t topk_command = UINT32_MAX;
+  for (uint32_t offset = 0; offset < graph.command_count(); ++offset) {
+    const uint32_t index = graph.command_count() - 1 - offset;
+    if (graph.command(index)->opcode == OPENNPUX_NPU_OP_TOPK) {
+      topk_command = index;
+      break;
+    }
+  }
+  opennpux_npu_functional_request request = {};
+  if (topk_command == UINT32_MAX || host_token == reference_token ||
+      !graph.Materialize(topk_command, nullptr, 0, &request) ||
+      host_token >= request.features || reference_token >= request.features ||
+      request.rows == 0) {
+    return false;
+  }
+  const auto* input = FindOperand(request, OPENNPUX_NPU_OPERAND_INPUT);
+  if (input == nullptr || input->byte_size % sizeof(float) != 0) {
+    return false;
+  }
+  const size_t required =
+      static_cast<size_t>(request.rows) * request.features;
+  const auto* values = reinterpret_cast<const float*>(
+      graph.arena().Translate(input->address, input->byte_size));
+  if (values == nullptr || input->byte_size / sizeof(float) < required) {
+    return false;
+  }
+  values += (static_cast<size_t>(request.rows) - 1) * request.features;
+  const float host_logit = values[host_token];
+  const float reference_logit = values[reference_token];
+  if (!std::isfinite(host_logit) || host_logit != reference_logit) {
+    return false;
+  }
+  if (tied_logit != nullptr) {
+    *tied_logit = host_logit;
+  }
+  return true;
+}
+
 void PrintCommandFailure(const Gem5HostFunctionalGraph& graph,
                          Gem5HostWeightProvider* weights,
                          const void* submission, size_t submission_size,
@@ -671,6 +713,17 @@ int main(int argc, char** argv) {
         next_token != reference_tokens[step];
     if (ready && (logits_trace || token_mismatch)) {
       TraceFinalLogits(graph, step, next_token, reference_tokens);
+    }
+    float tied_logit = 0.0f;
+    if (token_mismatch && ReferenceTokenTiesHostSelection(
+                              graph, next_token, reference_tokens[step],
+                              &tied_logit)) {
+      std::fprintf(stderr,
+                   "host_functional_tie=step:%u,host_token:%u,"
+                   "reference_token:%u,logit:%.9g,resolution:reference\n",
+                   step, next_token, reference_tokens[step], tied_logit);
+      next_token = reference_tokens[step];
+      token_mismatch = false;
     }
     if (token_mismatch) {
       std::fprintf(stderr,

@@ -451,6 +451,27 @@ fi
   'import torch, transformers, vllm; print(torch.__version__, transformers.__version__, vllm.__version__)'
 ```
 
+The setup requires a Python interpreter with the `_ssl` extension. If pip
+reports `SSL module is not available`, verify both the selected interpreter
+and any existing virtual environment:
+
+```sh
+python3 -c 'import ssl; print(ssl.OPENSSL_VERSION)'
+/usr/bin/python3 -c 'import ssl; print(ssl.OPENSSL_VERSION)'
+
+sudo apt-get update
+sudo apt-get install -y ca-certificates openssl python3-full python3-venv
+
+rm -rf .venv/hf-numerical
+OPENNPUX_PYTHON=/usr/bin/python3 ./tools/models/setup_hf_numerical_env.sh
+```
+
+If `/usr/bin/python3` works but `python3` does not, the latter is normally a
+custom interpreter earlier in `PATH`; select `/usr/bin/python3` explicitly as
+shown above. If both fail, repair the distribution Python installation. A
+Python built from source must be rebuilt after installing `libssl-dev`; pip
+cannot install or repair Python's `_ssl` extension.
+
 On GB10, prefer the platform-compatible CUDA/PyTorch and vLLM packages already
 validated for SM121. CUDA is used only to accelerate reference generation;
 gem5, Verilator, AXI and the Host C++ functional backend do not require CUDA.

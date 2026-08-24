@@ -6,10 +6,28 @@ PYTHON="${OPENNPUX_PYTHON:-python3}"
 VENV="${OPENNPUX_HF_VENV:-${ROOT_DIR}/.venv/hf-numerical}"
 REQUIREMENTS="${ROOT_DIR}/tools/models/requirements-hf-numerical.txt"
 
+check_python_ssl()
+{
+    interpreter="$1"
+    label="$2"
+    if "$interpreter" -c \
+        'import ssl; print(ssl.OPENSSL_VERSION)' >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo "error: $label lacks Python SSL support: $interpreter" >&2
+    echo "HTTPS package indexes cannot be used until 'import ssl' succeeds." >&2
+    echo "Ubuntu/Debian: sudo apt-get update && sudo apt-get install -y ca-certificates openssl python3-full python3-venv" >&2
+    echo "Then select the distro interpreter with OPENNPUX_PYTHON=/usr/bin/python3." >&2
+    return 1
+}
+
 command -v "$PYTHON" >/dev/null 2>&1 || {
     echo "error: Python interpreter not found: $PYTHON" >&2
     exit 1
 }
+
+check_python_ssl "$PYTHON" "base interpreter" || exit 1
 
 if [ ! -x "$VENV/bin/python" ]; then
     echo "[hf-env] creating $VENV" >&2
@@ -18,6 +36,12 @@ if [ ! -x "$VENV/bin/python" ]; then
         echo "Ubuntu: sudo apt-get install python3-venv" >&2
         exit 1
     }
+fi
+
+if ! check_python_ssl "$VENV/bin/python" "virtual environment"; then
+    echo "If the base interpreter now works, remove the stale environment and rerun:" >&2
+    echo "  rm -rf '$VENV'" >&2
+    exit 1
 fi
 
 "$VENV/bin/python" -m pip install --upgrade pip setuptools wheel

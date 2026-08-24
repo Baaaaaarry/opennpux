@@ -258,6 +258,294 @@ CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
 The first run creates a dedicated 8 MiB-window checkpoint; the second restores
 it and executes MobileNet. See
 `docs/runbooks/rvv_mobilenet_acceptance.md` for the complete procedure.
+
+## Qwen3.5 End-to-End Setup On A New Host
+
+This section is the reproducible path from a fresh x86-64 Ubuntu host to the
+real-weight Qwen3.5 end-to-end verdict. The current acceptance path is:
+
+```text
+CPU prompt and tokenizer
+  -> generic NPU executable/invocation
+  -> gem5 NPUDevice and Verilated Coral command processor
+  -> Host C++ functional kernels with real GPTQ weights
+  -> NPU completion and token IDs
+  -> CPU tokenizer and decoded text
+```
+
+It validates the heterogeneous SoC control path, command scheduling, weight
+paging, functional kernels, completion ABI and CPU/NPU data exchange. It is
+not a claim that all Qwen operators execute in full RTL. The Host C++ kernels
+are the correctness baseline that will be replaced incrementally by timing
+models and RTL execution units without changing the generic invocation ABI.
+
+### 1. Clone Or Update The Repository
+
+Use one working directory and branch per developer. Until the current Qwen
+changes are merged into `main`, use `codex_dev`:
+
+```sh
+git clone --recurse-submodules \
+  --branch codex_dev \
+  git@github.com:Baaaaaarry/opennpux.git
+cd opennpux
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+For an existing checkout:
+
+```sh
+git switch codex_dev
+git pull --ff-only origin codex_dev
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+Verify that the checkout contains the current Qwen options:
+
+```sh
+grep -n -- '--thinking-mode' \
+  tools/coralnpu/run_qwen35b_real_weights_test.sh
+```
+
+An `unknown option: --thinking-mode` error means the host is running an older
+branch or checkout.
+
+### 2. Install Host Dependencies
+
+The supported build host is x86-64 Linux. On Ubuntu install the native gem5,
+ARM64 cross-build, kernel, 9P and Python prerequisites:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y \
+  git curl wget rsync ca-certificates patch unzip xz-utils \
+  build-essential scons pkg-config python3 python3-dev python3-venv \
+  gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+  bc bison flex libssl-dev libelf-dev libncurses-dev \
+  device-tree-compiler diod \
+  zlib1g-dev libprotobuf-dev protobuf-compiler \
+  libgoogle-perftools-dev libboost-all-dev libhdf5-dev \
+  libpng-dev libcapstone-dev
+```
+
+Do not run two gem5 Qwen tests against the same checkout, checkpoint or output
+directory. They share UART port `4567`, the 9P export and
+`logs/sim/m5out/`.
+
+### 3. Prepare The ARM64 Disk Image
+
+Use an existing known-good Ubuntu 18.04 gem5 image, or download the baseline
+assets:
+
+```sh
+export IMAGE_PATH="${IMAGE_PATH:-$HOME/wlk/gem5_arm_linux_images}"
+./tools/kernel/download_gem5_arm_images.sh
+
+export CORAL_DISK_IMG="$IMAGE_PATH/ubuntu-18.04-arm64-docker.img"
+test -s "$CORAL_DISK_IMG"
+
+sudo ./tools/kernel/install_opennpux_init_to_image.sh "$CORAL_DISK_IMG"
+```
+
+The multi-gigabyte model is never copied into this image. It is exported
+read-only from the host through VirtIO 9P at run time. The installed
+`/sbin/opennpux-init.sh` is the stable PID 1 that mounts the minimal guest
+filesystems and executes the current gem5 `readfile` resume script. Reinstall
+it after pulling changes to `runtime/host/init/opennpux-init.sh`, then rebuild
+the checkpoint.
+
+### 4. Build The 9P-Enabled ARM64 Kernel
+
+The official baseline kernel is useful for initial boot, but the real-weight
+test requires `CONFIG_NET_9P=y`, `CONFIG_NET_9P_VIRTIO=y` and
+`CONFIG_9P_FS=y`. Build the repository kernel:
+
+```sh
+./tools/kernel/build_arm64_kernel.sh
+./tools/kernel/check_gem5_kernel_config.sh build/linux-arm64/.config
+
+export CORAL_KERNEL_IMAGE="$PWD/build/kernel/vmlinux-$(cat build/kernel/kernel.release)"
+test -s "$CORAL_KERNEL_IMAGE"
+```
+
+The default `linux-4.19.y` build uses the bundled gem5 4.18 configuration as a
+boot-compatible base. Do not replace it with arm64 `defconfig` unless the new
+configuration has independently reached the PL011 console. A
+`kernel lacks CONFIG_9P_FS` verdict means this step was skipped or a different
+kernel was supplied.
+
+### 5. Build The Coral Bridge And Guest Tool
+
+The helper installs the Bazel version pinned by the Coral submodule, applies
+the `sim/coralnpu` overlay, builds the bridge and stages the command processor
+firmware:
+
+```sh
+./tools/coralnpu/prepare_coral_bazel.sh
+./tools/coralnpu/check_rtl_bridge_abi.sh
+./tools/coralnpu/build_rtl_bridge.sh
+./tools/guest_tools/build_coralctl.sh
+```
+
+Verify the required artifacts:
+
+```sh
+test -s build/coralnpu/libcoralnpu_gem5_bridge.so
+test -s build/coralnpu/gem5_npu_command_processor_smoke.elf
+test -x build/guest-tools/coralctl-aarch64
+```
+
+The first Bazel build downloads pinned toolchains and repositories. On a
+restricted network, use Bazel's populated `--distdir` cache or pre-download
+the dependencies before running this step. Do not commit the synchronized
+dirty state under `thirdparty/coralnpu`; the source of truth remains
+`sim/coralnpu`.
+
+### 6. Download And Compile The Model Metadata
+
+The default test model is
+`Qwen/Qwen3.5-35B-A3B-GPTQ-Int4`. The weight download is approximately 24 GB;
+reserve additional space for metadata, caches and temporary files. Create a
+user-writable destination and run the package compiler:
+
+```sh
+export CORAL_MODEL_DIR="${CORAL_MODEL_DIR:-/data/models/Qwen3.5-35B}"
+sudo install -d -o "$(id -un)" -g "$(id -gn)" "$CORAL_MODEL_DIR"
+
+HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}" \
+  ./tools/models/prepare_hf_model_package.sh "$CORAL_MODEL_DIR"
+```
+
+The script resumes partial downloads and reuses existing shards. Expected
+final verdicts are:
+
+```text
+model_package=PASS
+qwen_execution_plan=PASS
+npu_executable=PASS
+npu_weight_plan=PASS
+hf_model_package_prepare=PASS
+```
+
+At minimum the directory must then contain `model.npxm`, `model.npxe`,
+`model.npxc`, `model.npxr`, `model.npxtb`, `execution-plan.npxp`, tokenizer
+assets, the safetensors index and every referenced shard.
+
+### 7. Prepare The Numerical Reference Environment
+
+The NPU result is produced by the Host C++ functional backend. vLLM is used
+only as an external semantic reference and to diagnose token differences; it
+does not replace the result returned by the simulated NPU.
+
+```sh
+./tools/models/setup_hf_numerical_env.sh
+export CORAL_HF_PYTHON="$PWD/.venv/hf-numerical/bin/python"
+
+if ! "$CORAL_HF_PYTHON" -c 'import vllm' >/dev/null 2>&1; then
+  "$CORAL_HF_PYTHON" -m pip install -U vllm
+fi
+
+"$CORAL_HF_PYTHON" -c \
+  'import torch, transformers, vllm; print(torch.__version__, transformers.__version__, vllm.__version__)'
+```
+
+On GB10, prefer the platform-compatible CUDA/PyTorch and vLLM packages already
+validated for SM121. CUDA is used only to accelerate reference generation;
+gem5, Verilator, AXI and the Host C++ functional backend do not require CUDA.
+The prompt-specific `.npxo` reference under `build/model-results/` is reused
+on subsequent runs.
+
+### 8. Run The First End-to-End Test
+
+The first run creates a dedicated checkpoint with the custom kernel and 8 MiB
+NPU shared window, then automatically restores it and executes the test:
+
+```sh
+CORAL_MODEL_DIR="$CORAL_MODEL_DIR" \
+CORAL_DISK_IMG="$CORAL_DISK_IMG" \
+CORAL_KERNEL_IMAGE="$CORAL_KERNEL_IMAGE" \
+CORAL_KERNEL_INIT=/sbin/opennpux-init.sh \
+CORAL_HF_PYTHON="$CORAL_HF_PYTHON" \
+CORAL_REBUILD_CKPT=1 \
+./tools/coralnpu/run_qwen35b_real_weights_test.sh \
+  --prompt "Who are you" \
+  --max-new-tokens 12 \
+  --prompt-format chat \
+  --thinking-mode off \
+  --decode-mode greedy \
+  --model-loader vllm
+```
+
+`--thinking-mode off` uses Qwen3.5's official non-thinking chat-template path
+for a direct answer. Use `--thinking-mode on` to include reasoning. The mode is
+applied consistently to vLLM, the CPU tokenizer and Host C++ input, and is part
+of the reference-cache key.
+
+Do not set `CORAL_REBUILD_CKPT=1` for normal repeats:
+
+```sh
+./tools/coralnpu/run_qwen35b_real_weights_test.sh \
+  --prompt "Explain heterogeneous computing in one sentence." \
+  --max-new-tokens 16 \
+  --thinking-mode off
+```
+
+Rebuild the checkpoint only after changing the disk image, kernel,
+`CORAL_KERNEL_INIT`, kernel command line or shared-memory layout. Pulling code,
+rebuilding the bridge, changing the prompt or changing the injected resume
+script does not by itself require a new boot checkpoint.
+
+### 9. Acceptance And Logs
+
+A structurally successful run ends with:
+
+```text
+inference_result_source=host-functional-cpp
+inference_token_ids=<IDs returned by the tested NPU path>
+inference_text_source=cpu-tokenizer
+inference_token_text=<decoded answer>
+inference_run=PASS
+executable_run=PASS
+[coral-qwen35b-real-weights-test] functional_backend=host-cpp
+[coral-qwen35b-real-weights-test] PASS
+```
+
+`token_golden=PASS` means the generated IDs match vLLM. A numerically close
+but different greedy branch is reported as
+`token_golden=WARN equivalence=diverged`; it is diagnostic and no longer
+invalidates command execution, memory safety or completion acceptance.
+Operator failure, invalid memory access, incomplete command count, device
+fault and missing output remain hard failures.
+
+Host and Guest logs are stored at:
+
+```text
+simout/qwen35b-host-functional-preflight.log
+logs/sim/m5out/system.terminal
+logs/sim/m5out/stats.txt
+```
+
+Monitor the Guest UART without moving the log file:
+
+```sh
+mkdir -p logs/sim/m5out
+touch logs/sim/m5out/system.terminal
+tail -F logs/sim/m5out/system.terminal
+```
+
+The interactive UART is available only while gem5 is running and listening:
+
+```sh
+cd thirdparty/gem5
+./util/term/gem5term localhost 4567
+```
+
+If port `4567` is unavailable, check `pgrep -af gem5.opt` and
+`ss -ltnp | grep ':4567'`. A completed `m5_exit` closes the port; the complete
+serial transcript remains in `system.terminal`.
+
 ### Qwen3.5 real-weight paging
 
 The control-only acceptance repeats one synthetic page. To stream the actual

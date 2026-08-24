@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
-PYTHON="${OPENNPUX_PYTHON:-python3}"
+PYTHON="${OPENNPUX_PYTHON:-}"
 VENV="${OPENNPUX_HF_VENV:-${ROOT_DIR}/.venv/hf-numerical}"
 REQUIREMENTS="${ROOT_DIR}/tools/models/requirements-hf-numerical.txt"
 PYPI_INDEX_URL="${OPENNPUX_PYPI_INDEX_URL:-}"
@@ -50,6 +50,20 @@ pip_install()
     fi
 }
 
+if [ -z "$PYTHON" ]; then
+    for candidate in \
+        python3 python3.13 python3.12 python3.11 python3.10 python3.9; do
+        if command -v "$candidate" >/dev/null 2>&1 &&
+           "$candidate" -c \
+               'import ssl, sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' \
+               >/dev/null 2>&1; then
+            PYTHON="$candidate"
+            break
+        fi
+    done
+fi
+PYTHON="${PYTHON:-python3}"
+
 command -v "$PYTHON" >/dev/null 2>&1 || {
     echo "error: Python interpreter not found: $PYTHON" >&2
     exit 1
@@ -57,6 +71,7 @@ command -v "$PYTHON" >/dev/null 2>&1 || {
 
 check_python_ssl "$PYTHON" "base interpreter" || exit 1
 check_python_version "$PYTHON" "base interpreter" || exit 1
+echo "[hf-env] selected Python: $(command -v "$PYTHON") ($("$PYTHON" --version 2>&1))" >&2
 
 if [ ! -x "$VENV/bin/python" ]; then
     echo "[hf-env] creating $VENV" >&2

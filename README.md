@@ -489,6 +489,18 @@ If `/usr/bin/python3` is older than 3.9, install a supported Python before
 creating the virtual environment. Merely changing the package index cannot
 make an incompatible Python install a newer Transformers wheel.
 
+The setup script automatically selects an available `python3.9` or newer
+interpreter when the default `python3` is too old. On systems where
+`/usr/bin/python3` must remain at 3.8, select 3.9 explicitly without changing
+the operating-system symlink:
+
+```sh
+rm -rf .venv/hf-numerical
+OPENNPUX_PYTHON=/usr/bin/python3.9 \
+OPENNPUX_PYPI_INDEX_URL=https://pypi.org/simple \
+./tools/models/setup_hf_numerical_env.sh
+```
+
 On GB10, prefer the platform-compatible CUDA/PyTorch and vLLM packages already
 validated for SM121. CUDA is used only to accelerate reference generation;
 gem5, Verilator, AXI and the Host C++ functional backend do not require CUDA.

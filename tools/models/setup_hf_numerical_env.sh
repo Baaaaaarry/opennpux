@@ -5,6 +5,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 PYTHON="${OPENNPUX_PYTHON:-python3}"
 VENV="${OPENNPUX_HF_VENV:-${ROOT_DIR}/.venv/hf-numerical}"
 REQUIREMENTS="${ROOT_DIR}/tools/models/requirements-hf-numerical.txt"
+PYPI_INDEX_URL="${OPENNPUX_PYPI_INDEX_URL:-}"
 
 check_python_ssl()
 {
@@ -22,12 +23,40 @@ check_python_ssl()
     return 1
 }
 
+check_python_version()
+{
+    interpreter="$1"
+    label="$2"
+    if "$interpreter" -c \
+        'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'; then
+        return 0
+    fi
+
+    version="$($interpreter -c \
+        'import sys; print(".".join(map(str, sys.version_info[:3])))' \
+        2>/dev/null || echo unknown)"
+    echo "error: $label uses Python $version; transformers>=4.57 requires Python 3.9+" >&2
+    echo "Install a newer distro Python and select it with OPENNPUX_PYTHON=/path/to/python3." >&2
+    return 1
+}
+
+pip_install()
+{
+    if [ -n "$PYPI_INDEX_URL" ]; then
+        "$VENV/bin/python" -m pip install \
+            --index-url "$PYPI_INDEX_URL" "$@"
+    else
+        "$VENV/bin/python" -m pip install "$@"
+    fi
+}
+
 command -v "$PYTHON" >/dev/null 2>&1 || {
     echo "error: Python interpreter not found: $PYTHON" >&2
     exit 1
 }
 
 check_python_ssl "$PYTHON" "base interpreter" || exit 1
+check_python_version "$PYTHON" "base interpreter" || exit 1
 
 if [ ! -x "$VENV/bin/python" ]; then
     echo "[hf-env] creating $VENV" >&2
@@ -43,8 +72,12 @@ if ! check_python_ssl "$VENV/bin/python" "virtual environment"; then
     echo "  rm -rf '$VENV'" >&2
     exit 1
 fi
+check_python_version "$VENV/bin/python" "virtual environment" || exit 1
 
-"$VENV/bin/python" -m pip install --upgrade pip setuptools wheel
+if [ -n "$PYPI_INDEX_URL" ]; then
+    echo "[hf-env] Python package index: $PYPI_INDEX_URL" >&2
+fi
+pip_install --upgrade pip setuptools wheel
 
 if ! "$VENV/bin/python" -c 'import torch' >/dev/null 2>&1; then
     echo "[hf-env] PyTorch not found; installing torch and torchvision" >&2
@@ -52,7 +85,7 @@ if ! "$VENV/bin/python" -c 'import torch' >/dev/null 2>&1; then
         "$VENV/bin/python" -m pip install \
             --index-url "$OPENNPUX_TORCH_INDEX_URL" torch torchvision
     else
-        "$VENV/bin/python" -m pip install torch torchvision
+        pip_install torch torchvision
     fi
 elif ! "$VENV/bin/python" -c 'import torchvision' >/dev/null 2>&1; then
     echo "[hf-env] torchvision not found; installing a torch-compatible build" >&2
@@ -60,18 +93,23 @@ elif ! "$VENV/bin/python" -c 'import torchvision' >/dev/null 2>&1; then
         "$VENV/bin/python" -m pip install \
             --index-url "$OPENNPUX_TORCH_INDEX_URL" torchvision
     else
-        "$VENV/bin/python" -m pip install torchvision
+        pip_install torchvision
     fi
 fi
 
-"$VENV/bin/python" -m pip install -r "$REQUIREMENTS"
+if ! pip_install -r "$REQUIREMENTS"; then
+    echo "error: unable to install the Hugging Face requirements" >&2
+    echo "If the configured package mirror is stale, retry with:" >&2
+    echo "  OPENNPUX_PYPI_INDEX_URL=https://pypi.org/simple $0" >&2
+    exit 1
+fi
 
 if [ "${OPENNPUX_INSTALL_GPTQMODEL:-1}" != 0 ] &&
    ! "$VENV/bin/python" -c \
        'import importlib.util; assert importlib.util.find_spec("gptqmodel")' \
        >/dev/null 2>&1; then
     echo "[hf-env] installing the GPTQModel backend" >&2
-    "$VENV/bin/python" -m pip install --no-build-isolation gptqmodel
+    pip_install --no-build-isolation gptqmodel
 fi
 
 "$VENV/bin/python" - <<'PY'

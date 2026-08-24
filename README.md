@@ -472,6 +472,23 @@ shown above. If both fail, repair the distribution Python installation. A
 Python built from source must be rebuilt after installing `libssl-dev`; pip
 cannot install or repair Python's `_ssl` extension.
 
+`transformers>=4.57` also requires Python 3.9 or newer. If pip only lists old
+Transformers releases (for example, it stops at `4.46.3`), first check the
+interpreter and then bypass a stale configured mirror explicitly:
+
+```sh
+/usr/bin/python3 --version
+
+rm -rf .venv/hf-numerical
+OPENNPUX_PYTHON=/usr/bin/python3 \
+OPENNPUX_PYPI_INDEX_URL=https://pypi.org/simple \
+./tools/models/setup_hf_numerical_env.sh
+```
+
+If `/usr/bin/python3` is older than 3.9, install a supported Python before
+creating the virtual environment. Merely changing the package index cannot
+make an incompatible Python install a newer Transformers wheel.
+
 On GB10, prefer the platform-compatible CUDA/PyTorch and vLLM packages already
 validated for SM121. CUDA is used only to accelerate reference generation;
 gem5, Verilator, AXI and the Host C++ functional backend do not require CUDA.

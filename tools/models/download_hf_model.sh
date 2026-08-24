@@ -22,6 +22,14 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
+CURL_RETRY_ALL_ERRORS=0
+if "${CURL}" --help all 2>/dev/null | grep -q -- '--retry-all-errors' ||
+   "${CURL}" --help 2>/dev/null | grep -q -- '--retry-all-errors'; then
+    CURL_RETRY_ALL_ERRORS=1
+else
+    echo "[hf-model] curl lacks --retry-all-errors; using compatible retry mode" >&2
+fi
+
 if ! mkdir -p "${DESTINATION}"; then
     echo "error: cannot create model directory: ${DESTINATION}" >&2
     exit 1
@@ -54,8 +62,18 @@ download_file()
     fi
     mkdir -p "$(dirname -- "${output}")"
     echo "[hf-model] download ${relative_path}"
-    if ! "${CURL}" --fail --location --retry 8 --retry-delay 5 \
-        --retry-all-errors --continue-at - --output "${temporary}" "${url}"; then
+    if [ "${CURL_RETRY_ALL_ERRORS}" = 1 ]; then
+        download_status=0
+        "${CURL}" --fail --location --retry 8 --retry-delay 5 \
+            --retry-all-errors --continue-at - --output "${temporary}" "${url}" || \
+            download_status=$?
+    else
+        download_status=0
+        "${CURL}" --fail --location --retry 8 --retry-delay 5 \
+            --continue-at - --output "${temporary}" "${url}" || \
+            download_status=$?
+    fi
+    if [ "${download_status}" -ne 0 ]; then
         echo "error: download failed: ${relative_path}" >&2
         return 1
     fi

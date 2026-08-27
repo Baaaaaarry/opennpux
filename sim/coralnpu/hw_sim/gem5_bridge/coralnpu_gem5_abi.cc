@@ -1222,11 +1222,15 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
                        tmma_completion.modeled_cycles));
       std::fprintf(stderr,
                    "Coral XOpenNPU writeback sequence=%u destination=%#x "
-                   "bytes=%u checksum=%#010x\n",
+                   "bytes=%u checksum=%#010x words=%#010x/%#010x/%#010x/%#010x\n",
                    tmma_completion.sequence_id,
                    tmma_completion.destination_address,
                    tmma_completion.destination_bytes,
-                   tmma_completion.destination_checksum);
+                   tmma_completion.destination_checksum,
+                   tmma_completion.destination_words[0],
+                   tmma_completion.destination_words[1],
+                   tmma_completion.destination_words[2],
+                   tmma_completion.destination_words[3]);
       if (tmma_completion.error != Gem5TmmaExecutionError::kNone) {
         return CORAL_GEM5_STEP_ERROR;
       }

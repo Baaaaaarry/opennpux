@@ -215,5 +215,12 @@ bool Gem5TmmaCoprocessor::ExecuteNext(std::vector<uint8_t>* memory,
   completion->destination_bytes = static_cast<uint32_t>(dst_bytes);
   completion->destination_checksum =
       Fnv1a(memory->data() + dst_base, completion->destination_bytes);
+  const size_t words = std::min<size_t>(
+      completion->destination_words.size(), dst_elements);
+  for (size_t index = 0; index < words; ++index) {
+    std::memcpy(&completion->destination_words[index],
+                memory->data() + dst_base + index * sizeof(uint32_t),
+                sizeof(uint32_t));
+  }
   return true;
 }

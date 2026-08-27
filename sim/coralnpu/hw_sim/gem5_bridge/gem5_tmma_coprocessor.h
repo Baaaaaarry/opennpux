@@ -44,6 +44,7 @@ struct Gem5TmmaCompletion {
   uint32_t destination_address = 0;
   uint32_t destination_bytes = 0;
   uint32_t destination_checksum = 0;
+  std::array<uint32_t, 4> destination_words{};
   uint64_t mac_operations = 0;
   uint64_t modeled_cycles = 0;
   Gem5TmmaExecutionError error = Gem5TmmaExecutionError::kNone;

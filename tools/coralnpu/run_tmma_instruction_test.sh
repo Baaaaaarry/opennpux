@@ -39,6 +39,8 @@ require_log() {
     description="$2"
     if ! grep -Eq "${pattern}" "${HOST_LOG}"; then
         echo "error: TMMA validation missing ${description}" >&2
+        grep -E 'Coral XOpenNPU (dispatch|accepted|complete|writeback|reject)|Coral RTL core fault' \
+            "${HOST_LOG}" >&2 || true
         echo "host log: ${HOST_LOG}" >&2
         exit 1
     fi
@@ -48,7 +50,7 @@ require_log 'Coral XOpenNPU dispatch sequence=0 operation=tmma' \
     'TMMA L2 dispatch'
 require_log 'Coral XOpenNPU complete sequence=0 .*error=0 .*macs=8 cycles=8' \
     'successful MMA completion'
-require_log 'Coral XOpenNPU writeback sequence=0 destination=0x20000200 bytes=16 checksum=0xe6d7ed59' \
+require_log 'Coral XOpenNPU writeback sequence=0 destination=0x20000200 bytes=16 checksum=0xe6d7ed59 words=0x41980000/0x41b00000/0x422c0000/0x42480000' \
     'independently checked matrix writeback'
 require_log 'Coral XOpenNPU dispatch sequence=1 operation=tfence' \
     'tfence completion ordering'

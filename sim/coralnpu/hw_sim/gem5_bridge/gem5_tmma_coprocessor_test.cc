@@ -97,6 +97,10 @@ void TestFp32MatmulAndSnapshot() {
   assert(completion.destination_bytes == 4 * sizeof(float));
   assert(completion.destination_checksum ==
          Fnv1a(memory, 0x200, completion.destination_bytes));
+  assert(completion.destination_words[0] == UINT32_C(0x42680000));
+  assert(completion.destination_words[1] == UINT32_C(0x42800000));
+  assert(completion.destination_words[2] == UINT32_C(0x430b0000));
+  assert(completion.destination_words[3] == UINT32_C(0x431a0000));
 }
 
 void TestRejectAndBackpressure() {

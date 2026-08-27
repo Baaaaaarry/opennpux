@@ -61,6 +61,7 @@ LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${CORAL_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
 REPO_CACHE="${CORAL_REPO_CACHE:-${ROOT_DIR}/.cache/coralnpu/repository}"
 DISTDIR="${CORAL_DISTDIR:-${CORAL_REPO}/distdir}"
+EXPECTED_BAZEL_VERSION="$(head -n 1 "${CORAL_REPO}/.bazelversion" | tr -d '\r')"
 
 # Default to an optimized build. The bridge contains the Verilated RTL model,
 # and a default fastbuild (-O0) runs it ~14x slower; pass an explicit mode to
@@ -88,6 +89,24 @@ Prepare the repository-local Bazel executable first:
 
 For an offline/DNS-restricted host:
   BAZEL_BINARY=/path/to/bazel-$(cat "${CORAL_REPO}/.bazelversion")-linux-x86_64 ./tools/coralnpu/prepare_coral_bazel.sh
+EOF
+    exit 1
+fi
+
+if ! ACTUAL_BAZEL_VERSION="$(${BAZEL} --version 2>/dev/null)" ||
+   ! printf '%s\n' "${ACTUAL_BAZEL_VERSION}" |
+       grep -Fq "${EXPECTED_BAZEL_VERSION}"; then
+    cat >&2 <<EOF
+error: selected Bazel does not provide required version ${EXPECTED_BAZEL_VERSION}
+selected executable: ${BAZEL}
+reported version: ${ACTUAL_BAZEL_VERSION:-unavailable}
+
+Install the pinned repository-local Bazel, then rerun:
+  ./tools/coralnpu/prepare_coral_bazel.sh
+
+Offline host:
+  BAZEL_BINARY=/path/to/bazel-${EXPECTED_BAZEL_VERSION}-linux-x86_64 \\
+    ./tools/coralnpu/prepare_coral_bazel.sh
 EOF
     exit 1
 fi

@@ -25,6 +25,14 @@ void StoreFloat(std::vector<uint8_t>* memory, size_t offset, float value) {
   std::memcpy(memory->data() + offset, &value, sizeof(value));
 }
 
+uint32_t Fnv1a(const uint8_t* data, size_t size) {
+  uint32_t hash = 2166136261u;
+  for (size_t index = 0; index < size; ++index) {
+    hash = (hash ^ data[index]) * 16777619u;
+  }
+  return hash;
+}
+
 }  // namespace
 
 void Gem5TmmaCoprocessor::Reset() {
@@ -147,6 +155,7 @@ bool Gem5TmmaCoprocessor::ExecuteNext(std::vector<uint8_t>* memory,
   completion->pc = command.dispatch.pc;
   completion->instruction = command.dispatch.instruction;
   completion->hart_id = command.dispatch.hart_id;
+  completion->destination_address = command.dispatch.rd_value;
   completion->mac_operations = static_cast<uint64_t>(command.shape.m) *
                                command.shape.n * command.shape.k;
   completion->modeled_cycles = completion->mac_operations;
@@ -164,6 +173,7 @@ bool Gem5TmmaCoprocessor::ExecuteNext(std::vector<uint8_t>* memory,
       static_cast<uint64_t>(command.shape.k) * command.shape.n;
   const uint64_t dst_elements =
       static_cast<uint64_t>(command.shape.m) * command.shape.n;
+  const uint64_t dst_bytes = dst_elements * sizeof(float);
   if (!MatrixRangeValid(command.dispatch.rs1_value, lhs_elements, memory_base,
                         memory->size())) {
     completion->error = Gem5TmmaExecutionError::kAddress;
@@ -202,5 +212,8 @@ bool Gem5TmmaCoprocessor::ExecuteNext(std::vector<uint8_t>* memory,
       StoreFloat(memory, dst_offset, accumulator);
     }
   }
+  completion->destination_bytes = static_cast<uint32_t>(dst_bytes);
+  completion->destination_checksum =
+      Fnv1a(memory->data() + dst_base, completion->destination_bytes);
   return true;
 }

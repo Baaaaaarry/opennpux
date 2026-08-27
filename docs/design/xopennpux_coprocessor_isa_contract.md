@@ -548,6 +548,7 @@ GB10 validation commands:
 ./tools/coralnpu/prepare_coral_bazel.sh
 ./tools/coralnpu/test_tmma_instruction.sh
 ./tools/coralnpu/build_rtl_bridge.sh
+./tools/coralnpu/run_tmma_instruction_test.sh
 ```
 
 `test_tmma_instruction.sh` parses executable ELF sections directly and checks
@@ -557,8 +558,11 @@ build scripts prefer the repository-local Bazel version pinned by
 `thirdparty/coralnpu/.bazelversion` over a system Bazel/Bazelisk wrapper.
 
 The full-system run MUST additionally observe `Coral XOpenNPU accepted`,
-`Coral XOpenNPU complete ... error=0`, firmware halt without a Coral fault, and
-the EXTMEM result word `0x544d4d41` at `0x20000300`.
+`Coral XOpenNPU complete ... error=0`, a successful `tfence` dispatch, firmware
+halt without a Coral fault, and the independently calculated EXTMEM writeback
+checksum. The baseline 2x2 FP32 smoke expects destination `0x20000200`, 16
+bytes, checksum `0xe6d7ed59`, and firmware result word `0x544d4d41` at
+`0x20000300`.
 
 ## Legacy Compatibility
 

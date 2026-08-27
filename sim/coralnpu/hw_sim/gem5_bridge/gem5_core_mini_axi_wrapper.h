@@ -172,6 +172,16 @@ class Gem5CoreMiniAxiWrapper {
     core_.eval();
     if (core_.io_xnpu_request_valid && core_.io_xnpu_request_ready) {
       *result = coprocessor->Submit(packet);
+      if (*result == Gem5TmmaSubmitResult::kAccepted) {
+        std::fprintf(
+            stderr,
+            "Coral XOpenNPU dispatch sequence=%u operation=%s pc=%#x "
+            "inst=%#x epoch=%u rs1=%#x rs2=%#x rd=%#x\n",
+            sequence_id,
+            xopennpux::IsTfence(packet.instruction) ? "tfence" : "tmma",
+            packet.pc, packet.instruction, packet.csr_epoch,
+            packet.rs1_value, packet.rs2_value, packet.rd_value);
+      }
       return *result == Gem5TmmaSubmitResult::kAccepted;
     }
     return false;

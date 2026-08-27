@@ -20,6 +20,15 @@ float ReadFloat(const std::vector<uint8_t>& memory, size_t offset) {
   return value;
 }
 
+uint32_t Fnv1a(const std::vector<uint8_t>& memory, size_t offset,
+               size_t size) {
+  uint32_t hash = 2166136261u;
+  for (size_t index = 0; index < size; ++index) {
+    hash = (hash ^ memory[offset + index]) * 16777619u;
+  }
+  return hash;
+}
+
 Gem5TmmaDispatchPacket Packet(uint32_t sequence_id) {
   Gem5TmmaDispatchPacket packet;
   packet.instruction = xopennpux::EncodeTmma(12, 10, 11);
@@ -84,6 +93,10 @@ void TestFp32MatmulAndSnapshot() {
   assert(ReadFloat(memory, 0x204) == 64.0f);
   assert(ReadFloat(memory, 0x208) == 139.0f);
   assert(ReadFloat(memory, 0x20c) == 154.0f);
+  assert(completion.destination_address == kMemoryBase + 0x200);
+  assert(completion.destination_bytes == 4 * sizeof(float));
+  assert(completion.destination_checksum ==
+         Fnv1a(memory, 0x200, completion.destination_bytes));
 }
 
 void TestRejectAndBackpressure() {

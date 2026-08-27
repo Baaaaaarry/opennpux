@@ -1205,6 +1205,13 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
       ++handle->tmma_sequence;
     }
     handle->wrapper.Step();
+    if (handle->tmma_coprocessor.pending_count() != 0 &&
+        !handle->local_extmem_enabled) {
+      std::fprintf(stderr,
+                   "Coral XOpenNPU execution rejected: TMMA requires shared "
+                   "local EXTMEM; enable gem5 --npu-fast-dma\n");
+      return CORAL_GEM5_STEP_ERROR;
+    }
     Gem5TmmaCompletion tmma_completion;
     if (handle->tmma_coprocessor.ExecuteNext(
             &handle->local_extmem, kExtmemBase, &tmma_completion)) {

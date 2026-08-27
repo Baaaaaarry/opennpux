@@ -31,6 +31,7 @@ CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
 CORAL_CKPT_ROOT="${CORAL_CKPT_ROOT:-${ROOT_DIR}/checkpoint/coralnpu_tmma_ckpt}" \
 CORAL_AUTO_RESUME_AFTER_CKPT="${CORAL_AUTO_RESUME_AFTER_CKPT:-1}" \
 CORAL_RTL_CYCLES_PER_EVENT="${CORAL_RTL_CYCLES_PER_EVENT:-1}" \
+CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-size=8MiB --npu-fast-dma --npu-fast-dma-event-batch=1" \
 GEM5_OPTIONS="${GEM5_OPTIONS:-} --debug-flags=NPUDevice --debug-file=${DEBUG_LOG}" \
 ./run_multicore.sh 2>&1 | tee "${HOST_LOG}"
 

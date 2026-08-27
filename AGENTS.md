@@ -80,6 +80,20 @@ Design notes should be placed under `docs/design/` and, once accepted, linked
 from the Issue and PR. If a design is superseded, add a short note instead of
 rewriting history silently.
 
+## Mandatory XOpenNPUX ISA Reference
+
+Before changing Coral scalar decode/dispatch/retirement, custom CSRs,
+`custom3` instruction encodings, NPU second-level decode, NPU issue queues,
+firmware instruction emission, or compiler lowering, read and follow:
+
+- `docs/design/xopennpux_coprocessor_isa_contract.md`
+
+That contract is normative for new XOpenNPUX instructions. The existing
+`CUSTOM_0 NPU_LAUNCH -> LSU store -> MMIO descriptor` flow is a legacy
+bring-up/regression path and must not be copied as the implementation of a new
+instruction. Any intentional deviation requires a reviewed design/ADR update
+in the same PR.
+
 ## Build And Validation Baseline
 
 Apply overlays before building:

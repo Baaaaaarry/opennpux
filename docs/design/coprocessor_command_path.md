@@ -1,5 +1,12 @@
 # Coral Control Core to NPU Coprocessor Command Path
 
+> **Legacy bring-up path:** This document describes the existing
+> `CUSTOM_0 -> LSU SW -> MMIO doorbell -> descriptor` validation flow. New
+> XOpenNPUX instructions must follow the normative two-level decode and real
+> coprocessor contract in
+> [`xopennpux_coprocessor_isa_contract.md`](xopennpux_coprocessor_isa_contract.md).
+> Do not use this legacy lowering as the template for new instructions.
+
 ## Scope
 
 This increment validates the control path before adding detailed TDMA and

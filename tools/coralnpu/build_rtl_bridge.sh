@@ -55,6 +55,7 @@ DMA_FIRMWARE_TARGET="//hw_sim:gem5_dma_smoke.elf"
 COMMAND_FIRMWARE_TARGET="//hw_sim:gem5_command_smoke.elf"
 QWEN_TCB_FIRMWARE_TARGET="//hw_sim:gem5_qwen_tcb_smoke.elf"
 COMMAND_PROCESSOR_FIRMWARE_TARGET="//hw_sim:gem5_npu_command_processor_smoke.elf"
+TMMA_FIRMWARE_TARGET="//hw_sim:gem5_tmma_smoke.elf"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${CORAL_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -74,10 +75,10 @@ esac
 # ---------------------------------------------------------------------------
 if [ -n "${BAZEL:-}" ]; then
     :
-elif command -v bazel >/dev/null 2>&1; then
-    BAZEL="$(command -v bazel)"
 elif [ -x "${LOCAL_BAZEL}" ]; then
     BAZEL="${LOCAL_BAZEL}"
+elif command -v bazel >/dev/null 2>&1; then
+    BAZEL="$(command -v bazel)"
 else
     cat >&2 <<EOF
 error: bazel not found
@@ -90,6 +91,7 @@ For an offline/DNS-restricted host:
 EOF
     exit 1
 fi
+export BAZEL
 
 # ---------------------------------------------------------------------------
 # Pre-build checks: ABI consistency, Coral overlay, unit tests.
@@ -138,6 +140,7 @@ rm -f \
     "${OUT_DIR}/gem5_command_smoke.elf" \
     "${OUT_DIR}/gem5_qwen_tcb_smoke.elf" \
     "${OUT_DIR}/gem5_npu_command_processor_smoke.elf" \
+    "${OUT_DIR}/gem5_tmma_smoke.elf" \
     "${OUT_DIR}/wfi_slot_0.elf"
 
 # ---------------------------------------------------------------------------
@@ -178,7 +181,8 @@ if _capture "${BUILD_LOG}" \
        --distdir="${DISTDIR}" \
        "${TARGET}" "${FIRMWARE_TARGET}" "${DMA_FIRMWARE_TARGET}" \
        "${COMMAND_FIRMWARE_TARGET}" "${QWEN_TCB_FIRMWARE_TARGET}" \
-       "${COMMAND_PROCESSOR_FIRMWARE_TARGET}" "$@"; then
+       "${COMMAND_PROCESSOR_FIRMWARE_TARGET}" "${TMMA_FIRMWARE_TARGET}" \
+       "$@"; then
     bazel_ok=1
 fi
 
@@ -225,6 +229,7 @@ DMA_FIRMWARE="$(resolve_output "${DMA_FIRMWARE_TARGET}")"
 COMMAND_FIRMWARE="$(resolve_output "${COMMAND_FIRMWARE_TARGET}")"
 QWEN_TCB_FIRMWARE="$(resolve_output "${QWEN_TCB_FIRMWARE_TARGET}")"
 COMMAND_PROCESSOR_FIRMWARE="$(resolve_output "${COMMAND_PROCESSOR_FIRMWARE_TARGET}")"
+TMMA_FIRMWARE="$(resolve_output "${TMMA_FIRMWARE_TARGET}")"
 
 # ---------------------------------------------------------------------------
 # Verify Bazel produced all four artifacts.
@@ -251,6 +256,10 @@ if [ ! -f "${QWEN_TCB_FIRMWARE}" ]; then
 fi
 if [ ! -f "${COMMAND_PROCESSOR_FIRMWARE}" ]; then
     echo "error: Bazel completed but command processor firmware was not found: ${COMMAND_PROCESSOR_FIRMWARE}" >&2
+    exit 1
+fi
+if [ ! -f "${TMMA_FIRMWARE}" ]; then
+    echo "error: Bazel completed but TMMA firmware was not found: ${TMMA_FIRMWARE}" >&2
     exit 1
 fi
 
@@ -291,6 +300,8 @@ install_output "${QWEN_TCB_FIRMWARE}" \
     "${OUT_DIR}/gem5_qwen_tcb_smoke.elf" 0644
 install_output "${COMMAND_PROCESSOR_FIRMWARE}" \
     "${OUT_DIR}/gem5_npu_command_processor_smoke.elf" 0644
+install_output "${TMMA_FIRMWARE}" \
+    "${OUT_DIR}/gem5_tmma_smoke.elf" 0644
 
 # ---------------------------------------------------------------------------
 # Post-build sanity checks.
@@ -322,3 +333,4 @@ echo "built: ${OUT_DIR}/gem5_dma_smoke.elf" | tee -a "${BUILD_LOG}"
 echo "built: ${OUT_DIR}/gem5_command_smoke.elf" | tee -a "${BUILD_LOG}"
 echo "built: ${OUT_DIR}/gem5_qwen_tcb_smoke.elf" | tee -a "${BUILD_LOG}"
 echo "built: ${OUT_DIR}/gem5_npu_command_processor_smoke.elf" | tee -a "${BUILD_LOG}"
+echo "built: ${OUT_DIR}/gem5_tmma_smoke.elf" | tee -a "${BUILD_LOG}"

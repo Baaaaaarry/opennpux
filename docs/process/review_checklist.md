@@ -16,6 +16,13 @@ Use this checklist for human review and Codex review.
 - Are shared DMA base, size, and coherency assumptions explicit?
 - Are invocation/command/tensor descriptor changes versioned or backward-compatible?
 - Are bridge C ABI changes reflected on both gem5 and Coral sides?
+- For XOpenNPUX work, does the change follow
+  `docs/design/xopennpux_coprocessor_isa_contract.md`?
+- Does Coral L1 only classify `custom3`, leaving operator decode to NPU L2?
+- Is a new custom instruction dispatched to the NPU rather than lowered to an
+  LSU store/MMIO doorbell?
+- Are `rd` source/destination semantics, CSR snapshot behavior, dispatch
+  backpressure, retirement class, memory ordering, and error reporting tested?
 
 ## Overlay Discipline
 

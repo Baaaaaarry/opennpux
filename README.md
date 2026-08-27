@@ -56,6 +56,10 @@ Start here before development:
   PR, and ownership process.
 - `docs/process/task_template.md`: standard Issue/Codex task template.
 - `docs/process/review_checklist.md`: human and Codex review checklist.
+- `docs/design/xopennpux_coprocessor_isa_contract.md`: mandatory Coral
+  controller/NPU coprocessor boundary, custom CSR, instruction decode, issue,
+  synchronization, retirement, and compiler contract for all new XOpenNPUX
+  ISA work.
 
 Shared interfaces such as SoC memory map, NPU CSR/MMIO, shared DMA window,
 generic invocation/command/tensor descriptors, kernel UAPI, Verilated bridge C

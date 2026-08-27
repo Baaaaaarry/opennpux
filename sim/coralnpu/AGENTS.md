@@ -27,6 +27,16 @@
   `docs/design/coral_operator_abi.md` and runtime headers.
 - Operator changes must state whether they are full RTL, sampled RTL, hybrid
   modeling, or TFLM fallback.
+- Changes to Coral custom-instruction classification, NPU coprocessor dispatch,
+  custom CSRs, second-level decode, issue, synchronization, or retirement must
+  follow `docs/design/xopennpux_coprocessor_isa_contract.md`.
+- New XOpenNPUX instructions must use the real coprocessor path. Do not lower
+  them to the legacy LSU/MMIO doorbell path.
+- Coral first-level decode classifies `custom3`; operator-specific `funct3` and
+  `funct7` decode belongs in the NPU second-level decoder.
+- A normal asynchronous tensor instruction retires in Coral only after the NPU
+  durably accepts it. Scalar-result and wait/fence instructions must wait for
+  their architectural completion condition.
 
 ## Validation
 

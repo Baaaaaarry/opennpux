@@ -273,6 +273,9 @@ cc_binary(
         "gem5_bridge/gem5_sim_host_functional.h",
         "gem5_bridge/gem5_sim_host_numerical.cc",
         "gem5_bridge/gem5_sim_host_numerical.h",
+        "gem5_bridge/gem5_tmma_coprocessor.cc",
+        "gem5_bridge/gem5_tmma_coprocessor.h",
+        "gem5_bridge/xopennpux_isa.h",
         "gem5_bridge/gem5_transformer_kernels.cc",
         "gem5_bridge/gem5_transformer_kernels.h",
         "gem5_bridge/qwen_device_inference.h",
@@ -326,6 +329,9 @@ cc_binary(
         "gem5_bridge/gem5_sim_host_functional.h",
         "gem5_bridge/gem5_sim_host_numerical.cc",
         "gem5_bridge/gem5_sim_host_numerical.h",
+        "gem5_bridge/gem5_tmma_coprocessor.cc",
+        "gem5_bridge/gem5_tmma_coprocessor.h",
+        "gem5_bridge/xopennpux_isa.h",
         "gem5_bridge/gem5_transformer_kernels.cc",
         "gem5_bridge/gem5_transformer_kernels.h",
         "gem5_bridge/qwen_device_inference.h",
@@ -353,6 +359,16 @@ cc_test(
         "gem5_bridge/gem5_coprocessor_command.cc",
         "gem5_bridge/gem5_coprocessor_command.h",
         "gem5_bridge/gem5_coprocessor_command_test.cc",
+    ],
+)
+
+cc_test(
+    name = "gem5_tmma_coprocessor_test",
+    srcs = [
+        "gem5_bridge/gem5_tmma_coprocessor.cc",
+        "gem5_bridge/gem5_tmma_coprocessor.h",
+        "gem5_bridge/gem5_tmma_coprocessor_test.cc",
+        "gem5_bridge/xopennpux_isa.h",
     ],
 )
 
@@ -505,6 +521,14 @@ coralnpu_v2_binary(
     name = "gem5_smoke_halt",
     srcs = [
         "gem5_bridge/gem5_smoke_halt.c",
+    ],
+)
+
+coralnpu_v2_binary(
+    name = "gem5_tmma_smoke",
+    srcs = [
+        "gem5_bridge/gem5_tmma_smoke.c",
+        "gem5_bridge/xopennpux_intrinsics.h",
     ],
 )
 

@@ -19,6 +19,7 @@
 #include "hw_sim/gem5_bridge/gem5_sim_host_pager.h"
 #include "hw_sim/gem5_bridge/gem5_sim_host_functional.h"
 #include "hw_sim/gem5_bridge/gem5_sim_host_numerical.h"
+#include "hw_sim/gem5_bridge/gem5_tmma_coprocessor.h"
 #include "hw_sim/gem5_bridge/npu_weight_queue.h"
 #ifdef CORAL_GEM5_RVV_HIGHMEM
 #include "hw_sim/gem5_bridge/gem5_hybrid_operator.h"
@@ -261,6 +262,8 @@ struct AsyncOperatorSubmission {
 struct coral_gem5_handle {
   VerilatedContext context;
   Gem5CoreMiniAxiWrapper wrapper;
+  Gem5TmmaCoprocessor tmma_coprocessor;
+  uint32_t tmma_sequence;
   Gem5CustomMac custom_mac;
   Gem5CoprocessorCommandAdapter command_adapter;
   Gem5SimHostPager sim_host_pager;
@@ -638,6 +641,8 @@ struct coral_gem5_handle {
   coral_gem5_handle()
       : context(),
         wrapper(&context),
+        tmma_coprocessor(),
+        tmma_sequence(0),
         custom_mac(&context),
         command_adapter(),
         async_submissions(),
@@ -1102,6 +1107,8 @@ coral_gem5_reset(coral_gem5_handle* handle)
     return -1;
   }
   handle->wrapper.Reset();
+  handle->tmma_coprocessor.Reset();
+  handle->tmma_sequence = 0;
   handle->custom_mac.Reset();
   handle->command_adapter.Reset();
   handle->sim_host_pager.Reset();
@@ -1187,7 +1194,36 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
       return CORAL_GEM5_STEP_HALTED;
     }
     ++handle->rtl_cycles;
+    Gem5TmmaSubmitResult tmma_submit = Gem5TmmaSubmitResult::kAccepted;
+    const bool tmma_accepted = handle->wrapper.PrepareXOpenNpu(
+        &handle->tmma_coprocessor, handle->tmma_sequence, &tmma_submit);
+    if (tmma_accepted) {
+      std::fprintf(stderr,
+                   "Coral XOpenNPU accepted sequence=%u pending=%zu\n",
+                   handle->tmma_sequence,
+                   handle->tmma_coprocessor.pending_count());
+      ++handle->tmma_sequence;
+    }
     handle->wrapper.Step();
+    Gem5TmmaCompletion tmma_completion;
+    if (handle->tmma_coprocessor.ExecuteNext(
+            &handle->local_extmem, kExtmemBase, &tmma_completion)) {
+      std::fprintf(stderr,
+                   "Coral XOpenNPU complete sequence=%u pc=%#x inst=%#x "
+                   "epoch=%u error=%u fault_addr=%#x macs=%llu cycles=%llu\n",
+                   tmma_completion.sequence_id,
+                   tmma_completion.pc, tmma_completion.instruction,
+                   tmma_completion.csr_epoch,
+                   static_cast<unsigned>(tmma_completion.error),
+                   tmma_completion.faulting_address,
+                   static_cast<unsigned long long>(
+                       tmma_completion.mac_operations),
+                   static_cast<unsigned long long>(
+                       tmma_completion.modeled_cycles));
+      if (tmma_completion.error != Gem5TmmaExecutionError::kNone) {
+        return CORAL_GEM5_STEP_ERROR;
+      }
+    }
     handle->custom_mac.StepIfActive();
     handle->StepCommandPipeline();
     const int serviced_page = handle->sim_host_pager.Service(

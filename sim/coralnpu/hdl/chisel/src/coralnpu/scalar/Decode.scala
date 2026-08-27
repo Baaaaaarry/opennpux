@@ -26,6 +26,38 @@ import common._
 import coralnpu.float.{FloatInstruction, FloatOpcode}
 import coralnpu.rvv._
 
+object XOpenNpuEncoding {
+  val Custom3Opcode = "b1111011".U(7.W)
+}
+
+class XOpenNpuCsrState(p: Parameters) extends Bundle {
+  val mmaShape = UInt(p.xlen.W)
+  val mmaDataType = UInt(p.xlen.W)
+  val epoch = UInt(32.W)
+}
+
+class XOpenNpuDecodeCmd(p: Parameters) extends Bundle {
+  val instruction = UInt(32.W)
+  val pc = UInt(p.programCounterBits.W)
+  val rs1 = UInt(5.W)
+  val rs2 = UInt(5.W)
+  val rd = UInt(5.W)
+}
+
+class XOpenNpuDispatchCmd(p: Parameters) extends Bundle {
+  val instruction = UInt(32.W)
+  val pc = UInt(p.programCounterBits.W)
+  val rs1Value = UInt(p.xlen.W)
+  val rs2Value = UInt(p.xlen.W)
+  val rdValue = UInt(p.xlen.W)
+  val csr = new XOpenNpuCsrState(p)
+}
+
+class XOpenNpuPort(p: Parameters) extends Bundle {
+  val request = Decoupled(new XOpenNpuDispatchCmd(p))
+  val reject = Input(Bool())
+}
+
 class DecodedInstruction(p: Parameters) extends Bundle {
   // The original encoding
   val inst = UInt(32.W)
@@ -65,6 +97,9 @@ class DecodedInstruction(p: Parameters) extends Bundle {
   // lowers it to a 32-bit store at base + 4, preserving the existing AXI
   // doorbell transport while making command submission visible to Decode.
   val npuLaunch = Bool()
+  // L1 classification only: all CUSTOM_3 instructions are delegated to the
+  // NPU coprocessor, which owns funct3/funct7 secondary decode.
+  val xopenNpu = Bool()
   val fence = Bool()
   val addi  = Bool()
   val slti  = Bool()
@@ -170,7 +205,7 @@ class DecodedInstruction(p: Parameters) extends Bundle {
   // Instructions that should dispatch out of slot 0, with no other instructions
   // dispatched on the same cycle.
   def forceSlot0Only(): Bool = {
-    isFency() || isCsr() || npuLaunch || isFloat() ||
+    isFency() || isCsr() || npuLaunch || xopenNpu || isFloat() ||
     rvvReadsFloatRs1() || rvvWritesFrd()
   }
 
@@ -206,11 +241,12 @@ class DecodedInstruction(p: Parameters) extends Bundle {
   def readsRs1(): Bool = {
     isCondBr() || isAluReg() || isAluImm() || isAlu1Bit() || isAlu2Bit() ||
     isCsr() || isMul() || isDvu() || jalr || floatReadsScalarRs1() ||
+    xopenNpu ||
     (if (p.enableRvv) { rvv.get.valid && rvv.get.bits.readsRs1() } else { false.B })
   }
   def readsRs2(): Bool = {
     isCondBr() || isAluReg() || isAlu2Bit() || isScalarStore() || isCsrReg() ||
-    isMul() || isDvu() ||
+    isMul() || isDvu() || xopenNpu ||
     (if (p.enableRvv) { rvv.get.valid && rvv.get.bits.readsRs2() } else { false.B })
   }
 
@@ -294,6 +330,9 @@ class Dispatch(p: Parameters) extends Module {
 
     val fbusPortAddr = Option.when(p.enableFloat)(Output(UInt(5.W)))
 
+    val xnpu = Decoupled(new XOpenNpuDecodeCmd(p))
+    val xnpuReject = Input(Bool())
+
     val retirement_buffer_nSpace = Input(UInt(log2Ceil(p.retirementBufferSize + 1).W))
     val retirement_buffer_empty = Input(Bool())
     val retirement_buffer_trap_pending = Input(Bool())
@@ -336,7 +375,7 @@ class DispatchV2(p: Parameters) extends Dispatch(p) {
   // Scalar Scoreboard
   val rdAddr = io.inst.map(_.bits.inst(11,7))
   val writesRd = decodedInsts.map(d =>
-      (!d.isScalarStore() && !d.isCondBr()) ||
+      (!d.isScalarStore() && !d.isCondBr() && !d.xopenNpu) ||
       (d.isFloat() && d.floatWritesRd()) ||
       d.rvvWritesRd()
   )
@@ -360,7 +399,8 @@ class DispatchV2(p: Parameters) extends Dispatch(p) {
   val usesRs2Comb = decodedInsts.map(d => d.readsRs2())
   val readScoreboardComb = (0 until p.instructionLanes).map(i =>
       MuxOR(usesRs1Comb(i), UIntToOH(rs1Addr(i), 32)) |
-      MuxOR(usesRs2Comb(i), UIntToOH(rs2Addr(i), 32)))
+      MuxOR(usesRs2Comb(i), UIntToOH(rs2Addr(i), 32)) |
+      MuxOR(decodedInsts(i).xopenNpu, UIntToOH(rdAddr(i), 32)))
 
   val readAfterWrite = (0 until p.instructionLanes).map(i =>
       (readScoreboardRegd(i) & regd(i)) =/= 0.U(32.W) ||
@@ -472,7 +512,13 @@ class DispatchV2(p: Parameters) extends Dispatch(p) {
   val undefInterlock = (0 until p.instructionLanes).map(i =>
     if (i == 0) { false.B } else { decodedInsts(i).undef })
   io.undefFault := (0 until p.instructionLanes).map(i =>
-    if (i == 0) { io.inst(i).valid && decodedInsts(i).undef } else { false.B })
+    if (i == 0) {
+      io.inst(i).valid && (decodedInsts(i).undef ||
+          (decodedInsts(i).xopenNpu && io.xnpuReject))
+    } else { false.B })
+
+  io.xnpu.valid := false.B
+  io.xnpu.bits := 0.U.asTypeOf(new XOpenNpuDecodeCmd(p))
 
   // ---------------------------------------------------------------------------
   // Core idle
@@ -533,6 +579,15 @@ class DispatchV2(p: Parameters) extends Dispatch(p) {
   for (i <- 0 until p.instructionLanes) {
     val tryDispatch = lastReady(i) && canDispatch(i)
     val d = decodedInsts(i)
+
+    if (i == 0) {
+      io.xnpu.valid := tryDispatch && d.xopenNpu && !io.xnpuReject
+      io.xnpu.bits.instruction := io.inst(i).bits.inst
+      io.xnpu.bits.pc := io.inst(i).bits.addr
+      io.xnpu.bits.rs1 := rs1Addr(i)
+      io.xnpu.bits.rs2 := rs2Addr(i)
+      io.xnpu.bits.rd := rdAddr(i)
+    }
 
     // -------------------------------------------------------------------------
     // Alu
@@ -728,7 +783,7 @@ class DispatchV2(p: Parameters) extends Dispatch(p) {
 
     // Set next lastReady if dispatched.
     val dispatched = Seq(io.alu(i).fire, io.bru(i).fire, io.mlu(i).fire, io.dvu(i).fire, io.lsu(i).fire) ++
-      Option.when(i == 0)(Seq(io.csr.valid, fenceValid)).getOrElse(Seq()) ++
+      Option.when(i == 0)(Seq(io.csr.valid, fenceValid, io.xnpu.fire)).getOrElse(Seq()) ++
       Option.when(p.enableRvv)(Seq(io.rvv.get(i).fire)).getOrElse(Seq()) ++
       Option.when(p.enableFloat && i == 0)(Seq(io.float.get.fire)).getOrElse(Seq())
     lastReady(i + 1) := dispatched.reduce(_||_)
@@ -867,6 +922,7 @@ object DecodeInstruction {
     //   .insn r 0x0b, 0, 0, x0, rs1, rs2
     d.npuLaunch :=
         op === BitPat("b0000000_?????_?????_000_00000_0001011")
+    d.xopenNpu := op(6,0) === XOpenNpuEncoding.Custom3Opcode
     d.fence := op === BitPat("b0000_????_????_00000_000_00000_0001111")
     d.addi  := op === BitPat("b????????????_?????_000_?????_0010011")
     d.slti  := op === BitPat("b????????????_?????_010_?????_0010011")
@@ -974,7 +1030,7 @@ object DecodeInstruction {
                       d.beq, d.bne, d.blt, d.bge, d.bltu, d.bgeu,
                       d.csrrw, d.csrrs, d.csrrc,
                       d.lb, d.lh, d.lw, d.lbu, d.lhu,
-                      d.sb, d.sh, d.sw, d.npuLaunch, d.fence,
+                      d.sb, d.sh, d.sw, d.npuLaunch, d.xopenNpu, d.fence,
                       d.addi, d.slti, d.sltiu, d.xori, d.ori, d.andi,
                       d.add, d.sub, d.slt, d.sltu, d.xor, d.or, d.and, d.xnor, d.orn, d.andn,
                       d.slli, d.srli, d.srai, d.sll, d.srl, d.sra,

@@ -16,6 +16,7 @@ using Gem5CoralAxiModel = VRvvCoreMiniHighmemAxi;
 using Gem5CoralAxiModel = VCoreMiniAxi;
 #endif
 #include "hw_sim/gem5_bridge/gem5_axi_master_drivers.h"
+#include "hw_sim/gem5_bridge/gem5_tmma_coprocessor.h"
 #include "hw_sim/hw_primitives.h"
 
 class Gem5CoreMiniAxiWrapper {
@@ -103,10 +104,14 @@ class Gem5CoreMiniAxiWrapper {
                       &core_.io_axi_master_write_resp_bits_resp,
                       &core_.io_axi_master_write_resp_ready),
         fault_seen_(false) {
+    core_.io_xnpu_request_ready = 0;
+    core_.io_xnpu_reject = 0;
     debug_last_pcs_.fill(0);
   }
 
   void Reset() {
+    core_.io_xnpu_request_ready = 0;
+    core_.io_xnpu_reject = 0;
     core_.io_aresetn = 1;
     context_->timeInc(1);
     core_.io_aresetn = 0;
@@ -128,6 +133,48 @@ class Gem5CoreMiniAxiWrapper {
     debug_retire_cursor_ = 0;
     debug_last_retire_ring_dump_ = 0;
     debug_retire_ring_.fill(DebugRetireEntry{0, 0, 0});
+  }
+
+  bool PrepareXOpenNpu(Gem5TmmaCoprocessor* coprocessor,
+                       uint32_t sequence_id,
+                       Gem5TmmaSubmitResult* result) {
+    core_.io_xnpu_request_ready = 0;
+    core_.io_xnpu_reject = 0;
+    core_.eval();
+    if (!core_.io_xnpu_request_valid) {
+      return false;
+    }
+
+    Gem5TmmaDispatchPacket packet;
+    packet.instruction = core_.io_xnpu_request_bits_instruction;
+    packet.pc = core_.io_xnpu_request_bits_pc;
+    packet.rs1_value = core_.io_xnpu_request_bits_rs1Value;
+    packet.rs2_value = core_.io_xnpu_request_bits_rs2Value;
+    packet.rd_value = core_.io_xnpu_request_bits_rdValue;
+    packet.mma_shape = core_.io_xnpu_request_bits_csr_mmaShape;
+    packet.mma_data_type = core_.io_xnpu_request_bits_csr_mmaDataType;
+    packet.csr_epoch = core_.io_xnpu_request_bits_csr_epoch;
+    packet.sequence_id = sequence_id;
+
+    *result = coprocessor->Classify(packet);
+    core_.io_xnpu_request_ready =
+        *result == Gem5TmmaSubmitResult::kAccepted;
+    core_.io_xnpu_reject =
+        *result == Gem5TmmaSubmitResult::kIllegalInstruction ||
+        *result == Gem5TmmaSubmitResult::kInvalidCsrState;
+    if (core_.io_xnpu_reject) {
+      std::fprintf(stderr,
+                   "Coral XOpenNPU reject pc=%#x inst=%#x epoch=%u "
+                   "reason=%u\n",
+                   packet.pc, packet.instruction, packet.csr_epoch,
+                   static_cast<unsigned>(*result));
+    }
+    core_.eval();
+    if (core_.io_xnpu_request_valid && core_.io_xnpu_request_ready) {
+      *result = coprocessor->Submit(packet);
+      return *result == Gem5TmmaSubmitResult::kAccepted;
+    }
+    return false;
   }
 
   void Step() {

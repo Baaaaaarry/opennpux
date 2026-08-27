@@ -1,0 +1,206 @@
+#include "hw_sim/gem5_bridge/gem5_tmma_coprocessor.h"
+
+#include <cstring>
+
+namespace {
+
+bool MatrixRangeValid(uint32_t address, uint64_t elements,
+                      uint32_t memory_base, size_t memory_size) {
+  constexpr uint64_t kElementBytes = sizeof(float);
+  if ((address & (kElementBytes - 1)) != 0 || address < memory_base) {
+    return false;
+  }
+  const uint64_t offset = static_cast<uint64_t>(address - memory_base);
+  const uint64_t bytes = elements * kElementBytes;
+  return offset <= memory_size && bytes <= memory_size - offset;
+}
+
+float LoadFloat(const std::vector<uint8_t>& memory, size_t offset) {
+  float value = 0.0f;
+  std::memcpy(&value, memory.data() + offset, sizeof(value));
+  return value;
+}
+
+void StoreFloat(std::vector<uint8_t>* memory, size_t offset, float value) {
+  std::memcpy(memory->data() + offset, &value, sizeof(value));
+}
+
+}  // namespace
+
+void Gem5TmmaCoprocessor::Reset() {
+  queue_.fill({});
+  queue_head_ = 0;
+  queue_size_ = 0;
+  mma_shape_ = 0;
+  mma_data_type_ = 0;
+  csr_epoch_ = 0;
+}
+
+bool Gem5TmmaCoprocessor::WriteCsr(uint16_t address, uint32_t value) {
+  switch (address) {
+    case xopennpux::kCsrMmaShape:
+      mma_shape_ = value;
+      break;
+    case xopennpux::kCsrMmaDataType:
+      mma_data_type_ = value;
+      break;
+    default:
+      return false;
+  }
+  ++csr_epoch_;
+  return true;
+}
+
+bool Gem5TmmaCoprocessor::ReadCsr(uint16_t address, uint32_t* value) const {
+  if (value == nullptr) {
+    return false;
+  }
+  switch (address) {
+    case xopennpux::kCsrMmaShape:
+      *value = mma_shape_;
+      return true;
+    case xopennpux::kCsrMmaDataType:
+      *value = mma_data_type_;
+      return true;
+    default:
+      return false;
+  }
+}
+
+Gem5TmmaSubmitResult Gem5TmmaCoprocessor::Classify(
+    const Gem5TmmaDispatchPacket& packet) const {
+  if (xopennpux::IsTfence(packet.instruction)) {
+    return queue_size_ == 0 ? Gem5TmmaSubmitResult::kAccepted
+                            : Gem5TmmaSubmitResult::kBackpressure;
+  }
+  if (!xopennpux::IsTmma(packet.instruction)) {
+    return Gem5TmmaSubmitResult::kIllegalInstruction;
+  }
+  if (!ready()) {
+    return Gem5TmmaSubmitResult::kBackpressure;
+  }
+
+  const uint32_t shape_csr = packet.csr_epoch == 0 ? mma_shape_
+                                                    : packet.mma_shape;
+  const uint32_t data_type_csr = packet.csr_epoch == 0
+                                     ? mma_data_type_
+                                     : packet.mma_data_type;
+  const xopennpux::MmaShape shape = xopennpux::DecodeMmaShape(shape_csr);
+  const xopennpux::MmaDataTypes data_types =
+      xopennpux::DecodeMmaDataTypes(data_type_csr);
+  constexpr uint32_t kShapeReservedMask = 0xc0000000;
+  constexpr uint32_t kDataTypeReservedMask = 0xfffff000;
+  if (shape.m == 0 || shape.n == 0 || shape.k == 0 ||
+      (shape_csr & kShapeReservedMask) != 0 ||
+      (data_type_csr & kDataTypeReservedMask) != 0 ||
+      data_types.src1 != xopennpux::DataType::kFp32 ||
+      data_types.src2 != xopennpux::DataType::kFp32 ||
+      data_types.dst != xopennpux::DataType::kFp32) {
+    return Gem5TmmaSubmitResult::kInvalidCsrState;
+  }
+  return Gem5TmmaSubmitResult::kAccepted;
+}
+
+Gem5TmmaSubmitResult Gem5TmmaCoprocessor::Submit(
+    const Gem5TmmaDispatchPacket& packet) {
+  const Gem5TmmaSubmitResult classification = Classify(packet);
+  if (classification != Gem5TmmaSubmitResult::kAccepted) {
+    return classification;
+  }
+  if (xopennpux::IsTfence(packet.instruction)) {
+    return Gem5TmmaSubmitResult::kAccepted;
+  }
+
+  const uint32_t shape_csr = packet.csr_epoch == 0 ? mma_shape_
+                                                    : packet.mma_shape;
+  const uint32_t data_type_csr = packet.csr_epoch == 0
+                                     ? mma_data_type_
+                                     : packet.mma_data_type;
+  const xopennpux::MmaShape shape = xopennpux::DecodeMmaShape(shape_csr);
+  const xopennpux::MmaDataTypes data_types =
+      xopennpux::DecodeMmaDataTypes(data_type_csr);
+
+  const size_t tail = (queue_head_ + queue_size_) % kQueueCapacity;
+  queue_[tail].dispatch = packet;
+  queue_[tail].shape = shape;
+  queue_[tail].data_types = data_types;
+  queue_[tail].csr_epoch = packet.csr_epoch == 0 ? csr_epoch_
+                                                  : packet.csr_epoch;
+  ++queue_size_;
+  return Gem5TmmaSubmitResult::kAccepted;
+}
+
+bool Gem5TmmaCoprocessor::ExecuteNext(std::vector<uint8_t>* memory,
+                                     uint32_t memory_base,
+                                     Gem5TmmaCompletion* completion) {
+  if (memory == nullptr || completion == nullptr || queue_size_ == 0) {
+    return false;
+  }
+
+  const QueuedTmma command = queue_[queue_head_];
+  queue_head_ = (queue_head_ + 1) % kQueueCapacity;
+  --queue_size_;
+
+  *completion = {};
+  completion->sequence_id = command.dispatch.sequence_id;
+  completion->csr_epoch = command.csr_epoch;
+  completion->pc = command.dispatch.pc;
+  completion->instruction = command.dispatch.instruction;
+  completion->hart_id = command.dispatch.hart_id;
+  completion->mac_operations = static_cast<uint64_t>(command.shape.m) *
+                               command.shape.n * command.shape.k;
+  completion->modeled_cycles = completion->mac_operations;
+
+  if (command.data_types.src1 != xopennpux::DataType::kFp32 ||
+      command.data_types.src2 != xopennpux::DataType::kFp32 ||
+      command.data_types.dst != xopennpux::DataType::kFp32) {
+    completion->error = Gem5TmmaExecutionError::kUnsupportedDataType;
+    return true;
+  }
+
+  const uint64_t lhs_elements =
+      static_cast<uint64_t>(command.shape.m) * command.shape.k;
+  const uint64_t rhs_elements =
+      static_cast<uint64_t>(command.shape.k) * command.shape.n;
+  const uint64_t dst_elements =
+      static_cast<uint64_t>(command.shape.m) * command.shape.n;
+  if (!MatrixRangeValid(command.dispatch.rs1_value, lhs_elements, memory_base,
+                        memory->size())) {
+    completion->error = Gem5TmmaExecutionError::kAddress;
+    completion->faulting_address = command.dispatch.rs1_value;
+    return true;
+  }
+  if (!MatrixRangeValid(command.dispatch.rs2_value, rhs_elements, memory_base,
+                        memory->size())) {
+    completion->error = Gem5TmmaExecutionError::kAddress;
+    completion->faulting_address = command.dispatch.rs2_value;
+    return true;
+  }
+  if (!MatrixRangeValid(command.dispatch.rd_value, dst_elements, memory_base,
+                        memory->size())) {
+    completion->error = Gem5TmmaExecutionError::kAddress;
+    completion->faulting_address = command.dispatch.rd_value;
+    return true;
+  }
+
+  const size_t lhs_base = command.dispatch.rs1_value - memory_base;
+  const size_t rhs_base = command.dispatch.rs2_value - memory_base;
+  const size_t dst_base = command.dispatch.rd_value - memory_base;
+  for (uint32_t row = 0; row < command.shape.m; ++row) {
+    for (uint32_t column = 0; column < command.shape.n; ++column) {
+      float accumulator = 0.0f;
+      for (uint32_t inner = 0; inner < command.shape.k; ++inner) {
+        const size_t lhs_offset =
+            lhs_base + (row * command.shape.k + inner) * sizeof(float);
+        const size_t rhs_offset =
+            rhs_base + (inner * command.shape.n + column) * sizeof(float);
+        accumulator += LoadFloat(*memory, lhs_offset) *
+                       LoadFloat(*memory, rhs_offset);
+      }
+      const size_t dst_offset =
+          dst_base + (row * command.shape.n + column) * sizeof(float);
+      StoreFloat(memory, dst_offset, accumulator);
+    }
+  }
+  return true;
+}

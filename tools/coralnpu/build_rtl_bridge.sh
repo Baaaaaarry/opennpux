@@ -56,6 +56,7 @@ COMMAND_FIRMWARE_TARGET="//hw_sim:gem5_command_smoke.elf"
 QWEN_TCB_FIRMWARE_TARGET="//hw_sim:gem5_qwen_tcb_smoke.elf"
 COMMAND_PROCESSOR_FIRMWARE_TARGET="//hw_sim:gem5_npu_command_processor_smoke.elf"
 TMMA_FIRMWARE_TARGET="//hw_sim:gem5_tmma_smoke.elf"
+TMMA_OPERATOR_FIRMWARE_TARGET="//hw_sim:gem5_tmma_operator_e2e.elf"
 OUT_DIR="${ROOT_DIR}/build/coralnpu"
 LOCAL_BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
 BAZEL_OUTPUT_ROOT="${CORAL_BAZEL_OUTPUT_ROOT:-${ROOT_DIR}/.cache/coralnpu/bazel}"
@@ -160,6 +161,7 @@ rm -f \
     "${OUT_DIR}/gem5_qwen_tcb_smoke.elf" \
     "${OUT_DIR}/gem5_npu_command_processor_smoke.elf" \
     "${OUT_DIR}/gem5_tmma_smoke.elf" \
+    "${OUT_DIR}/gem5_tmma_operator_e2e.elf" \
     "${OUT_DIR}/wfi_slot_0.elf"
 
 # ---------------------------------------------------------------------------
@@ -201,6 +203,7 @@ if _capture "${BUILD_LOG}" \
        "${TARGET}" "${FIRMWARE_TARGET}" "${DMA_FIRMWARE_TARGET}" \
        "${COMMAND_FIRMWARE_TARGET}" "${QWEN_TCB_FIRMWARE_TARGET}" \
        "${COMMAND_PROCESSOR_FIRMWARE_TARGET}" "${TMMA_FIRMWARE_TARGET}" \
+       "${TMMA_OPERATOR_FIRMWARE_TARGET}" \
        "$@"; then
     bazel_ok=1
 fi
@@ -249,6 +252,7 @@ COMMAND_FIRMWARE="$(resolve_output "${COMMAND_FIRMWARE_TARGET}")"
 QWEN_TCB_FIRMWARE="$(resolve_output "${QWEN_TCB_FIRMWARE_TARGET}")"
 COMMAND_PROCESSOR_FIRMWARE="$(resolve_output "${COMMAND_PROCESSOR_FIRMWARE_TARGET}")"
 TMMA_FIRMWARE="$(resolve_output "${TMMA_FIRMWARE_TARGET}")"
+TMMA_OPERATOR_FIRMWARE="$(resolve_output "${TMMA_OPERATOR_FIRMWARE_TARGET}")"
 
 # ---------------------------------------------------------------------------
 # Verify Bazel produced all four artifacts.
@@ -279,6 +283,10 @@ if [ ! -f "${COMMAND_PROCESSOR_FIRMWARE}" ]; then
 fi
 if [ ! -f "${TMMA_FIRMWARE}" ]; then
     echo "error: Bazel completed but TMMA firmware was not found: ${TMMA_FIRMWARE}" >&2
+    exit 1
+fi
+if [ ! -f "${TMMA_OPERATOR_FIRMWARE}" ]; then
+    echo "error: Bazel completed but TMMA operator firmware was not found: ${TMMA_OPERATOR_FIRMWARE}" >&2
     exit 1
 fi
 
@@ -321,6 +329,8 @@ install_output "${COMMAND_PROCESSOR_FIRMWARE}" \
     "${OUT_DIR}/gem5_npu_command_processor_smoke.elf" 0644
 install_output "${TMMA_FIRMWARE}" \
     "${OUT_DIR}/gem5_tmma_smoke.elf" 0644
+install_output "${TMMA_OPERATOR_FIRMWARE}" \
+    "${OUT_DIR}/gem5_tmma_operator_e2e.elf" 0644
 
 # ---------------------------------------------------------------------------
 # Post-build sanity checks.
@@ -353,3 +363,4 @@ echo "built: ${OUT_DIR}/gem5_command_smoke.elf" | tee -a "${BUILD_LOG}"
 echo "built: ${OUT_DIR}/gem5_qwen_tcb_smoke.elf" | tee -a "${BUILD_LOG}"
 echo "built: ${OUT_DIR}/gem5_npu_command_processor_smoke.elf" | tee -a "${BUILD_LOG}"
 echo "built: ${OUT_DIR}/gem5_tmma_smoke.elf" | tee -a "${BUILD_LOG}"
+echo "built: ${OUT_DIR}/gem5_tmma_operator_e2e.elf" | tee -a "${BUILD_LOG}"

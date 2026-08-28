@@ -533,6 +533,14 @@ coralnpu_v2_binary(
 )
 
 coralnpu_v2_binary(
+    name = "gem5_tmma_operator_e2e",
+    srcs = [
+        "gem5_bridge/gem5_tmma_operator_e2e.c",
+        "gem5_bridge/xopennpux_intrinsics.h",
+    ],
+)
+
+coralnpu_v2_binary(
     name = "gem5_dma_smoke",
     srcs = [
         "gem5_bridge/gem5_dma_smoke.c",

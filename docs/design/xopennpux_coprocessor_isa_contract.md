@@ -549,6 +549,8 @@ GB10 validation commands:
 ./tools/coralnpu/test_tmma_instruction.sh
 ./tools/coralnpu/build_rtl_bridge.sh
 ./tools/coralnpu/run_tmma_instruction_test.sh
+./tools/coralnpu/test_tmma_operator_e2e.sh
+./tools/coralnpu/run_tmma_operator_e2e_test.sh
 ```
 
 `test_tmma_instruction.sh` parses executable ELF sections directly and checks
@@ -563,6 +565,14 @@ halt without a Coral fault, and the independently calculated EXTMEM writeback
 checksum. The baseline 2x2 FP32 smoke expects destination `0x20000200`, 16
 bytes, checksum `0xe6d7ed59`, and firmware result word `0x544d4d41` at
 `0x20000300`.
+
+The operator end-to-end test preserves that minimal smoke and adds three
+independently checked packed FP32 workloads: `2x3 * 3x2`, `3x2 * 2x4`, and
+`1x4 * 4x3`. It requires CSR reconfiguration, three TMMA/TFENCE pairs,
+rectangular and negative-value arithmetic, complete destination checksums, and
+firmware-side word-for-word validation. This test covers the complete v0.1
+execution subset; it does not claim stride, transpose, accumulation, or mixed
+precision support.
 
 ## Legacy Compatibility
 

@@ -145,14 +145,15 @@ or 100 percent for values 0 through 4 respectively. Other values are reserved.
 | `0xcc0` | `tnpuid` | version and vendor identification |
 | `0x800` | `mma_shape` | `M`, `N`, `K` |
 | `0x801` | `mma_data_type` | source 1, source 2, destination types |
-| `0x802` | `tensor_dim` | `dim0..3` |
+| `0x802` | `tensor_shape` | v0.2 rows and features; future `dim0..3` expansion |
 | `0x803` | `tensor_dim_size` | source dimension counts and `dim4` |
 | `0x804..` | stride registers | independent source 1, source 2, and destination strides |
-| assigned CSR | `tensor_data_type` | source and destination data types |
+| `0x806` | `tensor_data_type` | source 1, source 2, and destination data types |
 | `0x807` | `padding_val` | explicit padding value |
 | `0x808` | `tensor_cache_cfg` | eviction and prefetch modes |
 | `0x809` | `prefetch_cfg` | stride, threshold, and prefetch count |
 | `0x80a` | `prefetch_start_time` | prefetch insertion time |
+| `0x80b` | `scalar_param0` | operation-specific FP32 scalar, snapshotted at dispatch |
 
 The supported logical data types are FP16, BF16, FP32, INT16, INT8,
 FP8-E4M3, FP8-E5M2, INT4, INT2, MXFP6, and MXFP4. Each instruction definition
@@ -281,13 +282,25 @@ The first multi-operator functional coprocessor implements FP32 tensor add as
 source 2, and destination first-element addresses. The architectural results
 are `dst[i] = src1[i] + src2[i]` and `dst[i] = src1[i] * src2[i]`.
 
-Until the `tensor_dim` RTL CSR ports are available, the v0.1 compatibility
-profile derives the contiguous element count from `mma_shape.M * N * K` and
-uses `mma_data_type` for the three operand types. This temporary CSR mapping
-MUST remain confined to the firmware operator library and NPU L2 functional
-decoder. Model compilers MUST call `xopennpux_add_fp32()` or
-`xopennpux_mul_fp32()` rather than program the compatibility CSRs directly.
-Replacing the CSR mapping MUST NOT change the 32-bit instruction encodings.
+The v0.2 functional profile uses `tensor_shape` at `0x802`, with rows in
+`[15:0]` and features in `[31:16]`, and `tensor_data_type` at `0x806` with the
+same three four-bit type fields as `mma_data_type`. Model compilers MUST call
+`xopennpux_add_fp32()` or `xopennpux_mul_fp32()` rather than program physical
+CSRs directly. Future higher-rank shape expansion MUST NOT change the 32-bit
+instruction encodings.
+
+### Normalization
+
+The first normalization instruction is `trmsnorm.ttt`, using `custom3`,
+`funct3=010`, and `funct7=0110001`. `rs1` addresses the input tensor, `rs2`
+addresses the per-feature weight tensor, and `rd` addresses the output tensor.
+It consumes `tensor_shape`, `tensor_data_type`, and the FP32 epsilon bits in
+`scalar_param0`. The functional definition is independently applied to every
+row: `y = x * rsqrt(mean(x*x) + epsilon) * weight`.
+
+The instruction and CSR contract are model-independent. Qwen, Llama, and other
+frontends lower compatible RMSNorm nodes to the same operator-library call;
+model names and layer layouts MUST NOT enter the L2 decoder.
 
 ### SFU
 
@@ -542,8 +555,8 @@ The first mandatory implementation subset is:
 - a baseline functional MMA engine;
 - tensor memory read/write;
 - `tfence`;
-- generic operation classification shared by TMMA, TADD, and TMUL;
-- FP32 `tadd.ttt`/`tmul.ttt` functional execution and per-operation statistics;
+- generic operation classification shared by TMMA, TADD, TMUL, and RMSNorm;
+- FP32 elementwise and RMSNorm execution with per-operation statistics;
 - `xopennpux_ops.h` as the firmware/compiler-facing operator-library boundary;
 - trace and error reporting.
 

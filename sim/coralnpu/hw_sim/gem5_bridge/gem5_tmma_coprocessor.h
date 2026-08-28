@@ -31,6 +31,9 @@ struct Gem5TmmaDispatchPacket {
   uint32_t sequence_id = 0;
   uint32_t mma_shape = 0;
   uint32_t mma_data_type = 0;
+  uint32_t tensor_shape = 0;
+  uint32_t tensor_data_type = 0;
+  uint32_t scalar_param0 = 0;
   uint32_t csr_epoch = 0;
 };
 
@@ -75,6 +78,9 @@ class Gem5XOpenNpuFunctionalCoprocessor {
     xopennpux::Operation operation = xopennpux::Operation::kInvalid;
     xopennpux::MmaShape shape;
     xopennpux::MmaDataTypes data_types;
+    xopennpux::TensorShape tensor_shape;
+    xopennpux::MmaDataTypes tensor_data_types;
+    uint32_t scalar_param0 = 0;
     uint32_t csr_epoch = 0;
   };
 
@@ -83,6 +89,9 @@ class Gem5XOpenNpuFunctionalCoprocessor {
   size_t queue_size_ = 0;
   uint32_t mma_shape_ = 0;
   uint32_t mma_data_type_ = 0;
+  uint32_t tensor_shape_ = 0;
+  uint32_t tensor_data_type_ = 0;
+  uint32_t scalar_param0_ = 0;
   uint32_t csr_epoch_ = 0;
 };
 

@@ -33,6 +33,9 @@ object XOpenNpuEncoding {
 class XOpenNpuCsrState(p: Parameters) extends Bundle {
   val mmaShape = UInt(p.xlen.W)
   val mmaDataType = UInt(p.xlen.W)
+  val tensorShape = UInt(p.xlen.W)
+  val tensorDataType = UInt(p.xlen.W)
+  val scalarParam0 = UInt(p.xlen.W)
   val epoch = UInt(32.W)
 }
 

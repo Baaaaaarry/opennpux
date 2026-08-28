@@ -153,6 +153,9 @@ class Gem5CoreMiniAxiWrapper {
     packet.rd_value = core_.io_xnpu_request_bits_rdValue;
     packet.mma_shape = core_.io_xnpu_request_bits_csr_mmaShape;
     packet.mma_data_type = core_.io_xnpu_request_bits_csr_mmaDataType;
+    packet.tensor_shape = core_.io_xnpu_request_bits_csr_tensorShape;
+    packet.tensor_data_type = core_.io_xnpu_request_bits_csr_tensorDataType;
+    packet.scalar_param0 = core_.io_xnpu_request_bits_csr_scalarParam0;
     packet.csr_epoch = core_.io_xnpu_request_bits_csr_epoch;
     packet.sequence_id = sequence_id;
 

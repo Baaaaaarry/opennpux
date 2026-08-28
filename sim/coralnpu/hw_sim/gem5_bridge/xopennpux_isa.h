@@ -13,10 +13,15 @@ constexpr uint32_t kTmmaFunct7 = 0;
 constexpr uint32_t kTensorTensorFunct3 = 1;
 constexpr uint32_t kTaddFunct7 = 1;
 constexpr uint32_t kTmulFunct7 = 2;
+constexpr uint32_t kUnaryReductionFunct3 = 2;
+constexpr uint32_t kRmsNormFunct7 = 0x31;
 constexpr uint32_t kFenceFunct3 = 6;
 
 constexpr uint16_t kCsrMmaShape = 0x800;
 constexpr uint16_t kCsrMmaDataType = 0x801;
+constexpr uint16_t kCsrTensorShape = 0x802;
+constexpr uint16_t kCsrTensorDataType = 0x806;
+constexpr uint16_t kCsrScalarParam0 = 0x80b;
 
 constexpr uint32_t kShapeFieldMask = 0x3ff;
 constexpr uint32_t kShapeMShift = 0;
@@ -53,6 +58,20 @@ struct MmaDataTypes {
   DataType src2 = DataType::kFp16;
   DataType dst = DataType::kFp16;
 };
+
+struct TensorShape {
+  uint16_t rows = 0;
+  uint16_t features = 0;
+};
+
+constexpr uint32_t EncodeTensorShape(uint32_t rows, uint32_t features) {
+  return (rows & 0xffff) | ((features & 0xffff) << 16);
+}
+
+constexpr TensorShape DecodeTensorShape(uint32_t value) {
+  return TensorShape{static_cast<uint16_t>(value & 0xffff),
+                     static_cast<uint16_t>((value >> 16) & 0xffff)};
+}
 
 constexpr uint32_t EncodeMmaShape(uint32_t m, uint32_t n, uint32_t k) {
   return ((m & kShapeFieldMask) << kShapeMShift) |
@@ -128,6 +147,18 @@ constexpr bool IsTmul(uint32_t instruction) {
          ((instruction >> 25) & 0x7f) == kTmulFunct7;
 }
 
+constexpr uint32_t EncodeTrmsnorm(uint32_t rd, uint32_t rs1, uint32_t rs2) {
+  return (kRmsNormFunct7 << 25) | ((rs2 & 0x1f) << 20) |
+         ((rs1 & 0x1f) << 15) | (kUnaryReductionFunct3 << 12) |
+         ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTrmsnorm(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kUnaryReductionFunct3 &&
+         ((instruction >> 25) & 0x7f) == kRmsNormFunct7;
+}
+
 constexpr uint32_t EncodeTfence() {
   return (kFenceFunct3 << 12) | kCustom3Opcode;
 }
@@ -141,6 +172,7 @@ enum class Operation : uint8_t {
   kTmma,
   kTadd,
   kTmul,
+  kTrmsnorm,
   kTfence,
 };
 
@@ -148,6 +180,7 @@ constexpr Operation DecodeOperation(uint32_t instruction) {
   return IsTmma(instruction) ? Operation::kTmma
          : IsTadd(instruction) ? Operation::kTadd
          : IsTmul(instruction) ? Operation::kTmul
+         : IsTrmsnorm(instruction) ? Operation::kTrmsnorm
          : IsTfence(instruction) ? Operation::kTfence
                                  : Operation::kInvalid;
 }
@@ -160,6 +193,8 @@ constexpr const char* OperationName(Operation operation) {
       return "tadd";
     case Operation::kTmul:
       return "tmul";
+    case Operation::kTrmsnorm:
+      return "trmsnorm";
     case Operation::kTfence:
       return "tfence";
     default:

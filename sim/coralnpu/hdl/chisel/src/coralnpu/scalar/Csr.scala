@@ -79,6 +79,9 @@ object CsrAddress extends ChiselEnum {
   val MSP       = Value(0x7E1.U(12.W))
   val MMA_SHAPE = Value(0x800.U(12.W))
   val MMA_DATA_TYPE = Value(0x801.U(12.W))
+  val TENSOR_SHAPE = Value(0x802.U(12.W))
+  val TENSOR_DATA_TYPE = Value(0x806.U(12.W))
+  val SCALAR_PARAM0 = Value(0x80B.U(12.W))
   val MCYCLE    = Value(0xB00.U(12.W))
   val MINSTRET  = Value(0xB02.U(12.W))
   val MCYCLEH   = Value(0xB80.U(12.W))
@@ -272,9 +275,15 @@ class Csr(p: Parameters) extends Module {
   val mcontext7 = RegInit(0.U(p.xlen.W))
   val mmaShape = RegInit(0.U(p.xlen.W))
   val mmaDataType = RegInit(0.U(p.xlen.W))
+  val tensorShape = RegInit(0.U(p.xlen.W))
+  val tensorDataType = RegInit(0.U(p.xlen.W))
+  val scalarParam0 = RegInit(0.U(p.xlen.W))
   val xnpuCsrEpoch = RegInit(0.U(32.W))
   io.xnpu.mmaShape := mmaShape
   io.xnpu.mmaDataType := mmaDataType
+  io.xnpu.tensorShape := tensorShape
+  io.xnpu.tensorDataType := tensorDataType
+  io.xnpu.scalarParam0 := scalarParam0
   io.xnpu.epoch := xnpuCsrEpoch
 
   // Debug mode CSRs
@@ -384,6 +393,9 @@ class Csr(p: Parameters) extends Module {
   val kisaEn      = csr_address === CsrAddress.KISA
   val mmaShapeEn  = csr_address === CsrAddress.MMA_SHAPE
   val mmaDataTypeEn = csr_address === CsrAddress.MMA_DATA_TYPE
+  val tensorShapeEn = csr_address === CsrAddress.TENSOR_SHAPE
+  val tensorDataTypeEn = csr_address === CsrAddress.TENSOR_DATA_TYPE
+  val scalarParam0En = csr_address === CsrAddress.SCALAR_PARAM0
   val kscm0En     = csr_address === CsrAddress.KSCM0
   val kscm1En     = csr_address === CsrAddress.KSCM1
   val kscm2En     = csr_address === CsrAddress.KSCM2
@@ -448,6 +460,9 @@ class Csr(p: Parameters) extends Module {
       kisaEn      -> kisa,
       mmaShapeEn  -> mmaShape,
       mmaDataTypeEn -> mmaDataType,
+      tensorShapeEn -> tensorShape,
+      tensorDataTypeEn -> tensorDataType,
+      scalarParam0En -> scalarParam0,
       kscm0En     -> kscm(31,0),
       kscm1En     -> kscm(63,32),
       kscm2En     -> kscm(95,64),
@@ -508,6 +523,9 @@ class Csr(p: Parameters) extends Module {
     when (mcontext7En)  { mcontext7 := wdata }
     when (mmaShapeEn)   { mmaShape := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (mmaDataTypeEn) { mmaDataType := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (tensorShapeEn) { tensorShape := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (tensorDataTypeEn) { tensorDataType := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (scalarParam0En) { scalarParam0 := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (dscratch0En)  { dscratch0 := wdata }
     when (dscratch1En)  { dscratch1 := wdata }
     when (tdata1En)     { tdata1 := LegalizeTdata1(wdata) }

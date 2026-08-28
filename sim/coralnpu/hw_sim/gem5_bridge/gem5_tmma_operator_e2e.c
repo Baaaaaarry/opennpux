@@ -21,6 +21,9 @@ enum {
   kMulLhsOffset = 0x1000,
   kMulRhsOffset = 0x1100,
   kMulDstOffset = 0x1200,
+  kRmsInputOffset = 0x1300,
+  kRmsWeightOffset = 0x1400,
+  kRmsDstOffset = 0x1500,
   kResultMagic = 0x544d4545,
 };
 
@@ -108,6 +111,17 @@ int main(void) {
       0x40000000, 0xc0000000, 0xc1100000, 0x41800000,
       0xc0a00000, 0xc2100000, 0x40600000, 0xc1800000,
   };
+  static const uint32_t kRmsInput[] = {
+      0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000,
+      0xbf800000, 0xbf800000, 0xbf800000, 0xbf800000,
+  };
+  static const uint32_t kRmsWeight[] = {
+      0x3f800000, 0x40000000, 0x40400000, 0x40800000,
+  };
+  static const uint32_t kRmsExpected[] = {
+      0x3f000000, 0x3f800000, 0x3fc00000, 0x40000000,
+      0xbf000000, 0xbf800000, 0xbfc00000, 0xc0000000,
+  };
 
   volatile uint32_t* case0_lhs = Extmem(kCase0LhsOffset);
   volatile uint32_t* case0_rhs = Extmem(kCase0RhsOffset);
@@ -125,6 +139,9 @@ int main(void) {
   volatile uint32_t* mul_lhs = Extmem(kMulLhsOffset);
   volatile uint32_t* mul_rhs = Extmem(kMulRhsOffset);
   volatile uint32_t* mul_dst = Extmem(kMulDstOffset);
+  volatile uint32_t* rms_input = Extmem(kRmsInputOffset);
+  volatile uint32_t* rms_weight = Extmem(kRmsWeightOffset);
+  volatile uint32_t* rms_dst = Extmem(kRmsDstOffset);
 
   WriteWords(case0_lhs, kCase0Lhs, 6);
   WriteWords(case0_rhs, kCase0Rhs, 6);
@@ -148,15 +165,21 @@ int main(void) {
   xopennpux_mul_fp32((void*)mul_dst, (const void*)mul_lhs,
                      (const void*)mul_rhs, 2, 2, 2);
 
+  WriteWords(rms_input, kRmsInput, 8);
+  WriteWords(rms_weight, kRmsWeight, 4);
+  xopennpux_rmsnorm_fp32((void*)rms_dst, (const void*)rms_input,
+                         (const void*)rms_weight, 2, 4, 3.0f);
+
   const uint32_t failure_mask =
       (WordsEqual(case0_dst, kCase0Expected, 4) ? 0u : 1u) |
       (WordsEqual(case1_dst, kCase1Expected, 12) ? 0u : 2u) |
       (WordsEqual(case2_dst, kCase2Expected, 3) ? 0u : 4u) |
       (WordsEqual(add_dst, kAddExpected, 8) ? 0u : 8u) |
-      (WordsEqual(mul_dst, kMulExpected, 8) ? 0u : 16u);
+      (WordsEqual(mul_dst, kMulExpected, 8) ? 0u : 16u) |
+      (WordsEqual(rms_dst, kRmsExpected, 8) ? 0u : 32u);
   result[0] = failure_mask == 0 ? kResultMagic : 0;
   result[1] = failure_mask;
-  result[2] = 5;
+  result[2] = 6;
 
   if (failure_mask != 0) {
     __asm__ volatile("ebreak");

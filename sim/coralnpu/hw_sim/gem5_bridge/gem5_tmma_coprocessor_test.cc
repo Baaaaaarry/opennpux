@@ -51,6 +51,17 @@ void ConfigureFp32(Gem5TmmaCoprocessor* coprocessor, uint32_t m, uint32_t n,
                                     xopennpux::DataType::kFp32)));
 }
 
+void ConfigureTensorFp32(Gem5XOpenNpuFunctionalCoprocessor* coprocessor,
+                         uint32_t rows, uint32_t features) {
+  assert(coprocessor->WriteCsr(xopennpux::kCsrTensorShape,
+                               xopennpux::EncodeTensorShape(rows, features)));
+  assert(coprocessor->WriteCsr(
+      xopennpux::kCsrTensorDataType,
+      xopennpux::EncodeMmaDataTypes(xopennpux::DataType::kFp32,
+                                    xopennpux::DataType::kFp32,
+                                    xopennpux::DataType::kFp32)));
+}
+
 void TestEncodingAndSecondLevelDecode() {
   const uint32_t instruction = xopennpux::EncodeTmma(12, 10, 11);
   assert((instruction & 0x7f) == 0x7b);
@@ -66,11 +77,15 @@ void TestEncodingAndSecondLevelDecode() {
   assert(!xopennpux::IsTmma(tadd));
   assert(xopennpux::DecodeOperation(tadd) ==
          xopennpux::Operation::kTadd);
+  const uint32_t rmsnorm = xopennpux::EncodeTrmsnorm(12, 10, 11);
+  assert(xopennpux::IsTrmsnorm(rmsnorm));
+  assert(xopennpux::DecodeOperation(rmsnorm) ==
+         xopennpux::Operation::kTrmsnorm);
 }
 
 void TestFp32TensorAdd() {
   Gem5XOpenNpuFunctionalCoprocessor coprocessor;
-  ConfigureFp32(&coprocessor, 2, 2, 2);
+  ConfigureTensorFp32(&coprocessor, 2, 4);
   Gem5TmmaDispatchPacket packet = Packet(8);
   packet.instruction = xopennpux::EncodeTadd(12, 10, 11);
   assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
@@ -98,7 +113,7 @@ void TestFp32TensorAdd() {
 
 void TestFp32TensorMul() {
   Gem5XOpenNpuFunctionalCoprocessor coprocessor;
-  ConfigureFp32(&coprocessor, 1, 2, 3);
+  ConfigureTensorFp32(&coprocessor, 1, 6);
   Gem5TmmaDispatchPacket packet = Packet(9);
   packet.instruction = xopennpux::EncodeTmul(12, 10, 11);
   assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
@@ -120,6 +135,58 @@ void TestFp32TensorMul() {
     assert(ReadFloat(memory, 0x200 + index * sizeof(float)) ==
            static_cast<float>((index + 1) * 2));
   }
+}
+
+void TestFp32RmsNorm() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 4);
+  float epsilon = 1.0e-6f;
+  uint32_t epsilon_bits = 0;
+  std::memcpy(&epsilon_bits, &epsilon, sizeof(epsilon_bits));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, epsilon_bits));
+
+  Gem5TmmaDispatchPacket packet = Packet(10);
+  packet.instruction = xopennpux::EncodeTrmsnorm(12, 10, 11);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const float input[] = {1.0f, 2.0f, 3.0f, 4.0f,
+                         -1.0f, 1.0f, -1.0f, 1.0f};
+  const float weight[] = {1.0f, 0.5f, 2.0f, 1.0f};
+  for (size_t index = 0; index < 8; ++index) {
+    WriteFloat(&memory, index * sizeof(float), input[index]);
+  }
+  for (size_t index = 0; index < 4; ++index) {
+    WriteFloat(&memory, 0x100 + index * sizeof(float), weight[index]);
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTrmsnorm);
+  assert(completion.element_operations == 32);
+  assert(completion.modeled_cycles == 32);
+  const float inverse_rms0 = 1.0f / std::sqrt(7.5f + epsilon);
+  for (size_t index = 0; index < 4; ++index) {
+    const float expected = input[index] * inverse_rms0 * weight[index];
+    assert(std::fabs(ReadFloat(memory, 0x200 + index * sizeof(float)) -
+                     expected) < 1.0e-6f);
+  }
+  const float inverse_rms1 = 1.0f / std::sqrt(1.0f + epsilon);
+  for (size_t index = 0; index < 4; ++index) {
+    const float expected = input[index + 4] * inverse_rms1 * weight[index];
+    assert(std::fabs(ReadFloat(memory, 0x210 + index * sizeof(float)) -
+                     expected) < 1.0e-6f);
+  }
+}
+
+void TestRmsNormRejectsInvalidEpsilon() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 1, 4);
+  Gem5TmmaDispatchPacket packet = Packet(11);
+  packet.instruction = xopennpux::EncodeTrmsnorm(12, 10, 11);
+  assert(coprocessor.Submit(packet) ==
+         Gem5TmmaSubmitResult::kInvalidCsrState);
 }
 
 void TestFp32MatmulAndSnapshot() {
@@ -242,6 +309,8 @@ int main() {
   TestEncodingAndSecondLevelDecode();
   TestFp32TensorAdd();
   TestFp32TensorMul();
+  TestFp32RmsNorm();
+  TestRmsNormRejectsInvalidEpsilon();
   TestFp32MatmulAndSnapshot();
   TestRejectAndBackpressure();
   TestPacketCsrSnapshotAndFence();

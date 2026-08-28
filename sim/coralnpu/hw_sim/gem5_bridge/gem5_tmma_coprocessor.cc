@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_tmma_coprocessor.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace {
@@ -26,6 +27,12 @@ void StoreFloat(std::vector<uint8_t>* memory, size_t offset, float value) {
   std::memcpy(memory->data() + offset, &value, sizeof(value));
 }
 
+float DecodeFloat(uint32_t bits) {
+  float value = 0.0f;
+  std::memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
 uint32_t Fnv1a(const uint8_t* data, size_t size) {
   uint32_t hash = 2166136261u;
   for (size_t index = 0; index < size; ++index) {
@@ -42,6 +49,9 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   queue_size_ = 0;
   mma_shape_ = 0;
   mma_data_type_ = 0;
+  tensor_shape_ = 0;
+  tensor_data_type_ = 0;
+  scalar_param0_ = 0;
   csr_epoch_ = 0;
 }
 
@@ -53,6 +63,15 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrMmaDataType:
       mma_data_type_ = value;
+      break;
+    case xopennpux::kCsrTensorShape:
+      tensor_shape_ = value;
+      break;
+    case xopennpux::kCsrTensorDataType:
+      tensor_data_type_ = value;
+      break;
+    case xopennpux::kCsrScalarParam0:
+      scalar_param0_ = value;
       break;
     default:
       return false;
@@ -73,6 +92,15 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
     case xopennpux::kCsrMmaDataType:
       *value = mma_data_type_;
       return true;
+    case xopennpux::kCsrTensorShape:
+      *value = tensor_shape_;
+      return true;
+    case xopennpux::kCsrTensorDataType:
+      *value = tensor_data_type_;
+      return true;
+    case xopennpux::kCsrScalarParam0:
+      *value = scalar_param0_;
+      return true;
     default:
       return false;
   }
@@ -88,29 +116,46 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       xopennpux::DecodeOperation(packet.instruction);
   if (operation != xopennpux::Operation::kTmma &&
       operation != xopennpux::Operation::kTadd &&
-      operation != xopennpux::Operation::kTmul) {
+      operation != xopennpux::Operation::kTmul &&
+      operation != xopennpux::Operation::kTrmsnorm) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
   if (!ready()) {
     return Gem5TmmaSubmitResult::kBackpressure;
   }
 
-  const uint32_t shape_csr = packet.csr_epoch == 0 ? mma_shape_
-                                                    : packet.mma_shape;
+  const bool is_mma = operation == xopennpux::Operation::kTmma;
+  const uint32_t shape_csr = packet.csr_epoch == 0
+                                 ? (is_mma ? mma_shape_ : tensor_shape_)
+                                 : (is_mma ? packet.mma_shape
+                                           : packet.tensor_shape);
   const uint32_t data_type_csr = packet.csr_epoch == 0
-                                     ? mma_data_type_
-                                     : packet.mma_data_type;
+                                     ? (is_mma ? mma_data_type_
+                                               : tensor_data_type_)
+                                     : (is_mma ? packet.mma_data_type
+                                               : packet.tensor_data_type);
   const xopennpux::MmaShape shape = xopennpux::DecodeMmaShape(shape_csr);
+  const xopennpux::TensorShape tensor_shape =
+      xopennpux::DecodeTensorShape(shape_csr);
   const xopennpux::MmaDataTypes data_types =
       xopennpux::DecodeMmaDataTypes(data_type_csr);
   constexpr uint32_t kShapeReservedMask = 0xc0000000;
   constexpr uint32_t kDataTypeReservedMask = 0xfffff000;
-  if (shape.m == 0 || shape.n == 0 || shape.k == 0 ||
-      (shape_csr & kShapeReservedMask) != 0 ||
+  if ((is_mma && (shape.m == 0 || shape.n == 0 || shape.k == 0 ||
+                  (shape_csr & kShapeReservedMask) != 0)) ||
+      (!is_mma &&
+       (tensor_shape.rows == 0 || tensor_shape.features == 0)) ||
       (data_type_csr & kDataTypeReservedMask) != 0 ||
       data_types.src1 != xopennpux::DataType::kFp32 ||
       data_types.src2 != xopennpux::DataType::kFp32 ||
       data_types.dst != xopennpux::DataType::kFp32) {
+    return Gem5TmmaSubmitResult::kInvalidCsrState;
+  }
+  const uint32_t scalar_param0 =
+      packet.csr_epoch == 0 ? scalar_param0_ : packet.scalar_param0;
+  if (operation == xopennpux::Operation::kTrmsnorm &&
+      (!(DecodeFloat(scalar_param0) > 0.0f) ||
+       !std::isfinite(DecodeFloat(scalar_param0)))) {
     return Gem5TmmaSubmitResult::kInvalidCsrState;
   }
   return Gem5TmmaSubmitResult::kAccepted;
@@ -140,6 +185,16 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
   queue_[tail].operation = xopennpux::DecodeOperation(packet.instruction);
   queue_[tail].shape = shape;
   queue_[tail].data_types = data_types;
+  const uint32_t tensor_shape_csr =
+      packet.csr_epoch == 0 ? tensor_shape_ : packet.tensor_shape;
+  const uint32_t tensor_data_type_csr =
+      packet.csr_epoch == 0 ? tensor_data_type_ : packet.tensor_data_type;
+  queue_[tail].tensor_shape =
+      xopennpux::DecodeTensorShape(tensor_shape_csr);
+  queue_[tail].tensor_data_types =
+      xopennpux::DecodeMmaDataTypes(tensor_data_type_csr);
+  queue_[tail].scalar_param0 =
+      packet.csr_epoch == 0 ? scalar_param0_ : packet.scalar_param0;
   queue_[tail].csr_epoch = packet.csr_epoch == 0 ? csr_epoch_
                                                   : packet.csr_epoch;
   ++queue_size_;
@@ -165,19 +220,30 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   completion->hart_id = command.dispatch.hart_id;
   completion->operation = command.operation;
   completion->destination_address = command.dispatch.rd_value;
-  const uint64_t tensor_elements = static_cast<uint64_t>(command.shape.m) *
-                                   command.shape.n * command.shape.k;
+  const uint64_t tensor_elements =
+      command.operation == xopennpux::Operation::kTmma
+          ? static_cast<uint64_t>(command.shape.m) * command.shape.n *
+                command.shape.k
+          : static_cast<uint64_t>(command.tensor_shape.rows) *
+                command.tensor_shape.features;
   if (command.operation == xopennpux::Operation::kTmma) {
     completion->mac_operations = tensor_elements;
     completion->modeled_cycles = completion->mac_operations;
+  } else if (command.operation == xopennpux::Operation::kTrmsnorm) {
+    completion->element_operations = tensor_elements * 4;
+    completion->modeled_cycles = completion->element_operations;
   } else {
     completion->element_operations = tensor_elements;
     completion->modeled_cycles = completion->element_operations;
   }
 
-  if (command.data_types.src1 != xopennpux::DataType::kFp32 ||
-      command.data_types.src2 != xopennpux::DataType::kFp32 ||
-      command.data_types.dst != xopennpux::DataType::kFp32) {
+  const xopennpux::MmaDataTypes data_types =
+      command.operation == xopennpux::Operation::kTmma
+          ? command.data_types
+          : command.tensor_data_types;
+  if (data_types.src1 != xopennpux::DataType::kFp32 ||
+      data_types.src2 != xopennpux::DataType::kFp32 ||
+      data_types.dst != xopennpux::DataType::kFp32) {
     completion->error = Gem5TmmaExecutionError::kUnsupportedDataType;
     return true;
   }
@@ -189,7 +255,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   const uint64_t rhs_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.k) * command.shape.n
-          : tensor_elements;
+          : command.operation == xopennpux::Operation::kTrmsnorm
+              ? command.tensor_shape.features
+              : tensor_elements;
   const uint64_t dst_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.m) * command.shape.n
@@ -247,6 +315,34 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
       StoreFloat(memory, dst_base + offset,
                  LoadFloat(*memory, lhs_base + offset) *
                      LoadFloat(*memory, rhs_base + offset));
+    }
+  } else if (command.operation == xopennpux::Operation::kTrmsnorm) {
+    const float epsilon = DecodeFloat(command.scalar_param0);
+    for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
+      float sum_squares = 0.0f;
+      const size_t row_base =
+          static_cast<size_t>(row) * command.tensor_shape.features;
+      for (uint32_t feature = 0; feature < command.tensor_shape.features;
+           ++feature) {
+        const float value =
+            LoadFloat(*memory, lhs_base +
+                                   (row_base + feature) * sizeof(float));
+        sum_squares += value * value;
+      }
+      const float inverse_rms =
+          1.0f / std::sqrt(sum_squares / command.tensor_shape.features +
+                           epsilon);
+      for (uint32_t feature = 0; feature < command.tensor_shape.features;
+           ++feature) {
+        const float value =
+            LoadFloat(*memory, lhs_base +
+                                   (row_base + feature) * sizeof(float));
+        const float weight =
+            LoadFloat(*memory, rhs_base + feature * sizeof(float));
+        StoreFloat(memory,
+                   dst_base + (row_base + feature) * sizeof(float),
+                   value * inverse_rms * weight);
+      }
     }
   } else {
     completion->error = Gem5TmmaExecutionError::kUnsupportedDataType;

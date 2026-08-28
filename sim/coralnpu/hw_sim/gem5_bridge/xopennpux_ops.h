@@ -29,4 +29,13 @@ static inline void xopennpux_add_fp32(void* destination, const void* lhs,
   xopennpux_tfence();
 }
 
+static inline void xopennpux_mul_fp32(void* destination, const void* lhs,
+                                      const void* rhs, uint32_t dim0,
+                                      uint32_t dim1, uint32_t dim2) {
+  xopennpux_write_mma_shape((dim2 << 20) | (dim1 << 10) | dim0);
+  xopennpux_write_mma_data_type((2u << 8) | (2u << 4) | 2u);
+  xopennpux_tmul_fp32(destination, lhs, rhs);
+  xopennpux_tfence();
+}
+
 #endif  // HW_SIM_GEM5_BRIDGE_XOPENNPUX_OPS_H_

@@ -87,7 +87,8 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
   const xopennpux::Operation operation =
       xopennpux::DecodeOperation(packet.instruction);
   if (operation != xopennpux::Operation::kTmma &&
-      operation != xopennpux::Operation::kTadd) {
+      operation != xopennpux::Operation::kTadd &&
+      operation != xopennpux::Operation::kTmul) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
   if (!ready()) {
@@ -238,6 +239,13 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
       const size_t offset = static_cast<size_t>(index) * sizeof(float);
       StoreFloat(memory, dst_base + offset,
                  LoadFloat(*memory, lhs_base + offset) +
+                     LoadFloat(*memory, rhs_base + offset));
+    }
+  } else if (command.operation == xopennpux::Operation::kTmul) {
+    for (uint64_t index = 0; index < tensor_elements; ++index) {
+      const size_t offset = static_cast<size_t>(index) * sizeof(float);
+      StoreFloat(memory, dst_base + offset,
+                 LoadFloat(*memory, lhs_base + offset) *
                      LoadFloat(*memory, rhs_base + offset));
     }
   } else {

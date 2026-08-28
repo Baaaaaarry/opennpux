@@ -18,6 +18,9 @@ enum {
   kAddLhsOffset = 0xd00,
   kAddRhsOffset = 0xe00,
   kAddDstOffset = 0xf00,
+  kMulLhsOffset = 0x1000,
+  kMulRhsOffset = 0x1100,
+  kMulDstOffset = 0x1200,
   kResultMagic = 0x544d4545,
 };
 
@@ -101,6 +104,10 @@ int main(void) {
       0x40400000, 0xbf800000, 0x00000000, 0x41000000,
       0x40800000, 0x00000000, 0x40f00000, 0x40c00000,
   };
+  static const uint32_t kMulExpected[] = {
+      0x40000000, 0xc0000000, 0xc1100000, 0x41800000,
+      0xc0a00000, 0xc2100000, 0x40600000, 0xc1800000,
+  };
 
   volatile uint32_t* case0_lhs = Extmem(kCase0LhsOffset);
   volatile uint32_t* case0_rhs = Extmem(kCase0RhsOffset);
@@ -115,6 +122,9 @@ int main(void) {
   volatile uint32_t* add_lhs = Extmem(kAddLhsOffset);
   volatile uint32_t* add_rhs = Extmem(kAddRhsOffset);
   volatile uint32_t* add_dst = Extmem(kAddDstOffset);
+  volatile uint32_t* mul_lhs = Extmem(kMulLhsOffset);
+  volatile uint32_t* mul_rhs = Extmem(kMulRhsOffset);
+  volatile uint32_t* mul_dst = Extmem(kMulDstOffset);
 
   WriteWords(case0_lhs, kCase0Lhs, 6);
   WriteWords(case0_rhs, kCase0Rhs, 6);
@@ -133,14 +143,20 @@ int main(void) {
   xopennpux_add_fp32((void*)add_dst, (const void*)add_lhs,
                      (const void*)add_rhs, 2, 2, 2);
 
+  WriteWords(mul_lhs, kAddLhs, 8);
+  WriteWords(mul_rhs, kAddRhs, 8);
+  xopennpux_mul_fp32((void*)mul_dst, (const void*)mul_lhs,
+                     (const void*)mul_rhs, 2, 2, 2);
+
   const uint32_t failure_mask =
       (WordsEqual(case0_dst, kCase0Expected, 4) ? 0u : 1u) |
       (WordsEqual(case1_dst, kCase1Expected, 12) ? 0u : 2u) |
       (WordsEqual(case2_dst, kCase2Expected, 3) ? 0u : 4u) |
-      (WordsEqual(add_dst, kAddExpected, 8) ? 0u : 8u);
+      (WordsEqual(add_dst, kAddExpected, 8) ? 0u : 8u) |
+      (WordsEqual(mul_dst, kMulExpected, 8) ? 0u : 16u);
   result[0] = failure_mask == 0 ? kResultMagic : 0;
   result[1] = failure_mask;
-  result[2] = 4;
+  result[2] = 5;
 
   if (failure_mask != 0) {
     __asm__ volatile("ebreak");

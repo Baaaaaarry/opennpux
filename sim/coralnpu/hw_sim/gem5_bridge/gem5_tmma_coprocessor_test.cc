@@ -96,6 +96,32 @@ void TestFp32TensorAdd() {
   }
 }
 
+void TestFp32TensorMul() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureFp32(&coprocessor, 1, 2, 3);
+  Gem5TmmaDispatchPacket packet = Packet(9);
+  packet.instruction = xopennpux::EncodeTmul(12, 10, 11);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  for (size_t index = 0; index < 6; ++index) {
+    WriteFloat(&memory, index * sizeof(float),
+               static_cast<float>(index + 1));
+    WriteFloat(&memory, 0x100 + index * sizeof(float), 2.0f);
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTmul);
+  assert(completion.element_operations == 6);
+  assert(completion.modeled_cycles == 6);
+  for (size_t index = 0; index < 6; ++index) {
+    assert(ReadFloat(memory, 0x200 + index * sizeof(float)) ==
+           static_cast<float>((index + 1) * 2));
+  }
+}
+
 void TestFp32MatmulAndSnapshot() {
   Gem5TmmaCoprocessor coprocessor;
   ConfigureFp32(&coprocessor, 2, 2, 3);
@@ -215,6 +241,7 @@ void TestInvalidTypeAndAddressFault() {
 int main() {
   TestEncodingAndSecondLevelDecode();
   TestFp32TensorAdd();
+  TestFp32TensorMul();
   TestFp32MatmulAndSnapshot();
   TestRejectAndBackpressure();
   TestPacketCsrSnapshotAndFence();

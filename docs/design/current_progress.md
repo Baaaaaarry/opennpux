@@ -841,3 +841,20 @@ accumulator dtype 和 quantization 全部固化到通用描述符，由 Host/Hyb
 NPU 完成结果仍以 logits/token ID 为硬件接口，CPU Runtime 使用模型 tokenizer 将设备
 实际返回的 token IDs 解码为 `inference_token_text`。Tokenizer 不进入 NPU RTL，也不作为
 Golden 结果替代 NPU 计算。
+
+## 2026-08-28 XOpenNPUX 通用算子指令功能库
+
+Coral L1 `custom3` 分流、NPU L2 译码和 C++ 功能协处理器现已覆盖 tiny-Qwen 验收图所需
+的全部九类通用 primitive：TMMA/Linear、ADD、MUL、RMSNorm、Softmax、RoPE、SiLU、
+Gather/Embedding 和 TopK。每个 primitive 均由 32-bit 指令、accept-time CSR snapshot、
+功能执行、周期/操作统计、`tfence` 和独立固件结果检查组成；统一端到端固件不使用模型
+名称、descriptor doorbell 或 Host hybrid operator shortcut。
+
+Embedding 被定义为通用 `TGATHER`，RoPE 通过 CSR 选择 adjacent/half-split 布局并消费
+预计算 cos/sin 表，TopK 输出 packed values/indices 并定义稳定 tie/NaN 次序。Attention、
+KV-cache、Router、Expert、Combine 和 recurrent block 保持为编译器/runtime 组合图，后续
+由上述 primitive、MOV/TDMA 和同步指令构成，不能在 NPU L2 中加入 Qwen 特定识别。
+
+本机严格 C++ 单测覆盖正常数值、RoPE 双布局、TopK tie-break、非法 CSR 和 Gather 越界；
+GB10 门禁由 `test_tmma_operator_e2e.sh`、`build_rtl_bridge.sh` 和
+`run_tmma_operator_e2e_test.sh` 完成 RISC-V ELF、Coral RTL 及 gem5 全系统验证。

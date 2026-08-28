@@ -20,6 +20,12 @@ float ReadFloat(const std::vector<uint8_t>& memory, size_t offset) {
   return value;
 }
 
+uint32_t ReadUint32(const std::vector<uint8_t>& memory, size_t offset) {
+  uint32_t value = 0;
+  std::memcpy(&value, memory.data() + offset, sizeof(value));
+  return value;
+}
+
 uint32_t Fnv1a(const std::vector<uint8_t>& memory, size_t offset,
                size_t size) {
   uint32_t hash = 2166136261u;
@@ -86,12 +92,25 @@ void TestEncodingAndSecondLevelDecode() {
   assert(xopennpux::DecodeOperation(softmax) ==
          xopennpux::Operation::kTsoftmax);
   assert(!xopennpux::IsTsoftmax(softmax | (1u << 20)));
+  const uint32_t rope = xopennpux::EncodeTrope(12, 10, 11);
+  assert(xopennpux::IsTrope(rope));
+  assert(xopennpux::DecodeOperation(rope) ==
+         xopennpux::Operation::kTrope);
   const uint32_t silu = xopennpux::EncodeTsilu(12, 10);
   assert(xopennpux::IsTsilu(silu));
   assert(((silu >> 20) & 0x1f) == 0);
   assert(xopennpux::DecodeOperation(silu) ==
          xopennpux::Operation::kTsilu);
   assert(!xopennpux::IsTsilu(silu | (1u << 20)));
+  const uint32_t gather = xopennpux::EncodeTgather(12, 10, 11);
+  assert(xopennpux::IsTgather(gather));
+  assert(xopennpux::DecodeOperation(gather) ==
+         xopennpux::Operation::kTgather);
+  const uint32_t topk = xopennpux::EncodeTtopk(12, 10);
+  assert(xopennpux::IsTtopk(topk));
+  assert(xopennpux::DecodeOperation(topk) ==
+         xopennpux::Operation::kTtopk);
+  assert(!xopennpux::IsTtopk(topk | (1u << 20)));
 }
 
 void TestFp32TensorAdd() {
@@ -270,6 +289,168 @@ void TestFp32Softmax() {
   }
 }
 
+void TestFp32Gather() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 3);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 4));
+  Gem5TmmaDispatchPacket packet = Packet(14);
+  packet.instruction = xopennpux::EncodeTgather(12, 10, 11);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  for (size_t index = 0; index < 12; ++index) {
+    WriteFloat(&memory, index * sizeof(float),
+               static_cast<float>(index + 1));
+  }
+  const uint32_t indices[] = {2, 0};
+  std::memcpy(memory.data() + 0x100, indices, sizeof(indices));
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTgather);
+  assert(completion.element_operations == 6);
+  assert(completion.modeled_cycles == 6);
+  const float expected[] = {7, 8, 9, 1, 2, 3};
+  for (size_t index = 0; index < 6; ++index) {
+    assert(ReadFloat(memory, 0x200 + index * sizeof(float)) ==
+           expected[index]);
+  }
+}
+
+void TestFp32RopeHalfSplit() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 4);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 1));
+  Gem5TmmaDispatchPacket packet = Packet(15);
+  packet.instruction = xopennpux::EncodeTrope(12, 10, 11);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const float input[] = {1, 2, 3, 4, 5, 6, 7, 8};
+  const float cosine[] = {1, 1, 1, 1, 0, 0, 0, 0};
+  const float sine[] = {0, 0, 0, 0, 1, 1, 1, 1};
+  for (size_t index = 0; index < 8; ++index) {
+    WriteFloat(&memory, index * sizeof(float), input[index]);
+    WriteFloat(&memory, 0x100 + index * sizeof(float), cosine[index]);
+    WriteFloat(&memory, 0x120 + index * sizeof(float), sine[index]);
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTrope);
+  assert(completion.element_operations == 24);
+  assert(completion.modeled_cycles == 24);
+  const float expected[] = {1, 2, 3, 4, -7, -8, 5, 6};
+  for (size_t index = 0; index < 8; ++index) {
+    assert(ReadFloat(memory, 0x200 + index * sizeof(float)) ==
+           expected[index]);
+  }
+}
+
+void TestFp32RopeAdjacent() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 1, 4);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 0));
+  Gem5TmmaDispatchPacket packet = Packet(17);
+  packet.instruction = xopennpux::EncodeTrope(12, 10, 11);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const float input[] = {1, 2, 3, 4};
+  for (size_t index = 0; index < 4; ++index) {
+    WriteFloat(&memory, index * sizeof(float), input[index]);
+    WriteFloat(&memory, 0x100 + index * sizeof(float), 0.0f);
+    WriteFloat(&memory, 0x110 + index * sizeof(float), 1.0f);
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  const float expected[] = {-2, 1, -4, 3};
+  for (size_t index = 0; index < 4; ++index) {
+    assert(ReadFloat(memory, 0x200 + index * sizeof(float)) ==
+           expected[index]);
+  }
+}
+
+void TestRemainingOperatorValidation() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  Gem5TmmaDispatchPacket packet = Packet(18);
+
+  ConfigureTensorFp32(&coprocessor, 1, 3);
+  packet.instruction = xopennpux::EncodeTrope(12, 10, 11);
+  assert(coprocessor.Submit(packet) ==
+         Gem5TmmaSubmitResult::kInvalidCsrState);
+
+  ConfigureTensorFp32(&coprocessor, 1, 4);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 2));
+  assert(coprocessor.Submit(packet) ==
+         Gem5TmmaSubmitResult::kInvalidCsrState);
+
+  packet.instruction = xopennpux::EncodeTgather(12, 10, 11);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 0));
+  assert(coprocessor.Submit(packet) ==
+         Gem5TmmaSubmitResult::kInvalidCsrState);
+
+  packet.instruction = xopennpux::EncodeTtopk(12, 10);
+  packet.rs2_value = 0;
+  assert(coprocessor.Submit(packet) ==
+         Gem5TmmaSubmitResult::kInvalidCsrState);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 5));
+  assert(coprocessor.Submit(packet) ==
+         Gem5TmmaSubmitResult::kInvalidCsrState);
+}
+
+void TestGatherIndexFault() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 1, 2);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 2));
+  Gem5TmmaDispatchPacket packet = Packet(19);
+  packet.instruction = xopennpux::EncodeTgather(12, 10, 11);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const uint32_t invalid_index = 2;
+  std::memcpy(memory.data() + 0x100, &invalid_index, sizeof(invalid_index));
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kAddress);
+  assert(completion.faulting_address == kMemoryBase + 0x100);
+}
+
+void TestFp32TopK() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 5);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 2));
+  Gem5TmmaDispatchPacket packet = Packet(16);
+  packet.instruction = xopennpux::EncodeTtopk(12, 10);
+  packet.rs2_value = 0;
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const float input[] = {1, 5, 3, 5, 2, -1, 0, 4, 2, 3};
+  for (size_t index = 0; index < 10; ++index) {
+    WriteFloat(&memory, index * sizeof(float), input[index]);
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTtopk);
+  assert(completion.element_operations == 20);
+  assert(completion.modeled_cycles == 20);
+  assert(completion.destination_bytes == 8 * sizeof(uint32_t));
+  const float expected_values[] = {5, 5, 4, 3};
+  const uint32_t expected_indices[] = {1, 3, 2, 4};
+  for (size_t index = 0; index < 4; ++index) {
+    assert(ReadFloat(memory, 0x200 + index * sizeof(float)) ==
+           expected_values[index]);
+    assert(ReadUint32(memory, 0x210 + index * sizeof(uint32_t)) ==
+           expected_indices[index]);
+  }
+}
+
 void TestFp32MatmulAndSnapshot() {
   Gem5TmmaCoprocessor coprocessor;
   ConfigureFp32(&coprocessor, 2, 2, 3);
@@ -394,6 +575,12 @@ int main() {
   TestRmsNormRejectsInvalidEpsilon();
   TestFp32Silu();
   TestFp32Softmax();
+  TestFp32Gather();
+  TestFp32RopeHalfSplit();
+  TestFp32RopeAdjacent();
+  TestRemainingOperatorValidation();
+  TestGatherIndexFault();
+  TestFp32TopK();
   TestFp32MatmulAndSnapshot();
   TestRejectAndBackpressure();
   TestPacketCsrSnapshotAndFence();

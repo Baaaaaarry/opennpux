@@ -309,6 +309,13 @@ numerically stable softmax over the feature dimension of every row. The
 architectural definition subtracts the row maximum before exponentiation;
 implementations MUST NOT expose a model-specific attention layout.
 
+The same profile assigns `funct7=0110011` to `trope.ttt`. `rs1` addresses the
+input tensor, `rs2` addresses one contiguous `[cos tensor][sin tensor]` table,
+and `rd` addresses the output. `scalar_param0` selects adjacent-pair layout (0)
+or half-split layout (1). The feature dimension MUST be even. Position IDs,
+frequency generation, table reuse, and cache placement remain compiler/runtime
+responsibilities rather than instruction semantics.
+
 ### SFU
 
 `funct3=010`, `funct7=1000000..1000101` selects `texp`, `ttanh`, `tsqrt`,
@@ -346,6 +353,35 @@ permute copy, it contains source and destination dimension-group selectors,
 source type, padding dimension, first padding location, and padding selection.
 RV32 materialization of control values wider than XLEN is an open item and MUST
 NOT be implemented through an undocumented side channel.
+
+#### Gather profile
+
+The v0.2 functional profile assigns `funct3=011`, `funct7=0010000` to
+`tgather.ttt`. `rs1` addresses a contiguous FP32 source table, `rs2` addresses
+one uint32 row index per output row, and `rd` addresses the output tensor.
+`tensor_shape.rows` is the index count, `tensor_shape.features` is the row
+width, and `scalar_param0` is the source-table row count used for bounds
+checking. Embedding lookup is a compiler lowering to this generic gather
+primitive; vocabulary or model identity is not architectural state.
+
+### Multi-output selection
+
+The v0.2 functional profile assigns `funct3=100`, `funct7=0000000` to
+`ttopk.tt`. `rs1` addresses an FP32 tensor, `rd` addresses a packed result, and
+`rs2` MUST be `x0`. `scalar_param0` is `k`, which MUST be in
+`[1, tensor_shape.features]`. The packed result contains `rows*k` descending
+FP32 values followed by `rows*k` uint32 source indices. Equal values are
+ordered by ascending source index, making token-selection results deterministic.
+NaNs sort after numeric values and are mutually ordered by source index.
+
+### Primitive versus graph operations
+
+Attention, KV-cache update, routed-expert execution, expert combination, and
+causal recurrent blocks are graph/runtime operations. They MUST lower to
+compositions of XOpenNPUX primitives such as TMMA, ADD, MUL, RMSNorm, Softmax,
+RoPE, SiLU, Gather, TopK, MOV/TDMA, and synchronization. A model frontend MAY
+fuse such compositions after proving equivalent semantics, but NPU Decode L2
+MUST NOT identify Qwen, Llama, model layer numbers, or tensor names.
 
 ### Cache and prefetch
 

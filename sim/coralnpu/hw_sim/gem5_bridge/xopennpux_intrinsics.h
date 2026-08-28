@@ -76,10 +76,40 @@ static inline void xopennpux_tsoftmax_fp32(void* destination,
                    : "memory");
 }
 
+static inline void xopennpux_trope_fp32(void* destination, const void* input,
+                                        const void* cos_sin_table) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 2, 0x33, %0, %1, %2"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)input),
+                     "r"((uintptr_t)cos_sin_table)
+                   : "memory");
+}
+
 static inline void xopennpux_tsilu_fp32(void* destination,
                                         const void* input) {
   __asm__ volatile("fence rw, rw" : : : "memory");
   __asm__ volatile(".insn r 0x7b, 2, 0x46, %0, %1, x0"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)input)
+                   : "memory");
+}
+
+static inline void xopennpux_tgather_fp32(void* destination,
+                                          const void* table,
+                                          const uint32_t* indices) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 3, 0x10, %0, %1, %2"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)table),
+                     "r"((uintptr_t)indices)
+                   : "memory");
+}
+
+static inline void xopennpux_ttopk_fp32(void* destination,
+                                        const void* input) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 4, 0, %0, %1, x0"
                    :
                    : "r"((uintptr_t)destination), "r"((uintptr_t)input)
                    : "memory");

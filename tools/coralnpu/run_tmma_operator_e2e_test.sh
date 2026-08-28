@@ -123,6 +123,33 @@ require_log 'Coral XOpenNPU writeback sequence=14 destination=0x20001900 bytes=3
 require_log 'Coral XOpenNPU dispatch sequence=15 operation=tfence' \
     'Softmax completion fence'
 
+require_log 'Coral XOpenNPU dispatch sequence=16 operation=tgather' \
+    'Gather L2 dispatch'
+require_log 'Coral XOpenNPU complete sequence=16 .*operation=tgather .*error=0 .*elements=6 cycles=6' \
+    'Gather functional completion'
+require_log 'Coral XOpenNPU writeback sequence=16 destination=0x20001c00 bytes=24 checksum=0x269eb168 words=0x40e00000/0x41000000/0x41100000/0x3f800000' \
+    'Gather independently checked result'
+require_log 'Coral XOpenNPU dispatch sequence=17 operation=tfence' \
+    'Gather completion fence'
+
+require_log 'Coral XOpenNPU dispatch sequence=18 operation=trope' \
+    'RoPE L2 dispatch'
+require_log 'Coral XOpenNPU complete sequence=18 .*operation=trope .*error=0 .*elements=24 cycles=24' \
+    'RoPE functional completion'
+require_log 'Coral XOpenNPU writeback sequence=18 destination=0x20001f00 bytes=32 checksum=0xe4adc6cb words=0x3f800000/0x40000000/0x40400000/0x40800000' \
+    'RoPE independently checked result'
+require_log 'Coral XOpenNPU dispatch sequence=19 operation=tfence' \
+    'RoPE completion fence'
+
+require_log 'Coral XOpenNPU dispatch sequence=20 operation=ttopk' \
+    'TopK L2 dispatch'
+require_log 'Coral XOpenNPU complete sequence=20 .*operation=ttopk .*error=0 .*elements=20 cycles=20' \
+    'TopK functional completion'
+require_log 'Coral XOpenNPU writeback sequence=20 destination=0x20002100 bytes=32 checksum=0xbb900cd1 words=0x40a00000/0x40a00000/0x40800000/0x40400000' \
+    'TopK independently checked values and indices'
+require_log 'Coral XOpenNPU dispatch sequence=21 operation=tfence' \
+    'TopK completion fence'
+
 # Guest UART output can be redirected to system.terminal rather than the host
 # log. The m5 exit event is the reliable host-side evidence that the restored
 # guest script completed after the firmware self-check.

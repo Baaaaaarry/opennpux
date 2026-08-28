@@ -28,6 +28,14 @@ enum {
   kSiluDstOffset = 0x1700,
   kSoftmaxInputOffset = 0x1800,
   kSoftmaxDstOffset = 0x1900,
+  kGatherTableOffset = 0x1a00,
+  kGatherIndicesOffset = 0x1b00,
+  kGatherDstOffset = 0x1c00,
+  kRopeInputOffset = 0x1d00,
+  kRopeTableOffset = 0x1e00,
+  kRopeDstOffset = 0x1f00,
+  kTopKInputOffset = 0x2000,
+  kTopKDstOffset = 0x2100,
   kResultMagic = 0x544d4545,
 };
 
@@ -142,6 +150,41 @@ int main(void) {
       0x3e800000, 0x3e800000, 0x3e800000, 0x3e800000,
       0x3e800000, 0x3e800000, 0x3e800000, 0x3e800000,
   };
+  static const uint32_t kGatherTable[] = {
+      0x3f800000, 0x40000000, 0x40400000,
+      0x40800000, 0x40a00000, 0x40c00000,
+      0x40e00000, 0x41000000, 0x41100000,
+      0x41200000, 0x41300000, 0x41400000,
+  };
+  static const uint32_t kGatherIndices[] = {2, 0};
+  static const uint32_t kGatherExpected[] = {
+      0x40e00000, 0x41000000, 0x41100000,
+      0x3f800000, 0x40000000, 0x40400000,
+  };
+  static const uint32_t kRopeInput[] = {
+      0x3f800000, 0x40000000, 0x40400000, 0x40800000,
+      0x40a00000, 0x40c00000, 0x40e00000, 0x41000000,
+  };
+  // The table is contiguous [cos rows][sin rows]. Row 0 is identity and row
+  // 1 applies a 90-degree half-split rotation.
+  static const uint32_t kRopeTable[] = {
+      0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000,
+      0x00000000, 0x00000000, 0x00000000, 0x00000000,
+      0x00000000, 0x00000000, 0x00000000, 0x00000000,
+      0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000,
+  };
+  static const uint32_t kRopeExpected[] = {
+      0x3f800000, 0x40000000, 0x40400000, 0x40800000,
+      0xc0e00000, 0xc1000000, 0x40a00000, 0x40c00000,
+  };
+  static const uint32_t kTopKInput[] = {
+      0x3f800000, 0x40a00000, 0x40400000, 0x40a00000, 0x40000000,
+      0xbf800000, 0x00000000, 0x40800000, 0x40000000, 0x40400000,
+  };
+  static const uint32_t kTopKExpected[] = {
+      0x40a00000, 0x40a00000, 0x40800000, 0x40400000,
+      1, 3, 2, 4,
+  };
 
   volatile uint32_t* case0_lhs = Extmem(kCase0LhsOffset);
   volatile uint32_t* case0_rhs = Extmem(kCase0RhsOffset);
@@ -166,6 +209,14 @@ int main(void) {
   volatile uint32_t* silu_dst = Extmem(kSiluDstOffset);
   volatile uint32_t* softmax_input = Extmem(kSoftmaxInputOffset);
   volatile uint32_t* softmax_dst = Extmem(kSoftmaxDstOffset);
+  volatile uint32_t* gather_table = Extmem(kGatherTableOffset);
+  volatile uint32_t* gather_indices = Extmem(kGatherIndicesOffset);
+  volatile uint32_t* gather_dst = Extmem(kGatherDstOffset);
+  volatile uint32_t* rope_input = Extmem(kRopeInputOffset);
+  volatile uint32_t* rope_table = Extmem(kRopeTableOffset);
+  volatile uint32_t* rope_dst = Extmem(kRopeDstOffset);
+  volatile uint32_t* topk_input = Extmem(kTopKInputOffset);
+  volatile uint32_t* topk_dst = Extmem(kTopKDstOffset);
 
   WriteWords(case0_lhs, kCase0Lhs, 6);
   WriteWords(case0_rhs, kCase0Rhs, 6);
@@ -200,6 +251,20 @@ int main(void) {
   WriteWords(softmax_input, kSoftmaxInput, 8);
   xopennpux_softmax_fp32((void*)softmax_dst, (const void*)softmax_input, 2, 4);
 
+  WriteWords(gather_table, kGatherTable, 12);
+  WriteWords(gather_indices, kGatherIndices, 2);
+  xopennpux_gather_fp32((void*)gather_dst, (const void*)gather_table,
+                        (const uint32_t*)gather_indices, 2, 3, 4);
+
+  WriteWords(rope_input, kRopeInput, 8);
+  WriteWords(rope_table, kRopeTable, 16);
+  xopennpux_rope_fp32((void*)rope_dst, (const void*)rope_input,
+                       (const void*)rope_table, 2, 4,
+                       XOPENNPUX_ROPE_HALF_SPLIT);
+
+  WriteWords(topk_input, kTopKInput, 10);
+  xopennpux_topk_fp32((void*)topk_dst, (const void*)topk_input, 2, 5, 2);
+
   const uint32_t failure_mask =
       (WordsEqual(case0_dst, kCase0Expected, 4) ? 0u : 1u) |
       (WordsEqual(case1_dst, kCase1Expected, 12) ? 0u : 2u) |
@@ -208,10 +273,13 @@ int main(void) {
       (WordsEqual(mul_dst, kMulExpected, 8) ? 0u : 16u) |
       (WordsEqual(rms_dst, kRmsExpected, 8) ? 0u : 32u) |
       (WordsEqual(silu_dst, kSiluExpected, 8) ? 0u : 64u) |
-      (WordsEqual(softmax_dst, kSoftmaxExpected, 8) ? 0u : 128u);
+      (WordsEqual(softmax_dst, kSoftmaxExpected, 8) ? 0u : 128u) |
+      (WordsEqual(gather_dst, kGatherExpected, 6) ? 0u : 256u) |
+      (WordsEqual(rope_dst, kRopeExpected, 8) ? 0u : 512u) |
+      (WordsEqual(topk_dst, kTopKExpected, 8) ? 0u : 1024u);
   result[0] = failure_mask == 0 ? kResultMagic : 0;
   result[1] = failure_mask;
-  result[2] = 8;
+  result[2] = 11;
 
   if (failure_mask != 0) {
     __asm__ volatile("ebreak");

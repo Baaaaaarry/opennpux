@@ -16,7 +16,12 @@ constexpr uint32_t kTmulFunct7 = 2;
 constexpr uint32_t kUnaryReductionFunct3 = 2;
 constexpr uint32_t kRmsNormFunct7 = 0x31;
 constexpr uint32_t kSoftmaxFunct7 = 0x32;
+constexpr uint32_t kRopeFunct7 = 0x33;
 constexpr uint32_t kSiluFunct7 = 0x46;
+constexpr uint32_t kMoveFunct3 = 3;
+constexpr uint32_t kGatherFunct7 = 0x10;
+constexpr uint32_t kMultiOutputFunct3 = 4;
+constexpr uint32_t kTopKFunct7 = 0;
 constexpr uint32_t kFenceFunct3 = 6;
 
 constexpr uint16_t kCsrMmaShape = 0x800;
@@ -174,6 +179,18 @@ constexpr bool IsTsoftmax(uint32_t instruction) {
          ((instruction >> 20) & 0x1f) == 0;
 }
 
+constexpr uint32_t EncodeTrope(uint32_t rd, uint32_t rs1, uint32_t rs2) {
+  return (kRopeFunct7 << 25) | ((rs2 & 0x1f) << 20) |
+         ((rs1 & 0x1f) << 15) | (kUnaryReductionFunct3 << 12) |
+         ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTrope(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kUnaryReductionFunct3 &&
+         ((instruction >> 25) & 0x7f) == kRopeFunct7;
+}
+
 constexpr uint32_t EncodeTsilu(uint32_t rd, uint32_t rs1) {
   return (kSiluFunct7 << 25) | ((rs1 & 0x1f) << 15) |
          (kUnaryReductionFunct3 << 12) | ((rd & 0x1f) << 7) |
@@ -184,6 +201,31 @@ constexpr bool IsTsilu(uint32_t instruction) {
   return IsCustom3(instruction) &&
          ((instruction >> 12) & 0x7) == kUnaryReductionFunct3 &&
          ((instruction >> 25) & 0x7f) == kSiluFunct7 &&
+         ((instruction >> 20) & 0x1f) == 0;
+}
+
+constexpr uint32_t EncodeTgather(uint32_t rd, uint32_t rs1, uint32_t rs2) {
+  return (kGatherFunct7 << 25) | ((rs2 & 0x1f) << 20) |
+         ((rs1 & 0x1f) << 15) | (kMoveFunct3 << 12) |
+         ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTgather(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kMoveFunct3 &&
+         ((instruction >> 25) & 0x7f) == kGatherFunct7;
+}
+
+constexpr uint32_t EncodeTtopk(uint32_t rd, uint32_t rs1) {
+  return (kTopKFunct7 << 25) | ((rs1 & 0x1f) << 15) |
+         (kMultiOutputFunct3 << 12) | ((rd & 0x1f) << 7) |
+         kCustom3Opcode;
+}
+
+constexpr bool IsTtopk(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kMultiOutputFunct3 &&
+         ((instruction >> 25) & 0x7f) == kTopKFunct7 &&
          ((instruction >> 20) & 0x1f) == 0;
 }
 
@@ -202,7 +244,10 @@ enum class Operation : uint8_t {
   kTmul,
   kTrmsnorm,
   kTsoftmax,
+  kTrope,
   kTsilu,
+  kTgather,
+  kTtopk,
   kTfence,
 };
 
@@ -212,7 +257,10 @@ constexpr Operation DecodeOperation(uint32_t instruction) {
          : IsTmul(instruction) ? Operation::kTmul
          : IsTrmsnorm(instruction) ? Operation::kTrmsnorm
          : IsTsoftmax(instruction) ? Operation::kTsoftmax
+         : IsTrope(instruction) ? Operation::kTrope
          : IsTsilu(instruction) ? Operation::kTsilu
+         : IsTgather(instruction) ? Operation::kTgather
+         : IsTtopk(instruction) ? Operation::kTtopk
          : IsTfence(instruction) ? Operation::kTfence
                                  : Operation::kInvalid;
 }
@@ -229,8 +277,14 @@ constexpr const char* OperationName(Operation operation) {
       return "trmsnorm";
     case Operation::kTsoftmax:
       return "tsoftmax";
+    case Operation::kTrope:
+      return "trope";
     case Operation::kTsilu:
       return "tsilu";
+    case Operation::kTgather:
+      return "tgather";
+    case Operation::kTtopk:
+      return "ttopk";
     case Operation::kTfence:
       return "tfence";
     default:

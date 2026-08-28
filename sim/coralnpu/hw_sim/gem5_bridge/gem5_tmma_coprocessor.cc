@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 namespace {
 
@@ -24,6 +25,16 @@ float LoadFloat(const std::vector<uint8_t>& memory, size_t offset) {
 }
 
 void StoreFloat(std::vector<uint8_t>* memory, size_t offset, float value) {
+  std::memcpy(memory->data() + offset, &value, sizeof(value));
+}
+
+uint32_t LoadUint32(const std::vector<uint8_t>& memory, size_t offset) {
+  uint32_t value = 0;
+  std::memcpy(&value, memory.data() + offset, sizeof(value));
+  return value;
+}
+
+void StoreUint32(std::vector<uint8_t>* memory, size_t offset, uint32_t value) {
   std::memcpy(memory->data() + offset, &value, sizeof(value));
 }
 
@@ -119,7 +130,10 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       operation != xopennpux::Operation::kTmul &&
       operation != xopennpux::Operation::kTrmsnorm &&
       operation != xopennpux::Operation::kTsoftmax &&
-      operation != xopennpux::Operation::kTsilu) {
+      operation != xopennpux::Operation::kTrope &&
+      operation != xopennpux::Operation::kTsilu &&
+      operation != xopennpux::Operation::kTgather &&
+      operation != xopennpux::Operation::kTtopk) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
   if (!ready()) {
@@ -158,6 +172,17 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
   if (operation == xopennpux::Operation::kTrmsnorm &&
       (!(DecodeFloat(scalar_param0) > 0.0f) ||
        !std::isfinite(DecodeFloat(scalar_param0)))) {
+    return Gem5TmmaSubmitResult::kInvalidCsrState;
+  }
+  if (operation == xopennpux::Operation::kTrope &&
+      (tensor_shape.features % 2 != 0 || scalar_param0 > 1)) {
+    return Gem5TmmaSubmitResult::kInvalidCsrState;
+  }
+  if (operation == xopennpux::Operation::kTgather && scalar_param0 == 0) {
+    return Gem5TmmaSubmitResult::kInvalidCsrState;
+  }
+  if (operation == xopennpux::Operation::kTtopk &&
+      (scalar_param0 == 0 || scalar_param0 > tensor_shape.features)) {
     return Gem5TmmaSubmitResult::kInvalidCsrState;
   }
   return Gem5TmmaSubmitResult::kAccepted;
@@ -237,8 +262,18 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   } else if (command.operation == xopennpux::Operation::kTsoftmax) {
     completion->element_operations = tensor_elements * 4;
     completion->modeled_cycles = completion->element_operations;
+  } else if (command.operation == xopennpux::Operation::kTrope) {
+    completion->element_operations = tensor_elements * 3;
+    completion->modeled_cycles = completion->element_operations;
   } else if (command.operation == xopennpux::Operation::kTsilu) {
     completion->element_operations = tensor_elements * 3;
+    completion->modeled_cycles = completion->element_operations;
+  } else if (command.operation == xopennpux::Operation::kTgather) {
+    completion->element_operations = tensor_elements;
+    completion->modeled_cycles = completion->element_operations;
+  } else if (command.operation == xopennpux::Operation::kTtopk) {
+    completion->element_operations =
+        tensor_elements * command.scalar_param0;
     completion->modeled_cycles = completion->element_operations;
   } else {
     completion->element_operations = tensor_elements;
@@ -259,19 +294,30 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   const uint64_t lhs_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.m) * command.shape.k
-          : tensor_elements;
+          : command.operation == xopennpux::Operation::kTgather
+              ? static_cast<uint64_t>(command.scalar_param0) *
+                    command.tensor_shape.features
+              : tensor_elements;
   const uint64_t rhs_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.k) * command.shape.n
           : command.operation == xopennpux::Operation::kTrmsnorm
               ? command.tensor_shape.features
+              : command.operation == xopennpux::Operation::kTrope
+                  ? tensor_elements * 2
+              : command.operation == xopennpux::Operation::kTgather
+                  ? command.tensor_shape.rows
               : command.operation == xopennpux::Operation::kTsoftmax ||
-                        command.operation == xopennpux::Operation::kTsilu
+                        command.operation == xopennpux::Operation::kTsilu ||
+                        command.operation == xopennpux::Operation::kTtopk
                     ? 0
                     : tensor_elements;
   const uint64_t dst_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.m) * command.shape.n
+          : command.operation == xopennpux::Operation::kTtopk
+              ? static_cast<uint64_t>(command.tensor_shape.rows) *
+                    command.scalar_param0 * 2
           : tensor_elements;
   const uint64_t dst_bytes = dst_elements * sizeof(float);
   if (!MatrixRangeValid(command.dispatch.rs1_value, lhs_elements, memory_base,
@@ -386,12 +432,110 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                    LoadFloat(*memory, dst_base + offset) / sum);
       }
     }
+  } else if (command.operation == xopennpux::Operation::kTrope) {
+    const bool half_split = command.scalar_param0 == 1;
+    const size_t sin_base = rhs_base + tensor_elements * sizeof(float);
+    std::vector<float> row_input(command.tensor_shape.features);
+    for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
+      const size_t row_base =
+          static_cast<size_t>(row) * command.tensor_shape.features;
+      for (uint32_t feature = 0; feature < command.tensor_shape.features;
+           ++feature) {
+        row_input[feature] =
+            LoadFloat(*memory,
+                      lhs_base + (row_base + feature) * sizeof(float));
+      }
+      const uint32_t half = command.tensor_shape.features / 2;
+      for (uint32_t feature = 0; feature < command.tensor_shape.features;
+           ++feature) {
+        uint32_t rotated_feature = 0;
+        float sign = 1.0f;
+        if (half_split) {
+          rotated_feature = feature < half ? feature + half : feature - half;
+          sign = feature < half ? -1.0f : 1.0f;
+        } else {
+          rotated_feature = feature ^ 1u;
+          sign = (feature & 1u) == 0 ? -1.0f : 1.0f;
+        }
+        const size_t offset = (row_base + feature) * sizeof(float);
+        const float cosine = LoadFloat(*memory, rhs_base + offset);
+        const float sine = LoadFloat(*memory, sin_base + offset);
+        StoreFloat(memory, dst_base + offset,
+                   row_input[feature] * cosine +
+                       sign * row_input[rotated_feature] * sine);
+      }
+    }
   } else if (command.operation == xopennpux::Operation::kTsilu) {
     for (uint64_t index = 0; index < tensor_elements; ++index) {
       const size_t offset = static_cast<size_t>(index) * sizeof(float);
       const float value = LoadFloat(*memory, lhs_base + offset);
       StoreFloat(memory, dst_base + offset,
                  value / (1.0f + std::exp(-value)));
+    }
+  } else if (command.operation == xopennpux::Operation::kTgather) {
+    for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
+      const uint32_t source_row =
+          LoadUint32(*memory, rhs_base + row * sizeof(uint32_t));
+      if (source_row >= command.scalar_param0) {
+        completion->error = Gem5TmmaExecutionError::kAddress;
+        completion->faulting_address = command.dispatch.rs2_value +
+                                       row * sizeof(uint32_t);
+        return true;
+      }
+    }
+    for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
+      const uint32_t source_row =
+          LoadUint32(*memory, rhs_base + row * sizeof(uint32_t));
+      for (uint32_t feature = 0; feature < command.tensor_shape.features;
+           ++feature) {
+        const size_t source_offset =
+            (static_cast<size_t>(source_row) * command.tensor_shape.features +
+             feature) *
+            sizeof(float);
+        const size_t destination_offset =
+            (static_cast<size_t>(row) * command.tensor_shape.features +
+             feature) *
+            sizeof(float);
+        StoreFloat(memory, dst_base + destination_offset,
+                   LoadFloat(*memory, lhs_base + source_offset));
+      }
+    }
+  } else if (command.operation == xopennpux::Operation::kTtopk) {
+    const uint32_t k = command.scalar_param0;
+    const size_t value_count =
+        static_cast<size_t>(command.tensor_shape.rows) * k;
+    std::vector<std::pair<float, uint32_t>> candidates(
+        command.tensor_shape.features);
+    for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
+      const size_t row_base =
+          static_cast<size_t>(row) * command.tensor_shape.features;
+      for (uint32_t feature = 0; feature < command.tensor_shape.features;
+           ++feature) {
+        candidates[feature] = {
+            LoadFloat(*memory,
+                      lhs_base + (row_base + feature) * sizeof(float)),
+            feature};
+      }
+      std::partial_sort(
+          candidates.begin(), candidates.begin() + k, candidates.end(),
+          [](const auto& lhs, const auto& rhs) {
+            const bool lhs_nan = std::isnan(lhs.first);
+            const bool rhs_nan = std::isnan(rhs.first);
+            if (lhs_nan != rhs_nan) {
+              return !lhs_nan;
+            }
+            return lhs.first > rhs.first ||
+                   ((lhs.first == rhs.first || (lhs_nan && rhs_nan)) &&
+                    lhs.second < rhs.second);
+          });
+      for (uint32_t rank = 0; rank < k; ++rank) {
+        const size_t output = static_cast<size_t>(row) * k + rank;
+        StoreFloat(memory, dst_base + output * sizeof(float),
+                   candidates[rank].first);
+        StoreUint32(memory,
+                    dst_base + (value_count + output) * sizeof(uint32_t),
+                    candidates[rank].second);
+      }
     }
   } else {
     completion->error = Gem5TmmaExecutionError::kUnsupportedDataType;

@@ -135,7 +135,7 @@ class Gem5CoreMiniAxiWrapper {
     debug_retire_ring_.fill(DebugRetireEntry{0, 0, 0});
   }
 
-  bool PrepareXOpenNpu(Gem5TmmaCoprocessor* coprocessor,
+  bool PrepareXOpenNpu(Gem5XOpenNpuFunctionalCoprocessor* coprocessor,
                        uint32_t sequence_id,
                        Gem5TmmaSubmitResult* result) {
     core_.io_xnpu_request_ready = 0;
@@ -178,7 +178,8 @@ class Gem5CoreMiniAxiWrapper {
             "Coral XOpenNPU dispatch sequence=%u operation=%s pc=%#x "
             "inst=%#x epoch=%u rs1=%#x rs2=%#x rd=%#x\n",
             sequence_id,
-            xopennpux::IsTfence(packet.instruction) ? "tfence" : "tmma",
+            xopennpux::OperationName(
+                xopennpux::DecodeOperation(packet.instruction)),
             packet.pc, packet.instruction, packet.csr_epoch,
             packet.rs1_value, packet.rs2_value, packet.rd_value);
       }

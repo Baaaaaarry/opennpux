@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "hw_sim/gem5_bridge/xopennpux_intrinsics.h"
+#include "hw_sim/gem5_bridge/xopennpux_ops.h"
 
 enum {
   kExtmemBase = 0x20000000,
@@ -15,6 +15,9 @@ enum {
   kCase2RhsOffset = 0x900,
   kCase2DstOffset = 0xa00,
   kResultOffset = 0xc00,
+  kAddLhsOffset = 0xd00,
+  kAddRhsOffset = 0xe00,
+  kAddDstOffset = 0xf00,
   kResultMagic = 0x544d4545,
 };
 
@@ -43,11 +46,8 @@ static void RunFp32Tmma(uint32_t m, uint32_t n, uint32_t k,
                         volatile uint32_t* destination,
                         const volatile uint32_t* lhs,
                         const volatile uint32_t* rhs) {
-  xopennpux_write_mma_shape((k << 20) | (n << 10) | m);
-  xopennpux_write_mma_data_type((2u << 8) | (2u << 4) | 2u);
-  xopennpux_tmma_fp32((void*)destination, (const void*)lhs,
-                      (const void*)rhs);
-  xopennpux_tfence();
+  xopennpux_matmul_fp32((void*)destination, (const void*)lhs,
+                        (const void*)rhs, m, n, k);
 }
 
 int main(void) {
@@ -89,6 +89,18 @@ int main(void) {
   static const uint32_t kCase2Expected[] = {
       0x3f800000, 0x40000000, 0xc0600000,
   };
+  static const uint32_t kAddLhs[] = {
+      0x3f800000, 0xc0000000, 0x40400000, 0x40800000,
+      0x40a00000, 0xc0c00000, 0x40e00000, 0x41000000,
+  };
+  static const uint32_t kAddRhs[] = {
+      0x40000000, 0x3f800000, 0xc0400000, 0x40800000,
+      0xbf800000, 0x40c00000, 0x3f000000, 0xc0000000,
+  };
+  static const uint32_t kAddExpected[] = {
+      0x40400000, 0xbf800000, 0x00000000, 0x41000000,
+      0x40800000, 0x00000000, 0x40f00000, 0x40c00000,
+  };
 
   volatile uint32_t* case0_lhs = Extmem(kCase0LhsOffset);
   volatile uint32_t* case0_rhs = Extmem(kCase0RhsOffset);
@@ -100,6 +112,9 @@ int main(void) {
   volatile uint32_t* case2_rhs = Extmem(kCase2RhsOffset);
   volatile uint32_t* case2_dst = Extmem(kCase2DstOffset);
   volatile uint32_t* result = Extmem(kResultOffset);
+  volatile uint32_t* add_lhs = Extmem(kAddLhsOffset);
+  volatile uint32_t* add_rhs = Extmem(kAddRhsOffset);
+  volatile uint32_t* add_dst = Extmem(kAddDstOffset);
 
   WriteWords(case0_lhs, kCase0Lhs, 6);
   WriteWords(case0_rhs, kCase0Rhs, 6);
@@ -113,13 +128,19 @@ int main(void) {
   WriteWords(case2_rhs, kCase2Rhs, 12);
   RunFp32Tmma(1, 3, 4, case2_dst, case2_lhs, case2_rhs);
 
+  WriteWords(add_lhs, kAddLhs, 8);
+  WriteWords(add_rhs, kAddRhs, 8);
+  xopennpux_add_fp32((void*)add_dst, (const void*)add_lhs,
+                     (const void*)add_rhs, 2, 2, 2);
+
   const uint32_t failure_mask =
       (WordsEqual(case0_dst, kCase0Expected, 4) ? 0u : 1u) |
       (WordsEqual(case1_dst, kCase1Expected, 12) ? 0u : 2u) |
-      (WordsEqual(case2_dst, kCase2Expected, 3) ? 0u : 4u);
+      (WordsEqual(case2_dst, kCase2Expected, 3) ? 0u : 4u) |
+      (WordsEqual(add_dst, kAddExpected, 8) ? 0u : 8u);
   result[0] = failure_mask == 0 ? kResultMagic : 0;
   result[1] = failure_mask;
-  result[2] = 3;
+  result[2] = 4;
 
   if (failure_mask != 0) {
     __asm__ volatile("ebreak");

@@ -61,6 +61,39 @@ void TestEncodingAndSecondLevelDecode() {
   assert(!xopennpux::IsTmma(instruction | (1u << 25)));
   assert(xopennpux::IsTfence(xopennpux::EncodeTfence()));
   assert(!xopennpux::IsTmma(xopennpux::EncodeTfence()));
+  const uint32_t tadd = xopennpux::EncodeTadd(12, 10, 11);
+  assert(xopennpux::IsTadd(tadd));
+  assert(!xopennpux::IsTmma(tadd));
+  assert(xopennpux::DecodeOperation(tadd) ==
+         xopennpux::Operation::kTadd);
+}
+
+void TestFp32TensorAdd() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureFp32(&coprocessor, 2, 2, 2);
+  Gem5TmmaDispatchPacket packet = Packet(8);
+  packet.instruction = xopennpux::EncodeTadd(12, 10, 11);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  for (size_t index = 0; index < 8; ++index) {
+    WriteFloat(&memory, index * sizeof(float),
+               static_cast<float>(index + 1));
+    WriteFloat(&memory, 0x100 + index * sizeof(float),
+               static_cast<float>(8 - index));
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTadd);
+  assert(completion.mac_operations == 0);
+  assert(completion.element_operations == 8);
+  assert(completion.modeled_cycles == 8);
+  assert(completion.destination_bytes == 8 * sizeof(float));
+  for (size_t index = 0; index < 8; ++index) {
+    assert(ReadFloat(memory, 0x200 + index * sizeof(float)) == 9.0f);
+  }
 }
 
 void TestFp32MatmulAndSnapshot() {
@@ -181,6 +214,7 @@ void TestInvalidTypeAndAddressFault() {
 
 int main() {
   TestEncodingAndSecondLevelDecode();
+  TestFp32TensorAdd();
   TestFp32MatmulAndSnapshot();
   TestRejectAndBackpressure();
   TestPacketCsrSnapshotAndFence();

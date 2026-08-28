@@ -262,7 +262,7 @@ struct AsyncOperatorSubmission {
 struct coral_gem5_handle {
   VerilatedContext context;
   Gem5CoreMiniAxiWrapper wrapper;
-  Gem5TmmaCoprocessor tmma_coprocessor;
+  Gem5XOpenNpuFunctionalCoprocessor tmma_coprocessor;
   uint32_t tmma_sequence;
   Gem5CustomMac custom_mac;
   Gem5CoprocessorCommandAdapter command_adapter;
@@ -1208,7 +1208,8 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
     if (handle->tmma_coprocessor.pending_count() != 0 &&
         !handle->local_extmem_enabled) {
       std::fprintf(stderr,
-                   "Coral XOpenNPU execution rejected: TMMA requires shared "
+                   "Coral XOpenNPU execution rejected: tensor operations "
+                   "require shared "
                    "local EXTMEM; enable gem5 --npu-fast-dma\n");
       return CORAL_GEM5_STEP_ERROR;
     }
@@ -1217,14 +1218,18 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
             &handle->local_extmem, kExtmemBase, &tmma_completion)) {
       std::fprintf(stderr,
                    "Coral XOpenNPU complete sequence=%u pc=%#x inst=%#x "
-                   "epoch=%u error=%u fault_addr=%#x macs=%llu cycles=%llu\n",
+                   "epoch=%u operation=%s error=%u fault_addr=%#x "
+                   "macs=%llu elements=%llu cycles=%llu\n",
                    tmma_completion.sequence_id,
                    tmma_completion.pc, tmma_completion.instruction,
                    tmma_completion.csr_epoch,
+                   xopennpux::OperationName(tmma_completion.operation),
                    static_cast<unsigned>(tmma_completion.error),
                    tmma_completion.faulting_address,
                    static_cast<unsigned long long>(
                        tmma_completion.mac_operations),
+                   static_cast<unsigned long long>(
+                       tmma_completion.element_operations),
                    static_cast<unsigned long long>(
                        tmma_completion.modeled_cycles));
       std::fprintf(stderr,

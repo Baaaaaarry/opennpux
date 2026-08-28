@@ -273,6 +273,21 @@ update the shared encoder, NPU decoder, firmware, and tests together.
 - `funct3=010`, `funct7=0110000`: tensor-to-scalar sum form.
 - `funct3=010`, `funct7=1000000`: scalar-to-tensor range/fill form.
 
+#### Experimental v0.1 TADD functional profile
+
+The first multi-operator functional coprocessor implements FP32 tensor add as
+`tadd.ttt`, using `custom3`, `funct3=001`, and `funct7=0000001`. `rs1`, `rs2`,
+and `rd` carry the source 1, source 2, and destination first-element addresses.
+The architectural result is `dst[i] = src1[i] + src2[i]`.
+
+Until the `tensor_dim` RTL CSR ports are available, the v0.1 compatibility
+profile derives the contiguous element count from `mma_shape.M * N * K` and
+uses `mma_data_type` for the three operand types. This temporary CSR mapping
+MUST remain confined to the firmware operator library and NPU L2 functional
+decoder. Model compilers MUST call `xopennpux_add_fp32()` rather than program
+the compatibility CSRs directly. Replacing the CSR mapping MUST NOT change the
+32-bit `tadd.ttt` instruction encoding.
+
 ### SFU
 
 `funct3=010`, `funct7=1000000..1000101` selects `texp`, `ttanh`, `tsqrt`,
@@ -526,6 +541,9 @@ The first mandatory implementation subset is:
 - a baseline functional MMA engine;
 - tensor memory read/write;
 - `tfence`;
+- generic operation classification shared by TMMA and TADD;
+- FP32 `tadd.ttt` functional execution and per-operation statistics;
+- `xopennpux_ops.h` as the firmware/compiler-facing operator-library boundary;
 - trace and error reporting.
 
 Acceptance requires independent evidence that:

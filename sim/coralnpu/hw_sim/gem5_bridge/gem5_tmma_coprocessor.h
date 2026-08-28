@@ -35,6 +35,7 @@ struct Gem5TmmaDispatchPacket {
 };
 
 struct Gem5TmmaCompletion {
+  xopennpux::Operation operation = xopennpux::Operation::kInvalid;
   uint32_t sequence_id = 0;
   uint32_t csr_epoch = 0;
   uint32_t pc = 0;
@@ -46,11 +47,12 @@ struct Gem5TmmaCompletion {
   uint32_t destination_checksum = 0;
   std::array<uint32_t, 4> destination_words{};
   uint64_t mac_operations = 0;
+  uint64_t element_operations = 0;
   uint64_t modeled_cycles = 0;
   Gem5TmmaExecutionError error = Gem5TmmaExecutionError::kNone;
 };
 
-class Gem5TmmaCoprocessor {
+class Gem5XOpenNpuFunctionalCoprocessor {
  public:
   static constexpr size_t kQueueCapacity = 4;
 
@@ -68,19 +70,24 @@ class Gem5TmmaCoprocessor {
                    Gem5TmmaCompletion* completion);
 
  private:
-  struct QueuedTmma {
+  struct QueuedOperation {
     Gem5TmmaDispatchPacket dispatch;
+    xopennpux::Operation operation = xopennpux::Operation::kInvalid;
     xopennpux::MmaShape shape;
     xopennpux::MmaDataTypes data_types;
     uint32_t csr_epoch = 0;
   };
 
-  std::array<QueuedTmma, kQueueCapacity> queue_{};
+  std::array<QueuedOperation, kQueueCapacity> queue_{};
   size_t queue_head_ = 0;
   size_t queue_size_ = 0;
   uint32_t mma_shape_ = 0;
   uint32_t mma_data_type_ = 0;
   uint32_t csr_epoch_ = 0;
 };
+
+// Compatibility alias for existing bridge code and external tests. New code
+// should use the architecture-level name rather than binding to TMMA.
+using Gem5TmmaCoprocessor = Gem5XOpenNpuFunctionalCoprocessor;
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_TMMA_COPROCESSOR_H_

@@ -537,6 +537,7 @@ coralnpu_v2_binary(
     srcs = [
         "gem5_bridge/gem5_tmma_operator_e2e.c",
         "gem5_bridge/xopennpux_intrinsics.h",
+        "gem5_bridge/xopennpux_ops.h",
     ],
 )
 

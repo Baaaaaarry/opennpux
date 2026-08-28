@@ -10,6 +10,8 @@ namespace xopennpux {
 constexpr uint32_t kCustom3Opcode = 0x7b;
 constexpr uint32_t kMmaFunct3 = 0;
 constexpr uint32_t kTmmaFunct7 = 0;
+constexpr uint32_t kTensorTensorFunct3 = 1;
+constexpr uint32_t kTaddFunct7 = 1;
 constexpr uint32_t kFenceFunct3 = 6;
 
 constexpr uint16_t kCsrMmaShape = 0x800;
@@ -101,12 +103,51 @@ constexpr bool IsTmma(uint32_t instruction) {
          ((instruction >> 25) & 0x7f) == kTmmaFunct7;
 }
 
+constexpr uint32_t EncodeTadd(uint32_t rd, uint32_t rs1, uint32_t rs2) {
+  return (kTaddFunct7 << 25) | ((rs2 & 0x1f) << 20) |
+         ((rs1 & 0x1f) << 15) | (kTensorTensorFunct3 << 12) |
+         ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTadd(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kTensorTensorFunct3 &&
+         ((instruction >> 25) & 0x7f) == kTaddFunct7;
+}
+
 constexpr uint32_t EncodeTfence() {
   return (kFenceFunct3 << 12) | kCustom3Opcode;
 }
 
 constexpr bool IsTfence(uint32_t instruction) {
   return instruction == EncodeTfence();
+}
+
+enum class Operation : uint8_t {
+  kInvalid,
+  kTmma,
+  kTadd,
+  kTfence,
+};
+
+constexpr Operation DecodeOperation(uint32_t instruction) {
+  return IsTmma(instruction) ? Operation::kTmma
+         : IsTadd(instruction) ? Operation::kTadd
+         : IsTfence(instruction) ? Operation::kTfence
+                                 : Operation::kInvalid;
+}
+
+constexpr const char* OperationName(Operation operation) {
+  switch (operation) {
+    case Operation::kTmma:
+      return "tmma";
+    case Operation::kTadd:
+      return "tadd";
+    case Operation::kTfence:
+      return "tfence";
+    default:
+      return "invalid";
+  }
 }
 
 }  // namespace xopennpux

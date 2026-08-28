@@ -1,5 +1,6 @@
 #include "hw_sim/gem5_bridge/gem5_tmma_coprocessor.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace {
@@ -35,7 +36,7 @@ uint32_t Fnv1a(const uint8_t* data, size_t size) {
 
 }  // namespace
 
-void Gem5TmmaCoprocessor::Reset() {
+void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   queue_.fill({});
   queue_head_ = 0;
   queue_size_ = 0;
@@ -44,7 +45,8 @@ void Gem5TmmaCoprocessor::Reset() {
   csr_epoch_ = 0;
 }
 
-bool Gem5TmmaCoprocessor::WriteCsr(uint16_t address, uint32_t value) {
+bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
+                                                 uint32_t value) {
   switch (address) {
     case xopennpux::kCsrMmaShape:
       mma_shape_ = value;
@@ -59,7 +61,8 @@ bool Gem5TmmaCoprocessor::WriteCsr(uint16_t address, uint32_t value) {
   return true;
 }
 
-bool Gem5TmmaCoprocessor::ReadCsr(uint16_t address, uint32_t* value) const {
+bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
+                                                uint32_t* value) const {
   if (value == nullptr) {
     return false;
   }
@@ -75,13 +78,16 @@ bool Gem5TmmaCoprocessor::ReadCsr(uint16_t address, uint32_t* value) const {
   }
 }
 
-Gem5TmmaSubmitResult Gem5TmmaCoprocessor::Classify(
+Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
     const Gem5TmmaDispatchPacket& packet) const {
   if (xopennpux::IsTfence(packet.instruction)) {
     return queue_size_ == 0 ? Gem5TmmaSubmitResult::kAccepted
                             : Gem5TmmaSubmitResult::kBackpressure;
   }
-  if (!xopennpux::IsTmma(packet.instruction)) {
+  const xopennpux::Operation operation =
+      xopennpux::DecodeOperation(packet.instruction);
+  if (operation != xopennpux::Operation::kTmma &&
+      operation != xopennpux::Operation::kTadd) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
   if (!ready()) {
@@ -109,7 +115,7 @@ Gem5TmmaSubmitResult Gem5TmmaCoprocessor::Classify(
   return Gem5TmmaSubmitResult::kAccepted;
 }
 
-Gem5TmmaSubmitResult Gem5TmmaCoprocessor::Submit(
+Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
     const Gem5TmmaDispatchPacket& packet) {
   const Gem5TmmaSubmitResult classification = Classify(packet);
   if (classification != Gem5TmmaSubmitResult::kAccepted) {
@@ -130,6 +136,7 @@ Gem5TmmaSubmitResult Gem5TmmaCoprocessor::Submit(
 
   const size_t tail = (queue_head_ + queue_size_) % kQueueCapacity;
   queue_[tail].dispatch = packet;
+  queue_[tail].operation = xopennpux::DecodeOperation(packet.instruction);
   queue_[tail].shape = shape;
   queue_[tail].data_types = data_types;
   queue_[tail].csr_epoch = packet.csr_epoch == 0 ? csr_epoch_
@@ -138,14 +145,14 @@ Gem5TmmaSubmitResult Gem5TmmaCoprocessor::Submit(
   return Gem5TmmaSubmitResult::kAccepted;
 }
 
-bool Gem5TmmaCoprocessor::ExecuteNext(std::vector<uint8_t>* memory,
-                                     uint32_t memory_base,
-                                     Gem5TmmaCompletion* completion) {
+bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
+    std::vector<uint8_t>* memory, uint32_t memory_base,
+    Gem5TmmaCompletion* completion) {
   if (memory == nullptr || completion == nullptr || queue_size_ == 0) {
     return false;
   }
 
-  const QueuedTmma command = queue_[queue_head_];
+  const QueuedOperation command = queue_[queue_head_];
   queue_head_ = (queue_head_ + 1) % kQueueCapacity;
   --queue_size_;
 
@@ -155,10 +162,17 @@ bool Gem5TmmaCoprocessor::ExecuteNext(std::vector<uint8_t>* memory,
   completion->pc = command.dispatch.pc;
   completion->instruction = command.dispatch.instruction;
   completion->hart_id = command.dispatch.hart_id;
+  completion->operation = command.operation;
   completion->destination_address = command.dispatch.rd_value;
-  completion->mac_operations = static_cast<uint64_t>(command.shape.m) *
-                               command.shape.n * command.shape.k;
-  completion->modeled_cycles = completion->mac_operations;
+  const uint64_t tensor_elements = static_cast<uint64_t>(command.shape.m) *
+                                   command.shape.n * command.shape.k;
+  if (command.operation == xopennpux::Operation::kTmma) {
+    completion->mac_operations = tensor_elements;
+    completion->modeled_cycles = completion->mac_operations;
+  } else {
+    completion->element_operations = tensor_elements;
+    completion->modeled_cycles = completion->element_operations;
+  }
 
   if (command.data_types.src1 != xopennpux::DataType::kFp32 ||
       command.data_types.src2 != xopennpux::DataType::kFp32 ||
@@ -168,11 +182,17 @@ bool Gem5TmmaCoprocessor::ExecuteNext(std::vector<uint8_t>* memory,
   }
 
   const uint64_t lhs_elements =
-      static_cast<uint64_t>(command.shape.m) * command.shape.k;
+      command.operation == xopennpux::Operation::kTmma
+          ? static_cast<uint64_t>(command.shape.m) * command.shape.k
+          : tensor_elements;
   const uint64_t rhs_elements =
-      static_cast<uint64_t>(command.shape.k) * command.shape.n;
+      command.operation == xopennpux::Operation::kTmma
+          ? static_cast<uint64_t>(command.shape.k) * command.shape.n
+          : tensor_elements;
   const uint64_t dst_elements =
-      static_cast<uint64_t>(command.shape.m) * command.shape.n;
+      command.operation == xopennpux::Operation::kTmma
+          ? static_cast<uint64_t>(command.shape.m) * command.shape.n
+          : tensor_elements;
   const uint64_t dst_bytes = dst_elements * sizeof(float);
   if (!MatrixRangeValid(command.dispatch.rs1_value, lhs_elements, memory_base,
                         memory->size())) {
@@ -196,21 +216,33 @@ bool Gem5TmmaCoprocessor::ExecuteNext(std::vector<uint8_t>* memory,
   const size_t lhs_base = command.dispatch.rs1_value - memory_base;
   const size_t rhs_base = command.dispatch.rs2_value - memory_base;
   const size_t dst_base = command.dispatch.rd_value - memory_base;
-  for (uint32_t row = 0; row < command.shape.m; ++row) {
-    for (uint32_t column = 0; column < command.shape.n; ++column) {
-      float accumulator = 0.0f;
-      for (uint32_t inner = 0; inner < command.shape.k; ++inner) {
-        const size_t lhs_offset =
-            lhs_base + (row * command.shape.k + inner) * sizeof(float);
-        const size_t rhs_offset =
-            rhs_base + (inner * command.shape.n + column) * sizeof(float);
-        accumulator += LoadFloat(*memory, lhs_offset) *
-                       LoadFloat(*memory, rhs_offset);
+  if (command.operation == xopennpux::Operation::kTmma) {
+    for (uint32_t row = 0; row < command.shape.m; ++row) {
+      for (uint32_t column = 0; column < command.shape.n; ++column) {
+        float accumulator = 0.0f;
+        for (uint32_t inner = 0; inner < command.shape.k; ++inner) {
+          const size_t lhs_offset =
+              lhs_base + (row * command.shape.k + inner) * sizeof(float);
+          const size_t rhs_offset =
+              rhs_base + (inner * command.shape.n + column) * sizeof(float);
+          accumulator += LoadFloat(*memory, lhs_offset) *
+                         LoadFloat(*memory, rhs_offset);
+        }
+        const size_t dst_offset =
+            dst_base + (row * command.shape.n + column) * sizeof(float);
+        StoreFloat(memory, dst_offset, accumulator);
       }
-      const size_t dst_offset =
-          dst_base + (row * command.shape.n + column) * sizeof(float);
-      StoreFloat(memory, dst_offset, accumulator);
     }
+  } else if (command.operation == xopennpux::Operation::kTadd) {
+    for (uint64_t index = 0; index < tensor_elements; ++index) {
+      const size_t offset = static_cast<size_t>(index) * sizeof(float);
+      StoreFloat(memory, dst_base + offset,
+                 LoadFloat(*memory, lhs_base + offset) +
+                     LoadFloat(*memory, rhs_base + offset));
+    }
+  } else {
+    completion->error = Gem5TmmaExecutionError::kUnsupportedDataType;
+    return true;
   }
   completion->destination_bytes = static_cast<uint32_t>(dst_bytes);
   completion->destination_checksum =

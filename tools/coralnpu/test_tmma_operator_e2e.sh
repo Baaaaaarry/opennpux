@@ -74,6 +74,7 @@ tmma_count = sum((word & 0xFE00707F) == 0x0000007B for word in words)
 tadd_count = sum((word & 0xFE00707F) == 0x0200107B for word in words)
 tmul_count = sum((word & 0xFE00707F) == 0x0400107B for word in words)
 trmsnorm_count = sum((word & 0xFE00707F) == 0x6200207B for word in words)
+tsilu_count = sum((word & 0xFE00707F) == 0x8C00207B for word in words)
 tfence_count = sum(word == 0x0000607B for word in words)
 shape_writes = sum((word & 0xFFF07FFF) == 0x80001073 for word in words)
 dtype_writes = sum((word & 0xFFF07FFF) == 0x80101073 for word in words)
@@ -85,6 +86,7 @@ checks = {
     "tadd_encoding_count": (tadd_count, 1),
     "tmul_encoding_count": (tmul_count, 1),
     "trmsnorm_encoding_count": (trmsnorm_count, 1),
+    "tsilu_encoding_count": (tsilu_count, 1),
     "tfence_encoding_count": (tfence_count, 1),
     "shape_write_encoding_count": (shape_writes, 1),
     "dtype_write_encoding_count": (dtype_writes, 1),

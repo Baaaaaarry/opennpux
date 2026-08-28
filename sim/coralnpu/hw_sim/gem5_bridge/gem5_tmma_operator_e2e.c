@@ -24,6 +24,8 @@ enum {
   kRmsInputOffset = 0x1300,
   kRmsWeightOffset = 0x1400,
   kRmsDstOffset = 0x1500,
+  kSiluInputOffset = 0x1600,
+  kSiluDstOffset = 0x1700,
   kResultMagic = 0x544d4545,
 };
 
@@ -122,6 +124,14 @@ int main(void) {
       0x3f000000, 0x3f800000, 0x3fc00000, 0x40000000,
       0xbf000000, 0xbf800000, 0xbfc00000, 0xc0000000,
   };
+  static const uint32_t kSiluInput[] = {
+      0xc0000000, 0xbf800000, 0x00000000, 0x3f800000,
+      0x40000000, 0x40800000, 0x41000000, 0x41800000,
+  };
+  static const uint32_t kSiluExpected[] = {
+      0xbe7420a9, 0xbe89b2b1, 0x00000000, 0x3f3b26a8,
+      0x3fe17bea, 0x407b6541, 0x40ffea06, 0x417ffffe,
+  };
 
   volatile uint32_t* case0_lhs = Extmem(kCase0LhsOffset);
   volatile uint32_t* case0_rhs = Extmem(kCase0RhsOffset);
@@ -142,6 +152,8 @@ int main(void) {
   volatile uint32_t* rms_input = Extmem(kRmsInputOffset);
   volatile uint32_t* rms_weight = Extmem(kRmsWeightOffset);
   volatile uint32_t* rms_dst = Extmem(kRmsDstOffset);
+  volatile uint32_t* silu_input = Extmem(kSiluInputOffset);
+  volatile uint32_t* silu_dst = Extmem(kSiluDstOffset);
 
   WriteWords(case0_lhs, kCase0Lhs, 6);
   WriteWords(case0_rhs, kCase0Rhs, 6);
@@ -170,16 +182,20 @@ int main(void) {
   xopennpux_rmsnorm_fp32((void*)rms_dst, (const void*)rms_input,
                          (const void*)rms_weight, 2, 4, 3.0f);
 
+  WriteWords(silu_input, kSiluInput, 8);
+  xopennpux_silu_fp32((void*)silu_dst, (const void*)silu_input, 2, 4);
+
   const uint32_t failure_mask =
       (WordsEqual(case0_dst, kCase0Expected, 4) ? 0u : 1u) |
       (WordsEqual(case1_dst, kCase1Expected, 12) ? 0u : 2u) |
       (WordsEqual(case2_dst, kCase2Expected, 3) ? 0u : 4u) |
       (WordsEqual(add_dst, kAddExpected, 8) ? 0u : 8u) |
       (WordsEqual(mul_dst, kMulExpected, 8) ? 0u : 16u) |
-      (WordsEqual(rms_dst, kRmsExpected, 8) ? 0u : 32u);
+      (WordsEqual(rms_dst, kRmsExpected, 8) ? 0u : 32u) |
+      (WordsEqual(silu_dst, kSiluExpected, 8) ? 0u : 64u);
   result[0] = failure_mask == 0 ? kResultMagic : 0;
   result[1] = failure_mask;
-  result[2] = 6;
+  result[2] = 7;
 
   if (failure_mask != 0) {
     __asm__ volatile("ebreak");

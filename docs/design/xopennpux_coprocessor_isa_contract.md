@@ -308,6 +308,14 @@ model names and layer layouts MUST NOT enter the L2 decoder.
 `tcos`, `tsin`, and `tlog`. The final allocation MUST resolve the overlap with
 the scalar-to-tensor encoding before implementation.
 
+The v0.2 functional profile additionally assigns `funct7=1000110` to
+`tsilu.tt`. `rs1` addresses the input tensor, `rd` addresses the output tensor,
+and `rs2` MUST be `x0`. It consumes `tensor_shape` and `tensor_data_type` and
+computes `dst[i] = src[i] / (1 + exp(-src[i]))`. The initial implementation
+accepts contiguous FP32 tensors and models three element operations per output.
+This instruction is a model-independent SFU primitive; model names and graph
+layouts MUST NOT enter its L2 decode or execution semantics.
+
 ### MOV
 
 `funct3=011` selects linear, tensor, and permute copy, with optional padding.

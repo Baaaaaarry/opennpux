@@ -81,6 +81,12 @@ void TestEncodingAndSecondLevelDecode() {
   assert(xopennpux::IsTrmsnorm(rmsnorm));
   assert(xopennpux::DecodeOperation(rmsnorm) ==
          xopennpux::Operation::kTrmsnorm);
+  const uint32_t silu = xopennpux::EncodeTsilu(12, 10);
+  assert(xopennpux::IsTsilu(silu));
+  assert(((silu >> 20) & 0x1f) == 0);
+  assert(xopennpux::DecodeOperation(silu) ==
+         xopennpux::Operation::kTsilu);
+  assert(!xopennpux::IsTsilu(silu | (1u << 20)));
 }
 
 void TestFp32TensorAdd() {
@@ -187,6 +193,35 @@ void TestRmsNormRejectsInvalidEpsilon() {
   packet.instruction = xopennpux::EncodeTrmsnorm(12, 10, 11);
   assert(coprocessor.Submit(packet) ==
          Gem5TmmaSubmitResult::kInvalidCsrState);
+}
+
+void TestFp32Silu() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 4);
+  Gem5TmmaDispatchPacket packet = Packet(12);
+  packet.instruction = xopennpux::EncodeTsilu(12, 10);
+  packet.rs2_value = 0;
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const float input[] = {-2.0f, -1.0f, 0.0f, 1.0f,
+                         2.0f, 4.0f, 8.0f, 16.0f};
+  for (size_t index = 0; index < 8; ++index) {
+    WriteFloat(&memory, index * sizeof(float), input[index]);
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTsilu);
+  assert(completion.element_operations == 24);
+  assert(completion.modeled_cycles == 24);
+  assert(completion.destination_bytes == 8 * sizeof(float));
+  for (size_t index = 0; index < 8; ++index) {
+    const float expected = input[index] / (1.0f + std::exp(-input[index]));
+    assert(std::fabs(ReadFloat(memory, 0x200 + index * sizeof(float)) -
+                     expected) < 1.0e-6f);
+  }
 }
 
 void TestFp32MatmulAndSnapshot() {
@@ -311,6 +346,7 @@ int main() {
   TestFp32TensorMul();
   TestFp32RmsNorm();
   TestRmsNormRejectsInvalidEpsilon();
+  TestFp32Silu();
   TestFp32MatmulAndSnapshot();
   TestRejectAndBackpressure();
   TestPacketCsrSnapshotAndFence();

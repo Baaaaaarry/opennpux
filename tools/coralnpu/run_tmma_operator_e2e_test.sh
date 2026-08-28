@@ -105,6 +105,15 @@ require_log 'Coral XOpenNPU writeback sequence=10 destination=0x20001500 bytes=3
 require_log 'Coral XOpenNPU dispatch sequence=11 operation=tfence' \
     'RMSNorm completion fence'
 
+require_log 'Coral XOpenNPU dispatch sequence=12 operation=tsilu' \
+    'SiLU L2 dispatch'
+require_log 'Coral XOpenNPU complete sequence=12 .*operation=tsilu .*error=0 .*elements=24 cycles=24' \
+    'SiLU functional completion'
+require_log 'Coral XOpenNPU writeback sequence=12 destination=0x20001700 bytes=32 checksum=0x137fe900 words=0xbe7420a9/0xbe89b2b1/0000000000/0x3f3b26a8' \
+    'SiLU independently checked result'
+require_log 'Coral XOpenNPU dispatch sequence=13 operation=tfence' \
+    'SiLU completion fence'
+
 # Guest UART output can be redirected to system.terminal rather than the host
 # log. The m5 exit event is the reliable host-side evidence that the restored
 # guest script completed after the firmware self-check.

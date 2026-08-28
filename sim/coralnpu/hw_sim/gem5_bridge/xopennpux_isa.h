@@ -15,6 +15,7 @@ constexpr uint32_t kTaddFunct7 = 1;
 constexpr uint32_t kTmulFunct7 = 2;
 constexpr uint32_t kUnaryReductionFunct3 = 2;
 constexpr uint32_t kRmsNormFunct7 = 0x31;
+constexpr uint32_t kSiluFunct7 = 0x46;
 constexpr uint32_t kFenceFunct3 = 6;
 
 constexpr uint16_t kCsrMmaShape = 0x800;
@@ -159,6 +160,19 @@ constexpr bool IsTrmsnorm(uint32_t instruction) {
          ((instruction >> 25) & 0x7f) == kRmsNormFunct7;
 }
 
+constexpr uint32_t EncodeTsilu(uint32_t rd, uint32_t rs1) {
+  return (kSiluFunct7 << 25) | ((rs1 & 0x1f) << 15) |
+         (kUnaryReductionFunct3 << 12) | ((rd & 0x1f) << 7) |
+         kCustom3Opcode;
+}
+
+constexpr bool IsTsilu(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kUnaryReductionFunct3 &&
+         ((instruction >> 25) & 0x7f) == kSiluFunct7 &&
+         ((instruction >> 20) & 0x1f) == 0;
+}
+
 constexpr uint32_t EncodeTfence() {
   return (kFenceFunct3 << 12) | kCustom3Opcode;
 }
@@ -173,6 +187,7 @@ enum class Operation : uint8_t {
   kTadd,
   kTmul,
   kTrmsnorm,
+  kTsilu,
   kTfence,
 };
 
@@ -181,6 +196,7 @@ constexpr Operation DecodeOperation(uint32_t instruction) {
          : IsTadd(instruction) ? Operation::kTadd
          : IsTmul(instruction) ? Operation::kTmul
          : IsTrmsnorm(instruction) ? Operation::kTrmsnorm
+         : IsTsilu(instruction) ? Operation::kTsilu
          : IsTfence(instruction) ? Operation::kTfence
                                  : Operation::kInvalid;
 }
@@ -195,6 +211,8 @@ constexpr const char* OperationName(Operation operation) {
       return "tmul";
     case Operation::kTrmsnorm:
       return "trmsnorm";
+    case Operation::kTsilu:
+      return "tsilu";
     case Operation::kTfence:
       return "tfence";
     default:

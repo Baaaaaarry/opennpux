@@ -67,6 +67,15 @@ static inline void xopennpux_trmsnorm_fp32(void* destination,
                    : "memory");
 }
 
+static inline void xopennpux_tsilu_fp32(void* destination,
+                                        const void* input) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 2, 0x46, %0, %1, x0"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)input)
+                   : "memory");
+}
+
 static inline void xopennpux_tfence(void) {
   __asm__ volatile(".insn r 0x7b, 6, 0, x0, x0, x0" : : : "memory");
   // Prevent scalar loads from observing memory before NPU writeback.

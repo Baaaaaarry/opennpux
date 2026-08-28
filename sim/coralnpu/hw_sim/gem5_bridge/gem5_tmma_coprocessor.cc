@@ -117,7 +117,8 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
   if (operation != xopennpux::Operation::kTmma &&
       operation != xopennpux::Operation::kTadd &&
       operation != xopennpux::Operation::kTmul &&
-      operation != xopennpux::Operation::kTrmsnorm) {
+      operation != xopennpux::Operation::kTrmsnorm &&
+      operation != xopennpux::Operation::kTsilu) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
   if (!ready()) {
@@ -232,6 +233,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   } else if (command.operation == xopennpux::Operation::kTrmsnorm) {
     completion->element_operations = tensor_elements * 4;
     completion->modeled_cycles = completion->element_operations;
+  } else if (command.operation == xopennpux::Operation::kTsilu) {
+    completion->element_operations = tensor_elements * 3;
+    completion->modeled_cycles = completion->element_operations;
   } else {
     completion->element_operations = tensor_elements;
     completion->modeled_cycles = completion->element_operations;
@@ -257,7 +261,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
           ? static_cast<uint64_t>(command.shape.k) * command.shape.n
           : command.operation == xopennpux::Operation::kTrmsnorm
               ? command.tensor_shape.features
-              : tensor_elements;
+              : command.operation == xopennpux::Operation::kTsilu
+                    ? 0
+                    : tensor_elements;
   const uint64_t dst_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.m) * command.shape.n
@@ -269,7 +275,8 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
     completion->faulting_address = command.dispatch.rs1_value;
     return true;
   }
-  if (!MatrixRangeValid(command.dispatch.rs2_value, rhs_elements, memory_base,
+  if (rhs_elements != 0 &&
+      !MatrixRangeValid(command.dispatch.rs2_value, rhs_elements, memory_base,
                         memory->size())) {
     completion->error = Gem5TmmaExecutionError::kAddress;
     completion->faulting_address = command.dispatch.rs2_value;
@@ -343,6 +350,13 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                    dst_base + (row_base + feature) * sizeof(float),
                    value * inverse_rms * weight);
       }
+    }
+  } else if (command.operation == xopennpux::Operation::kTsilu) {
+    for (uint64_t index = 0; index < tensor_elements; ++index) {
+      const size_t offset = static_cast<size_t>(index) * sizeof(float);
+      const float value = LoadFloat(*memory, lhs_base + offset);
+      StoreFloat(memory, dst_base + offset,
+                 value / (1.0f + std::exp(-value)));
     }
   } else {
     completion->error = Gem5TmmaExecutionError::kUnsupportedDataType;

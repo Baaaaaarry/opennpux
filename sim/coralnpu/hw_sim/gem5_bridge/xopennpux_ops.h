@@ -58,6 +58,14 @@ static inline void xopennpux_rmsnorm_fp32(void* destination,
   xopennpux_tfence();
 }
 
+static inline void xopennpux_softmax_fp32(void* destination,
+                                          const void* input, uint32_t rows,
+                                          uint32_t features) {
+  xopennpux_configure_tensor_fp32(rows, features);
+  xopennpux_tsoftmax_fp32(destination, input);
+  xopennpux_tfence();
+}
+
 static inline void xopennpux_silu_fp32(void* destination, const void* input,
                                        uint32_t rows, uint32_t features) {
   xopennpux_configure_tensor_fp32(rows, features);

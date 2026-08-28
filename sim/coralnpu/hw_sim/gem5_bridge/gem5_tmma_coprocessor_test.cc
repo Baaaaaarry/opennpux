@@ -81,6 +81,11 @@ void TestEncodingAndSecondLevelDecode() {
   assert(xopennpux::IsTrmsnorm(rmsnorm));
   assert(xopennpux::DecodeOperation(rmsnorm) ==
          xopennpux::Operation::kTrmsnorm);
+  const uint32_t softmax = xopennpux::EncodeTsoftmax(12, 10);
+  assert(xopennpux::IsTsoftmax(softmax));
+  assert(xopennpux::DecodeOperation(softmax) ==
+         xopennpux::Operation::kTsoftmax);
+  assert(!xopennpux::IsTsoftmax(softmax | (1u << 20)));
   const uint32_t silu = xopennpux::EncodeTsilu(12, 10);
   assert(xopennpux::IsTsilu(silu));
   assert(((silu >> 20) & 0x1f) == 0);
@@ -224,6 +229,47 @@ void TestFp32Silu() {
   }
 }
 
+void TestFp32Softmax() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 4);
+  Gem5TmmaDispatchPacket packet = Packet(13);
+  packet.instruction = xopennpux::EncodeTsoftmax(12, 10);
+  packet.rs2_value = 0;
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const float input[] = {1.0f, 2.0f, 3.0f, 4.0f,
+                         -4.0f, -2.0f, 0.0f, 2.0f};
+  for (size_t index = 0; index < 8; ++index) {
+    WriteFloat(&memory, index * sizeof(float), input[index]);
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTsoftmax);
+  assert(completion.element_operations == 32);
+  assert(completion.modeled_cycles == 32);
+  for (size_t row = 0; row < 2; ++row) {
+    float expected_sum = 0.0f;
+    for (size_t feature = 0; feature < 4; ++feature) {
+      expected_sum += std::exp(input[row * 4 + feature] -
+                               input[row * 4 + 3]);
+    }
+    float actual_sum = 0.0f;
+    for (size_t feature = 0; feature < 4; ++feature) {
+      const float expected =
+          std::exp(input[row * 4 + feature] - input[row * 4 + 3]) /
+          expected_sum;
+      const float actual =
+          ReadFloat(memory, 0x200 + (row * 4 + feature) * sizeof(float));
+      assert(std::fabs(actual - expected) < 1.0e-6f);
+      actual_sum += actual;
+    }
+    assert(std::fabs(actual_sum - 1.0f) < 1.0e-6f);
+  }
+}
+
 void TestFp32MatmulAndSnapshot() {
   Gem5TmmaCoprocessor coprocessor;
   ConfigureFp32(&coprocessor, 2, 2, 3);
@@ -347,6 +393,7 @@ int main() {
   TestFp32RmsNorm();
   TestRmsNormRejectsInvalidEpsilon();
   TestFp32Silu();
+  TestFp32Softmax();
   TestFp32MatmulAndSnapshot();
   TestRejectAndBackpressure();
   TestPacketCsrSnapshotAndFence();

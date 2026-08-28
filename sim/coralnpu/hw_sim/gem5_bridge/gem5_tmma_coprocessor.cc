@@ -118,6 +118,7 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       operation != xopennpux::Operation::kTadd &&
       operation != xopennpux::Operation::kTmul &&
       operation != xopennpux::Operation::kTrmsnorm &&
+      operation != xopennpux::Operation::kTsoftmax &&
       operation != xopennpux::Operation::kTsilu) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
@@ -233,6 +234,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   } else if (command.operation == xopennpux::Operation::kTrmsnorm) {
     completion->element_operations = tensor_elements * 4;
     completion->modeled_cycles = completion->element_operations;
+  } else if (command.operation == xopennpux::Operation::kTsoftmax) {
+    completion->element_operations = tensor_elements * 4;
+    completion->modeled_cycles = completion->element_operations;
   } else if (command.operation == xopennpux::Operation::kTsilu) {
     completion->element_operations = tensor_elements * 3;
     completion->modeled_cycles = completion->element_operations;
@@ -261,7 +265,8 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
           ? static_cast<uint64_t>(command.shape.k) * command.shape.n
           : command.operation == xopennpux::Operation::kTrmsnorm
               ? command.tensor_shape.features
-              : command.operation == xopennpux::Operation::kTsilu
+              : command.operation == xopennpux::Operation::kTsoftmax ||
+                        command.operation == xopennpux::Operation::kTsilu
                     ? 0
                     : tensor_elements;
   const uint64_t dst_elements =
@@ -349,6 +354,36 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
         StoreFloat(memory,
                    dst_base + (row_base + feature) * sizeof(float),
                    value * inverse_rms * weight);
+      }
+    }
+  } else if (command.operation == xopennpux::Operation::kTsoftmax) {
+    for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
+      const size_t row_base =
+          static_cast<size_t>(row) * command.tensor_shape.features;
+      float maximum = LoadFloat(*memory, lhs_base + row_base * sizeof(float));
+      for (uint32_t feature = 1; feature < command.tensor_shape.features;
+           ++feature) {
+        maximum = std::max(
+            maximum,
+            LoadFloat(*memory,
+                      lhs_base + (row_base + feature) * sizeof(float)));
+      }
+      float sum = 0.0f;
+      for (uint32_t feature = 0; feature < command.tensor_shape.features;
+           ++feature) {
+        const float value = std::exp(
+            LoadFloat(*memory,
+                      lhs_base + (row_base + feature) * sizeof(float)) -
+            maximum);
+        StoreFloat(memory,
+                   dst_base + (row_base + feature) * sizeof(float), value);
+        sum += value;
+      }
+      for (uint32_t feature = 0; feature < command.tensor_shape.features;
+           ++feature) {
+        const size_t offset = (row_base + feature) * sizeof(float);
+        StoreFloat(memory, dst_base + offset,
+                   LoadFloat(*memory, dst_base + offset) / sum);
       }
     }
   } else if (command.operation == xopennpux::Operation::kTsilu) {

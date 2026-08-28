@@ -302,6 +302,13 @@ The instruction and CSR contract are model-independent. Qwen, Llama, and other
 frontends lower compatible RMSNorm nodes to the same operator-library call;
 model names and layer layouts MUST NOT enter the L2 decoder.
 
+The v0.2 functional profile assigns `funct7=0110010` to `tsoftmax.tt`.
+`rs1` addresses the input, `rd` addresses the output, and `rs2` MUST be `x0`.
+It consumes `tensor_shape` and `tensor_data_type` and independently computes a
+numerically stable softmax over the feature dimension of every row. The
+architectural definition subtracts the row maximum before exponentiation;
+implementations MUST NOT expose a model-specific attention layout.
+
 ### SFU
 
 `funct3=010`, `funct7=1000000..1000101` selects `texp`, `ttanh`, `tsqrt`,

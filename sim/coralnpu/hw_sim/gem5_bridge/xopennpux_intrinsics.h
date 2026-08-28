@@ -67,6 +67,15 @@ static inline void xopennpux_trmsnorm_fp32(void* destination,
                    : "memory");
 }
 
+static inline void xopennpux_tsoftmax_fp32(void* destination,
+                                           const void* input) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 2, 0x32, %0, %1, x0"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)input)
+                   : "memory");
+}
+
 static inline void xopennpux_tsilu_fp32(void* destination,
                                         const void* input) {
   __asm__ volatile("fence rw, rw" : : : "memory");

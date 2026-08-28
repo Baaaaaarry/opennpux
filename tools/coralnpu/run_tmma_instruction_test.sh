@@ -55,6 +55,7 @@ require_log 'Coral XOpenNPU writeback sequence=0 destination=0x20000200 bytes=16
     'independently checked matrix writeback'
 require_log 'Coral XOpenNPU dispatch sequence=1 operation=tfence' \
     'tfence completion ordering'
-require_log '\[coralctl-test\] PASS' 'Guest completion verdict'
+require_log '\[coralctl-test\] started' 'Guest launch'
+require_log 'm5_exit instruction encountered' 'successful firmware exit'
 
 echo "TMMA custom-instruction full-system test: PASS"

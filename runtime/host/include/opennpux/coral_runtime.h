@@ -6,6 +6,7 @@
 
 #include "opennpux/coral_command.h"
 #include "opennpux/coral_generic_test.h"
+#include "opennpux/xopennpux_graph.h"
 #include "opennpux/coral_mobilenet.h"
 #include "opennpux/coral_model.h"
 #include "opennpux/coral_uapi.h"
@@ -186,6 +187,9 @@ int opennpux_coral_mobilenet_test(
     struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
     struct opennpux_coral_mobilenet_result *result);
 int opennpux_coral_generic_test(
+    struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
+    struct opennpux_coral_generic_test_result *result);
+int opennpux_coral_xgraph_test(
     struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
     struct opennpux_coral_generic_test_result *result);
 

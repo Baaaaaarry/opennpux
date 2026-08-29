@@ -26,7 +26,7 @@ fi
     fail "/dev/opennpux-coral missing"
 
 OUTPUT="$(OPENNPUX_CORAL_TRANSPORT=driver \
-    "${CORALCTL}" generic-test "${NPU_BASE}" 1000000)" || {
+    "${CORALCTL}" xopennpux-graph-test "${NPU_BASE}" 1000000)" || {
     printf '%s\n' "${OUTPUT}"
     fail "Qwen generic command firmware failed"
 }
@@ -44,11 +44,12 @@ EOF
     return 1
 }
 
-has_output_line 'generic_output=9,5,' ||
+has_output_line 'xgraph_output=9,5,' ||
     fail "nine-operator chain produced an unexpected TopK result"
-has_output_line 'generic_test=PASS' || fail "missing runtime PASS"
+has_output_line 'xgraph_test=PASS' || fail "missing runtime PASS"
 
 echo "qwen_command_flow_operators=9"
+echo "qwen_command_source=guest-xopennpux-graph"
 echo "qwen_command_flow=PASS"
 # Keep the common host wrapper's terminal verdict stable.
 echo "npu_launch_test=PASS"

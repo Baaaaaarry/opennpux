@@ -876,3 +876,18 @@ case：TMMA 三组，TADD、TMUL、TRMSNORM、TSILU、TSOFTMAX、TGATHER、TROPE
 的通用算子指令闭环。它证明算子库可以沿真实 Coral 指令流水和异步协处理器协议执行，
 但不表示九类算子均已实现为 cycle-accurate RTL FU；后续时序 RTL、并行 issue、片上存储
 调度和性能模型将在保持现有 ISA/CSR/完成协议不变的前提下逐项替换功能执行引擎。
+
+## 2026-08-29 Guest 执行图到 XOpenNPUX 指令流
+
+新增模型无关 `OPENNPUX_XGRAPH_V1`，消除 Qwen command-flow smoke 中残留的
+`NPU_LAUNCH + descriptor + Host hybrid operator` 路径。Linux Guest 现在在 8MiB shared
+DMA window 中写入 64-byte command records 和输入 Tensor；Coral firmware 校验 graph 后
+逐条调用 `xopennpux_ops.h`，生成 CSR 配置、XOpenNPUX 32-bit 自定义指令和 `tfence`。
+最终 packed TopK Tensor、checksum 和 completion 再同步回 Guest。
+
+首个 graph 保持九类 primitive 的真实数据依赖，最终 TopK index golden 为 `5`。全系统
+脚本不再接受旧 generic descriptor 的 micro-op 日志，而是要求 TGATHER、TMMA、TADD、
+TMUL、TRMSNORM、TROPE、TSILU、TSOFTMAX、TTOPK 均出现 NPU L2 dispatch 和
+`error=0` completion。该增量建立的是后续 Qwen3 功能正确性 reference 通路；下一步仍需
+将 `.npxc/.npxtb` 的 524-command invocation 自动 lowering/tiling 到同一 graph ABI，并
+接入 GPTQ page bindings、KV/state 和最终 token golden。

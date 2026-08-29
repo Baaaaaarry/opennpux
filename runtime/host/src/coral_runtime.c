@@ -1134,3 +1134,156 @@ opennpux_coral_generic_test(
     }
     return 0;
 }
+
+int
+opennpux_coral_xgraph_test(
+    struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
+    struct opennpux_coral_generic_test_result *result)
+{
+    enum {
+        tokens = OPENNPUX_XGRAPH_DATA_OFFSET,
+        embedding = OPENNPUX_XGRAPH_DATA_OFFSET + 0x100,
+        identity = OPENNPUX_XGRAPH_DATA_OFFSET + 0x200,
+        bias = OPENNPUX_XGRAPH_DATA_OFFSET + 0x300,
+        scale = OPENNPUX_XGRAPH_DATA_OFFSET + 0x400,
+        norm_weight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x500,
+        rope_table = OPENNPUX_XGRAPH_DATA_OFFSET + 0x600,
+        tensor0 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1000,
+        tensor1 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1100,
+        tensor2 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1200,
+        tensor3 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1300,
+        tensor4 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1400,
+        tensor5 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1500,
+        tensor6 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1600,
+        packed_topk = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1700,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1800,
+    };
+    static const uint32_t token_values[2] = {0, 1};
+    static const float embedding_values[8] = {
+        1.0f, 2.0f, 3.0f, 4.0f, 1.0f, 9.0f, 2.0f, 3.0f,
+    };
+    static const float identity_values[16] = {
+        1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    static const float zero_values[8] = {0};
+    static const float one_values[8] = {
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+    };
+    static const float rope_values[16] = {
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+    };
+    union {
+        float value;
+        uint32_t bits;
+    } epsilon = {1.0e-5f};
+    struct opennpux_xgraph_command commands[9] = {
+        {OPENNPUX_XGRAPH_OP_TGATHER, 0, tensor0, embedding, tokens,
+         2, 4, 1, 2, OPENNPUX_XGRAPH_DTYPE_FP32, 0, {0}},
+        {OPENNPUX_XGRAPH_OP_TMMA, 0, tensor1, tensor0, identity,
+         2, 4, 4, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 1, {0}},
+        {OPENNPUX_XGRAPH_OP_TADD, 0, tensor2, tensor1, bias,
+         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 2, {0}},
+        {OPENNPUX_XGRAPH_OP_TMUL, 0, tensor3, tensor2, scale,
+         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 3, {0}},
+        {OPENNPUX_XGRAPH_OP_TRMSNORM, 0, tensor4, tensor3, norm_weight,
+         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 4, {0}},
+        {OPENNPUX_XGRAPH_OP_TROPE, 0, tensor5, tensor4, rope_table,
+         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 5, {0}},
+        {OPENNPUX_XGRAPH_OP_TSILU, 0, tensor6, tensor5, 0,
+         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 6, {0}},
+        {OPENNPUX_XGRAPH_OP_TSOFTMAX, 0, tensor0, tensor6, 0,
+         1, 8, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 7, {0}},
+        {OPENNPUX_XGRAPH_OP_TTOPK, 0, packed_topk, tensor0, 0,
+         1, 8, 1, 1, OPENNPUX_XGRAPH_DTYPE_FP32, 8, {0}},
+    };
+    commands[4].scalar0 = epsilon.bits;
+
+    memset(result, 0, sizeof(*result));
+    struct opennpux_coral_shared_window window;
+    if (opennpux_coral_open_shared_window(dev, required_size, &window) != 0) {
+        return -1;
+    }
+    volatile uint8_t *mailbox_bytes =
+        window.bytes + OPENNPUX_CORAL_GENERIC_TEST_MAILBOX_OFFSET;
+    memset((void *)mailbox_bytes, 0,
+           sizeof(struct opennpux_coral_generic_test_mailbox));
+    struct opennpux_xgraph_header *header =
+        (struct opennpux_xgraph_header *)(void *)(
+            window.bytes + OPENNPUX_XGRAPH_OFFSET);
+    memset(header, 0, sizeof(*header));
+    memcpy((void *)(header + 1), commands, sizeof(commands));
+    memcpy((void *)(window.bytes + tokens), token_values, sizeof(token_values));
+    memcpy((void *)(window.bytes + embedding), embedding_values,
+           sizeof(embedding_values));
+    memcpy((void *)(window.bytes + identity), identity_values,
+           sizeof(identity_values));
+    memcpy((void *)(window.bytes + bias), zero_values, sizeof(zero_values));
+    memcpy((void *)(window.bytes + scale), one_values, sizeof(one_values));
+    memcpy((void *)(window.bytes + norm_weight), one_values,
+           4 * sizeof(float));
+    memcpy((void *)(window.bytes + rope_table), rope_values,
+           sizeof(rope_values));
+    header->magic = OPENNPUX_XGRAPH_MAGIC;
+    header->version = OPENNPUX_XGRAPH_VERSION;
+    header->header_size = sizeof(*header);
+    header->command_size = sizeof(commands[0]);
+    header->command_count = sizeof(commands) / sizeof(commands[0]);
+    header->total_size = sizeof(*header) + sizeof(commands);
+    header->output_offset = packed_topk;
+    header->output_bytes = 2 * sizeof(uint32_t);
+    __sync_synchronize();
+    header->state = OPENNPUX_XGRAPH_STATE_READY;
+    __sync_synchronize();
+
+    struct opennpux_coral_info before;
+    struct opennpux_coral_info after;
+    opennpux_coral_get_info(dev, &before);
+    const int run_result =
+        opennpux_coral_run(dev, entry, polls, &result->device_status);
+    const int run_errno = errno;
+    __sync_synchronize();
+
+    volatile const struct opennpux_coral_generic_test_mailbox *mailbox =
+        (volatile const struct opennpux_coral_generic_test_mailbox *)
+            mailbox_bytes;
+    result->state = mailbox->state;
+    result->error_code = mailbox->error_code;
+    result->output_count = mailbox->output_count;
+    for (uint32_t i = 0; i < OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT; ++i) {
+        result->output[i] = mailbox->output[i];
+    }
+    result->output_checksum = mailbox->output_checksum;
+    result->output_bytes = mailbox->output_bytes;
+    result->operation_count = mailbox->operation_count;
+    result->bytes_read = mailbox->bytes_read;
+    result->bytes_written = mailbox->bytes_written;
+    result->npu_cycles = ((uint64_t)mailbox->cycle_high << 32) |
+                         mailbox->cycle_low;
+    const int valid =
+        header->state == OPENNPUX_XGRAPH_STATE_COMPLETE &&
+        header->error == OPENNPUX_XGRAPH_ERROR_NONE &&
+        header->completed_commands == 9 &&
+        mailbox->magic == OPENNPUX_CORAL_GENERIC_TEST_MAGIC &&
+        mailbox->state == OPENNPUX_CORAL_GENERIC_TEST_COMPLETE &&
+        mailbox->error_code == OPENNPUX_CORAL_GENERIC_TEST_ERROR_NONE &&
+        result->output_count == OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT &&
+        result->output[0] == 9 && result->output[1] == 5;
+
+    opennpux_coral_get_info(dev, &after);
+    result->dma_requests = after.dma_requests - before.dma_requests;
+    result->dma_completions =
+        after.dma_completions - before.dma_completions;
+    result->dma_errors = after.dma_errors - before.dma_errors;
+    opennpux_coral_close_shared_window(&window);
+    if (run_result != 0) {
+        errno = run_errno;
+        return -1;
+    }
+    if (!valid) {
+        errno = EIO;
+        return -1;
+    }
+    return 0;
+}

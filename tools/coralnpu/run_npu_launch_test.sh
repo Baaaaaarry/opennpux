@@ -136,33 +136,52 @@ RUN_STATUS="${PIPE_STATUS}"
 [ ! -s "${STATUS_FILE}" ] || RUN_STATUS="$(cat "${STATUS_FILE}")"
 [ "${RUN_STATUS}" -eq 0 ] || exit "${RUN_STATUS}"
 
-grep -q 'source=custom-instruction' "${HOST_LOG}" || {
-    echo "error: no custom-instruction submission observed" >&2
-    exit 1
-}
-for micro_op in fetch-descriptor read-operands execute-operator writeback complete; do
-    grep -q "micro_op=${micro_op}" "${HOST_LOG}" || {
-        echo "error: missing micro-op completion: ${micro_op}" >&2
+if [ "${CORAL_NPU_LAUNCH_XOPENNPUX:-0}" = 1 ]; then
+    for operation in ${CORAL_NPU_LAUNCH_EXPECTED_XOPENNPUX_OPS:-}; do
+        grep -q "Coral XOpenNPU dispatch .*operation=${operation} " \
+            "${HOST_LOG}" || {
+            echo "error: missing XOpenNPU dispatch: ${operation}" >&2
+            exit 1
+        }
+        grep -q "Coral XOpenNPU complete .*operation=${operation} error=0" \
+            "${HOST_LOG}" || {
+            echo "error: missing successful XOpenNPU completion: ${operation}" >&2
+            exit 1
+        }
+    done
+    grep -q 'Coral XOpenNPU dispatch .*operation=tfence ' "${HOST_LOG}" || {
+        echo "error: no XOpenNPU fence observed" >&2
         exit 1
     }
-done
-grep -q 'kernel=done' "${HOST_LOG}" || {
-    echo "error: hybrid ADD kernel did not complete" >&2
-    exit 1
-}
-if [ -n "${CORAL_NPU_LAUNCH_EXPECTED_OPCODE:-}" ]; then
-    grep -q "operator_opcode=${CORAL_NPU_LAUNCH_EXPECTED_OPCODE}" \
-        "${HOST_LOG}" || {
-        echo "error: expected operator opcode was not executed: ${CORAL_NPU_LAUNCH_EXPECTED_OPCODE}" >&2
+else
+    grep -q 'source=custom-instruction' "${HOST_LOG}" || {
+        echo "error: no custom-instruction submission observed" >&2
         exit 1
     }
+    for micro_op in fetch-descriptor read-operands execute-operator writeback complete; do
+        grep -q "micro_op=${micro_op}" "${HOST_LOG}" || {
+            echo "error: missing micro-op completion: ${micro_op}" >&2
+            exit 1
+        }
+    done
+    grep -q 'kernel=done' "${HOST_LOG}" || {
+        echo "error: hybrid kernel did not complete" >&2
+        exit 1
+    }
+    if [ -n "${CORAL_NPU_LAUNCH_EXPECTED_OPCODE:-}" ]; then
+        grep -q "operator_opcode=${CORAL_NPU_LAUNCH_EXPECTED_OPCODE}" \
+            "${HOST_LOG}" || {
+            echo "error: expected operator opcode was not executed: ${CORAL_NPU_LAUNCH_EXPECTED_OPCODE}" >&2
+            exit 1
+        }
+    fi
+    for opcode in ${CORAL_NPU_LAUNCH_EXPECTED_OPCODES:-}; do
+        grep -q "generic_opcode=${opcode} " "${HOST_LOG}" || {
+            echo "error: expected generic opcode was not executed: ${opcode}" >&2
+            exit 1
+        }
+    done
 fi
-for opcode in ${CORAL_NPU_LAUNCH_EXPECTED_OPCODES:-}; do
-    grep -q "generic_opcode=${opcode} " "${HOST_LOG}" || {
-        echo "error: expected generic opcode was not executed: ${opcode}" >&2
-        exit 1
-    }
-done
 
 # gem5term records CRLF on some hosts. Also tolerate the legacy output
 # locations used before run_multicore.sh standardized logs/sim/m5out.

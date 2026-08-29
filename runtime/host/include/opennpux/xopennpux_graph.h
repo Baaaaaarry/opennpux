@@ -1,0 +1,100 @@
+#ifndef OPENNPUX_XOPENNPUX_GRAPH_H
+#define OPENNPUX_XOPENNPUX_GRAPH_H
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define OPENNPUX_XGRAPH_MAGIC UINT32_C(0x5847504e)
+#define OPENNPUX_XGRAPH_VERSION UINT32_C(1)
+#define OPENNPUX_XGRAPH_OFFSET UINT32_C(0x00401000)
+#define OPENNPUX_XGRAPH_DATA_OFFSET UINT32_C(0x00410000)
+/* 768 records fit before DATA_OFFSET and cover the current 524-command graph. */
+#define OPENNPUX_XGRAPH_MAX_COMMANDS UINT32_C(768)
+
+#define OPENNPUX_XGRAPH_STATE_EMPTY UINT32_C(0)
+#define OPENNPUX_XGRAPH_STATE_READY UINT32_C(1)
+#define OPENNPUX_XGRAPH_STATE_RUNNING UINT32_C(2)
+#define OPENNPUX_XGRAPH_STATE_COMPLETE UINT32_C(3)
+#define OPENNPUX_XGRAPH_STATE_ERROR UINT32_C(0x80000000)
+
+#define OPENNPUX_XGRAPH_ERROR_NONE UINT32_C(0)
+#define OPENNPUX_XGRAPH_ERROR_ABI UINT32_C(1)
+#define OPENNPUX_XGRAPH_ERROR_OPCODE UINT32_C(2)
+#define OPENNPUX_XGRAPH_ERROR_BOUNDS UINT32_C(3)
+#define OPENNPUX_XGRAPH_ERROR_RESULT UINT32_C(4)
+
+enum opennpux_xgraph_opcode {
+    OPENNPUX_XGRAPH_OP_TMMA = 1,
+    OPENNPUX_XGRAPH_OP_TADD = 2,
+    OPENNPUX_XGRAPH_OP_TMUL = 3,
+    OPENNPUX_XGRAPH_OP_TRMSNORM = 4,
+    OPENNPUX_XGRAPH_OP_TSOFTMAX = 5,
+    OPENNPUX_XGRAPH_OP_TROPE = 6,
+    OPENNPUX_XGRAPH_OP_TSILU = 7,
+    OPENNPUX_XGRAPH_OP_TGATHER = 8,
+    OPENNPUX_XGRAPH_OP_TTOPK = 9,
+};
+
+enum opennpux_xgraph_data_type {
+    OPENNPUX_XGRAPH_DTYPE_FP32 = 2,
+};
+
+/*
+ * A compiler/runtime command. Addresses are byte offsets in the shared DMA
+ * window, not host pointers or model-specific tensor identifiers. The Coral
+ * firmware lowers each record to custom CSR writes plus one 32-bit
+ * XOpenNPUX instruction.
+ */
+struct opennpux_xgraph_command {
+    uint32_t opcode;
+    uint32_t flags;
+    uint32_t destination_offset;
+    uint32_t source0_offset;
+    uint32_t source1_offset;
+    uint32_t dim0;
+    uint32_t dim1;
+    uint32_t dim2;
+    uint32_t scalar0;
+    uint32_t data_type;
+    uint32_t command_id;
+    uint32_t reserved[5];
+};
+
+struct opennpux_xgraph_header {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t header_size;
+    uint32_t command_size;
+    uint32_t command_count;
+    uint32_t total_size;
+    uint32_t state;
+    uint32_t error;
+    uint32_t completed_commands;
+    uint32_t output_offset;
+    uint32_t output_bytes;
+    uint32_t output_checksum;
+    uint64_t operation_count;
+    uint64_t modeled_cycles;
+    uint32_t reserved[8];
+};
+
+#ifdef __cplusplus
+static_assert(sizeof(opennpux_xgraph_command) == 64,
+              "XOpenNPUX graph command ABI changed");
+static_assert(sizeof(opennpux_xgraph_header) == 96,
+              "XOpenNPUX graph header ABI changed");
+#else
+_Static_assert(sizeof(struct opennpux_xgraph_command) == 64,
+               "XOpenNPUX graph command ABI changed");
+_Static_assert(sizeof(struct opennpux_xgraph_header) == 96,
+               "XOpenNPUX graph header ABI changed");
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

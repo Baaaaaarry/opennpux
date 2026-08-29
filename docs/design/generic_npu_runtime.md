@@ -437,3 +437,29 @@ checksum. This is deliberately a paging transport probe: it does not yet map
 each command's selected range yet or execute arithmetic with the sampled
 values. The next data-plane increment consumes `model.npxw` to populate a
 bounded page cache and relocates weight binding 2 per command.
+
+## Guest-Supplied XOpenNPUX Graph
+
+`OPENNPUX_XGRAPH_V1` is the functional bridge from the generic CPU runtime to
+the custom-instruction operator library. The Guest writes a versioned graph
+header, fixed 64-byte commands, and tensor payloads into the shared DMA window.
+Each command carries a model-independent opcode, shared-window tensor offsets,
+shape, scalar parameter, and data type. It does not carry Qwen layer names,
+tensor names, or host pointers.
+
+After coherent host-to-EXTMEM synchronization, Coral firmware validates the
+buffer and lowers each record to XOpenNPUX CSR writes plus a 32-bit custom
+instruction through `xopennpux_ops.h`. Coral performs L1 custom classification,
+the NPU performs L2 operator decode, and `tfence` protects every dependent
+Tensor edge. Completion state, command count, operation count, cycle estimate,
+output checksum, and the final packed TopK result return through EXTMEM and the
+shared window.
+
+The initial full-system gate contains nine commands and all nine functional
+primitive classes. This replaces the former firmware-local descriptor smoke:
+the command graph and input Tensor values now originate in the Linux Guest.
+The next compiler increment lowers the existing generic `.npxc/.npxtb`
+invocation into the same graph ABI, tiles dimensions that exceed CSR fields,
+and binds paged GPTQ weights. `OPENNPUX_XGRAPH_V1` is therefore a functional
+instruction-stream reference, not a replacement for the production generic
+executable format.

@@ -28,6 +28,13 @@ struct opennpux_npu_xgraph_lowering_options {
     uint32_t topk_packed_size;
 };
 
+struct opennpux_npu_xgraph_lowering_failure {
+    uint32_t command_index;
+    uint32_t command_id;
+    uint32_t opcode;
+    int32_t error_code;
+};
+
 /*
  * Lower one materialized generic command to one XOpenNPUX primitive record.
  * Composite generic commands return ENOTSUP and must first pass through a
@@ -41,6 +48,20 @@ int opennpux_npu_xgraph_lower_primitive(
     const struct opennpux_npu_xgraph_lowering_options *options,
     uint32_t extmem_base, uint32_t extmem_size,
     struct opennpux_xgraph_command *command);
+
+/*
+ * Lower an ordered materialized command sequence without model-specific
+ * interpretation. Command IDs must be dense and match sequence order because
+ * firmware uses them as the retirement/completion index. On failure, no
+ * command after the reported index is emitted.
+ */
+int opennpux_npu_xgraph_lower_sequence(
+    const struct opennpux_npu_functional_request *requests,
+    const struct opennpux_npu_operator_parameters *parameters,
+    const struct opennpux_npu_xgraph_lowering_options *options,
+    uint32_t command_count, uint32_t extmem_base, uint32_t extmem_size,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    struct opennpux_npu_xgraph_lowering_failure *failure);
 
 #ifdef __cplusplus
 }

@@ -162,12 +162,73 @@ test_embed_and_rejections(void)
     assert(errno == ENOTSUP);
 }
 
+static void
+test_sequence_lowering(void)
+{
+    enum { count = 3 };
+    struct opennpux_npu_functional_request requests[count];
+    struct opennpux_npu_operator_parameters parameters[count];
+    struct opennpux_npu_xgraph_lowering_options options[count];
+    struct opennpux_xgraph_command commands[count];
+    struct opennpux_npu_xgraph_lowering_failure failure;
+    const uint32_t opcodes[count] = {
+        OPENNPUX_NPU_OP_ADD,
+        OPENNPUX_NPU_OP_MUL,
+        OPENNPUX_NPU_OP_SOFTMAX,
+    };
+    memset(options, 0, sizeof(options));
+    for (uint32_t index = 0; index < count; ++index) {
+        initialize(&requests[index], &parameters[index], opcodes[index]);
+        requests[index].command_id = index;
+        add_operand(&requests[index], OPENNPUX_NPU_OPERAND_INPUT,
+                    0x1000 + index * 0x100, 32);
+        if (opcodes[index] != OPENNPUX_NPU_OP_SOFTMAX) {
+            add_operand(&requests[index], OPENNPUX_NPU_OPERAND_SECONDARY,
+                        0x2000 + index * 0x100, 32);
+        }
+        add_operand(&requests[index], OPENNPUX_NPU_OPERAND_OUTPUT,
+                    0x3000 + index * 0x100, 32);
+    }
+    assert(opennpux_npu_xgraph_lower_sequence(
+               requests, parameters, options, count, EXTMEM_BASE, EXTMEM_SIZE,
+               commands, count, &failure) == 0);
+    assert(commands[0].opcode == OPENNPUX_XGRAPH_OP_TADD);
+    assert(commands[1].opcode == OPENNPUX_XGRAPH_OP_TMUL);
+    assert(commands[2].opcode == OPENNPUX_XGRAPH_OP_TSOFTMAX);
+    assert(failure.command_index == UINT32_MAX);
+
+    requests[1].opcode = OPENNPUX_NPU_OP_ATTENTION;
+    parameters[1].opcode = OPENNPUX_NPU_OP_ATTENTION;
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_sequence(
+               requests, parameters, options, count, EXTMEM_BASE, EXTMEM_SIZE,
+               commands, count, &failure) == -1);
+    assert(errno == ENOTSUP);
+    assert(failure.command_index == 1);
+    assert(failure.command_id == 1);
+    assert(failure.opcode == OPENNPUX_NPU_OP_ATTENTION);
+    assert(failure.error_code == ENOTSUP);
+    assert(commands[2].opcode == 0);
+
+    requests[1].opcode = OPENNPUX_NPU_OP_MUL;
+    parameters[1].opcode = OPENNPUX_NPU_OP_MUL;
+    requests[1].command_id = 7;
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_sequence(
+               requests, parameters, options, count, EXTMEM_BASE, EXTMEM_SIZE,
+               commands, count, &failure) == -1);
+    assert(errno == EINVAL);
+    assert(failure.command_index == 1);
+    assert(failure.command_id == 7);
+}
+
 int
 main(void)
 {
     test_direct_primitives();
     test_semantic_options();
     test_embed_and_rejections();
+    test_sequence_lowering();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

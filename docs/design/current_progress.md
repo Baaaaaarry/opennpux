@@ -903,3 +903,9 @@ GPTQ MatMul 与 `ATTENTION/CAUSAL_CONV/RECURRENT_UPDATE/ROUTER/EXPERT/COMBINE`
 暂时明确返回 `ENOTSUP`，等待 decomposition/tiling pass 展开，防止把复合 command
 错误伪装成单条自定义指令。native gate `test_xgraph_lowering.sh` 已覆盖直接映射、
 RoPE/SiLU/TopK 显式语义、EXTMEM 地址以及 unsupported 路径。
+
+批量 lowering 接口 `opennpux_npu_xgraph_lower_sequence()` 进一步把单条转换扩展为
+有序 command stream。接口强制 command ID 与 retirement 顺序一致，并在遇到尚未分解的
+复合算子、GPTQ MatMul、非法地址或容量不足时返回首个失败 command 的 index、ID、opcode
+和 errno。该接口不跳过 unsupported command，也不插入模型特例，是 524-command
+invocation 接入 decomposition/tiling pass 前的可诊断边界。

@@ -189,3 +189,45 @@ opennpux_npu_xgraph_lower_primitive(
         return -1;
     }
 }
+
+int
+opennpux_npu_xgraph_lower_sequence(
+    const struct opennpux_npu_functional_request *requests,
+    const struct opennpux_npu_operator_parameters *parameters,
+    const struct opennpux_npu_xgraph_lowering_options *options,
+    uint32_t command_count, uint32_t extmem_base, uint32_t extmem_size,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    struct opennpux_npu_xgraph_lowering_failure *failure)
+{
+    if (failure != NULL) {
+        memset(failure, 0, sizeof(*failure));
+        failure->command_index = UINT32_MAX;
+    }
+    if (requests == NULL || parameters == NULL || commands == NULL ||
+        command_count == 0 || command_count > OPENNPUX_XGRAPH_MAX_COMMANDS ||
+        command_count > command_capacity) {
+        errno = command_count > command_capacity ? ENOSPC : EINVAL;
+        return -1;
+    }
+    memset(commands, 0, command_count * sizeof(*commands));
+    for (uint32_t index = 0; index < command_count; ++index) {
+        const struct opennpux_npu_xgraph_lowering_options *command_options =
+            options == NULL ? NULL : &options[index];
+        if (requests[index].command_id != index ||
+            opennpux_npu_xgraph_lower_primitive(
+                &requests[index], &parameters[index], command_options,
+                extmem_base, extmem_size, &commands[index]) != 0) {
+            const int error = requests[index].command_id != index ?
+                EINVAL : (errno == 0 ? EIO : errno);
+            if (failure != NULL) {
+                failure->command_index = index;
+                failure->command_id = requests[index].command_id;
+                failure->opcode = requests[index].opcode;
+                failure->error_code = error;
+            }
+            errno = error;
+            return -1;
+        }
+    }
+    return 0;
+}

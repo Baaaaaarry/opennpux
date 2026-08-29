@@ -17,6 +17,7 @@ extern "C" {
 
 #define OPENNPUX_CORAL_DEFAULT_BASE UINT64_C(0x1d000000)
 #define OPENNPUX_CORAL_DMA_MAGIC UINT32_C(0x4e505544)
+#define OPENNPUX_CORAL_XGRAPH_TEST_OPERATORS 9
 
 enum opennpux_coral_backend {
     OPENNPUX_CORAL_BACKEND_UNKNOWN = 0,
@@ -129,6 +130,11 @@ struct opennpux_coral_generic_test_result {
     uint32_t dma_requests;
     uint32_t dma_completions;
     uint32_t dma_errors;
+    uint32_t validated_operators;
+    uint32_t failed_operator;
+    uint32_t operator_pass[OPENNPUX_CORAL_XGRAPH_TEST_OPERATORS];
+    uint32_t operator_checksums[OPENNPUX_CORAL_XGRAPH_TEST_OPERATORS];
+    float operator_max_abs_error[OPENNPUX_CORAL_XGRAPH_TEST_OPERATORS];
 };
 
 const char *opennpux_coral_backend_name(enum opennpux_coral_backend backend);

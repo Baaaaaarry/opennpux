@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <math.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -413,6 +414,48 @@ copy_to_volatile_bytes(volatile uint8_t *destination, const void *source,
     for (size_t offset = 0; offset < size; ++offset) {
         destination[offset] = source_bytes[offset];
     }
+}
+
+static void
+copy_from_volatile_bytes(void *destination, const volatile uint8_t *source,
+                         size_t size)
+{
+    uint8_t *destination_bytes = (uint8_t *)destination;
+    for (size_t offset = 0; offset < size; ++offset) {
+        destination_bytes[offset] = source[offset];
+    }
+}
+
+static uint32_t
+checksum_bytes(const void *data, size_t size)
+{
+    const uint8_t *bytes = (const uint8_t *)data;
+    uint32_t checksum = UINT32_C(2166136261);
+    for (size_t offset = 0; offset < size; ++offset) {
+        checksum ^= bytes[offset];
+        checksum *= UINT32_C(16777619);
+    }
+    return checksum;
+}
+
+static int
+compare_floats(const float *actual, const float *expected, size_t count,
+               float *max_abs_error)
+{
+    float maximum = 0.0f;
+    int valid = 1;
+    for (size_t index = 0; index < count; ++index) {
+        const float error = fabsf(actual[index] - expected[index]);
+        const float tolerance = 1.0e-5f + 1.0e-4f * fabsf(expected[index]);
+        if (!isfinite(actual[index]) || error > tolerance) {
+            valid = 0;
+        }
+        if (error > maximum || !isfinite(error)) {
+            maximum = error;
+        }
+    }
+    *max_abs_error = maximum;
+    return valid;
 }
 
 void
@@ -1173,8 +1216,9 @@ opennpux_coral_xgraph_test(
         tensor4 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1400,
         tensor5 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1500,
         tensor6 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1600,
-        packed_topk = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1700,
-        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1800,
+        tensor7 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1700,
+        packed_topk = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1800,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1900,
     };
     static const uint32_t token_values[2] = {0, 1};
     static const float embedding_values[8] = {
@@ -1211,9 +1255,9 @@ opennpux_coral_xgraph_test(
          2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 5, {0}},
         {OPENNPUX_XGRAPH_OP_TSILU, 0, tensor6, tensor5, 0,
          2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 6, {0}},
-        {OPENNPUX_XGRAPH_OP_TSOFTMAX, 0, tensor0, tensor6, 0,
+        {OPENNPUX_XGRAPH_OP_TSOFTMAX, 0, tensor7, tensor6, 0,
          1, 8, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 7, {0}},
-        {OPENNPUX_XGRAPH_OP_TTOPK, 0, packed_topk, tensor0, 0,
+        {OPENNPUX_XGRAPH_OP_TTOPK, 0, packed_topk, tensor7, 0,
          1, 8, 1, 1, OPENNPUX_XGRAPH_DTYPE_FP32, 8, {0}},
     };
     commands[4].scalar0 = epsilon.bits;
@@ -1295,6 +1339,102 @@ opennpux_coral_xgraph_test(
     result->bytes_written = mailbox->bytes_written;
     result->npu_cycles = ((uint64_t)mailbox->cycle_high << 32) |
                          mailbox->cycle_low;
+    static const uint32_t tensor_offsets[8] = {
+        tensor0, tensor1, tensor2, tensor3,
+        tensor4, tensor5, tensor6, tensor7,
+    };
+    float actual[8][8] = {{0}};
+    float expected[8][8] = {{0}};
+    for (size_t operation = 0; operation < 8; ++operation) {
+        copy_from_volatile_bytes(actual[operation],
+            window.bytes + tensor_offsets[operation],
+            sizeof(actual[operation]));
+    }
+    memcpy(expected[0], embedding_values, sizeof(expected[0]));
+    memcpy(expected[1], expected[0], sizeof(expected[1]));
+    memcpy(expected[2], expected[1], sizeof(expected[2]));
+    memcpy(expected[3], expected[2], sizeof(expected[3]));
+    for (size_t row = 0; row < 2; ++row) {
+        float sum_squares = 0.0f;
+        for (size_t feature = 0; feature < 4; ++feature) {
+            const float value = expected[3][row * 4 + feature];
+            sum_squares += value * value;
+        }
+        const float inverse_rms =
+            1.0f / sqrtf(sum_squares / 4.0f + epsilon.value);
+        for (size_t feature = 0; feature < 4; ++feature) {
+            expected[4][row * 4 + feature] =
+                expected[3][row * 4 + feature] * inverse_rms;
+        }
+    }
+    memcpy(expected[5], expected[4], sizeof(expected[5]));
+    for (size_t index = 0; index < 8; ++index) {
+        const float value = expected[5][index];
+        expected[6][index] = value / (1.0f + expf(-value));
+    }
+    float maximum = expected[6][0];
+    for (size_t index = 1; index < 8; ++index) {
+        if (expected[6][index] > maximum) {
+            maximum = expected[6][index];
+        }
+    }
+    float sum = 0.0f;
+    for (size_t index = 0; index < 8; ++index) {
+        expected[7][index] = expf(expected[6][index] - maximum);
+        sum += expected[7][index];
+    }
+    for (size_t index = 0; index < 8; ++index) {
+        expected[7][index] /= sum;
+    }
+
+    result->failed_operator = UINT32_MAX;
+    int operators_valid = 1;
+    for (uint32_t operation = 0; operation < 8; ++operation) {
+        result->operator_checksums[operation] =
+            checksum_bytes(actual[operation], sizeof(actual[operation]));
+        result->operator_pass[operation] =
+            compare_floats(actual[operation], expected[operation], 8,
+                           &result->operator_max_abs_error[operation]);
+        if (!result->operator_pass[operation]) {
+            if (result->failed_operator == UINT32_MAX) {
+                result->failed_operator = operation;
+            }
+            operators_valid = 0;
+        }
+        ++result->validated_operators;
+    }
+    uint32_t actual_topk[2] = {0};
+    copy_from_volatile_bytes(actual_topk, window.bytes + packed_topk,
+                             sizeof(actual_topk));
+    result->operator_checksums[8] =
+        checksum_bytes(actual_topk, sizeof(actual_topk));
+    uint32_t expected_index = 0;
+    for (uint32_t index = 1; index < 8; ++index) {
+        if (expected[7][index] > expected[7][expected_index]) {
+            expected_index = index;
+        }
+    }
+    union {
+        float value;
+        uint32_t bits;
+    } expected_topk = {expected[7][expected_index]};
+    union {
+        float value;
+        uint32_t bits;
+    } actual_topk_value = {.bits = actual_topk[0]};
+    const int topk_valid =
+        compare_floats(&actual_topk_value.value, &expected_topk.value, 1,
+                       &result->operator_max_abs_error[8]) &&
+        actual_topk[1] == expected_index;
+    result->operator_pass[8] = topk_valid;
+    if (!topk_valid) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 8;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
     const int valid =
         header->state == OPENNPUX_XGRAPH_STATE_COMPLETE &&
         header->error == OPENNPUX_XGRAPH_ERROR_NONE &&
@@ -1303,7 +1443,8 @@ opennpux_coral_xgraph_test(
         mailbox->state == OPENNPUX_CORAL_GENERIC_TEST_COMPLETE &&
         mailbox->error_code == OPENNPUX_CORAL_GENERIC_TEST_ERROR_NONE &&
         result->output_count == OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT &&
-        result->output[0] == 9 && result->output[1] == 5;
+        result->output[0] == 9 && result->output[1] == 5 &&
+        operators_valid;
 
     opennpux_coral_get_info(dev, &after);
     result->dma_requests = after.dma_requests - before.dma_requests;

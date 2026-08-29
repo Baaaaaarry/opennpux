@@ -46,6 +46,10 @@ EOF
 
 has_output_line 'xgraph_output=9,5,' ||
     fail "nine-operator chain produced an unexpected TopK result"
+has_output_line 'xgraph_validated_operators=9' ||
+    fail "nine-operator chain did not validate every intermediate tensor"
+has_output_line 'xgraph_correctness=PASS' ||
+    fail "nine-operator chain failed numerical validation"
 has_output_line 'xgraph_test=PASS' || fail "missing runtime PASS"
 
 echo "qwen_command_flow_operators=9"

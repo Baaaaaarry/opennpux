@@ -2017,6 +2017,10 @@ static int
 print_xgraph_test(struct opennpux_coral_device *dev, uint32_t entry,
                   uint64_t polls)
 {
+    static const char *const operator_names[] = {
+        "TGATHER", "TMMA", "TADD", "TMUL", "TRMSNORM",
+        "TROPE", "TSILU", "TSOFTMAX", "TTOPK",
+    };
     struct opennpux_coral_generic_test_result result;
     printf("xgraph_prepare=guest-command-buffer\n");
     printf("xgraph_run=started\n");
@@ -2034,6 +2038,21 @@ print_xgraph_test(struct opennpux_coral_device *dev, uint32_t entry,
         printf("%s%" PRId32, i == 0 ? "" : ",", result.output[i]);
     }
     printf("\n");
+    for (uint32_t operation = 0;
+         operation < result.validated_operators &&
+         operation < OPENNPUX_CORAL_XGRAPH_TEST_OPERATORS;
+         ++operation) {
+        printf("xgraph_op_%s=%s checksum=0x%08" PRIx32
+               " max_abs_error=%.9g\n",
+               operator_names[operation],
+               result.operator_pass[operation] ? "PASS" : "FAIL",
+               result.operator_checksums[operation],
+               result.operator_max_abs_error[operation]);
+    }
+    printf("xgraph_validated_operators=%" PRIu32 "\n",
+           result.validated_operators);
+    printf("xgraph_correctness=%s\n",
+           result.failed_operator == UINT32_MAX ? "PASS" : "FAIL");
     if (run_result != 0) {
         perror("xopennpux-graph-test");
         return 1;

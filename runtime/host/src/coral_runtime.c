@@ -397,6 +397,24 @@ opennpux_coral_open_shared_window(
     return 0;
 }
 
+static void
+zero_volatile_bytes(volatile uint8_t *destination, size_t size)
+{
+    for (size_t offset = 0; offset < size; ++offset) {
+        destination[offset] = 0;
+    }
+}
+
+static void
+copy_to_volatile_bytes(volatile uint8_t *destination, const void *source,
+                       size_t size)
+{
+    const uint8_t *source_bytes = (const uint8_t *)source;
+    for (size_t offset = 0; offset < size; ++offset) {
+        destination[offset] = source_bytes[offset];
+    }
+}
+
 void
 opennpux_coral_close_shared_window(
     struct opennpux_coral_shared_window *window)
@@ -1202,29 +1220,44 @@ opennpux_coral_xgraph_test(
 
     memset(result, 0, sizeof(*result));
     struct opennpux_coral_shared_window window;
+    fprintf(stderr, "xgraph_stage=open-shared-window required=0x%zx\n",
+            (size_t)required_size);
     if (opennpux_coral_open_shared_window(dev, required_size, &window) != 0) {
         return -1;
     }
+    fprintf(stderr,
+            "xgraph_stage=shared-window-open base=0x%08" PRIx32
+            " size=0x%08" PRIx32 "\n",
+            window.base, window.size);
     volatile uint8_t *mailbox_bytes =
         window.bytes + OPENNPUX_CORAL_GENERIC_TEST_MAILBOX_OFFSET;
-    memset((void *)mailbox_bytes, 0,
-           sizeof(struct opennpux_coral_generic_test_mailbox));
-    struct opennpux_xgraph_header *header =
-        (struct opennpux_xgraph_header *)(void *)(
+    fprintf(stderr, "xgraph_stage=clear-mailbox offset=0x%08" PRIx32 "\n",
+            OPENNPUX_CORAL_GENERIC_TEST_MAILBOX_OFFSET);
+    zero_volatile_bytes(
+        mailbox_bytes, sizeof(struct opennpux_coral_generic_test_mailbox));
+    volatile struct opennpux_xgraph_header *header =
+        (volatile struct opennpux_xgraph_header *)(void *)(
             window.bytes + OPENNPUX_XGRAPH_OFFSET);
-    memset(header, 0, sizeof(*header));
-    memcpy((void *)(header + 1), commands, sizeof(commands));
-    memcpy((void *)(window.bytes + tokens), token_values, sizeof(token_values));
-    memcpy((void *)(window.bytes + embedding), embedding_values,
-           sizeof(embedding_values));
-    memcpy((void *)(window.bytes + identity), identity_values,
-           sizeof(identity_values));
-    memcpy((void *)(window.bytes + bias), zero_values, sizeof(zero_values));
-    memcpy((void *)(window.bytes + scale), one_values, sizeof(one_values));
-    memcpy((void *)(window.bytes + norm_weight), one_values,
-           4 * sizeof(float));
-    memcpy((void *)(window.bytes + rope_table), rope_values,
-           sizeof(rope_values));
+    fprintf(stderr, "xgraph_stage=stage-control offset=0x%08" PRIx32 "\n",
+            OPENNPUX_XGRAPH_OFFSET);
+    zero_volatile_bytes((volatile uint8_t *)(void *)header, sizeof(*header));
+    copy_to_volatile_bytes((volatile uint8_t *)(void *)(header + 1), commands,
+                           sizeof(commands));
+    fprintf(stderr, "xgraph_stage=stage-tensors offset=0x%08x\n", tokens);
+    copy_to_volatile_bytes(window.bytes + tokens, token_values,
+                           sizeof(token_values));
+    copy_to_volatile_bytes(window.bytes + embedding, embedding_values,
+                           sizeof(embedding_values));
+    copy_to_volatile_bytes(window.bytes + identity, identity_values,
+                           sizeof(identity_values));
+    copy_to_volatile_bytes(window.bytes + bias, zero_values,
+                           sizeof(zero_values));
+    copy_to_volatile_bytes(window.bytes + scale, one_values,
+                           sizeof(one_values));
+    copy_to_volatile_bytes(window.bytes + norm_weight, one_values,
+                           4 * sizeof(float));
+    copy_to_volatile_bytes(window.bytes + rope_table, rope_values,
+                           sizeof(rope_values));
     header->magic = OPENNPUX_XGRAPH_MAGIC;
     header->version = OPENNPUX_XGRAPH_VERSION;
     header->header_size = sizeof(*header);
@@ -1236,6 +1269,7 @@ opennpux_coral_xgraph_test(
     __sync_synchronize();
     header->state = OPENNPUX_XGRAPH_STATE_READY;
     __sync_synchronize();
+    fprintf(stderr, "xgraph_stage=submission-ready commands=9\n");
 
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;

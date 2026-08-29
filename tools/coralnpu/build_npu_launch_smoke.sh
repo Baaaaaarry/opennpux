@@ -89,19 +89,21 @@ if [ -n "${BRIDGE_SOURCE}" ]; then
     echo "built: ${BRIDGE_DESTINATION}"
 fi
 
-# CUSTOM_0 has opcode 0x0b in bits [6:0]. Search executable sections directly
-# so validation does not depend on objdump knowing the custom mnemonic.
-python3 - "${DESTINATION}" <<'PY'
+# Search executable sections directly so validation does not depend on objdump
+# knowing the project-specific instruction mnemonics.
+python3 - "${DESTINATION}" \
+    "${CORAL_NPU_LAUNCH_INSTRUCTION_SET:-npu-launch}" <<'PY'
 import struct
 import sys
 
 path = sys.argv[1]
+instruction_set = sys.argv[2]
 data = open(path, "rb").read()
 if data[:4] != b"\x7fELF" or data[4] != 1 or data[5] != 1:
     raise SystemExit("error: expected a little-endian ELF32 firmware")
 e_shoff = struct.unpack_from("<I", data, 32)[0]
 e_shentsize, e_shnum = struct.unpack_from("<HH", data, 46)
-matches = []
+words = []
 for index in range(e_shnum):
     offset = e_shoff + index * e_shentsize
     sh_type = struct.unpack_from("<I", data, offset + 4)[0]
@@ -111,13 +113,45 @@ for index in range(e_shnum):
     if sh_type != 1 or not (sh_flags & 0x4):
         continue
     for pos in range(sh_offset, sh_offset + sh_size - 3, 2):
-        word = struct.unpack_from("<I", data, pos)[0]
-        # funct7=0, funct3=0, rd=x0, opcode=CUSTOM_0. rs1/rs2 vary.
-        if word & 0xfe007fff == 0x0000000b:
-            matches.append(word)
-if not matches:
-    raise SystemExit("error: firmware has no CUSTOM_0/NPU_LAUNCH instruction")
-print("NPU_LAUNCH encoding=0x%08x count=%d" % (matches[0], len(matches)))
+        words.append(struct.unpack_from("<I", data, pos)[0])
+
+if instruction_set == "npu-launch":
+    # funct7=0, funct3=0, rd=x0, opcode=CUSTOM_0. rs1/rs2 vary.
+    matches = [word for word in words
+               if word & 0xfe007fff == 0x0000000b]
+    if not matches:
+        raise SystemExit(
+            "error: firmware has no CUSTOM_0/NPU_LAUNCH instruction")
+    print("NPU_LAUNCH encoding=0x%08x count=%d" %
+          (matches[0], len(matches)))
+elif instruction_set == "xopennpux-qwen":
+    expected = {
+        "tmma": (0, 0x00),
+        "tadd": (1, 0x01),
+        "tmul": (1, 0x02),
+        "trmsnorm": (2, 0x31),
+        "tsoftmax": (2, 0x32),
+        "trope": (2, 0x33),
+        "tsilu": (2, 0x46),
+        "tgather": (3, 0x10),
+        "ttopk": (4, 0x00),
+        "tfence": (6, 0x00),
+    }
+    observed = {
+        ((word >> 12) & 0x7, (word >> 25) & 0x7f)
+        for word in words if word & 0x7f == 0x7b
+    }
+    missing = [name for name, encoding in expected.items()
+               if encoding not in observed]
+    if missing:
+        raise SystemExit(
+            "error: firmware is missing XOpenNPUX instructions: " +
+            ", ".join(missing))
+    print("XOpenNPUX Qwen instruction set: %s" %
+          ",".join(expected))
+else:
+    raise SystemExit("error: unknown firmware instruction set: " +
+                     instruction_set)
 PY
 
 echo "built: ${DESTINATION}"

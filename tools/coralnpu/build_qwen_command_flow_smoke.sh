@@ -9,4 +9,5 @@ CORAL_NPU_LAUNCH_TARGET="//hw_sim:gem5_qwen_command_flow_smoke.elf" \
 CORAL_NPU_LAUNCH_OUTPUT="gem5_qwen_command_flow_smoke.elf" \
 CORAL_NPU_LAUNCH_BRIDGE_TARGET="//hw_sim:libcoralnpu_gem5_rvv_highmem_bridge.so" \
 CORAL_NPU_LAUNCH_BRIDGE_OUTPUT="libcoralnpu_gem5_rvv_highmem_bridge.so" \
+CORAL_NPU_LAUNCH_INSTRUCTION_SET="xopennpux-qwen" \
     exec "${SCRIPT_DIR}/build_npu_launch_smoke.sh" "$@"

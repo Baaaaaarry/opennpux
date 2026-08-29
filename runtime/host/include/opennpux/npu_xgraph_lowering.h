@@ -65,9 +65,9 @@ int opennpux_npu_xgraph_lower_sequence(
     struct opennpux_npu_xgraph_lowering_failure *failure);
 
 /*
- * Decompose one GPTQ MatMul into executable XOpenNPUX records. Each N tile is
- * dequantized once, then one-row TMMA records preserve the strided output view
- * until the physical tensor stride CSR map is frozen.
+ * Decompose one GPTQ MatMul into executable XOpenNPUX records. Each N/K tile is
+ * dequantized once. One-row TMMA records preserve strided output views; later
+ * K tiles write a reusable partial buffer and TADD accumulates into output.
  */
 int opennpux_npu_xgraph_lower_gptq_matmul(
     const struct opennpux_npu_functional_request *request,

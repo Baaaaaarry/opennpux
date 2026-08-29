@@ -169,6 +169,8 @@ class Gem5CoreMiniAxiWrapper {
         core_.io_xnpu_request_bits_csr_quantQzerosStride;
     packet.quant_scales_stride =
         core_.io_xnpu_request_bits_csr_quantScalesStride;
+    packet.quant_group_range =
+        core_.io_xnpu_request_bits_csr_quantGroupRange;
     packet.csr_epoch = core_.io_xnpu_request_bits_csr_epoch;
     packet.sequence_id = sequence_id;
 

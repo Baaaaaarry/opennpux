@@ -43,6 +43,7 @@ class XOpenNpuCsrState(p: Parameters) extends Bundle {
   val quantQweightStride = UInt(p.xlen.W)
   val quantQzerosStride = UInt(p.xlen.W)
   val quantScalesStride = UInt(p.xlen.W)
+  val quantGroupRange = UInt(p.xlen.W)
   val epoch = UInt(32.W)
 }
 

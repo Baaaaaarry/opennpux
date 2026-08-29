@@ -88,7 +88,7 @@ tensor_dtype_writes = sum((word & 0xFFF07FFF) == 0x80601073 for word in words)
 scalar_param_writes = sum((word & 0xFFF07FFF) == 0x80B01073 for word in words)
 quant_csr_writes = sum(
     any((word & 0xFFF07FFF) == (address << 20 | 0x1073)
-        for address in range(0x810, 0x817))
+        for address in range(0x810, 0x818))
     for word in words
 )
 checks = {
@@ -108,7 +108,7 @@ checks = {
     "tensor_shape_write_encoding_count": (tensor_shape_writes, 1),
     "tensor_dtype_write_encoding_count": (tensor_dtype_writes, 1),
     "scalar_param_write_encoding_count": (scalar_param_writes, 1),
-    "quant_csr_write_encoding_count": (quant_csr_writes, 7),
+    "quant_csr_write_encoding_count": (quant_csr_writes, 8),
 }
 for name, (actual, expected) in checks.items():
     if actual < expected:

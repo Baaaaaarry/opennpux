@@ -107,7 +107,7 @@ static inline void xopennpux_dequant_int4_fp32(
     const void* scales, const uint32_t* g_idx, uint32_t n, uint32_t k,
     uint32_t group_size, uint32_t zero_bias, uint32_t scale_data_type,
     uint32_t qweight_stride, uint32_t qzeros_stride,
-    uint32_t scales_stride) {
+    uint32_t scales_stride, uint32_t group_base, uint32_t group_count) {
   xopennpux_write_mma_shape((k << 20) | (n << 10) | 1u);
   xopennpux_write_mma_data_type((2u << 8) | (2u << 4) | 7u);
   xopennpux_write_quant_qzeros_address((uint32_t)(uintptr_t)qzeros);
@@ -120,6 +120,7 @@ static inline void xopennpux_dequant_int4_fp32(
   xopennpux_write_quant_qweight_stride(qweight_stride);
   xopennpux_write_quant_qzeros_stride(qzeros_stride);
   xopennpux_write_quant_scales_stride(scales_stride);
+  xopennpux_write_quant_group_range((group_count << 16) | group_base);
   xopennpux_tdequant_int4_fp32(destination, qweight);
   xopennpux_tfence();
 }

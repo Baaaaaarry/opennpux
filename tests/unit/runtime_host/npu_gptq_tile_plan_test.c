@@ -134,11 +134,54 @@ test_capacity_and_validation(void)
     assert(errno == ENOSPC);
 }
 
+static void
+test_large_k_tiles(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_npu_gptq_tile_plan plan;
+    struct opennpux_npu_gptq_tile tile;
+    initialize(&request, &parameters, 18, 1);
+    request.rows = 2;
+    request.features = 2048;
+    parameters.input_features = 2048;
+    parameters.quantization_group_size = 128;
+    request.operands[0].byte_size = 2 * 2048 * 4;
+    request.operands[1].byte_size = 2 * 18 * 4;
+    request.operands[2].byte_size = 256 * 18 * 4;
+    request.operands[3].byte_size = 16 * 3 * 4;
+    request.operands[4].byte_size = 16 * 18 * 2;
+    request.operands[5].byte_size = 2048 * 4;
+
+    assert(opennpux_npu_gptq_plan_tiles(
+               &request, &parameters, BASE, SIZE, BASE + 0x10000,
+               (896 + 1) * 8 * 4, &plan) == 0);
+    assert(plan.input_tile_columns == 896);
+    assert(plan.input_tile_count == 3);
+    assert(plan.tile_columns == 8 && plan.tile_count == 3);
+    assert(plan.partial_address == BASE + 0x10000 + 896 * 8 * 4);
+    assert(plan.partial_size == 8 * 4);
+
+    assert(opennpux_npu_gptq_get_tile_2d(&request, &plan, 1, 1, &tile) == 0);
+    assert(tile.column_base == 8 && tile.input_base == 896);
+    assert(tile.input_count == 896 && tile.group_base == 7);
+    assert(tile.group_count == 16);
+    assert(tile.qweight.address ==
+           BASE + 0x3000 + (896 / 8) * 18 * 4 + 8 * 4);
+    assert(tile.g_idx.address == BASE + 0x7000 + 896 * 4);
+    assert(tile.dequantized_bytes == 896 * 8 * 4);
+
+    assert(opennpux_npu_gptq_get_tile_2d(&request, &plan, 1, 2, &tile) == 0);
+    assert(tile.input_base == 1792 && tile.input_count == 256);
+    assert(tile.group_base == 14);
+}
+
 int
 main(void)
 {
     test_strided_tiles();
     test_capacity_and_validation();
+    test_large_k_tiles();
     puts("NPU GPTQ tile plan test: PASS");
     return 0;
 }

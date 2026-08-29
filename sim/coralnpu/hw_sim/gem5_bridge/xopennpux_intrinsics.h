@@ -51,6 +51,10 @@ static inline void xopennpux_write_quant_scales_stride(uint32_t value) {
   __asm__ volatile("csrw 0x816, %0" : : "r"(value) : "memory");
 }
 
+static inline void xopennpux_write_quant_group_range(uint32_t value) {
+  __asm__ volatile("csrw 0x817, %0" : : "r"(value) : "memory");
+}
+
 static inline void xopennpux_tmma_fp32(void* destination, const void* lhs,
                                        const void* rhs) {
   // Publish scalar/AXI stores before the coprocessor reads its operands.

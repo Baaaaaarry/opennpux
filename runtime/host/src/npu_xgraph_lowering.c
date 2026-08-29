@@ -275,8 +275,11 @@ opennpux_npu_xgraph_lower_gptq_matmul(
         }
         return -1;
     }
+    const uint64_t commands_per_output_tile =
+        (uint64_t)plan.input_tile_count * (plan.rows + 1u) +
+        (uint64_t)(plan.input_tile_count - 1u) * plan.rows;
     const uint64_t required_commands =
-        (uint64_t)plan.tile_count * (plan.rows + 1u);
+        (uint64_t)plan.tile_count * commands_per_output_tile;
     if (required_commands > command_capacity || required_commands > UINT32_MAX ||
         first_command_id > UINT32_MAX - (uint32_t)required_commands) {
         errno = ENOSPC;
@@ -297,74 +300,110 @@ opennpux_npu_xgraph_lower_gptq_matmul(
 
     uint32_t emitted = 0;
     for (uint32_t tile_index = 0; tile_index < plan.tile_count; ++tile_index) {
-        struct opennpux_npu_gptq_tile tile;
-        if (opennpux_npu_gptq_get_tile(request, &plan, tile_index, &tile) !=
-            0) {
-            return -1;
-        }
-        struct opennpux_xgraph_command *dequant = &commands[emitted++];
-        memset(dequant, 0, sizeof(*dequant));
-        dequant->opcode = OPENNPUX_XGRAPH_OP_TDEQUANT;
-        dequant->dim0 = 1;
-        dequant->dim1 = tile.column_count;
-        dequant->dim2 = plan.input_columns;
-        dequant->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
-        dequant->command_id = first_command_id + emitted - 1;
-        dequant->scalar0 =
-            (parameters->quantization_group_size & UINT32_C(0xffff)) |
-            ((parameters->quantized_zero_bias & UINT32_C(0xf)) << 16) |
-            ((scale_data_type & UINT32_C(0xf)) << 20) |
-            (plan.has_g_idx != 0 ? UINT32_C(1) << 24 : 0);
-        if (address_offset(tile.dequantized_address,
-                           tile.dequantized_bytes, extmem_base, extmem_size,
-                           &dequant->destination_offset) != 0 ||
-            address_offset(tile.qweight.address, tile.qweight.row_bytes,
-                           extmem_base, extmem_size,
-                           &dequant->source0_offset) != 0 ||
-            address_offset(tile.qzeros.address, tile.qzeros.row_bytes,
-                           extmem_base, extmem_size,
-                           &dequant->source1_offset) != 0 ||
-            address_offset(tile.scales.address, tile.scales.row_bytes,
-                           extmem_base, extmem_size,
-                           &dequant->reserved[0]) != 0 ||
-            (plan.has_g_idx != 0 &&
-             address_offset(tile.g_idx.address, tile.g_idx.row_bytes,
-                            extmem_base, extmem_size,
-                            &dequant->reserved[1]) != 0)) {
-            return -1;
-        }
-        dequant->reserved[2] = tile.qweight.row_stride_bytes;
-        dequant->reserved[3] = tile.qzeros.row_stride_bytes;
-        dequant->reserved[4] = tile.scales.row_stride_bytes;
-
-        for (uint32_t row = 0; row < plan.rows; ++row) {
-            struct opennpux_xgraph_command *mma = &commands[emitted++];
-            memset(mma, 0, sizeof(*mma));
-            mma->opcode = OPENNPUX_XGRAPH_OP_TMMA;
-            mma->dim0 = 1;
-            mma->dim1 = tile.column_count;
-            mma->dim2 = plan.input_columns;
-            mma->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
-            mma->command_id = first_command_id + emitted - 1;
-            const uint64_t input_address =
-                (uint64_t)input->address +
-                (uint64_t)row * plan.input_columns * sizeof(float);
-            const uint64_t output_address =
-                (uint64_t)tile.output.address +
-                (uint64_t)row * tile.output.row_stride_bytes;
-            if (input_address > UINT32_MAX || output_address > UINT32_MAX ||
-                address_offset((uint32_t)input_address,
-                               plan.input_columns * sizeof(float),
-                               extmem_base, extmem_size,
-                               &mma->source0_offset) != 0 ||
-                address_offset(tile.dequantized_address,
-                               tile.dequantized_bytes, extmem_base,
-                               extmem_size, &mma->source1_offset) != 0 ||
-                address_offset((uint32_t)output_address,
-                               tile.column_count * sizeof(float),
-                               extmem_base, extmem_size,
-                               &mma->destination_offset) != 0) {
+        for (uint32_t input_tile_index = 0;
+             input_tile_index < plan.input_tile_count; ++input_tile_index) {
+            struct opennpux_npu_gptq_tile tile;
+            if (opennpux_npu_gptq_get_tile_2d(
+                    request, &plan, tile_index, input_tile_index, &tile) != 0) {
                 return -1;
+            }
+            struct opennpux_xgraph_command *dequant = &commands[emitted++];
+            memset(dequant, 0, sizeof(*dequant));
+            dequant->opcode = OPENNPUX_XGRAPH_OP_TDEQUANT;
+            dequant->dim0 = 1;
+            dequant->dim1 = tile.column_count;
+            dequant->dim2 = tile.input_count;
+            dequant->flags = (tile.group_count << 16) | tile.group_base;
+            dequant->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+            dequant->command_id = first_command_id + emitted - 1;
+            dequant->scalar0 =
+                (parameters->quantization_group_size & UINT32_C(0xffff)) |
+                ((parameters->quantized_zero_bias & UINT32_C(0xf)) << 16) |
+                ((scale_data_type & UINT32_C(0xf)) << 20) |
+                (plan.has_g_idx != 0 ? UINT32_C(1) << 24 : 0);
+            if (address_offset(tile.dequantized_address,
+                               tile.dequantized_bytes, extmem_base,
+                               extmem_size,
+                               &dequant->destination_offset) != 0 ||
+                address_offset(tile.qweight.address, tile.qweight.row_bytes,
+                               extmem_base, extmem_size,
+                               &dequant->source0_offset) != 0 ||
+                address_offset(tile.qzeros.address, tile.qzeros.row_bytes,
+                               extmem_base, extmem_size,
+                               &dequant->source1_offset) != 0 ||
+                address_offset(tile.scales.address, tile.scales.row_bytes,
+                               extmem_base, extmem_size,
+                               &dequant->reserved[0]) != 0 ||
+                (plan.has_g_idx != 0 &&
+                 address_offset(tile.g_idx.address, tile.g_idx.row_bytes,
+                                extmem_base, extmem_size,
+                                &dequant->reserved[1]) != 0)) {
+                return -1;
+            }
+            dequant->reserved[2] = tile.qweight.row_stride_bytes;
+            dequant->reserved[3] = tile.qzeros.row_stride_bytes;
+            dequant->reserved[4] = tile.scales.row_stride_bytes;
+
+            for (uint32_t row = 0; row < plan.rows; ++row) {
+                struct opennpux_xgraph_command *mma = &commands[emitted++];
+                memset(mma, 0, sizeof(*mma));
+                mma->opcode = OPENNPUX_XGRAPH_OP_TMMA;
+                mma->dim0 = 1;
+                mma->dim1 = tile.column_count;
+                mma->dim2 = tile.input_count;
+                mma->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+                mma->command_id = first_command_id + emitted - 1;
+                const uint64_t input_address =
+                    (uint64_t)input->address +
+                    ((uint64_t)row * plan.input_columns + tile.input_base) *
+                        sizeof(float);
+                const uint64_t output_address =
+                    input_tile_index == 0
+                        ? (uint64_t)tile.output.address +
+                              (uint64_t)row * tile.output.row_stride_bytes
+                        : tile.partial_address;
+                if (input_address > UINT32_MAX ||
+                    output_address > UINT32_MAX ||
+                    address_offset((uint32_t)input_address,
+                                   tile.input_count * sizeof(float),
+                                   extmem_base, extmem_size,
+                                   &mma->source0_offset) != 0 ||
+                    address_offset(tile.dequantized_address,
+                                   tile.dequantized_bytes, extmem_base,
+                                   extmem_size, &mma->source1_offset) != 0 ||
+                    address_offset((uint32_t)output_address,
+                                   tile.column_count * sizeof(float),
+                                   extmem_base, extmem_size,
+                                   &mma->destination_offset) != 0) {
+                    return -1;
+                }
+
+                if (input_tile_index != 0) {
+                    struct opennpux_xgraph_command *add =
+                        &commands[emitted++];
+                    memset(add, 0, sizeof(*add));
+                    add->opcode = OPENNPUX_XGRAPH_OP_TADD;
+                    add->dim0 = 1;
+                    add->dim1 = tile.column_count;
+                    add->dim2 = 1;
+                    add->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+                    add->command_id = first_command_id + emitted - 1;
+                    if (address_offset(
+                            (uint32_t)((uint64_t)tile.output.address +
+                                       (uint64_t)row *
+                                           tile.output.row_stride_bytes),
+                            tile.column_count * sizeof(float), extmem_base,
+                            extmem_size, &add->destination_offset) != 0) {
+                        return -1;
+                    }
+                    add->source0_offset = add->destination_offset;
+                    if (address_offset(tile.partial_address,
+                                       tile.column_count * sizeof(float),
+                                       extmem_base, extmem_size,
+                                       &add->source1_offset) != 0) {
+                        return -1;
+                    }
+                }
             }
         }
     }

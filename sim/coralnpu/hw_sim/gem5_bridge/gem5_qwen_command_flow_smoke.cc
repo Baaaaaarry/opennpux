@@ -84,8 +84,11 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       if (command.dim2 == 0 || group_size == 0 || scale_type > 2) {
         return false;
       }
-      const uint32_t groups =
-          (command.dim2 + group_size - 1) / group_size;
+      const uint32_t groups = command.flags >> 16;
+      const uint32_t group_base = command.flags & 0xffff;
+      if (groups == 0 || group_base >= groups) {
+        return false;
+      }
       return RangeValid(command.source0_offset,
                         static_cast<uint64_t>((command.dim2 + 7) / 8 - 1) *
                                 command.reserved[2] +
@@ -158,7 +161,8 @@ bool Execute(const volatile opennpux_xgraph_command& command,
               : nullptr,
           command.dim1, command.dim2, command.scalar0 & 0xffff,
           (command.scalar0 >> 16) & 0xf, (command.scalar0 >> 20) & 0xf,
-          command.reserved[2], command.reserved[3], command.reserved[4]);
+          command.reserved[2], command.reserved[3], command.reserved[4],
+          command.flags & 0xffff, command.flags >> 16);
       *operations += static_cast<uint64_t>(command.dim1) * command.dim2;
       *cycles += static_cast<uint64_t>(command.dim1) * command.dim2;
       return true;

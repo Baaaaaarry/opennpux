@@ -23,19 +23,30 @@ struct opennpux_npu_gptq_tile_plan {
     uint32_t input_columns;
     uint32_t output_columns;
     uint32_t group_count;
+    uint32_t group_size;
     uint32_t scale_element_bytes;
     uint32_t tile_columns;
     uint32_t tile_count;
+    uint32_t input_tile_columns;
+    uint32_t input_tile_count;
     uint32_t scratch_address;
     uint32_t scratch_size;
+    uint32_t partial_address;
+    uint32_t partial_size;
     uint32_t has_g_idx;
 };
 
 struct opennpux_npu_gptq_tile {
     uint32_t column_base;
     uint32_t column_count;
+    uint32_t input_base;
+    uint32_t input_count;
+    uint32_t group_base;
+    uint32_t group_count;
     uint32_t dequantized_address;
     uint32_t dequantized_bytes;
+    uint32_t partial_address;
+    uint32_t partial_bytes;
     struct opennpux_npu_gptq_component_view qweight;
     struct opennpux_npu_gptq_component_view qzeros;
     struct opennpux_npu_gptq_component_view scales;
@@ -44,9 +55,10 @@ struct opennpux_npu_gptq_tile {
 };
 
 /*
- * Validate one materialized GPTQ MatMul and choose the largest N tile that
- * fits the caller-owned dequantization scratch region. Non-final tiles are
- * aligned to eight output columns so packed qzeros never straddle tiles.
+ * Validate one materialized GPTQ MatMul and choose two-dimensional N/K tiles
+ * that fit the instruction shape and caller-owned scratch region. Non-final N
+ * tiles align to eight output columns; non-final K tiles align to both int4
+ * packing and quantization-group boundaries.
  */
 int opennpux_npu_gptq_plan_tiles(
     const struct opennpux_npu_functional_request *request,
@@ -59,6 +71,12 @@ int opennpux_npu_gptq_get_tile(
     const struct opennpux_npu_functional_request *request,
     const struct opennpux_npu_gptq_tile_plan *plan, uint32_t tile_index,
     struct opennpux_npu_gptq_tile *tile);
+
+/* Materialize one N/K tile pair for shape-limited instruction lowering. */
+int opennpux_npu_gptq_get_tile_2d(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_gptq_tile_plan *plan, uint32_t tile_index,
+    uint32_t input_tile_index, struct opennpux_npu_gptq_tile *tile);
 
 #ifdef __cplusplus
 }

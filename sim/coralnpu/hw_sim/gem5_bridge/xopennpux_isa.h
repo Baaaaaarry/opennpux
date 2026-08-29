@@ -37,6 +37,7 @@ constexpr uint16_t kCsrQuantConfig = 0x813;
 constexpr uint16_t kCsrQuantQweightStride = 0x814;
 constexpr uint16_t kCsrQuantQzerosStride = 0x815;
 constexpr uint16_t kCsrQuantScalesStride = 0x816;
+constexpr uint16_t kCsrQuantGroupRange = 0x817;
 
 constexpr uint32_t kShapeFieldMask = 0x3ff;
 constexpr uint32_t kShapeMShift = 0;

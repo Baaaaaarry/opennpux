@@ -923,7 +923,7 @@ tile 宽度由调用方提供的 dequant scratch 容量决定，非尾 tile 按 
 scale dtype 契约和 64-bit 大小计算。该层只建立后续 `TDEQUANT + TMMA` 指令序列的稳定
 输入，不把 Host GPTQ kernel 冒充自定义指令执行。
 
-在此基础上已新增模型无关 `TDEQUANT` 32-bit 自定义指令及实验 CSR `0x810..0x816`。
+在此基础上已新增模型无关 `TDEQUANT` 32-bit 自定义指令及实验 CSR `0x810..0x817`。
 Coral 标量核仍负责 CSR 指令和 custom3 的 L1 取指/译码/retire；accept 时将 qzeros、scales、
 可选 g_idx、量化配置及三类 byte stride 与指令一起快照给 NPU L2。C++ 功能协处理器按
 AutoGPTQ packed layout 完成 INT4 到 FP32 scratch 的数值反量化，拒绝非法 stride、越界
@@ -934,5 +934,8 @@ XGraph 保持 64-byte command ABI，新增通用 TDEQUANT opcode；reserved 字�
 scales/g_idx offset 与 qweight/qzeros/scales row stride。GPTQ lowering 现按 `8/8/tail`
 等 N tile 生成一次反量化，并在 stride CSR 尚未冻结前按输出 row 展开 FP32 TMMA，确保
 写回地址正确。18 通道、3 行、32 输入维测试生成 12 条命令并逐项校验地址和容量失败。
-当前实验 `mma_shape` 只有 10-bit K，因此 GB10 验证范围先限定 `K<=1023`；Qwen3.5 的
-2048/4096 维必须在下一增量实现 K tile+显式累加或评审扩展 shape CSR，禁止截断维度。
+GB10 已验证 `TDEQUANT -> TMMA` 小矩阵数值闭环。针对实验 `mma_shape` 的 10-bit K，
+lowering 已继续实现二维 N/K tile：K tile 同时按 int4 打包和 GPTQ group 边界对齐，
+第一片直接写输出，后续片写 partial scratch 并通过 TADD 显式累加。新增 `0x817`
+group-range CSR 保证全局 g_idx 在切片后仍按原模型量化组解释。K=2048 回归规划为
+896/896/256，下一验收点是在 GB10 执行大 K 的完整 TDEQUANT/TMMA/TADD 指令链。

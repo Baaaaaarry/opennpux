@@ -69,6 +69,7 @@ struct opennpux_xgraph_command {
  *   destination/source0/source1: FP32 scratch/qweight/qzeros offsets
  *   dim0/dim1/dim2: 1/tile-N/input-K
  *   scalar0: XOpenNPUX quant config
+ *   flags: global quant group count `[31:16]`, tile group base `[15:0]`
  *   reserved[0..4]: scales offset, optional g_idx offset, then qweight,
  *                   qzeros, and scales row strides in bytes.
  */

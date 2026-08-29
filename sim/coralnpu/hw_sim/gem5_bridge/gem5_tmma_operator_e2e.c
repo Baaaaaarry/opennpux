@@ -302,7 +302,7 @@ int main(void) {
   xopennpux_dequant_int4_fp32(
       (void*)dequant_scratch, (const void*)dequant_qweight,
       (const void*)dequant_qzeros, (const void*)dequant_scales, NULL, 2, 8,
-      4, 1, 2, 8, 4, 8);
+      4, 1, 2, 8, 4, 8, 0, 2);
   RunFp32Tmma(2, 2, 8, dequant_output, dequant_input, dequant_scratch);
 
   const uint32_t failure_mask =

@@ -283,6 +283,7 @@ instruction by the Coral L1 dispatch path:
 | `0x814` | qweight row stride | bytes between packed K rows |
 | `0x815` | qzeros row stride | bytes between quantization groups |
 | `0x816` | scales row stride | bytes between quantization groups |
+| `0x817` | quant group range | global group count `[31:16]`, current K-tile group base `[15:0]` |
 
 All strides are byte units. qweight and qzeros rows are uint32 aligned;
 FP16/BF16 scale rows are 2-byte aligned and FP32 scale rows are 4-byte
@@ -292,13 +293,15 @@ qzero nibble at bit zero. The operation applies
 `fp32(qweight_nibble - (qzero_nibble + zero_bias)) * scale` for every `[K,N]`
 element and rejects out-of-range g_idx values or non-finite scales.
 
-The compiler/runtime lowering emits one TDEQUANT per output-N tile and then
-one-row FP32 TMMA records for each input row. The row expansion is a functional
-bridge until the independent source/destination stride CSR map is reviewed;
-it is not the target performance microarchitecture. The current 10-bit
-`mma_shape` also limits this profile to `K<=1023`. Larger K requires a reviewed
-extended shape profile or K tiling with explicit accumulation, and MUST NOT be
-silently truncated.
+The compiler/runtime lowering emits one TDEQUANT per output-N/K tile and then
+one-row FP32 TMMA records for each input row. `K>1023` is split at boundaries
+aligned to both eight packed int4 values and the GPTQ group size. The first K
+tile writes the output directly; later tiles write a reusable partial buffer
+and TADD accumulates it into the output. The group-range CSR preserves global
+g_idx interpretation across these K tiles. Row expansion and scalar TADD
+accumulation are functional bridges until the independent tensor-stride and
+accumulator interfaces are reviewed; they are not the target performance
+microarchitecture.
 
 ### SIMD and reduction
 

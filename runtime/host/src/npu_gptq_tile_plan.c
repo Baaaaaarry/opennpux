@@ -9,6 +9,17 @@ ceil_div(uint32_t value, uint32_t divisor)
     return value / divisor + (value % divisor != 0 ? 1u : 0u);
 }
 
+static uint32_t
+greatest_common_divisor(uint32_t first, uint32_t second)
+{
+    while (second != 0) {
+        const uint32_t remainder = first % second;
+        first = second;
+        second = remainder;
+    }
+    return first;
+}
+
 static const struct opennpux_npu_functional_operand *
 find_operand(const struct opennpux_npu_functional_request *request,
              uint32_t role)
@@ -110,6 +121,10 @@ opennpux_npu_gptq_plan_tiles(
     const uint32_t weight_rows = ceil_div(input_columns, 8);
     const uint32_t groups =
         ceil_div(input_columns, parameters->quantization_group_size);
+    if (groups > UINT16_MAX) {
+        errno = EOVERFLOW;
+        return -1;
+    }
     const uint32_t zero_columns = ceil_div(output_columns, 8);
     uint64_t input_bytes;
     uint64_t output_bytes;
@@ -150,7 +165,25 @@ opennpux_npu_gptq_plan_tiles(
         return -1;
     }
 
-    const uint64_t bytes_per_column = (uint64_t)input_columns * 4;
+    uint32_t input_tile_columns = input_columns;
+    if (input_tile_columns > 1023) {
+        const uint32_t divisor =
+            greatest_common_divisor(8, parameters->quantization_group_size);
+        const uint64_t alignment =
+            (uint64_t)8 * parameters->quantization_group_size / divisor;
+        if (alignment > 1023) {
+            errno = ENOTSUP;
+            return -1;
+        }
+        input_tile_columns =
+            (uint32_t)(1023 / alignment) * (uint32_t)alignment;
+    }
+    const uint32_t input_tile_count =
+        ceil_div(input_columns, input_tile_columns);
+    const uint64_t bytes_per_column =
+        ((uint64_t)input_tile_columns +
+         (input_tile_count > 1 ? UINT64_C(1) : UINT64_C(0))) *
+        4;
     uint32_t tile_columns = (uint32_t)(scratch_size / bytes_per_column);
     if (tile_columns > output_columns) {
         tile_columns = output_columns;
@@ -168,11 +201,17 @@ opennpux_npu_gptq_plan_tiles(
     plan->input_columns = input_columns;
     plan->output_columns = output_columns;
     plan->group_count = groups;
+    plan->group_size = parameters->quantization_group_size;
     plan->scale_element_bytes = scale_bytes;
     plan->tile_columns = tile_columns;
     plan->tile_count = ceil_div(output_columns, tile_columns);
+    plan->input_tile_columns = input_tile_columns;
+    plan->input_tile_count = input_tile_count;
     plan->scratch_address = scratch_address;
     plan->scratch_size = scratch_size;
+    plan->partial_address =
+        scratch_address + input_tile_columns * tile_columns * 4;
+    plan->partial_size = input_tile_count > 1 ? tile_columns * 4 : 0;
     plan->has_g_idx = g_idx != NULL;
     return 0;
 }
@@ -183,8 +222,19 @@ opennpux_npu_gptq_get_tile(
     const struct opennpux_npu_gptq_tile_plan *plan, uint32_t tile_index,
     struct opennpux_npu_gptq_tile *tile)
 {
+    return opennpux_npu_gptq_get_tile_2d(request, plan, tile_index, 0, tile);
+}
+
+int
+opennpux_npu_gptq_get_tile_2d(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_gptq_tile_plan *plan, uint32_t tile_index,
+    uint32_t input_tile_index, struct opennpux_npu_gptq_tile *tile)
+{
     if (request == NULL || plan == NULL || tile == NULL ||
-        tile_index >= plan->tile_count || plan->tile_columns == 0) {
+        tile_index >= plan->tile_count ||
+        input_tile_index >= plan->input_tile_count ||
+        plan->tile_columns == 0 || plan->input_tile_columns == 0) {
         errno = EINVAL;
         return -1;
     }
@@ -209,10 +259,15 @@ opennpux_npu_gptq_get_tile(
         plan->output_columns - column_base < plan->tile_columns
             ? plan->output_columns - column_base
             : plan->tile_columns;
-    const uint32_t weight_rows = ceil_div(plan->input_columns, 8);
+    const uint32_t input_base = input_tile_index * plan->input_tile_columns;
+    const uint32_t input_count =
+        plan->input_columns - input_base < plan->input_tile_columns
+            ? plan->input_columns - input_base
+            : plan->input_tile_columns;
+    const uint32_t weight_rows = ceil_div(input_count, 8);
     const uint32_t zero_columns = ceil_div(plan->output_columns, 8);
     const uint64_t dequantized_bytes =
-        (uint64_t)plan->input_columns * column_count * 4;
+        (uint64_t)input_count * column_count * 4;
     if (dequantized_bytes > plan->scratch_size) {
         errno = ENOSPC;
         return -1;
@@ -221,10 +276,17 @@ opennpux_npu_gptq_get_tile(
     memset(tile, 0, sizeof(*tile));
     tile->column_base = column_base;
     tile->column_count = column_count;
+    tile->input_base = input_base;
+    tile->input_count = input_count;
+    tile->group_base = input_base / plan->group_size;
+    tile->group_count = plan->group_count;
     tile->dequantized_address = plan->scratch_address;
     tile->dequantized_bytes = (uint32_t)dequantized_bytes;
+    tile->partial_address = plan->partial_address;
+    tile->partial_bytes = plan->partial_size;
     tile->qweight = (struct opennpux_npu_gptq_component_view){
-        qweight->address + column_base * 4,
+        qweight->address + (input_base / 8) * plan->output_columns * 4 +
+            column_base * 4,
         weight_rows,
         plan->output_columns * 4,
         column_count * 4,
@@ -243,8 +305,8 @@ opennpux_npu_gptq_get_tile(
     };
     if (plan->has_g_idx != 0) {
         tile->g_idx = (struct opennpux_npu_gptq_component_view){
-            g_idx->address, 1, plan->input_columns * 4,
-            plan->input_columns * 4,
+            g_idx->address + input_base * 4, 1, input_count * 4,
+            input_count * 4,
         };
     }
     tile->output = (struct opennpux_npu_gptq_component_view){

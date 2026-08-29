@@ -9,5 +9,6 @@ CORAL_NPU_LAUNCH_TEST_SCRIPT="${ROOT_DIR}/thirdparty/gem5/configs/coralnpu/coral
 CORAL_NPU_LAUNCH_HOST_LOG="${ROOT_DIR}/simout/coral-qwen-command-flow-host.log" \
 CORAL_NPU_LAUNCH_DEBUG_LOG="${ROOT_DIR}/simout/coral-qwen-command-flow.debug" \
 CORAL_NPU_LAUNCH_XOPENNPUX=1 \
+CORAL_NPU_LAUNCH_EXPECTED_GUEST_VERDICT="qwen_command_flow=PASS" \
 CORAL_NPU_LAUNCH_EXPECTED_XOPENNPUX_OPS="tgather tmma tadd tmul trmsnorm trope tsilu tsoftmax ttopk" \
     exec "${SCRIPT_DIR}/run_npu_launch_test.sh" "$@"

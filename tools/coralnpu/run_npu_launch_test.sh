@@ -136,21 +136,80 @@ RUN_STATUS="${PIPE_STATUS}"
 [ ! -s "${STATUS_FILE}" ] || RUN_STATUS="$(cat "${STATUS_FILE}")"
 [ "${RUN_STATUS}" -eq 0 ] || exit "${RUN_STATUS}"
 
+# gem5term records CRLF on some hosts. Also tolerate the legacy output
+# locations used before run_multicore.sh standardized logs/sim/m5out.
+TERMINAL=""
+EXPECTED_GUEST_VERDICT="${CORAL_NPU_LAUNCH_EXPECTED_GUEST_VERDICT:-npu_launch_test=PASS}"
+for candidate in \
+    "${ROOT_DIR}/logs/sim/m5out/system.terminal" \
+    "${ROOT_DIR}/m5out/system.terminal" \
+    "${ROOT_DIR}/thirdparty/gem5/m5out/system.terminal"; do
+    if [ -f "${candidate}" ] && awk -v expected="${EXPECTED_GUEST_VERDICT}" '
+        { sub(/\r$/, "") }
+        $0 == expected { found = 1 }
+        END { exit found ? 0 : 1 }
+    ' "${candidate}"; then
+        TERMINAL="${candidate}"
+        break
+    fi
+done
+[ -n "${TERMINAL}" ] || {
+    echo "error: guest verdict missing: ${EXPECTED_GUEST_VERDICT}" >&2
+    echo "checked guest terminal logs:" >&2
+    for candidate in \
+        "${ROOT_DIR}/logs/sim/m5out/system.terminal" \
+        "${ROOT_DIR}/m5out/system.terminal" \
+        "${ROOT_DIR}/thirdparty/gem5/m5out/system.terminal"; do
+        [ -f "${candidate}" ] || continue
+        echo "--- ${candidate}" >&2
+        tail -n 30 "${candidate}" | tr -d '\r' >&2
+    done
+    exit 1
+}
+
+dump_validation_context()
+{
+    echo "bridge: ${BRIDGE}" >&2
+    echo "firmware: ${FIRMWARE}" >&2
+    echo "host log: ${HOST_LOG}" >&2
+    echo "guest terminal: ${TERMINAL}" >&2
+    echo "--- backend/firmware identity" >&2
+    grep -E 'Loaded Coral RTL bridge|Created NPUDevice|backend=verilated-coral' \
+        "${HOST_LOG}" | tail -n 10 >&2 || true
+    echo "--- XOpenNPU activity" >&2
+    grep -E 'Coral XOpenNPU (dispatch|accepted|complete|writeback)' \
+        "${HOST_LOG}" | tail -n 40 >&2 || true
+    echo "--- guest verdict context" >&2
+    tail -n 40 "${TERMINAL}" | tr -d '\r' >&2 || true
+    if [ -f "${DEBUG_LOG}" ]; then
+        echo "--- NPU debug tail" >&2
+        tail -n 30 "${DEBUG_LOG}" >&2 || true
+    fi
+}
+
 if [ "${CORAL_NPU_LAUNCH_XOPENNPUX:-0}" = 1 ]; then
+    grep -q "firmware='${FIRMWARE}'" "${HOST_LOG}" || {
+        echo "error: requested XOpenNPU firmware was not loaded" >&2
+        dump_validation_context
+        exit 1
+    }
     for operation in ${CORAL_NPU_LAUNCH_EXPECTED_XOPENNPUX_OPS:-}; do
         grep -q "Coral XOpenNPU dispatch .*operation=${operation} " \
             "${HOST_LOG}" || {
             echo "error: missing XOpenNPU dispatch: ${operation}" >&2
+            dump_validation_context
             exit 1
         }
         grep -q "Coral XOpenNPU complete .*operation=${operation} error=0" \
             "${HOST_LOG}" || {
             echo "error: missing successful XOpenNPU completion: ${operation}" >&2
+            dump_validation_context
             exit 1
         }
     done
     grep -q 'Coral XOpenNPU dispatch .*operation=tfence ' "${HOST_LOG}" || {
         echo "error: no XOpenNPU fence observed" >&2
+        dump_validation_context
         exit 1
     }
 else
@@ -182,36 +241,6 @@ else
         }
     done
 fi
-
-# gem5term records CRLF on some hosts. Also tolerate the legacy output
-# locations used before run_multicore.sh standardized logs/sim/m5out.
-TERMINAL=""
-for candidate in \
-    "${ROOT_DIR}/logs/sim/m5out/system.terminal" \
-    "${ROOT_DIR}/m5out/system.terminal" \
-    "${ROOT_DIR}/thirdparty/gem5/m5out/system.terminal"; do
-    if [ -f "${candidate}" ] && awk '
-        { sub(/\r$/, "") }
-        $0 == "npu_launch_test=PASS" { found = 1 }
-        END { exit found ? 0 : 1 }
-    ' "${candidate}"; then
-        TERMINAL="${candidate}"
-        break
-    fi
-done
-[ -n "${TERMINAL}" ] || {
-    echo "error: guest NPU_LAUNCH verdict missing" >&2
-    echo "checked guest terminal logs:" >&2
-    for candidate in \
-        "${ROOT_DIR}/logs/sim/m5out/system.terminal" \
-        "${ROOT_DIR}/m5out/system.terminal" \
-        "${ROOT_DIR}/thirdparty/gem5/m5out/system.terminal"; do
-        [ -f "${candidate}" ] || continue
-        echo "--- ${candidate}" >&2
-        tail -n 30 "${candidate}" | tr -d '\r' >&2
-    done
-    exit 1
-}
 
 echo "guest verdict: ${TERMINAL}"
 echo "NPU_LAUNCH end-to-end test: PASS"

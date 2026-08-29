@@ -125,7 +125,7 @@ set +e
     CORAL_AUTO_RESUME_AFTER_CKPT=1 \
     CORAL_CKPT_ROOT="${CKPT_ROOT}" \
     CORAL_RESUME_BOOTSCRIPT="${TEST_SCRIPT}" \
-    CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${SHARED_BASE} --npu-dma-shared-size=8MiB --npu-operator-mode=hybrid --npu-fast-dma" \
+    CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-} --npu-dma-shared-base=${SHARED_BASE} --npu-dma-shared-size=8MiB --npu-operator-mode=hybrid --npu-fast-dma --npu-fast-dma-sync-offset=0x8000 --npu-fast-dma-sync-size=128KiB" \
     GEM5_OPTIONS="${GEM5_OPTIONS:-} --debug-flags=NPUDevice --debug-file=${DEBUG_LOG}" \
     "${ROOT_DIR}/thirdparty/gem5/run_multicore.sh"
     printf '%s\n' "$?" > "${STATUS_FILE}"

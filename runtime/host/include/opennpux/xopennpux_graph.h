@@ -8,9 +8,9 @@ extern "C" {
 #endif
 
 #define OPENNPUX_XGRAPH_MAGIC UINT32_C(0x5847504e)
-#define OPENNPUX_XGRAPH_VERSION UINT32_C(1)
-#define OPENNPUX_XGRAPH_OFFSET UINT32_C(0x00401000)
-#define OPENNPUX_XGRAPH_DATA_OFFSET UINT32_C(0x00410000)
+#define OPENNPUX_XGRAPH_VERSION UINT32_C(2)
+#define OPENNPUX_XGRAPH_OFFSET UINT32_C(0x00010000)
+#define OPENNPUX_XGRAPH_DATA_OFFSET UINT32_C(0x00020000)
 /* 768 records fit before DATA_OFFSET and cover the current 524-command graph. */
 #define OPENNPUX_XGRAPH_MAX_COMMANDS UINT32_C(768)
 
@@ -86,11 +86,22 @@ static_assert(sizeof(opennpux_xgraph_command) == 64,
               "XOpenNPUX graph command ABI changed");
 static_assert(sizeof(opennpux_xgraph_header) == 96,
               "XOpenNPUX graph header ABI changed");
+static_assert(OPENNPUX_XGRAPH_OFFSET + sizeof(opennpux_xgraph_header) +
+                  OPENNPUX_XGRAPH_MAX_COMMANDS *
+                      sizeof(opennpux_xgraph_command) <=
+              OPENNPUX_XGRAPH_DATA_OFFSET,
+              "XOpenNPUX command region overlaps tensor data");
 #else
 _Static_assert(sizeof(struct opennpux_xgraph_command) == 64,
                "XOpenNPUX graph command ABI changed");
 _Static_assert(sizeof(struct opennpux_xgraph_header) == 96,
                "XOpenNPUX graph header ABI changed");
+_Static_assert(OPENNPUX_XGRAPH_OFFSET +
+                       sizeof(struct opennpux_xgraph_header) +
+                       OPENNPUX_XGRAPH_MAX_COMMANDS *
+                           sizeof(struct opennpux_xgraph_command) <=
+                   OPENNPUX_XGRAPH_DATA_OFFSET,
+               "XOpenNPUX command region overlaps tensor data");
 #endif
 
 #ifdef __cplusplus

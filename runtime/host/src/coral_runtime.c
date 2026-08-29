@@ -1204,7 +1204,7 @@ opennpux_coral_xgraph_test(
     enum {
         tokens = OPENNPUX_XGRAPH_DATA_OFFSET,
         embedding = OPENNPUX_XGRAPH_DATA_OFFSET + 0x100,
-        identity = OPENNPUX_XGRAPH_DATA_OFFSET + 0x200,
+        matrix = OPENNPUX_XGRAPH_DATA_OFFSET + 0x200,
         bias = OPENNPUX_XGRAPH_DATA_OFFSET + 0x300,
         scale = OPENNPUX_XGRAPH_DATA_OFFSET + 0x400,
         norm_weight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x500,
@@ -1224,17 +1224,24 @@ opennpux_coral_xgraph_test(
     static const float embedding_values[8] = {
         1.0f, 2.0f, 3.0f, 4.0f, 1.0f, 9.0f, 2.0f, 3.0f,
     };
-    static const float identity_values[16] = {
-        1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+    static const float matrix_values[16] = {
+        1.0f, 2.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
     };
-    static const float zero_values[8] = {0};
-    static const float one_values[8] = {
-        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+    static const float bias_values[8] = {
+        0.5f, -1.0f, 1.0f, -0.5f, -0.25f, 0.75f, -1.0f, 1.25f,
+    };
+    static const float scale_values[8] = {
+        0.5f, 1.25f, 0.75f, 1.5f, 1.1f, 3.0f, 1.3f, 0.6f,
+    };
+    static const float norm_weight_values[4] = {
+        0.75f, 1.25f, 0.5f, 1.0f,
     };
     static const float rope_values[16] = {
-        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
-        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.95f, 0.95f, 0.95f, 0.95f,
+        0.95f, 0.95f, 0.95f, 0.95f,
+        0.3122499f, 0.3122499f, 0.3122499f, 0.3122499f,
+        0.3122499f, 0.3122499f, 0.3122499f, 0.3122499f,
     };
     union {
         float value;
@@ -1243,7 +1250,7 @@ opennpux_coral_xgraph_test(
     struct opennpux_xgraph_command commands[9] = {
         {OPENNPUX_XGRAPH_OP_TGATHER, 0, tensor0, embedding, tokens,
          2, 4, 1, 2, OPENNPUX_XGRAPH_DTYPE_FP32, 0, {0}},
-        {OPENNPUX_XGRAPH_OP_TMMA, 0, tensor1, tensor0, identity,
+        {OPENNPUX_XGRAPH_OP_TMMA, 0, tensor1, tensor0, matrix,
          2, 4, 4, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 1, {0}},
         {OPENNPUX_XGRAPH_OP_TADD, 0, tensor2, tensor1, bias,
          2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 2, {0}},
@@ -1292,14 +1299,14 @@ opennpux_coral_xgraph_test(
                            sizeof(token_values));
     copy_to_volatile_bytes(window.bytes + embedding, embedding_values,
                            sizeof(embedding_values));
-    copy_to_volatile_bytes(window.bytes + identity, identity_values,
-                           sizeof(identity_values));
-    copy_to_volatile_bytes(window.bytes + bias, zero_values,
-                           sizeof(zero_values));
-    copy_to_volatile_bytes(window.bytes + scale, one_values,
-                           sizeof(one_values));
-    copy_to_volatile_bytes(window.bytes + norm_weight, one_values,
-                           4 * sizeof(float));
+    copy_to_volatile_bytes(window.bytes + matrix, matrix_values,
+                           sizeof(matrix_values));
+    copy_to_volatile_bytes(window.bytes + bias, bias_values,
+                           sizeof(bias_values));
+    copy_to_volatile_bytes(window.bytes + scale, scale_values,
+                           sizeof(scale_values));
+    copy_to_volatile_bytes(window.bytes + norm_weight, norm_weight_values,
+                           sizeof(norm_weight_values));
     copy_to_volatile_bytes(window.bytes + rope_table, rope_values,
                            sizeof(rope_values));
     header->magic = OPENNPUX_XGRAPH_MAGIC;
@@ -1351,9 +1358,20 @@ opennpux_coral_xgraph_test(
             sizeof(actual[operation]));
     }
     memcpy(expected[0], embedding_values, sizeof(expected[0]));
-    memcpy(expected[1], expected[0], sizeof(expected[1]));
-    memcpy(expected[2], expected[1], sizeof(expected[2]));
-    memcpy(expected[3], expected[2], sizeof(expected[3]));
+    for (size_t row = 0; row < 2; ++row) {
+        for (size_t column = 0; column < 4; ++column) {
+            float accumulator = 0.0f;
+            for (size_t inner = 0; inner < 4; ++inner) {
+                accumulator += expected[0][row * 4 + inner] *
+                               matrix_values[inner * 4 + column];
+            }
+            expected[1][row * 4 + column] = accumulator;
+        }
+    }
+    for (size_t index = 0; index < 8; ++index) {
+        expected[2][index] = expected[1][index] + bias_values[index];
+        expected[3][index] = expected[2][index] * scale_values[index];
+    }
     for (size_t row = 0; row < 2; ++row) {
         float sum_squares = 0.0f;
         for (size_t feature = 0; feature < 4; ++feature) {
@@ -1364,10 +1382,20 @@ opennpux_coral_xgraph_test(
             1.0f / sqrtf(sum_squares / 4.0f + epsilon.value);
         for (size_t feature = 0; feature < 4; ++feature) {
             expected[4][row * 4 + feature] =
-                expected[3][row * 4 + feature] * inverse_rms;
+                expected[3][row * 4 + feature] * inverse_rms *
+                norm_weight_values[feature];
         }
     }
-    memcpy(expected[5], expected[4], sizeof(expected[5]));
+    for (size_t row = 0; row < 2; ++row) {
+        for (size_t feature = 0; feature < 4; ++feature) {
+            const size_t index = row * 4 + feature;
+            const size_t rotated = row * 4 + (feature ^ 1);
+            const float sign = (feature & 1) == 0 ? -1.0f : 1.0f;
+            expected[5][index] =
+                expected[4][index] * rope_values[index] +
+                sign * expected[4][rotated] * rope_values[8 + index];
+        }
+    }
     for (size_t index = 0; index < 8; ++index) {
         const float value = expected[5][index];
         expected[6][index] = value / (1.0f + expf(-value));

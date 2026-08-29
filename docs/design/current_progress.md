@@ -891,3 +891,15 @@ TMUL、TRMSNORM、TROPE、TSILU、TSOFTMAX、TTOPK 均出现 NPU L2 dispatch 和
 `error=0` completion。该增量建立的是后续 Qwen3 功能正确性 reference 通路；下一步仍需
 将 `.npxc/.npxtb` 的 524-command invocation 自动 lowering/tiling 到同一 graph ABI，并
 接入 GPTQ page bindings、KV/state 和最终 token golden。
+
+## 2026-08-29 Generic command 到 XGraph primitive lowering
+
+新增模型无关 `opennpux_npu_xgraph_lower_primitive()`，直接消费 `.npxc/.npxtb`
+物化后的 functional request，将 FP32 `EMBED/MATMUL/ADD/MUL/NORMALIZE/ROPE/
+SOFTMAX/ACTIVATION/TOPK` 转换为 XGraph primitive。转换只使用 opcode、显式语义
+选项、shape 和 EXTMEM operand，不读取 Qwen、layer 或 Tensor 名称。
+
+GPTQ MatMul 与 `ATTENTION/CAUSAL_CONV/RECURRENT_UPDATE/ROUTER/EXPERT/COMBINE`
+暂时明确返回 `ENOTSUP`，等待 decomposition/tiling pass 展开，防止把复合 command
+错误伪装成单条自定义指令。native gate `test_xgraph_lowering.sh` 已覆盖直接映射、
+RoPE/SiLU/TopK 显式语义、EXTMEM 地址以及 unsupported 路径。

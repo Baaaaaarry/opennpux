@@ -463,3 +463,12 @@ invocation into the same graph ABI, tiles dimensions that exceed CSR fields,
 and binds paged GPTQ weights. `OPENNPUX_XGRAPH_V1` is therefore a functional
 instruction-stream reference, not a replacement for the production generic
 executable format.
+
+The first part of that compiler boundary is implemented by
+`opennpux_npu_xgraph_lower_primitive()`. It consumes the model-independent
+functional request produced from `.npxc`, `.npxtb`, runtime shape and explicit
+weight operands. Direct FP32 primitives lower without inspecting a model or
+tensor name. RoPE layout, activation semantics and TopK packed scratch are
+explicit options rather than model-family assumptions. Composite generic
+commands and GPTQ MatMul deliberately return `ENOTSUP`; a later decomposition
+and tiling pass must expand them before instruction emission.

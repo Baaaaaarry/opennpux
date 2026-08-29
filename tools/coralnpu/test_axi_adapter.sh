@@ -13,10 +13,10 @@ TARGET="//hw_sim:gem5_axi_master_drivers_test"
 
 if [ -n "${BAZEL:-}" ]; then
     :
-elif command -v bazel >/dev/null 2>&1; then
-    BAZEL="$(command -v bazel)"
 elif [ -x "${LOCAL_BAZEL}" ]; then
     BAZEL="${LOCAL_BAZEL}"
+elif command -v bazel >/dev/null 2>&1; then
+    BAZEL="$(command -v bazel)"
 else
     echo "error: bazel not found; run prepare_coral_bazel.sh" >&2
     exit 1

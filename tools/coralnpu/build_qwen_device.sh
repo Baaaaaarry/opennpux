@@ -14,10 +14,10 @@ FIRMWARE_TARGET="//hw_sim:gem5_qwen_device_infer.elf"
 
 if [ -n "${BAZEL:-}" ]; then
     :
-elif command -v bazel >/dev/null 2>&1; then
-    BAZEL="$(command -v bazel)"
 elif [ -x "${ROOT_DIR}/.cache/coralnpu/bin/bazel" ]; then
     BAZEL="${ROOT_DIR}/.cache/coralnpu/bin/bazel"
+elif command -v bazel >/dev/null 2>&1; then
+    BAZEL="$(command -v bazel)"
 else
     echo "error: bazel not found; run prepare_coral_bazel.sh" >&2
     exit 1

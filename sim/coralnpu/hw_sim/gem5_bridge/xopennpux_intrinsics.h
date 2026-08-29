@@ -23,6 +23,34 @@ static inline void xopennpux_write_scalar_param0(uint32_t value) {
   __asm__ volatile("csrw 0x80b, %0" : : "r"(value) : "memory");
 }
 
+static inline void xopennpux_write_quant_qzeros_address(uint32_t value) {
+  __asm__ volatile("csrw 0x810, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_quant_scales_address(uint32_t value) {
+  __asm__ volatile("csrw 0x811, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_quant_g_idx_address(uint32_t value) {
+  __asm__ volatile("csrw 0x812, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_quant_config(uint32_t value) {
+  __asm__ volatile("csrw 0x813, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_quant_qweight_stride(uint32_t value) {
+  __asm__ volatile("csrw 0x814, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_quant_qzeros_stride(uint32_t value) {
+  __asm__ volatile("csrw 0x815, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_quant_scales_stride(uint32_t value) {
+  __asm__ volatile("csrw 0x816, %0" : : "r"(value) : "memory");
+}
+
 static inline void xopennpux_tmma_fp32(void* destination, const void* lhs,
                                        const void* rhs) {
   // Publish scalar/AXI stores before the coprocessor reads its operands.
@@ -103,6 +131,16 @@ static inline void xopennpux_tgather_fp32(void* destination,
                    :
                    : "r"((uintptr_t)destination), "r"((uintptr_t)table),
                      "r"((uintptr_t)indices)
+                   : "memory");
+}
+
+static inline void xopennpux_tdequant_int4_fp32(void* destination,
+                                                const void* qweight) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 3, 0x11, %0, %1, x0"
+                   :
+                   : "r"((uintptr_t)destination),
+                     "r"((uintptr_t)qweight)
                    : "memory");
 }
 

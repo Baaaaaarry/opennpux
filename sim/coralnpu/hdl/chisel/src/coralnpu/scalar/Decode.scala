@@ -36,6 +36,13 @@ class XOpenNpuCsrState(p: Parameters) extends Bundle {
   val tensorShape = UInt(p.xlen.W)
   val tensorDataType = UInt(p.xlen.W)
   val scalarParam0 = UInt(p.xlen.W)
+  val quantQzerosAddress = UInt(p.xlen.W)
+  val quantScalesAddress = UInt(p.xlen.W)
+  val quantGIdxAddress = UInt(p.xlen.W)
+  val quantConfig = UInt(p.xlen.W)
+  val quantQweightStride = UInt(p.xlen.W)
+  val quantQzerosStride = UInt(p.xlen.W)
+  val quantScalesStride = UInt(p.xlen.W)
   val epoch = UInt(32.W)
 }
 

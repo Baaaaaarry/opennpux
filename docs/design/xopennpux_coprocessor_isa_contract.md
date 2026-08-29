@@ -263,6 +263,43 @@ This layout is an experimental implementation profile, not the final general
 tensor ABI. Any incompatible replacement MUST change the profile version and
 update the shared encoder, NPU decoder, firmware, and tests together.
 
+#### Experimental v0.1 GPTQ dequantization profile
+
+`tdequant.int4.fp32 (rd),(rs1)` uses `custom3`, `funct3=011`, and
+`funct7=0010001`; `rs2` MUST be `x0`. `rs1` is the first qweight word of one
+output-channel tile and `rd` is a contiguous FP32 `[K,N]` dequant scratch
+tile. It consumes `mma_shape` with `M=1`, `N=tile columns`, `K=input
+columns`, and `mma_data_type` with source 1 INT4 and destination FP32.
+
+The following temporary RV32 CSRs are snapshotted atomically with the custom
+instruction by the Coral L1 dispatch path:
+
+| CSR | Field | Physical layout |
+| --- | --- | --- |
+| `0x810` | qzeros address | first packed qzero word for the N tile |
+| `0x811` | scales address | first scale element for the N tile |
+| `0x812` | g_idx address | optional K-entry uint32 table, zero when absent |
+| `0x813` | quant config | group size `[15:0]`, zero bias `[19:16]`, scale dtype `[23:20]`, has-g_idx `[24]` |
+| `0x814` | qweight row stride | bytes between packed K rows |
+| `0x815` | qzeros row stride | bytes between quantization groups |
+| `0x816` | scales row stride | bytes between quantization groups |
+
+All strides are byte units. qweight and qzeros rows are uint32 aligned;
+FP16/BF16 scale rows are 2-byte aligned and FP32 scale rows are 4-byte
+aligned. The N tile address MUST begin at an eight-channel boundary except for
+a single matrix whose complete N is less than eight. This keeps the first
+qzero nibble at bit zero. The operation applies
+`fp32(qweight_nibble - (qzero_nibble + zero_bias)) * scale` for every `[K,N]`
+element and rejects out-of-range g_idx values or non-finite scales.
+
+The compiler/runtime lowering emits one TDEQUANT per output-N tile and then
+one-row FP32 TMMA records for each input row. The row expansion is a functional
+bridge until the independent source/destination stride CSR map is reviewed;
+it is not the target performance microarchitecture. The current 10-bit
+`mma_shape` also limits this profile to `K<=1023`. Larger K requires a reviewed
+extended shape profile or K tiling with explicit accumulation, and MUST NOT be
+silently truncated.
+
 ### SIMD and reduction
 
 - `funct3=000`, `funct7=0000001/0000010`: `tadd.ttr`, `tmul.ttr`.

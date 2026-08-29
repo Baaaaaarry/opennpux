@@ -79,12 +79,18 @@ trope_count = sum((word & 0xFE00707F) == 0x6600207B for word in words)
 tsilu_count = sum((word & 0xFE00707F) == 0x8C00207B for word in words)
 tgather_count = sum((word & 0xFE00707F) == 0x2000307B for word in words)
 ttopk_count = sum((word & 0xFE00707F) == 0x0000407B for word in words)
+tdequant_count = sum((word & 0xFE00707F) == 0x2200307B for word in words)
 tfence_count = sum(word == 0x0000607B for word in words)
 shape_writes = sum((word & 0xFFF07FFF) == 0x80001073 for word in words)
 dtype_writes = sum((word & 0xFFF07FFF) == 0x80101073 for word in words)
 tensor_shape_writes = sum((word & 0xFFF07FFF) == 0x80201073 for word in words)
 tensor_dtype_writes = sum((word & 0xFFF07FFF) == 0x80601073 for word in words)
 scalar_param_writes = sum((word & 0xFFF07FFF) == 0x80B01073 for word in words)
+quant_csr_writes = sum(
+    any((word & 0xFFF07FFF) == (address << 20 | 0x1073)
+        for address in range(0x810, 0x817))
+    for word in words
+)
 checks = {
     "tmma_encoding_count": (tmma_count, 1),
     "tadd_encoding_count": (tadd_count, 1),
@@ -95,12 +101,14 @@ checks = {
     "tsilu_encoding_count": (tsilu_count, 1),
     "tgather_encoding_count": (tgather_count, 1),
     "ttopk_encoding_count": (ttopk_count, 1),
+    "tdequant_encoding_count": (tdequant_count, 1),
     "tfence_encoding_count": (tfence_count, 1),
     "shape_write_encoding_count": (shape_writes, 1),
     "dtype_write_encoding_count": (dtype_writes, 1),
     "tensor_shape_write_encoding_count": (tensor_shape_writes, 1),
     "tensor_dtype_write_encoding_count": (tensor_dtype_writes, 1),
     "scalar_param_write_encoding_count": (scalar_param_writes, 1),
+    "quant_csr_write_encoding_count": (quant_csr_writes, 7),
 }
 for name, (actual, expected) in checks.items():
     if actual < expected:

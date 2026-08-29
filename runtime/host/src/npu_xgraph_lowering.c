@@ -74,6 +74,30 @@ validate_request(const struct opennpux_npu_functional_request *request,
     return 0;
 }
 
+static int
+address_offset(uint32_t address, uint32_t bytes, uint32_t extmem_base,
+               uint32_t extmem_size, uint32_t *offset)
+{
+    const struct opennpux_npu_functional_operand operand = {
+        0, address, bytes, 0};
+    return operand_offset(&operand, extmem_base, extmem_size, offset);
+}
+
+static uint32_t
+xopennpux_scale_data_type(uint32_t data_type)
+{
+    switch (data_type) {
+    case OPENNPUX_NPU_DTYPE_FLOAT16:
+        return 0;
+    case OPENNPUX_NPU_DTYPE_BFLOAT16:
+        return 1;
+    case OPENNPUX_NPU_DTYPE_FLOAT32:
+        return 2;
+    default:
+        return UINT32_MAX;
+    }
+}
+
 int
 opennpux_npu_xgraph_lower_primitive(
     const struct opennpux_npu_functional_request *request,
@@ -229,5 +253,121 @@ opennpux_npu_xgraph_lower_sequence(
             return -1;
         }
     }
+    return 0;
+}
+
+int
+opennpux_npu_xgraph_lower_gptq_matmul(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    struct opennpux_npu_gptq_tile_plan plan;
+    if (commands == NULL || command_count == NULL ||
+        opennpux_npu_gptq_plan_tiles(
+            request, parameters, extmem_base, extmem_size, scratch_address,
+            scratch_size, &plan) != 0) {
+        if (errno == 0) {
+            errno = EINVAL;
+        }
+        return -1;
+    }
+    const uint64_t required_commands =
+        (uint64_t)plan.tile_count * (plan.rows + 1u);
+    if (required_commands > command_capacity || required_commands > UINT32_MAX ||
+        first_command_id > UINT32_MAX - (uint32_t)required_commands) {
+        errno = ENOSPC;
+        return -1;
+    }
+    const uint32_t scale_data_type =
+        xopennpux_scale_data_type(parameters->scale_data_type);
+    if (scale_data_type == UINT32_MAX) {
+        errno = EINVAL;
+        return -1;
+    }
+    const struct opennpux_npu_functional_operand *input =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+    if (input == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    uint32_t emitted = 0;
+    for (uint32_t tile_index = 0; tile_index < plan.tile_count; ++tile_index) {
+        struct opennpux_npu_gptq_tile tile;
+        if (opennpux_npu_gptq_get_tile(request, &plan, tile_index, &tile) !=
+            0) {
+            return -1;
+        }
+        struct opennpux_xgraph_command *dequant = &commands[emitted++];
+        memset(dequant, 0, sizeof(*dequant));
+        dequant->opcode = OPENNPUX_XGRAPH_OP_TDEQUANT;
+        dequant->dim0 = 1;
+        dequant->dim1 = tile.column_count;
+        dequant->dim2 = plan.input_columns;
+        dequant->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+        dequant->command_id = first_command_id + emitted - 1;
+        dequant->scalar0 =
+            (parameters->quantization_group_size & UINT32_C(0xffff)) |
+            ((parameters->quantized_zero_bias & UINT32_C(0xf)) << 16) |
+            ((scale_data_type & UINT32_C(0xf)) << 20) |
+            (plan.has_g_idx != 0 ? UINT32_C(1) << 24 : 0);
+        if (address_offset(tile.dequantized_address,
+                           tile.dequantized_bytes, extmem_base, extmem_size,
+                           &dequant->destination_offset) != 0 ||
+            address_offset(tile.qweight.address, tile.qweight.row_bytes,
+                           extmem_base, extmem_size,
+                           &dequant->source0_offset) != 0 ||
+            address_offset(tile.qzeros.address, tile.qzeros.row_bytes,
+                           extmem_base, extmem_size,
+                           &dequant->source1_offset) != 0 ||
+            address_offset(tile.scales.address, tile.scales.row_bytes,
+                           extmem_base, extmem_size,
+                           &dequant->reserved[0]) != 0 ||
+            (plan.has_g_idx != 0 &&
+             address_offset(tile.g_idx.address, tile.g_idx.row_bytes,
+                            extmem_base, extmem_size,
+                            &dequant->reserved[1]) != 0)) {
+            return -1;
+        }
+        dequant->reserved[2] = tile.qweight.row_stride_bytes;
+        dequant->reserved[3] = tile.qzeros.row_stride_bytes;
+        dequant->reserved[4] = tile.scales.row_stride_bytes;
+
+        for (uint32_t row = 0; row < plan.rows; ++row) {
+            struct opennpux_xgraph_command *mma = &commands[emitted++];
+            memset(mma, 0, sizeof(*mma));
+            mma->opcode = OPENNPUX_XGRAPH_OP_TMMA;
+            mma->dim0 = 1;
+            mma->dim1 = tile.column_count;
+            mma->dim2 = plan.input_columns;
+            mma->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+            mma->command_id = first_command_id + emitted - 1;
+            const uint64_t input_address =
+                (uint64_t)input->address +
+                (uint64_t)row * plan.input_columns * sizeof(float);
+            const uint64_t output_address =
+                (uint64_t)tile.output.address +
+                (uint64_t)row * tile.output.row_stride_bytes;
+            if (input_address > UINT32_MAX || output_address > UINT32_MAX ||
+                address_offset((uint32_t)input_address,
+                               plan.input_columns * sizeof(float),
+                               extmem_base, extmem_size,
+                               &mma->source0_offset) != 0 ||
+                address_offset(tile.dequantized_address,
+                               tile.dequantized_bytes, extmem_base,
+                               extmem_size, &mma->source1_offset) != 0 ||
+                address_offset((uint32_t)output_address,
+                               tile.column_count * sizeof(float),
+                               extmem_base, extmem_size,
+                               &mma->destination_offset) != 0) {
+                return -1;
+            }
+        }
+    }
+    *command_count = emitted;
     return 0;
 }

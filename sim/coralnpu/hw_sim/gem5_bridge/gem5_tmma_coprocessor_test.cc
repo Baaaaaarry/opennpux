@@ -14,6 +14,11 @@ void WriteFloat(std::vector<uint8_t>* memory, size_t offset, float value) {
   std::memcpy(memory->data() + offset, &value, sizeof(value));
 }
 
+void WriteUint32(std::vector<uint8_t>* memory, size_t offset,
+                 uint32_t value) {
+  std::memcpy(memory->data() + offset, &value, sizeof(value));
+}
+
 float ReadFloat(const std::vector<uint8_t>& memory, size_t offset) {
   float value = 0.0f;
   std::memcpy(&value, memory.data() + offset, sizeof(value));
@@ -111,6 +116,150 @@ void TestEncodingAndSecondLevelDecode() {
   assert(xopennpux::DecodeOperation(topk) ==
          xopennpux::Operation::kTtopk);
   assert(!xopennpux::IsTtopk(topk | (1u << 20)));
+  const uint32_t dequant = xopennpux::EncodeTdequant(12, 10);
+  assert(xopennpux::IsTdequant(dequant));
+  assert(((dequant >> 20) & 0x1f) == 0);
+  assert(xopennpux::DecodeOperation(dequant) ==
+         xopennpux::Operation::kTdequant);
+  assert(!xopennpux::IsTdequant(dequant | (1u << 20)));
+}
+
+void ConfigureInt4Dequant(Gem5XOpenNpuFunctionalCoprocessor* coprocessor,
+                          uint32_t n, uint32_t k, bool has_g_idx) {
+  assert(coprocessor->WriteCsr(xopennpux::kCsrMmaShape,
+                               xopennpux::EncodeMmaShape(1, n, k)));
+  assert(coprocessor->WriteCsr(
+      xopennpux::kCsrMmaDataType,
+      xopennpux::EncodeMmaDataTypes(xopennpux::DataType::kInt4,
+                                    xopennpux::DataType::kFp32,
+                                    xopennpux::DataType::kFp32)));
+  assert(coprocessor->WriteCsr(xopennpux::kCsrQuantQzerosAddress,
+                               kMemoryBase + 0x200));
+  assert(coprocessor->WriteCsr(xopennpux::kCsrQuantScalesAddress,
+                               kMemoryBase + 0x300));
+  assert(coprocessor->WriteCsr(
+      xopennpux::kCsrQuantGIdxAddress,
+      has_g_idx ? kMemoryBase + 0x380 : 0));
+  assert(coprocessor->WriteCsr(
+      xopennpux::kCsrQuantConfig,
+      xopennpux::EncodeQuantConfig(4, 1, xopennpux::DataType::kFp32,
+                                   has_g_idx)));
+  assert(coprocessor->WriteCsr(xopennpux::kCsrQuantQweightStride, 20));
+  assert(coprocessor->WriteCsr(xopennpux::kCsrQuantQzerosStride, 8));
+  assert(coprocessor->WriteCsr(xopennpux::kCsrQuantScalesStride, 20));
+}
+
+void TestInt4DequantStridedTailTile() {
+  constexpr uint32_t kColumns = 3;
+  constexpr uint32_t kRows = 8;
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureInt4Dequant(&coprocessor, kColumns, kRows, true);
+
+  Gem5TmmaDispatchPacket packet = Packet(19);
+  packet.instruction = xopennpux::EncodeTdequant(12, 10);
+  packet.rs1_value = kMemoryBase + 0x100;
+  packet.rs2_value = 0;
+  packet.rd_value = kMemoryBase + 0x400;
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  for (uint32_t column = 0; column < kColumns; ++column) {
+    uint32_t packed = 0;
+    for (uint32_t row = 0; row < kRows; ++row) {
+      packed |= ((row + column + 1) & 0xf) << (row * 4);
+    }
+    WriteUint32(&memory, 0x100 + column * 4, packed);
+  }
+  WriteUint32(&memory, 0x200, 0x00000321);
+  WriteUint32(&memory, 0x208, 0x00000654);
+  const float scales[] = {0.5f, 1.0f, 1.5f, 2.0f, 0.25f, 0.75f};
+  for (uint32_t group = 0; group < 2; ++group) {
+    for (uint32_t column = 0; column < kColumns; ++column) {
+      WriteFloat(&memory, 0x300 + group * 20 + column * 4,
+                 scales[group * kColumns + column]);
+    }
+  }
+  const uint32_t g_idx[] = {0, 0, 1, 1, 0, 0, 1, 1};
+  for (uint32_t row = 0; row < kRows; ++row) {
+    WriteUint32(&memory, 0x380 + row * 4, g_idx[row]);
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTdequant);
+  assert(completion.element_operations == kRows * kColumns);
+  assert(completion.modeled_cycles == kRows * kColumns);
+  assert(completion.destination_bytes == kRows * kColumns * sizeof(float));
+  for (uint32_t row = 0; row < kRows; ++row) {
+    const uint32_t group = g_idx[row];
+    for (uint32_t column = 0; column < kColumns; ++column) {
+      const int32_t quantized = (row + column + 1) & 0xf;
+      const int32_t zero = static_cast<int32_t>(
+          (group == 0 ? column + 1 : column + 4) + 1);
+      const float expected =
+          static_cast<float>(quantized - zero) *
+          scales[group * kColumns + column];
+      const float actual = ReadFloat(
+          memory, 0x400 + (row * kColumns + column) * sizeof(float));
+      assert(actual == expected);
+    }
+  }
+}
+
+void TestInt4DequantRejectsInvalidStride() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureInt4Dequant(&coprocessor, 3, 8, false);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrQuantQweightStride, 8));
+  Gem5TmmaDispatchPacket packet = Packet(20);
+  packet.instruction = xopennpux::EncodeTdequant(12, 10);
+  assert(coprocessor.Submit(packet) ==
+         Gem5TmmaSubmitResult::kInvalidCsrState);
+}
+
+void TestInt4DequantThenFp32Matmul() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureInt4Dequant(&coprocessor, 2, 8, false);
+  Gem5TmmaDispatchPacket dequant = Packet(21);
+  dequant.instruction = xopennpux::EncodeTdequant(12, 10);
+  dequant.rs1_value = kMemoryBase + 0x100;
+  dequant.rs2_value = 0;
+  dequant.rd_value = kMemoryBase + 0x400;
+  assert(coprocessor.Submit(dequant) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  WriteUint32(&memory, 0x100, UINT32_C(0x99999999));
+  WriteUint32(&memory, 0x104, UINT32_C(0xaaaaaaaa));
+  WriteUint32(&memory, 0x200, UINT32_C(0x00000077));
+  WriteUint32(&memory, 0x208, UINT32_C(0x00000077));
+  for (uint32_t group = 0; group < 2; ++group) {
+    WriteFloat(&memory, 0x300 + group * 20, 0.5f);
+    WriteFloat(&memory, 0x304 + group * 20, 1.0f);
+  }
+  Gem5TmmaCompletion dequant_completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase,
+                                 &dequant_completion));
+  assert(dequant_completion.error == Gem5TmmaExecutionError::kNone);
+
+  ConfigureFp32(&coprocessor, 2, 2, 8);
+  Gem5TmmaDispatchPacket mma = Packet(22);
+  mma.rs1_value = kMemoryBase + 0x500;
+  mma.rs2_value = kMemoryBase + 0x400;
+  mma.rd_value = kMemoryBase + 0x600;
+  for (uint32_t inner = 0; inner < 8; ++inner) {
+    WriteFloat(&memory, 0x500 + inner * sizeof(float),
+               static_cast<float>(inner + 1));
+    WriteFloat(&memory, 0x500 + (8 + inner) * sizeof(float), 1.0f);
+  }
+  assert(coprocessor.Submit(mma) == Gem5TmmaSubmitResult::kAccepted);
+  Gem5TmmaCompletion mma_completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &mma_completion));
+  assert(mma_completion.error == Gem5TmmaExecutionError::kNone);
+  assert(mma_completion.mac_operations == 32);
+  assert(ReadFloat(memory, 0x600) == 18.0f);
+  assert(ReadFloat(memory, 0x604) == 72.0f);
+  assert(ReadFloat(memory, 0x608) == 4.0f);
+  assert(ReadFloat(memory, 0x60c) == 16.0f);
 }
 
 void TestFp32TensorAdd() {
@@ -569,6 +718,9 @@ void TestInvalidTypeAndAddressFault() {
 
 int main() {
   TestEncodingAndSecondLevelDecode();
+  TestInt4DequantStridedTailTile();
+  TestInt4DequantRejectsInvalidStride();
+  TestInt4DequantThenFp32Matmul();
   TestFp32TensorAdd();
   TestFp32TensorMul();
   TestFp32RmsNorm();

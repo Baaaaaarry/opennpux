@@ -36,6 +36,12 @@ enum {
   kRopeDstOffset = 0x1f00,
   kTopKInputOffset = 0x2000,
   kTopKDstOffset = 0x2100,
+  kDequantQweightOffset = 0x2200,
+  kDequantQzerosOffset = 0x2300,
+  kDequantScalesOffset = 0x2400,
+  kDequantScratchOffset = 0x2500,
+  kDequantInputOffset = 0x2600,
+  kDequantOutputOffset = 0x2700,
   kResultMagic = 0x544d4545,
 };
 
@@ -185,6 +191,24 @@ int main(void) {
       0x40a00000, 0x40a00000, 0x40800000, 0x40400000,
       1, 3, 2, 4,
   };
+  static const uint32_t kDequantQweight[] = {
+      0x99999999, 0xaaaaaaaa,
+  };
+  static const uint32_t kDequantQzeros[] = {
+      0x00000077, 0x00000077,
+  };
+  static const uint32_t kDequantScales[] = {
+      0x3f000000, 0x3f800000, 0x3f000000, 0x3f800000,
+  };
+  static const uint32_t kDequantInput[] = {
+      0x3f800000, 0x40000000, 0x40400000, 0x40800000,
+      0x40a00000, 0x40c00000, 0x40e00000, 0x41000000,
+      0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000,
+      0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000,
+  };
+  static const uint32_t kDequantExpected[] = {
+      0x41900000, 0x42900000, 0x40800000, 0x41800000,
+  };
 
   volatile uint32_t* case0_lhs = Extmem(kCase0LhsOffset);
   volatile uint32_t* case0_rhs = Extmem(kCase0RhsOffset);
@@ -217,6 +241,12 @@ int main(void) {
   volatile uint32_t* rope_dst = Extmem(kRopeDstOffset);
   volatile uint32_t* topk_input = Extmem(kTopKInputOffset);
   volatile uint32_t* topk_dst = Extmem(kTopKDstOffset);
+  volatile uint32_t* dequant_qweight = Extmem(kDequantQweightOffset);
+  volatile uint32_t* dequant_qzeros = Extmem(kDequantQzerosOffset);
+  volatile uint32_t* dequant_scales = Extmem(kDequantScalesOffset);
+  volatile uint32_t* dequant_scratch = Extmem(kDequantScratchOffset);
+  volatile uint32_t* dequant_input = Extmem(kDequantInputOffset);
+  volatile uint32_t* dequant_output = Extmem(kDequantOutputOffset);
 
   WriteWords(case0_lhs, kCase0Lhs, 6);
   WriteWords(case0_rhs, kCase0Rhs, 6);
@@ -265,6 +295,16 @@ int main(void) {
   WriteWords(topk_input, kTopKInput, 10);
   xopennpux_topk_fp32((void*)topk_dst, (const void*)topk_input, 2, 5, 2);
 
+  WriteWords(dequant_qweight, kDequantQweight, 2);
+  WriteWords(dequant_qzeros, kDequantQzeros, 2);
+  WriteWords(dequant_scales, kDequantScales, 4);
+  WriteWords(dequant_input, kDequantInput, 16);
+  xopennpux_dequant_int4_fp32(
+      (void*)dequant_scratch, (const void*)dequant_qweight,
+      (const void*)dequant_qzeros, (const void*)dequant_scales, NULL, 2, 8,
+      4, 1, 2, 8, 4, 8);
+  RunFp32Tmma(2, 2, 8, dequant_output, dequant_input, dequant_scratch);
+
   const uint32_t failure_mask =
       (WordsEqual(case0_dst, kCase0Expected, 4) ? 0u : 1u) |
       (WordsEqual(case1_dst, kCase1Expected, 12) ? 0u : 2u) |
@@ -276,10 +316,11 @@ int main(void) {
       (WordsEqual(softmax_dst, kSoftmaxExpected, 8) ? 0u : 128u) |
       (WordsEqual(gather_dst, kGatherExpected, 6) ? 0u : 256u) |
       (WordsEqual(rope_dst, kRopeExpected, 8) ? 0u : 512u) |
-      (WordsEqual(topk_dst, kTopKExpected, 8) ? 0u : 1024u);
+      (WordsEqual(topk_dst, kTopKExpected, 8) ? 0u : 1024u) |
+      (WordsEqual(dequant_output, kDequantExpected, 4) ? 0u : 2048u);
   result[0] = failure_mask == 0 ? kResultMagic : 0;
   result[1] = failure_mask;
-  result[2] = 11;
+  result[2] = 12;
 
   if (failure_mask != 0) {
     __asm__ volatile("ebreak");

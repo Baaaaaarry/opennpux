@@ -19,6 +19,7 @@ enum class Gem5TmmaExecutionError {
   kNone,
   kAddress,
   kUnsupportedDataType,
+  kInvalidData,
 };
 
 struct Gem5TmmaDispatchPacket {
@@ -34,6 +35,13 @@ struct Gem5TmmaDispatchPacket {
   uint32_t tensor_shape = 0;
   uint32_t tensor_data_type = 0;
   uint32_t scalar_param0 = 0;
+  uint32_t quant_qzeros_address = 0;
+  uint32_t quant_scales_address = 0;
+  uint32_t quant_g_idx_address = 0;
+  uint32_t quant_config = 0;
+  uint32_t quant_qweight_stride = 0;
+  uint32_t quant_qzeros_stride = 0;
+  uint32_t quant_scales_stride = 0;
   uint32_t csr_epoch = 0;
 };
 
@@ -81,6 +89,13 @@ class Gem5XOpenNpuFunctionalCoprocessor {
     xopennpux::TensorShape tensor_shape;
     xopennpux::MmaDataTypes tensor_data_types;
     uint32_t scalar_param0 = 0;
+    uint32_t quant_qzeros_address = 0;
+    uint32_t quant_scales_address = 0;
+    uint32_t quant_g_idx_address = 0;
+    uint32_t quant_config = 0;
+    uint32_t quant_qweight_stride = 0;
+    uint32_t quant_qzeros_stride = 0;
+    uint32_t quant_scales_stride = 0;
     uint32_t csr_epoch = 0;
   };
 
@@ -92,6 +107,13 @@ class Gem5XOpenNpuFunctionalCoprocessor {
   uint32_t tensor_shape_ = 0;
   uint32_t tensor_data_type_ = 0;
   uint32_t scalar_param0_ = 0;
+  uint32_t quant_qzeros_address_ = 0;
+  uint32_t quant_scales_address_ = 0;
+  uint32_t quant_g_idx_address_ = 0;
+  uint32_t quant_config_ = 0;
+  uint32_t quant_qweight_stride_ = 0;
+  uint32_t quant_qzeros_stride_ = 0;
+  uint32_t quant_scales_stride_ = 0;
   uint32_t csr_epoch_ = 0;
 };
 

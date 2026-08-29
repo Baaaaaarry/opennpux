@@ -82,6 +82,13 @@ object CsrAddress extends ChiselEnum {
   val TENSOR_SHAPE = Value(0x802.U(12.W))
   val TENSOR_DATA_TYPE = Value(0x806.U(12.W))
   val SCALAR_PARAM0 = Value(0x80B.U(12.W))
+  val QUANT_QZEROS_ADDRESS = Value(0x810.U(12.W))
+  val QUANT_SCALES_ADDRESS = Value(0x811.U(12.W))
+  val QUANT_G_IDX_ADDRESS = Value(0x812.U(12.W))
+  val QUANT_CONFIG = Value(0x813.U(12.W))
+  val QUANT_QWEIGHT_STRIDE = Value(0x814.U(12.W))
+  val QUANT_QZEROS_STRIDE = Value(0x815.U(12.W))
+  val QUANT_SCALES_STRIDE = Value(0x816.U(12.W))
   val MCYCLE    = Value(0xB00.U(12.W))
   val MINSTRET  = Value(0xB02.U(12.W))
   val MCYCLEH   = Value(0xB80.U(12.W))
@@ -278,12 +285,26 @@ class Csr(p: Parameters) extends Module {
   val tensorShape = RegInit(0.U(p.xlen.W))
   val tensorDataType = RegInit(0.U(p.xlen.W))
   val scalarParam0 = RegInit(0.U(p.xlen.W))
+  val quantQzerosAddress = RegInit(0.U(p.xlen.W))
+  val quantScalesAddress = RegInit(0.U(p.xlen.W))
+  val quantGIdxAddress = RegInit(0.U(p.xlen.W))
+  val quantConfig = RegInit(0.U(p.xlen.W))
+  val quantQweightStride = RegInit(0.U(p.xlen.W))
+  val quantQzerosStride = RegInit(0.U(p.xlen.W))
+  val quantScalesStride = RegInit(0.U(p.xlen.W))
   val xnpuCsrEpoch = RegInit(0.U(32.W))
   io.xnpu.mmaShape := mmaShape
   io.xnpu.mmaDataType := mmaDataType
   io.xnpu.tensorShape := tensorShape
   io.xnpu.tensorDataType := tensorDataType
   io.xnpu.scalarParam0 := scalarParam0
+  io.xnpu.quantQzerosAddress := quantQzerosAddress
+  io.xnpu.quantScalesAddress := quantScalesAddress
+  io.xnpu.quantGIdxAddress := quantGIdxAddress
+  io.xnpu.quantConfig := quantConfig
+  io.xnpu.quantQweightStride := quantQweightStride
+  io.xnpu.quantQzerosStride := quantQzerosStride
+  io.xnpu.quantScalesStride := quantScalesStride
   io.xnpu.epoch := xnpuCsrEpoch
 
   // Debug mode CSRs
@@ -396,6 +417,13 @@ class Csr(p: Parameters) extends Module {
   val tensorShapeEn = csr_address === CsrAddress.TENSOR_SHAPE
   val tensorDataTypeEn = csr_address === CsrAddress.TENSOR_DATA_TYPE
   val scalarParam0En = csr_address === CsrAddress.SCALAR_PARAM0
+  val quantQzerosAddressEn = csr_address === CsrAddress.QUANT_QZEROS_ADDRESS
+  val quantScalesAddressEn = csr_address === CsrAddress.QUANT_SCALES_ADDRESS
+  val quantGIdxAddressEn = csr_address === CsrAddress.QUANT_G_IDX_ADDRESS
+  val quantConfigEn = csr_address === CsrAddress.QUANT_CONFIG
+  val quantQweightStrideEn = csr_address === CsrAddress.QUANT_QWEIGHT_STRIDE
+  val quantQzerosStrideEn = csr_address === CsrAddress.QUANT_QZEROS_STRIDE
+  val quantScalesStrideEn = csr_address === CsrAddress.QUANT_SCALES_STRIDE
   val kscm0En     = csr_address === CsrAddress.KSCM0
   val kscm1En     = csr_address === CsrAddress.KSCM1
   val kscm2En     = csr_address === CsrAddress.KSCM2
@@ -463,6 +491,13 @@ class Csr(p: Parameters) extends Module {
       tensorShapeEn -> tensorShape,
       tensorDataTypeEn -> tensorDataType,
       scalarParam0En -> scalarParam0,
+      quantQzerosAddressEn -> quantQzerosAddress,
+      quantScalesAddressEn -> quantScalesAddress,
+      quantGIdxAddressEn -> quantGIdxAddress,
+      quantConfigEn -> quantConfig,
+      quantQweightStrideEn -> quantQweightStride,
+      quantQzerosStrideEn -> quantQzerosStride,
+      quantScalesStrideEn -> quantScalesStride,
       kscm0En     -> kscm(31,0),
       kscm1En     -> kscm(63,32),
       kscm2En     -> kscm(95,64),
@@ -526,6 +561,13 @@ class Csr(p: Parameters) extends Module {
     when (tensorShapeEn) { tensorShape := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (tensorDataTypeEn) { tensorDataType := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (scalarParam0En) { scalarParam0 := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (quantQzerosAddressEn) { quantQzerosAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (quantScalesAddressEn) { quantScalesAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (quantGIdxAddressEn) { quantGIdxAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (quantConfigEn) { quantConfig := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (quantQweightStrideEn) { quantQweightStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (quantQzerosStrideEn) { quantQzerosStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (quantScalesStrideEn) { quantScalesStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (dscratch0En)  { dscratch0 := wdata }
     when (dscratch1En)  { dscratch1 := wdata }
     when (tdata1En)     { tdata1 := LegalizeTdata1(wdata) }

@@ -77,6 +77,33 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
   uint64_t source1_elements = elements;
   uint64_t destination_elements = elements;
   switch (command.opcode) {
+    case OPENNPUX_XGRAPH_OP_TDEQUANT: {
+      const uint32_t scale_type = (command.scalar0 >> 20) & 0xf;
+      const uint32_t scale_bytes = scale_type == 2 ? 4 : 2;
+      const uint32_t group_size = command.scalar0 & 0xffff;
+      if (command.dim2 == 0 || group_size == 0 || scale_type > 2) {
+        return false;
+      }
+      const uint32_t groups =
+          (command.dim2 + group_size - 1) / group_size;
+      return RangeValid(command.source0_offset,
+                        static_cast<uint64_t>((command.dim2 + 7) / 8 - 1) *
+                                command.reserved[2] +
+                            command.dim1 * 4) &&
+             RangeValid(command.source1_offset,
+                        static_cast<uint64_t>(groups - 1) *
+                                command.reserved[3] +
+                            ((command.dim1 + 7) / 8) * 4) &&
+             RangeValid(command.reserved[0],
+                        static_cast<uint64_t>(groups - 1) *
+                                command.reserved[4] +
+                            command.dim1 * scale_bytes) &&
+             (((command.scalar0 >> 24) & 1) == 0 ||
+              RangeValid(command.reserved[1], command.dim2 * 4)) &&
+             RangeValid(command.destination_offset,
+                        static_cast<uint64_t>(command.dim2) * command.dim1 *
+                            sizeof(float));
+    }
     case OPENNPUX_XGRAPH_OP_TMMA:
       source0_elements = static_cast<uint64_t>(command.dim0) * command.dim2;
       source1_elements = static_cast<uint64_t>(command.dim2) * command.dim1;
@@ -122,6 +149,19 @@ bool Execute(const volatile opennpux_xgraph_command& command,
   const uint64_t elements =
       static_cast<uint64_t>(command.dim0) * command.dim1;
   switch (command.opcode) {
+    case OPENNPUX_XGRAPH_OP_TDEQUANT:
+      xopennpux_dequant_int4_fp32(
+          destination, source0, source1, ConstAddress(command.reserved[0]),
+          ((command.scalar0 >> 24) & 1) != 0
+              ? reinterpret_cast<const uint32_t*>(
+                    ConstAddress(command.reserved[1]))
+              : nullptr,
+          command.dim1, command.dim2, command.scalar0 & 0xffff,
+          (command.scalar0 >> 16) & 0xf, (command.scalar0 >> 20) & 0xf,
+          command.reserved[2], command.reserved[3], command.reserved[4]);
+      *operations += static_cast<uint64_t>(command.dim1) * command.dim2;
+      *cycles += static_cast<uint64_t>(command.dim1) * command.dim2;
+      return true;
     case OPENNPUX_XGRAPH_OP_TMMA:
       xopennpux_matmul_fp32(destination, source0, source1, command.dim0,
                            command.dim1, command.dim2);

@@ -18,6 +18,15 @@ bool MatrixRangeValid(uint32_t address, uint64_t elements,
   return offset <= memory_size && bytes <= memory_size - offset;
 }
 
+bool ByteRangeValid(uint32_t address, uint64_t bytes, uint32_t alignment,
+                    uint32_t memory_base, size_t memory_size) {
+  if (alignment == 0 || address % alignment != 0 || address < memory_base) {
+    return false;
+  }
+  const uint64_t offset = static_cast<uint64_t>(address - memory_base);
+  return bytes != 0 && offset <= memory_size && bytes <= memory_size - offset;
+}
+
 float LoadFloat(const std::vector<uint8_t>& memory, size_t offset) {
   float value = 0.0f;
   std::memcpy(&value, memory.data() + offset, sizeof(value));
@@ -44,6 +53,39 @@ float DecodeFloat(uint32_t bits) {
   return value;
 }
 
+float DecodeFloat16(uint16_t value) {
+  const uint32_t sign = static_cast<uint32_t>(value & 0x8000u) << 16;
+  const uint32_t exponent = (value >> 10) & 0x1fu;
+  uint32_t mantissa = value & 0x3ffu;
+  if (exponent == 0) {
+    if (mantissa == 0) return DecodeFloat(sign);
+    uint32_t normalized_exponent = 113;
+    while ((mantissa & 0x400u) == 0) {
+      mantissa <<= 1;
+      --normalized_exponent;
+    }
+    return DecodeFloat(sign | (normalized_exponent << 23) |
+                       ((mantissa & 0x3ffu) << 13));
+  }
+  if (exponent == 0x1f) {
+    return DecodeFloat(sign | 0x7f800000u | (mantissa << 13));
+  }
+  return DecodeFloat(sign | ((exponent + 112) << 23) | (mantissa << 13));
+}
+
+float LoadScale(const std::vector<uint8_t>& memory, size_t offset,
+                xopennpux::DataType data_type) {
+  if (data_type == xopennpux::DataType::kFp32) {
+    return LoadFloat(memory, offset);
+  }
+  uint16_t value = 0;
+  std::memcpy(&value, memory.data() + offset, sizeof(value));
+  if (data_type == xopennpux::DataType::kBf16) {
+    return DecodeFloat(static_cast<uint32_t>(value) << 16);
+  }
+  return DecodeFloat16(value);
+}
+
 uint32_t Fnv1a(const uint8_t* data, size_t size) {
   uint32_t hash = 2166136261u;
   for (size_t index = 0; index < size; ++index) {
@@ -63,6 +105,13 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   tensor_shape_ = 0;
   tensor_data_type_ = 0;
   scalar_param0_ = 0;
+  quant_qzeros_address_ = 0;
+  quant_scales_address_ = 0;
+  quant_g_idx_address_ = 0;
+  quant_config_ = 0;
+  quant_qweight_stride_ = 0;
+  quant_qzeros_stride_ = 0;
+  quant_scales_stride_ = 0;
   csr_epoch_ = 0;
 }
 
@@ -83,6 +132,27 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrScalarParam0:
       scalar_param0_ = value;
+      break;
+    case xopennpux::kCsrQuantQzerosAddress:
+      quant_qzeros_address_ = value;
+      break;
+    case xopennpux::kCsrQuantScalesAddress:
+      quant_scales_address_ = value;
+      break;
+    case xopennpux::kCsrQuantGIdxAddress:
+      quant_g_idx_address_ = value;
+      break;
+    case xopennpux::kCsrQuantConfig:
+      quant_config_ = value;
+      break;
+    case xopennpux::kCsrQuantQweightStride:
+      quant_qweight_stride_ = value;
+      break;
+    case xopennpux::kCsrQuantQzerosStride:
+      quant_qzeros_stride_ = value;
+      break;
+    case xopennpux::kCsrQuantScalesStride:
+      quant_scales_stride_ = value;
       break;
     default:
       return false;
@@ -112,6 +182,27 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
     case xopennpux::kCsrScalarParam0:
       *value = scalar_param0_;
       return true;
+    case xopennpux::kCsrQuantQzerosAddress:
+      *value = quant_qzeros_address_;
+      return true;
+    case xopennpux::kCsrQuantScalesAddress:
+      *value = quant_scales_address_;
+      return true;
+    case xopennpux::kCsrQuantGIdxAddress:
+      *value = quant_g_idx_address_;
+      return true;
+    case xopennpux::kCsrQuantConfig:
+      *value = quant_config_;
+      return true;
+    case xopennpux::kCsrQuantQweightStride:
+      *value = quant_qweight_stride_;
+      return true;
+    case xopennpux::kCsrQuantQzerosStride:
+      *value = quant_qzeros_stride_;
+      return true;
+    case xopennpux::kCsrQuantScalesStride:
+      *value = quant_scales_stride_;
+      return true;
     default:
       return false;
   }
@@ -133,6 +224,7 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       operation != xopennpux::Operation::kTrope &&
       operation != xopennpux::Operation::kTsilu &&
       operation != xopennpux::Operation::kTgather &&
+      operation != xopennpux::Operation::kTdequant &&
       operation != xopennpux::Operation::kTtopk) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
@@ -140,7 +232,8 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
     return Gem5TmmaSubmitResult::kBackpressure;
   }
 
-  const bool is_mma = operation == xopennpux::Operation::kTmma;
+  const bool is_mma = operation == xopennpux::Operation::kTmma ||
+                      operation == xopennpux::Operation::kTdequant;
   const uint32_t shape_csr = packet.csr_epoch == 0
                                  ? (is_mma ? mma_shape_ : tensor_shape_)
                                  : (is_mma ? packet.mma_shape
@@ -162,10 +255,56 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       (!is_mma &&
        (tensor_shape.rows == 0 || tensor_shape.features == 0)) ||
       (data_type_csr & kDataTypeReservedMask) != 0 ||
-      data_types.src1 != xopennpux::DataType::kFp32 ||
-      data_types.src2 != xopennpux::DataType::kFp32 ||
-      data_types.dst != xopennpux::DataType::kFp32) {
+      (operation != xopennpux::Operation::kTdequant &&
+       (data_types.src1 != xopennpux::DataType::kFp32 ||
+        data_types.src2 != xopennpux::DataType::kFp32 ||
+        data_types.dst != xopennpux::DataType::kFp32))) {
     return Gem5TmmaSubmitResult::kInvalidCsrState;
+  }
+  if (operation == xopennpux::Operation::kTdequant) {
+    const uint32_t config_value = packet.csr_epoch == 0
+                                      ? quant_config_
+                                      : packet.quant_config;
+    const xopennpux::QuantConfig config =
+        xopennpux::DecodeQuantConfig(config_value);
+    const uint32_t qzeros_address = packet.csr_epoch == 0
+                                        ? quant_qzeros_address_
+                                        : packet.quant_qzeros_address;
+    const uint32_t scales_address = packet.csr_epoch == 0
+                                        ? quant_scales_address_
+                                        : packet.quant_scales_address;
+    const uint32_t g_idx_address = packet.csr_epoch == 0
+                                       ? quant_g_idx_address_
+                                       : packet.quant_g_idx_address;
+    const uint32_t qweight_stride = packet.csr_epoch == 0
+                                        ? quant_qweight_stride_
+                                        : packet.quant_qweight_stride;
+    const uint32_t qzeros_stride = packet.csr_epoch == 0
+                                       ? quant_qzeros_stride_
+                                       : packet.quant_qzeros_stride;
+    const uint32_t scales_stride = packet.csr_epoch == 0
+                                       ? quant_scales_stride_
+                                       : packet.quant_scales_stride;
+    const uint32_t scale_bytes =
+        config.scale_data_type == xopennpux::DataType::kFp32 ? 4 : 2;
+    const uint32_t minimum_qweight_stride = shape.n * 4;
+    const uint32_t minimum_qzeros_stride = ((shape.n + 7) / 8) * 4;
+    const uint32_t minimum_scales_stride = shape.n * scale_bytes;
+    if ((config_value & 0xfe000000u) != 0 || config.group_size == 0 ||
+        (config.scale_data_type != xopennpux::DataType::kFp16 &&
+         config.scale_data_type != xopennpux::DataType::kBf16 &&
+         config.scale_data_type != xopennpux::DataType::kFp32) ||
+        data_types.src1 != xopennpux::DataType::kInt4 ||
+        data_types.dst != xopennpux::DataType::kFp32 ||
+        qzeros_address == 0 || scales_address == 0 ||
+        (config.has_g_idx && g_idx_address == 0) ||
+        qweight_stride < minimum_qweight_stride ||
+        qweight_stride % 4 != 0 ||
+        qzeros_stride < minimum_qzeros_stride || qzeros_stride % 4 != 0 ||
+        scales_stride < minimum_scales_stride ||
+        scales_stride % scale_bytes != 0) {
+      return Gem5TmmaSubmitResult::kInvalidCsrState;
+    }
   }
   const uint32_t scalar_param0 =
       packet.csr_epoch == 0 ? scalar_param0_ : packet.scalar_param0;
@@ -224,6 +363,27 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
       packet.csr_epoch == 0 ? scalar_param0_ : packet.scalar_param0;
   queue_[tail].csr_epoch = packet.csr_epoch == 0 ? csr_epoch_
                                                   : packet.csr_epoch;
+  queue_[tail].quant_qzeros_address = packet.csr_epoch == 0
+                                           ? quant_qzeros_address_
+                                           : packet.quant_qzeros_address;
+  queue_[tail].quant_scales_address = packet.csr_epoch == 0
+                                          ? quant_scales_address_
+                                          : packet.quant_scales_address;
+  queue_[tail].quant_g_idx_address = packet.csr_epoch == 0
+                                         ? quant_g_idx_address_
+                                         : packet.quant_g_idx_address;
+  queue_[tail].quant_config = packet.csr_epoch == 0
+                                  ? quant_config_
+                                  : packet.quant_config;
+  queue_[tail].quant_qweight_stride = packet.csr_epoch == 0
+                                           ? quant_qweight_stride_
+                                           : packet.quant_qweight_stride;
+  queue_[tail].quant_qzeros_stride = packet.csr_epoch == 0
+                                          ? quant_qzeros_stride_
+                                          : packet.quant_qzeros_stride;
+  queue_[tail].quant_scales_stride = packet.csr_epoch == 0
+                                          ? quant_scales_stride_
+                                          : packet.quant_scales_stride;
   ++queue_size_;
   return Gem5TmmaSubmitResult::kAccepted;
 }
@@ -256,6 +416,10 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   if (command.operation == xopennpux::Operation::kTmma) {
     completion->mac_operations = tensor_elements;
     completion->modeled_cycles = completion->mac_operations;
+  } else if (command.operation == xopennpux::Operation::kTdequant) {
+    completion->element_operations =
+        static_cast<uint64_t>(command.shape.k) * command.shape.n;
+    completion->modeled_cycles = completion->element_operations;
   } else if (command.operation == xopennpux::Operation::kTrmsnorm) {
     completion->element_operations = tensor_elements * 4;
     completion->modeled_cycles = completion->element_operations;
@@ -281,12 +445,14 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   }
 
   const xopennpux::MmaDataTypes data_types =
-      command.operation == xopennpux::Operation::kTmma
+      command.operation == xopennpux::Operation::kTmma ||
+              command.operation == xopennpux::Operation::kTdequant
           ? command.data_types
           : command.tensor_data_types;
-  if (data_types.src1 != xopennpux::DataType::kFp32 ||
+  if (command.operation != xopennpux::Operation::kTdequant &&
+      (data_types.src1 != xopennpux::DataType::kFp32 ||
       data_types.src2 != xopennpux::DataType::kFp32 ||
-      data_types.dst != xopennpux::DataType::kFp32) {
+       data_types.dst != xopennpux::DataType::kFp32)) {
     completion->error = Gem5TmmaExecutionError::kUnsupportedDataType;
     return true;
   }
@@ -301,6 +467,8 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   const uint64_t rhs_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.k) * command.shape.n
+          : command.operation == xopennpux::Operation::kTdequant
+              ? 0
           : command.operation == xopennpux::Operation::kTrmsnorm
               ? command.tensor_shape.features
               : command.operation == xopennpux::Operation::kTrope
@@ -315,12 +483,15 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   const uint64_t dst_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.m) * command.shape.n
+          : command.operation == xopennpux::Operation::kTdequant
+              ? static_cast<uint64_t>(command.shape.k) * command.shape.n
           : command.operation == xopennpux::Operation::kTtopk
               ? static_cast<uint64_t>(command.tensor_shape.rows) *
                     command.scalar_param0 * 2
           : tensor_elements;
   const uint64_t dst_bytes = dst_elements * sizeof(float);
-  if (!MatrixRangeValid(command.dispatch.rs1_value, lhs_elements, memory_base,
+  if (command.operation != xopennpux::Operation::kTdequant &&
+      !MatrixRangeValid(command.dispatch.rs1_value, lhs_elements, memory_base,
                         memory->size())) {
     completion->error = Gem5TmmaExecutionError::kAddress;
     completion->faulting_address = command.dispatch.rs1_value;
@@ -343,7 +514,82 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   const size_t lhs_base = command.dispatch.rs1_value - memory_base;
   const size_t rhs_base = command.dispatch.rs2_value - memory_base;
   const size_t dst_base = command.dispatch.rd_value - memory_base;
-  if (command.operation == xopennpux::Operation::kTmma) {
+  if (command.operation == xopennpux::Operation::kTdequant) {
+    const xopennpux::QuantConfig config =
+        xopennpux::DecodeQuantConfig(command.quant_config);
+    const uint32_t packed_k_rows = (command.shape.k + 7) / 8;
+    const uint32_t groups = (command.shape.k + config.group_size - 1) /
+                            config.group_size;
+    const uint32_t zero_row_bytes = ((command.shape.n + 7) / 8) * 4;
+    const uint32_t scale_element_bytes =
+        config.scale_data_type == xopennpux::DataType::kFp32 ? 4 : 2;
+    const uint64_t qweight_span =
+        static_cast<uint64_t>(packed_k_rows - 1) *
+            command.quant_qweight_stride + command.shape.n * 4;
+    const uint64_t qzeros_span = static_cast<uint64_t>(groups - 1) *
+                                     command.quant_qzeros_stride +
+                                 zero_row_bytes;
+    const uint64_t scales_span = static_cast<uint64_t>(groups - 1) *
+                                     command.quant_scales_stride +
+                                 command.shape.n * scale_element_bytes;
+    if (!ByteRangeValid(command.dispatch.rs1_value, qweight_span, 4,
+                        memory_base, memory->size()) ||
+        !ByteRangeValid(command.quant_qzeros_address, qzeros_span, 4,
+                        memory_base, memory->size()) ||
+        !ByteRangeValid(command.quant_scales_address, scales_span,
+                        scale_element_bytes, memory_base, memory->size()) ||
+        (config.has_g_idx &&
+         !ByteRangeValid(command.quant_g_idx_address,
+                         static_cast<uint64_t>(command.shape.k) * 4, 4,
+                         memory_base, memory->size()))) {
+      completion->error = Gem5TmmaExecutionError::kAddress;
+      return true;
+    }
+    const size_t qweight_base = command.dispatch.rs1_value - memory_base;
+    const size_t qzeros_base = command.quant_qzeros_address - memory_base;
+    const size_t scales_base = command.quant_scales_address - memory_base;
+    const size_t g_idx_base = command.quant_g_idx_address - memory_base;
+    for (uint32_t k = 0; k < command.shape.k; ++k) {
+      uint32_t group = k / config.group_size;
+      if (config.has_g_idx) {
+        group = LoadUint32(*memory, g_idx_base + k * 4);
+        if (group >= groups) {
+          completion->error = Gem5TmmaExecutionError::kAddress;
+          completion->faulting_address = command.quant_g_idx_address + k * 4;
+          return true;
+        }
+      }
+      for (uint32_t column = 0; column < command.shape.n; ++column) {
+        const uint32_t packed_weight = LoadUint32(
+            *memory, qweight_base + (k / 8) * command.quant_qweight_stride +
+                         column * 4);
+        const uint32_t quantized = (packed_weight >> (4 * (k % 8))) & 0xf;
+        const uint32_t packed_zero = LoadUint32(
+            *memory, qzeros_base + group * command.quant_qzeros_stride +
+                         (column / 8) * 4);
+        const uint32_t zero =
+            ((packed_zero >> (4 * (column % 8))) & 0xf) + config.zero_bias;
+        const float scale = LoadScale(
+            *memory, scales_base + group * command.quant_scales_stride +
+                         column * scale_element_bytes,
+            config.scale_data_type);
+        if (!std::isfinite(scale)) {
+          completion->error = Gem5TmmaExecutionError::kInvalidData;
+          completion->faulting_address =
+              command.quant_scales_address +
+              group * command.quant_scales_stride +
+              column * scale_element_bytes;
+          return true;
+        }
+        StoreFloat(memory, dst_base +
+                               (static_cast<size_t>(k) * command.shape.n +
+                                column) *
+                                   sizeof(float),
+                   (static_cast<int32_t>(quantized) -
+                    static_cast<int32_t>(zero)) * scale);
+      }
+    }
+  } else if (command.operation == xopennpux::Operation::kTmma) {
     for (uint32_t row = 0; row < command.shape.m; ++row) {
       for (uint32_t column = 0; column < command.shape.n; ++column) {
         float accumulator = 0.0f;

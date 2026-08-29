@@ -36,6 +36,7 @@ enum opennpux_xgraph_opcode {
     OPENNPUX_XGRAPH_OP_TSILU = 7,
     OPENNPUX_XGRAPH_OP_TGATHER = 8,
     OPENNPUX_XGRAPH_OP_TTOPK = 9,
+    OPENNPUX_XGRAPH_OP_TDEQUANT = 10,
 };
 
 enum opennpux_xgraph_data_type {
@@ -62,6 +63,15 @@ struct opennpux_xgraph_command {
     uint32_t command_id;
     uint32_t reserved[5];
 };
+
+/*
+ * TDEQUANT reuses the fixed command fields as follows:
+ *   destination/source0/source1: FP32 scratch/qweight/qzeros offsets
+ *   dim0/dim1/dim2: 1/tile-N/input-K
+ *   scalar0: XOpenNPUX quant config
+ *   reserved[0..4]: scales offset, optional g_idx offset, then qweight,
+ *                   qzeros, and scales row strides in bytes.
+ */
 
 struct opennpux_xgraph_header {
     uint32_t magic;

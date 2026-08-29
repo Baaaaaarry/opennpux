@@ -150,6 +150,21 @@ require_log 'Coral XOpenNPU writeback sequence=20 destination=0x20002100 bytes=3
 require_log 'Coral XOpenNPU dispatch sequence=21 operation=tfence' \
     'TopK completion fence'
 
+require_log 'Coral XOpenNPU dispatch sequence=22 operation=tdequant' \
+    'TDEQUANT L2 dispatch'
+require_log 'Coral XOpenNPU complete sequence=22 .*operation=tdequant .*error=0 .*elements=16 cycles=16' \
+    'TDEQUANT functional completion'
+require_log 'Coral XOpenNPU writeback sequence=22 destination=0x20002500 bytes=64 checksum=0x2afff845 words=0x3f000000/0x40000000/0x3f000000/0x40000000' \
+    'TDEQUANT independently checked scratch tile'
+require_log 'Coral XOpenNPU dispatch sequence=23 operation=tfence' \
+    'TDEQUANT completion fence'
+require_log 'Coral XOpenNPU complete sequence=24 .*operation=tmma .*error=0 .*macs=32 .*cycles=32' \
+    'dequantized TMMA completion'
+require_log 'Coral XOpenNPU writeback sequence=24 destination=0x20002700 bytes=16 checksum=0x5547162f words=0x41900000/0x42900000/0x40800000/0x41800000' \
+    'TDEQUANT to TMMA independently checked result'
+require_log 'Coral XOpenNPU dispatch sequence=25 operation=tfence' \
+    'dequantized TMMA completion fence'
+
 # Guest UART output can be redirected to system.terminal rather than the host
 # log. The m5 exit event is the reliable host-side evidence that the restored
 # guest script completed after the firmware self-check.

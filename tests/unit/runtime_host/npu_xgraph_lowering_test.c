@@ -222,6 +222,80 @@ test_sequence_lowering(void)
     assert(failure.command_id == 7);
 }
 
+static void
+test_gptq_tiled_lowering(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command commands[12];
+    uint32_t command_count = 0;
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_MATMUL);
+    request.command_id = 0;
+    request.rows = 3;
+    request.features = 32;
+    parameters.flags = OPENNPUX_NPU_PARAMETER_GPTQ;
+    parameters.input_features = 32;
+    parameters.output_features = 18;
+    parameters.quantization_bits = 4;
+    parameters.quantization_group_size = 16;
+    parameters.quantized_zero_bias = 1;
+    parameters.scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT16;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000,
+                3 * 32 * 4);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x2000,
+                3 * 18 * 4);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_QWEIGHT, 0x3000,
+                4 * 18 * 4);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_QZEROS, 0x5000,
+                2 * 3 * 4);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SCALES, 0x6000,
+                2 * 18 * 2);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_G_IDX, 0x7000, 32 * 4);
+
+    assert(opennpux_npu_xgraph_lower_gptq_matmul(
+               &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x10000, 32 * 8 * 4, 100, commands, 12,
+               &command_count) == 0);
+    assert(command_count == 12);
+    assert(commands[0].opcode == OPENNPUX_XGRAPH_OP_TDEQUANT);
+    assert(commands[0].command_id == 100);
+    assert(commands[0].destination_offset == 0x10000);
+    assert(commands[0].source0_offset == 0x3000);
+    assert(commands[0].source1_offset == 0x5000);
+    assert(commands[0].dim0 == 1 && commands[0].dim1 == 8 &&
+           commands[0].dim2 == 32);
+    assert(commands[0].scalar0 == UINT32_C(0x01010010));
+    assert(commands[0].reserved[0] == 0x6000);
+    assert(commands[0].reserved[1] == 0x7000);
+    assert(commands[0].reserved[2] == 18 * 4);
+    assert(commands[0].reserved[3] == 3 * 4);
+    assert(commands[0].reserved[4] == 18 * 2);
+    assert(commands[1].opcode == OPENNPUX_XGRAPH_OP_TMMA);
+    assert(commands[1].source0_offset == 0x1000);
+    assert(commands[1].source1_offset == 0x10000);
+    assert(commands[1].destination_offset == 0x2000);
+    assert(commands[3].source0_offset == 0x1000 + 2 * 32 * 4);
+    assert(commands[3].destination_offset == 0x2000 + 2 * 18 * 4);
+
+    assert(commands[4].opcode == OPENNPUX_XGRAPH_OP_TDEQUANT);
+    assert(commands[4].source0_offset == 0x3000 + 8 * 4);
+    assert(commands[4].source1_offset == 0x5000 + 4);
+    assert(commands[4].reserved[0] == 0x6000 + 8 * 2);
+    assert(commands[8].opcode == OPENNPUX_XGRAPH_OP_TDEQUANT);
+    assert(commands[8].dim1 == 2);
+    assert(commands[8].source0_offset == 0x3000 + 16 * 4);
+    assert(commands[9].destination_offset == 0x2000 + 16 * 4);
+    assert(commands[11].destination_offset ==
+           0x2000 + 2 * 18 * 4 + 16 * 4);
+
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_gptq_matmul(
+               &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x10000, 32 * 8 * 4, 0, commands, 11,
+               &command_count) == -1);
+    assert(errno == ENOSPC);
+}
+
 int
 main(void)
 {
@@ -229,6 +303,7 @@ main(void)
     test_semantic_options();
     test_embed_and_rejections();
     test_sequence_lowering();
+    test_gptq_tiled_lowering();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

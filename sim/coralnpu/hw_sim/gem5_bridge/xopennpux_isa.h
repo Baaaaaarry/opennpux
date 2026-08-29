@@ -20,6 +20,7 @@ constexpr uint32_t kRopeFunct7 = 0x33;
 constexpr uint32_t kSiluFunct7 = 0x46;
 constexpr uint32_t kMoveFunct3 = 3;
 constexpr uint32_t kGatherFunct7 = 0x10;
+constexpr uint32_t kDequantFunct7 = 0x11;
 constexpr uint32_t kMultiOutputFunct3 = 4;
 constexpr uint32_t kTopKFunct7 = 0;
 constexpr uint32_t kFenceFunct3 = 6;
@@ -29,6 +30,13 @@ constexpr uint16_t kCsrMmaDataType = 0x801;
 constexpr uint16_t kCsrTensorShape = 0x802;
 constexpr uint16_t kCsrTensorDataType = 0x806;
 constexpr uint16_t kCsrScalarParam0 = 0x80b;
+constexpr uint16_t kCsrQuantQzerosAddress = 0x810;
+constexpr uint16_t kCsrQuantScalesAddress = 0x811;
+constexpr uint16_t kCsrQuantGIdxAddress = 0x812;
+constexpr uint16_t kCsrQuantConfig = 0x813;
+constexpr uint16_t kCsrQuantQweightStride = 0x814;
+constexpr uint16_t kCsrQuantQzerosStride = 0x815;
+constexpr uint16_t kCsrQuantScalesStride = 0x816;
 
 constexpr uint32_t kShapeFieldMask = 0x3ff;
 constexpr uint32_t kShapeMShift = 0;
@@ -70,6 +78,28 @@ struct TensorShape {
   uint16_t rows = 0;
   uint16_t features = 0;
 };
+
+struct QuantConfig {
+  uint16_t group_size = 0;
+  uint8_t zero_bias = 0;
+  DataType scale_data_type = DataType::kFp16;
+  bool has_g_idx = false;
+};
+
+constexpr uint32_t EncodeQuantConfig(uint32_t group_size, uint32_t zero_bias,
+                                     DataType scale_data_type,
+                                     bool has_g_idx) {
+  return (group_size & 0xffff) | ((zero_bias & 0xf) << 16) |
+         ((static_cast<uint32_t>(scale_data_type) & 0xf) << 20) |
+         (has_g_idx ? (1u << 24) : 0);
+}
+
+constexpr QuantConfig DecodeQuantConfig(uint32_t value) {
+  return QuantConfig{static_cast<uint16_t>(value & 0xffff),
+                     static_cast<uint8_t>((value >> 16) & 0xf),
+                     static_cast<DataType>((value >> 20) & 0xf),
+                     ((value >> 24) & 1) != 0};
+}
 
 constexpr uint32_t EncodeTensorShape(uint32_t rows, uint32_t features) {
   return (rows & 0xffff) | ((features & 0xffff) << 16);
@@ -216,6 +246,18 @@ constexpr bool IsTgather(uint32_t instruction) {
          ((instruction >> 25) & 0x7f) == kGatherFunct7;
 }
 
+constexpr uint32_t EncodeTdequant(uint32_t rd, uint32_t rs1) {
+  return (kDequantFunct7 << 25) | ((rs1 & 0x1f) << 15) |
+         (kMoveFunct3 << 12) | ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTdequant(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kMoveFunct3 &&
+         ((instruction >> 25) & 0x7f) == kDequantFunct7 &&
+         ((instruction >> 20) & 0x1f) == 0;
+}
+
 constexpr uint32_t EncodeTtopk(uint32_t rd, uint32_t rs1) {
   return (kTopKFunct7 << 25) | ((rs1 & 0x1f) << 15) |
          (kMultiOutputFunct3 << 12) | ((rd & 0x1f) << 7) |
@@ -247,6 +289,7 @@ enum class Operation : uint8_t {
   kTrope,
   kTsilu,
   kTgather,
+  kTdequant,
   kTtopk,
   kTfence,
 };
@@ -260,6 +303,7 @@ constexpr Operation DecodeOperation(uint32_t instruction) {
          : IsTrope(instruction) ? Operation::kTrope
          : IsTsilu(instruction) ? Operation::kTsilu
          : IsTgather(instruction) ? Operation::kTgather
+         : IsTdequant(instruction) ? Operation::kTdequant
          : IsTtopk(instruction) ? Operation::kTtopk
          : IsTfence(instruction) ? Operation::kTfence
                                  : Operation::kInvalid;
@@ -283,6 +327,8 @@ constexpr const char* OperationName(Operation operation) {
       return "tsilu";
     case Operation::kTgather:
       return "tgather";
+    case Operation::kTdequant:
+      return "tdequant";
     case Operation::kTtopk:
       return "ttopk";
     case Operation::kTfence:

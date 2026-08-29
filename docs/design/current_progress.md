@@ -921,5 +921,18 @@ row bytes 和起始地址，不能再把跨行分量错误表示为连续内存�
 tile 宽度由调用方提供的 dequant scratch 容量决定，非尾 tile 按 8 个输出通道对齐，
 尾 tile 支持非整除 N。规划阶段同时验证 EXTMEM aperture、operand 实际容量、int4/group/
 scale dtype 契约和 64-bit 大小计算。该层只建立后续 `TDEQUANT + TMMA` 指令序列的稳定
-输入，不把 Host GPTQ kernel 冒充自定义指令执行；设备执行仍需补充 TDEQUANT 指令、扩展
-CSR snapshot 及 compiler emission。
+输入，不把 Host GPTQ kernel 冒充自定义指令执行。
+
+在此基础上已新增模型无关 `TDEQUANT` 32-bit 自定义指令及实验 CSR `0x810..0x816`。
+Coral 标量核仍负责 CSR 指令和 custom3 的 L1 取指/译码/retire；accept 时将 qzeros、scales、
+可选 g_idx、量化配置及三类 byte stride 与指令一起快照给 NPU L2。C++ 功能协处理器按
+AutoGPTQ packed layout 完成 INT4 到 FP32 scratch 的数值反量化，拒绝非法 stride、越界
+g_idx 和非有限 scale。native 回归已覆盖带 padding 的分量行、非连续 g_idx、3 通道尾 tile，
+以及 `TDEQUANT -> TMMA` 组合结果。
+
+XGraph 保持 64-byte command ABI，新增通用 TDEQUANT opcode；reserved 字段被明确编码为
+scales/g_idx offset 与 qweight/qzeros/scales row stride。GPTQ lowering 现按 `8/8/tail`
+等 N tile 生成一次反量化，并在 stride CSR 尚未冻结前按输出 row 展开 FP32 TMMA，确保
+写回地址正确。18 通道、3 行、32 输入维测试生成 12 条命令并逐项校验地址和容量失败。
+当前实验 `mma_shape` 只有 10-bit K，因此 GB10 验证范围先限定 `K<=1023`；Qwen3.5 的
+2048/4096 维必须在下一增量实现 K tile+显式累加或评审扩展 shape CSR，禁止截断维度。

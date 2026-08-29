@@ -2,6 +2,7 @@
 #define OPENNPUX_NPU_XGRAPH_LOWERING_H
 
 #include "opennpux/npu_functional_request.h"
+#include "opennpux/npu_gptq_tile_plan.h"
 #include "opennpux/npu_submission.h"
 #include "opennpux/xopennpux_graph.h"
 
@@ -62,6 +63,19 @@ int opennpux_npu_xgraph_lower_sequence(
     uint32_t command_count, uint32_t extmem_base, uint32_t extmem_size,
     struct opennpux_xgraph_command *commands, uint32_t command_capacity,
     struct opennpux_npu_xgraph_lowering_failure *failure);
+
+/*
+ * Decompose one GPTQ MatMul into executable XOpenNPUX records. Each N tile is
+ * dequantized once, then one-row TMMA records preserve the strided output view
+ * until the physical tensor stride CSR map is frozen.
+ */
+int opennpux_npu_xgraph_lower_gptq_matmul(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count);
 
 #ifdef __cplusplus
 }

@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "opennpux/coral_runtime.h"
+#include "opennpux/npu_xgraph_lowering.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -35,6 +36,47 @@
 
 #define BACKEND_STAGE_A UINT32_C(0x4e505501)
 #define BACKEND_VERILATED UINT32_C(0x4e505502)
+#define CORAL_LOCAL_EXTMEM_BASE UINT32_C(0x20000000)
+
+static void
+initialize_xgraph_request(
+    struct opennpux_npu_functional_request *request,
+    struct opennpux_npu_operator_parameters *parameters, uint32_t command_id,
+    uint32_t opcode, uint32_t rows, uint32_t features)
+{
+    memset(request, 0, sizeof(*request));
+    request->magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+    request->version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+    request->struct_size = sizeof(*request);
+    request->opcode = opcode;
+    request->command_id = command_id;
+    request->rows = rows;
+    request->features = features;
+
+    memset(parameters, 0, sizeof(*parameters));
+    parameters->magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+    parameters->version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+    parameters->struct_size = sizeof(*parameters);
+    parameters->opcode = opcode;
+}
+
+static int
+add_xgraph_operand(struct opennpux_npu_functional_request *request,
+                   uint32_t role, uint32_t offset, uint32_t byte_size)
+{
+    if (request->operand_count >= OPENNPUX_NPU_FUNCTIONAL_MAX_OPERANDS ||
+        offset > UINT32_MAX - CORAL_LOCAL_EXTMEM_BASE) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    struct opennpux_npu_functional_operand *operand =
+        &request->operands[request->operand_count++];
+    operand->role = role;
+    operand->address = CORAL_LOCAL_EXTMEM_BASE + offset;
+    operand->byte_size = byte_size;
+    operand->reserved = 0;
+    return 0;
+}
 
 const char *
 opennpux_coral_transport_name(enum opennpux_coral_transport transport)
@@ -1247,29 +1289,135 @@ opennpux_coral_xgraph_test(
         float value;
         uint32_t bits;
     } epsilon = {1.0e-5f};
-    struct opennpux_xgraph_command commands[9] = {
-        {OPENNPUX_XGRAPH_OP_TGATHER, 0, tensor0, embedding, tokens,
-         2, 4, 1, 2, OPENNPUX_XGRAPH_DTYPE_FP32, 0, {0}},
-        {OPENNPUX_XGRAPH_OP_TMMA, 0, tensor1, tensor0, matrix,
-         2, 4, 4, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 1, {0}},
-        {OPENNPUX_XGRAPH_OP_TADD, 0, tensor2, tensor1, bias,
-         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 2, {0}},
-        {OPENNPUX_XGRAPH_OP_TMUL, 0, tensor3, tensor2, scale,
-         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 3, {0}},
-        {OPENNPUX_XGRAPH_OP_TRMSNORM, 0, tensor4, tensor3, norm_weight,
-         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 4, {0}},
-        {OPENNPUX_XGRAPH_OP_TROPE, 0, tensor5, tensor4, rope_table,
-         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 5, {0}},
-        {OPENNPUX_XGRAPH_OP_TSILU, 0, tensor6, tensor5, 0,
-         2, 4, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 6, {0}},
-        {OPENNPUX_XGRAPH_OP_TSOFTMAX, 0, tensor7, tensor6, 0,
-         1, 8, 1, 0, OPENNPUX_XGRAPH_DTYPE_FP32, 7, {0}},
-        {OPENNPUX_XGRAPH_OP_TTOPK, 0, packed_topk, tensor7, 0,
-         1, 8, 1, 1, OPENNPUX_XGRAPH_DTYPE_FP32, 8, {0}},
-    };
-    commands[4].scalar0 = epsilon.bits;
-
     memset(result, 0, sizeof(*result));
+    enum { command_count = 9 };
+    struct opennpux_npu_functional_request requests[command_count];
+    struct opennpux_npu_operator_parameters parameters[command_count];
+    struct opennpux_npu_xgraph_lowering_options options[command_count];
+    struct opennpux_xgraph_command commands[command_count];
+    uint32_t command_origins[command_count];
+    uint32_t requests_consumed = 0;
+    uint32_t commands_emitted = 0;
+    struct opennpux_npu_xgraph_lowering_failure lowering_failure;
+    memset(options, 0, sizeof(options));
+
+    initialize_xgraph_request(&requests[0], &parameters[0], 0,
+                              OPENNPUX_NPU_OP_EMBED, 2, 4);
+    parameters[0].input_features = 2;
+    initialize_xgraph_request(&requests[1], &parameters[1], 1,
+                              OPENNPUX_NPU_OP_MATMUL, 2, 4);
+    parameters[1].input_features = 4;
+    parameters[1].output_features = 4;
+    initialize_xgraph_request(&requests[2], &parameters[2], 2,
+                              OPENNPUX_NPU_OP_ADD, 2, 4);
+    initialize_xgraph_request(&requests[3], &parameters[3], 3,
+                              OPENNPUX_NPU_OP_MUL, 2, 4);
+    initialize_xgraph_request(&requests[4], &parameters[4], 4,
+                              OPENNPUX_NPU_OP_NORMALIZE, 2, 4);
+    requests[4].epsilon = epsilon.value;
+    initialize_xgraph_request(&requests[5], &parameters[5], 5,
+                              OPENNPUX_NPU_OP_ROPE, 2, 4);
+    options[5].rope_layout = OPENNPUX_NPU_XGRAPH_ROPE_ADJACENT;
+    initialize_xgraph_request(&requests[6], &parameters[6], 6,
+                              OPENNPUX_NPU_OP_ACTIVATION, 2, 4);
+    options[6].activation = OPENNPUX_NPU_XGRAPH_ACTIVATION_SILU;
+    initialize_xgraph_request(&requests[7], &parameters[7], 7,
+                              OPENNPUX_NPU_OP_SOFTMAX, 1, 8);
+    initialize_xgraph_request(&requests[8], &parameters[8], 8,
+                              OPENNPUX_NPU_OP_TOPK, 1, 8);
+    requests[8].top_k = 1;
+    options[8].topk_packed_address =
+        CORAL_LOCAL_EXTMEM_BASE + packed_topk;
+    options[8].topk_packed_size = 2 * sizeof(uint32_t);
+
+#define ADD_XGRAPH_OPERAND(index, role, offset, size)                         \
+    do {                                                                      \
+        if (add_xgraph_operand(&requests[(index)], (role), (offset),          \
+                               (size)) != 0) {                                \
+            return -1;                                                       \
+        }                                                                     \
+    } while (0)
+    ADD_XGRAPH_OPERAND(0, OPENNPUX_NPU_OPERAND_WEIGHT, embedding,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(0, OPENNPUX_NPU_OPERAND_INPUT_INDICES, tokens,
+                       sizeof(token_values));
+    ADD_XGRAPH_OPERAND(0, OPENNPUX_NPU_OPERAND_OUTPUT, tensor0,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(1, OPENNPUX_NPU_OPERAND_INPUT, tensor0,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(1, OPENNPUX_NPU_OPERAND_WEIGHT, matrix,
+                       sizeof(matrix_values));
+    ADD_XGRAPH_OPERAND(1, OPENNPUX_NPU_OPERAND_OUTPUT, tensor1,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(2, OPENNPUX_NPU_OPERAND_INPUT, tensor1,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(2, OPENNPUX_NPU_OPERAND_SECONDARY, bias,
+                       sizeof(bias_values));
+    ADD_XGRAPH_OPERAND(2, OPENNPUX_NPU_OPERAND_OUTPUT, tensor2,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(3, OPENNPUX_NPU_OPERAND_INPUT, tensor2,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(3, OPENNPUX_NPU_OPERAND_SECONDARY, scale,
+                       sizeof(scale_values));
+    ADD_XGRAPH_OPERAND(3, OPENNPUX_NPU_OPERAND_OUTPUT, tensor3,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(4, OPENNPUX_NPU_OPERAND_INPUT, tensor3,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(4, OPENNPUX_NPU_OPERAND_WEIGHT, norm_weight,
+                       sizeof(norm_weight_values));
+    ADD_XGRAPH_OPERAND(4, OPENNPUX_NPU_OPERAND_OUTPUT, tensor4,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(5, OPENNPUX_NPU_OPERAND_INPUT, tensor4,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(5, OPENNPUX_NPU_OPERAND_SECONDARY, rope_table,
+                       sizeof(rope_values));
+    ADD_XGRAPH_OPERAND(5, OPENNPUX_NPU_OPERAND_OUTPUT, tensor5,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(6, OPENNPUX_NPU_OPERAND_INPUT, tensor5,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(6, OPENNPUX_NPU_OPERAND_OUTPUT, tensor6,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(7, OPENNPUX_NPU_OPERAND_INPUT, tensor6,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(7, OPENNPUX_NPU_OPERAND_OUTPUT, tensor7,
+                       sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(8, OPENNPUX_NPU_OPERAND_INPUT, tensor7,
+                       sizeof(embedding_values));
+#undef ADD_XGRAPH_OPERAND
+
+    const int lowering_result = opennpux_npu_xgraph_lower_batch(
+        requests, parameters, options, command_count,
+        CORAL_LOCAL_EXTMEM_BASE, required_size, 0, 0, commands,
+        command_count, command_origins, &requests_consumed,
+        &commands_emitted, &lowering_failure);
+    if (lowering_result != 0 || requests_consumed != command_count ||
+        commands_emitted != command_count) {
+        if (lowering_result == 0) {
+            lowering_failure.command_index = requests_consumed;
+            lowering_failure.command_id = UINT32_MAX;
+            lowering_failure.opcode = OPENNPUX_NPU_OP_INVALID;
+            lowering_failure.error_code = EIO;
+        }
+        fprintf(stderr,
+                "xgraph_stage=lowering-failed request=%" PRIu32
+                " command_id=%" PRIu32 " opcode=%" PRIu32
+                " error=%" PRId32 " consumed=%" PRIu32
+                " emitted=%" PRIu32 "\n",
+                lowering_failure.command_index, lowering_failure.command_id,
+                lowering_failure.opcode, lowering_failure.error_code,
+                requests_consumed, commands_emitted);
+        if (errno == 0) {
+            errno = EIO;
+        }
+        return -1;
+    }
+    for (uint32_t index = 0; index < command_count; ++index) {
+        if (command_origins[index] != index) {
+            errno = EIO;
+            return -1;
+        }
+    }
+
     struct opennpux_coral_shared_window window;
     fprintf(stderr, "xgraph_stage=open-shared-window required=0x%zx\n",
             (size_t)required_size);
@@ -1320,7 +1468,10 @@ opennpux_coral_xgraph_test(
     __sync_synchronize();
     header->state = OPENNPUX_XGRAPH_STATE_READY;
     __sync_synchronize();
-    fprintf(stderr, "xgraph_stage=submission-ready commands=9\n");
+    fprintf(stderr,
+            "xgraph_stage=submission-ready source=generic-lowering"
+            " requests=%" PRIu32 " commands=%" PRIu32 "\n",
+            requests_consumed, commands_emitted);
 
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;

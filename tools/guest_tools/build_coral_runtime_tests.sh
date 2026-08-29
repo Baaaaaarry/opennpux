@@ -12,6 +12,8 @@ mkdir -p "${OUT_DIR}"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/coral_runtime.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_tile_plan.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_xgraph_lowering.c" \
     "${ROOT_DIR}/runtime/host/src/model_package.c" \
     "${ROOT_DIR}/runtime/host/src/npu_submission.c" \
     "${ROOT_DIR}/runtime/host/src/qwen_model.c" \

@@ -383,6 +383,8 @@ echo "gem5_host_weight_provider=PASS"
 "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
     -I"${ROOT_DIR}/runtime/host/include" \
     "${ROOT_DIR}/runtime/host/src/coral_runtime.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_tile_plan.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_xgraph_lowering.c" \
     "${ROOT_DIR}/tests/unit/runtime_host/coral_async_runtime_test.c" \
     -o "${WORK_DIR}/coral_async_runtime_test"
 "${WORK_DIR}/coral_async_runtime_test"

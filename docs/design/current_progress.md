@@ -221,6 +221,13 @@ The lowerer stops before a composite command that does not fit, so the runtime
 can stream a large executable through fixed-capacity XGraph buffers without
 splitting an operator or introducing model-specific submission rules.
 
+The full-system nine-operator command-flow test now uses that same boundary.
+Guest runtime code materializes generic operator requests and lowers them into
+XOpenNPUX commands immediately before submission; the previous hand-authored
+XGraph command array is gone. Existing per-operator checksums and numerical
+goldens therefore validate the compiler/runtime lowering path as well as the
+firmware and C++ functional engines.
+
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not
 require changes to the queue or driver ABI.

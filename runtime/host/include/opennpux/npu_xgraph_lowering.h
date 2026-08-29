@@ -77,6 +77,28 @@ int opennpux_npu_xgraph_lower_gptq_matmul(
     struct opennpux_xgraph_command *commands, uint32_t command_capacity,
     uint32_t *command_count);
 
+/*
+ * Lower as many ordered generic commands as fit in one bounded XGraph batch.
+ * Primitive commands emit one record; composite GPTQ MatMul commands emit a
+ * tiled TDEQUANT/TMMA/TADD sequence. Output command IDs are local to the batch
+ * and dense from zero. command_origins, when non-NULL, maps each emitted record
+ * back to its input request command_id.
+ *
+ * A full next request is never split across batches. If at least one request
+ * was emitted, an ENOSPC result for the next request ends the batch normally.
+ * If the first request cannot fit, the call fails with ENOSPC.
+ */
+int opennpux_npu_xgraph_lower_batch(
+    const struct opennpux_npu_functional_request *requests,
+    const struct opennpux_npu_operator_parameters *parameters,
+    const struct opennpux_npu_xgraph_lowering_options *options,
+    uint32_t request_count, uint32_t extmem_base, uint32_t extmem_size,
+    uint32_t scratch_address, uint32_t scratch_size,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_origins, uint32_t *requests_consumed,
+    uint32_t *commands_emitted,
+    struct opennpux_npu_xgraph_lowering_failure *failure);
+
 #ifdef __cplusplus
 }
 #endif

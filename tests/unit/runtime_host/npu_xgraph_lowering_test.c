@@ -356,6 +356,121 @@ test_gptq_k_tiled_accumulation(void)
            0x110000 + 18 * 4 + 16 * 4);
 }
 
+static void
+initialize_large_gptq(struct opennpux_npu_functional_request *request,
+                      struct opennpux_npu_operator_parameters *parameters,
+                      uint32_t command_id)
+{
+    initialize(request, parameters, OPENNPUX_NPU_OP_MATMUL);
+    request->command_id = command_id;
+    request->rows = 2;
+    request->features = 2048;
+    parameters->flags = OPENNPUX_NPU_PARAMETER_GPTQ;
+    parameters->input_features = 2048;
+    parameters->output_features = 18;
+    parameters->quantization_bits = 4;
+    parameters->quantization_group_size = 128;
+    parameters->quantized_zero_bias = 1;
+    parameters->scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT16;
+    add_operand(request, OPENNPUX_NPU_OPERAND_INPUT, 0x100000,
+                2 * 2048 * 4);
+    add_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x110000,
+                2 * 18 * 4);
+    add_operand(request, OPENNPUX_NPU_OPERAND_QWEIGHT, 0x120000,
+                256 * 18 * 4);
+    add_operand(request, OPENNPUX_NPU_OPERAND_QZEROS, 0x130000,
+                16 * 3 * 4);
+    add_operand(request, OPENNPUX_NPU_OPERAND_SCALES, 0x140000,
+                16 * 18 * 2);
+    add_operand(request, OPENNPUX_NPU_OPERAND_G_IDX, 0x150000, 2048 * 4);
+}
+
+static void
+test_bounded_mixed_batch_lowering(void)
+{
+    enum { request_count = 3, first_batch_capacity = 40 };
+    struct opennpux_npu_functional_request requests[request_count];
+    struct opennpux_npu_operator_parameters parameters[request_count];
+    struct opennpux_npu_xgraph_lowering_options options[request_count];
+    struct opennpux_xgraph_command commands[first_batch_capacity + 1];
+    uint32_t origins[first_batch_capacity + 1];
+    uint32_t requests_consumed = 0;
+    uint32_t commands_emitted = 0;
+    struct opennpux_npu_xgraph_lowering_failure failure;
+    memset(options, 0, sizeof(options));
+
+    initialize(&requests[0], &parameters[0], OPENNPUX_NPU_OP_ADD);
+    requests[0].command_id = 10;
+    add_operand(&requests[0], OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 32);
+    add_operand(&requests[0], OPENNPUX_NPU_OPERAND_SECONDARY, 0x2000, 32);
+    add_operand(&requests[0], OPENNPUX_NPU_OPERAND_OUTPUT, 0x3000, 32);
+    initialize_large_gptq(&requests[1], &parameters[1], 11);
+    initialize(&requests[2], &parameters[2], OPENNPUX_NPU_OP_SOFTMAX);
+    requests[2].command_id = 12;
+    add_operand(&requests[2], OPENNPUX_NPU_OPERAND_INPUT, 0x4000, 32);
+    add_operand(&requests[2], OPENNPUX_NPU_OPERAND_OUTPUT, 0x5000, 32);
+
+    assert(opennpux_npu_xgraph_lower_batch(
+               requests, parameters, options, request_count, EXTMEM_BASE,
+               EXTMEM_SIZE, EXTMEM_BASE + 0x160000, (896 + 1) * 8 * 4,
+               commands, first_batch_capacity, origins, &requests_consumed,
+               &commands_emitted, &failure) == 0);
+    assert(requests_consumed == 2);
+    assert(commands_emitted == first_batch_capacity);
+    assert(commands[0].opcode == OPENNPUX_XGRAPH_OP_TADD);
+    assert(commands[0].command_id == 0);
+    assert(origins[0] == 10);
+    assert(commands[1].opcode == OPENNPUX_XGRAPH_OP_TDEQUANT);
+    assert(commands[39].opcode == OPENNPUX_XGRAPH_OP_TADD);
+    for (uint32_t index = 1; index < first_batch_capacity; ++index) {
+        assert(commands[index].command_id == index);
+        assert(origins[index] == 11);
+    }
+
+    struct opennpux_xgraph_command tail[1];
+    uint32_t tail_origin[1];
+    assert(opennpux_npu_xgraph_lower_batch(
+               &requests[2], &parameters[2], &options[2], 1, EXTMEM_BASE,
+               EXTMEM_SIZE, EXTMEM_BASE + 0x160000, (896 + 1) * 8 * 4,
+               tail, 1, tail_origin, &requests_consumed, &commands_emitted,
+               &failure) == 0);
+    assert(requests_consumed == 1 && commands_emitted == 1);
+    assert(tail[0].opcode == OPENNPUX_XGRAPH_OP_TSOFTMAX);
+    assert(tail[0].command_id == 0);
+    assert(tail_origin[0] == 12);
+
+    struct opennpux_xgraph_command too_small[38];
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_batch(
+               &requests[1], &parameters[1], &options[1], 1, EXTMEM_BASE,
+               EXTMEM_SIZE, EXTMEM_BASE + 0x160000, (896 + 1) * 8 * 4,
+               too_small, 38, NULL, &requests_consumed, &commands_emitted,
+               &failure) == -1);
+    assert(errno == ENOSPC);
+    assert(requests_consumed == 0 && commands_emitted == 0);
+    assert(failure.command_index == 0);
+    assert(failure.command_id == 11);
+    assert(failure.opcode == OPENNPUX_NPU_OP_MATMUL);
+    assert(failure.error_code == ENOSPC);
+
+    requests[2].command_id = 13;
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_batch(
+               requests, parameters, options, request_count, EXTMEM_BASE,
+               EXTMEM_SIZE, EXTMEM_BASE + 0x160000, (896 + 1) * 8 * 4,
+               commands, first_batch_capacity + 1, origins,
+               &requests_consumed, &commands_emitted, &failure) == -1);
+    assert(errno == EINVAL);
+    assert(requests_consumed == 2);
+    assert(commands_emitted == first_batch_capacity);
+    assert(failure.command_index == 2);
+    assert(failure.command_id == 13);
+    assert(failure.opcode == OPENNPUX_NPU_OP_SOFTMAX);
+    assert(failure.error_code == EINVAL);
+    assert(commands[first_batch_capacity].opcode == 0);
+    assert(origins[first_batch_capacity] == UINT32_MAX);
+}
+
 int
 main(void)
 {
@@ -365,6 +480,7 @@ main(void)
     test_sequence_lowering();
     test_gptq_tiled_lowering();
     test_gptq_k_tiled_accumulation();
+    test_bounded_mixed_batch_lowering();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

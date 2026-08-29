@@ -212,6 +212,15 @@ between the existing 524-command Qwen3.5 schedule and the GPTQ tensor engine.
 The next increment stages one real projection's exact components and live
 input/output bindings into the MATMUL request.
 
+The generic-to-XOpenNPUX lowering boundary now also supports bounded mixed
+command batches. Primitive commands emit one XGraph record, while GPTQ MatMul
+commands expand atomically into their complete two-dimensional
+`TDEQUANT/TMMA/TADD` sequence. Every emitted record receives a batch-local,
+dense command ID and an origin entry identifying the source generic command.
+The lowerer stops before a composite command that does not fit, so the runtime
+can stream a large executable through fixed-capacity XGraph buffers without
+splitting an operator or introducing model-specific submission rules.
+
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not
 require changes to the queue or driver ABI.

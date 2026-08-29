@@ -410,3 +410,109 @@ opennpux_npu_xgraph_lower_gptq_matmul(
     *command_count = emitted;
     return 0;
 }
+
+int
+opennpux_npu_xgraph_lower_batch(
+    const struct opennpux_npu_functional_request *requests,
+    const struct opennpux_npu_operator_parameters *parameters,
+    const struct opennpux_npu_xgraph_lowering_options *options,
+    uint32_t request_count, uint32_t extmem_base, uint32_t extmem_size,
+    uint32_t scratch_address, uint32_t scratch_size,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_origins, uint32_t *requests_consumed,
+    uint32_t *commands_emitted,
+    struct opennpux_npu_xgraph_lowering_failure *failure)
+{
+    if (requests_consumed != NULL) {
+        *requests_consumed = 0;
+    }
+    if (commands_emitted != NULL) {
+        *commands_emitted = 0;
+    }
+    if (failure != NULL) {
+        memset(failure, 0, sizeof(*failure));
+        failure->command_index = UINT32_MAX;
+    }
+    if (requests == NULL || parameters == NULL || commands == NULL ||
+        requests_consumed == NULL || commands_emitted == NULL ||
+        request_count == 0 || command_capacity == 0 ||
+        command_capacity > OPENNPUX_XGRAPH_MAX_COMMANDS) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    memset(commands, 0, command_capacity * sizeof(*commands));
+    if (command_origins != NULL) {
+        for (uint32_t index = 0; index < command_capacity; ++index) {
+            command_origins[index] = UINT32_MAX;
+        }
+    }
+
+    const uint32_t first_request_id = requests[0].command_id;
+    uint32_t emitted = 0;
+    for (uint32_t index = 0; index < request_count; ++index) {
+        const uint64_t expected_id = (uint64_t)first_request_id + index;
+        if (expected_id > UINT32_MAX ||
+            requests[index].command_id != (uint32_t)expected_id) {
+            errno = EINVAL;
+            goto fail;
+        }
+
+        const uint32_t available = command_capacity - emitted;
+        const int is_gptq_matmul =
+            requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
+            (parameters[index].flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0;
+        uint32_t produced = 0;
+        if (is_gptq_matmul) {
+            if (opennpux_npu_xgraph_lower_gptq_matmul(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, scratch_address, scratch_size, emitted,
+                    commands + emitted, available, &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else {
+            if (available == 0) {
+                break;
+            }
+            const struct opennpux_npu_xgraph_lowering_options *command_options =
+                options == NULL ? NULL : &options[index];
+            struct opennpux_xgraph_command primitive;
+            if (opennpux_npu_xgraph_lower_primitive(
+                    &requests[index], &parameters[index], command_options,
+                    extmem_base, extmem_size, &primitive) != 0) {
+                goto fail;
+            }
+            primitive.command_id = emitted;
+            commands[emitted] = primitive;
+            produced = 1;
+        }
+
+        if (command_origins != NULL) {
+            for (uint32_t output = 0; output < produced; ++output) {
+                command_origins[emitted + output] = requests[index].command_id;
+            }
+        }
+        emitted += produced;
+        *requests_consumed = index + 1;
+        *commands_emitted = emitted;
+    }
+    return 0;
+
+fail:
+    if (failure != NULL) {
+        const uint32_t index = *requests_consumed;
+        failure->command_index = index;
+        failure->command_id = requests[index].command_id;
+        failure->opcode = requests[index].opcode;
+        failure->error_code = errno == 0 ? EIO : errno;
+    }
+    if (emitted < command_capacity) {
+        memset(commands + emitted, 0,
+               (command_capacity - emitted) * sizeof(*commands));
+    }
+    *commands_emitted = emitted;
+    return -1;
+}

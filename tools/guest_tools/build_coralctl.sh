@@ -64,6 +64,8 @@ mkdir -p "${OUT_DIR}"
     "${ROOT_DIR}/runtime/host/src/npu_weight_queue.c" \
     "${ROOT_DIR}/runtime/host/src/npu_paging_layout.c" \
     "${ROOT_DIR}/runtime/host/src/npu_router.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_tile_plan.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_xgraph_lowering.c" \
     "${ROOT_DIR}/runtime/host/src/qwen_model.c" \
     "${ROOT_DIR}/runtime/host/tools/coralctl.c" \
     -lm \

@@ -909,3 +909,17 @@ RoPE/SiLU/TopK 显式语义、EXTMEM 地址以及 unsupported 路径。
 复合算子、GPTQ MatMul、非法地址或容量不足时返回首个失败 command 的 index、ID、opcode
 和 errno。该接口不跳过 unsupported command，也不插入模型特例，是 524-command
 invocation 接入 decomposition/tiling pass 前的可诊断边界。
+
+## 2026-08-29 GPTQ MatMul 通用 Tile Plan
+
+新增模型无关 `opennpux_npu_gptq_plan_tiles()`，把 materialized GPTQ MatMul 的
+`input/qweight/qzeros/scales/g_idx/output` operand 和量化参数转换为输出通道 tile。
+规划器严格采用 AutoGPTQ 物理布局：qweight 沿 K 轴 int4 打包、qzeros 沿 N 轴打包、
+scales 为 group-major、g_idx 为可选 K 映射；每个 tile 输出带 row count、row stride、
+row bytes 和起始地址，不能再把跨行分量错误表示为连续内存。
+
+tile 宽度由调用方提供的 dequant scratch 容量决定，非尾 tile 按 8 个输出通道对齐，
+尾 tile 支持非整除 N。规划阶段同时验证 EXTMEM aperture、operand 实际容量、int4/group/
+scale dtype 契约和 64-bit 大小计算。该层只建立后续 `TDEQUANT + TMMA` 指令序列的稳定
+输入，不把 Host GPTQ kernel 冒充自定义指令执行；设备执行仍需补充 TDEQUANT 指令、扩展
+CSR snapshot 及 compiler emission。

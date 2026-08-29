@@ -593,9 +593,13 @@ architectural access point and are exported as one atomic NPU CSR-state bundle.
 The NPU snapshots the bundle at request acceptance; operator execution never
 re-reads mutable Coral CSR state.
 
-The source integration is complete, but the generated Verilog, bridge, and
-firmware acceptance run remains mandatory on the Linux/GB10 toolchain before
-this experimental profile is treated as a validated RTL path.
+The generated Verilog, bridge, firmware, and gem5 full-system acceptance run
+has completed on the Linux/GB10 toolchain for the functional coprocessor
+profile. This validates the real Coral RTL fetch/L1-decode/dispatch/retirement
+path and the NPU L2 decode, CSR snapshot, functional execution, writeback, and
+fence protocol. It does not claim that every operator already has a
+cycle-accurate RTL execution unit; those units replace the C++ functional
+engines incrementally without changing this ISA contract.
 
 The first mandatory implementation subset is:
 
@@ -606,8 +610,10 @@ The first mandatory implementation subset is:
 - a baseline functional MMA engine;
 - tensor memory read/write;
 - `tfence`;
-- generic operation classification shared by TMMA, TADD, TMUL, and RMSNorm;
-- FP32 elementwise and RMSNorm execution with per-operation statistics;
+- generic operation classification for TMMA, TADD, TMUL, TRMSNORM, TSOFTMAX,
+  TROPE, TSILU, TGATHER, and TTOPK;
+- FP32 matrix, elementwise, normalization, activation, rotation, gather, and
+  selection execution with per-operation statistics;
 - `xopennpux_ops.h` as the firmware/compiler-facing operator-library boundary;
 - trace and error reporting.
 
@@ -656,6 +662,23 @@ rectangular and negative-value arithmetic, complete destination checksums, and
 firmware-side word-for-word validation. This test covers the complete v0.1
 execution subset; it does not claim stride, transpose, accumulation, or mixed
 precision support.
+
+The 2026-08-29 GB10 acceptance extends that matrix subset through the complete
+functional primitive set. Eleven numerical cases completed with `error=0`;
+every asynchronous operation was followed by an accepted `tfence` with
+`pending=0`. The independently checked writeback baselines are:
+
+| Operation | Cases | Writeback checksum(s) |
+| --- | ---: | --- |
+| TMMA | 3 | `0xe6084308`, `0x515811d8`, `0xacc1ee78` |
+| TADD | 1 | `0x16ace36b` |
+| TMUL | 1 | `0x2ac700dc` |
+| TRMSNORM | 1 | `0x8b3b7905` |
+| TSILU | 1 | `0x137fe900` |
+| TSOFTMAX | 1 | `0x0fd06045` |
+| TGATHER | 1 | `0x269eb168` |
+| TROPE | 1 | `0xe4adc6cb` |
+| TTOPK | 1 | `0xbb900cd1` |
 
 ## Legacy Compatibility
 

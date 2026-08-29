@@ -858,3 +858,21 @@ KV-cache、Router、Expert、Combine 和 recurrent block 保持为编译器/runt
 本机严格 C++ 单测覆盖正常数值、RoPE 双布局、TopK tie-break、非法 CSR 和 Gather 越界；
 GB10 门禁由 `test_tmma_operator_e2e.sh`、`build_rtl_bridge.sh` 和
 `run_tmma_operator_e2e_test.sh` 完成 RISC-V ELF、Coral RTL 及 gem5 全系统验证。
+
+## 2026-08-29 XOpenNPUX 九类 primitive GB10 验收
+
+GB10 全系统运行已完成 TMMA 到 TTOPK 的全部九类 primitive 验收，共 11 个独立数值
+case：TMMA 三组，TADD、TMUL、TRMSNORM、TSILU、TSOFTMAX、TGATHER、TROPE、TTOPK
+各一组。所有 dispatch 均被 NPU L2 接受，completion 均为 `error=0`，writeback 地址、
+字节数和 checksum 与独立 CPU 期望一致；每个异步算子后的 `tfence` 均在队列排空后以
+`pending=0` 接受。
+
+验收 checksum 基线为：TMMA `0xe6084308/0x515811d8/0xacc1ee78`，TADD
+`0x16ace36b`，TMUL `0x2ac700dc`，TRMSNORM `0x8b3b7905`，TSILU
+`0x137fe900`，TSOFTMAX `0x0fd06045`，TGATHER `0x269eb168`，TROPE
+`0xe4adc6cb`，TTOPK `0xbb900cd1`。
+
+本阶段完成的是“Coral RTL 控制核 + 自定义指令 L1 分流 + NPU L2 译码 + C++ 功能协处理器”
+的通用算子指令闭环。它证明算子库可以沿真实 Coral 指令流水和异步协处理器协议执行，
+但不表示九类算子均已实现为 cycle-accurate RTL FU；后续时序 RTL、并行 issue、片上存储
+调度和性能模型将在保持现有 ISA/CSR/完成协议不变的前提下逐项替换功能执行引擎。

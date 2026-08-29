@@ -28,6 +28,7 @@
 #   6. Kernel image path differs from the recorded metadata
 #   7. Kernel image timestamp is newer than the checkpoint file
 #   8. Kernel cmdline differs from the recorded metadata
+#   9. gem5/CPU/config options differ from the recorded metadata
 #
 # Environment (all overridable, listed with defaults):
 #   CORAL_NPU_BACKEND         stage-a | verilated-coral (default: stage-a)
@@ -114,10 +115,11 @@ export CORAL_CKPT_INIT_META="${CORAL_CKPT_ROOT}/kernel_init_path.txt"
 export CORAL_CKPT_KERNEL_META="${CORAL_CKPT_ROOT}/kernel_image_path.txt"
 export CORAL_CKPT_CMDLINE_META="${CORAL_CKPT_ROOT}/kernel_cmdline.txt"
 export CORAL_CKPT_FORMAT_META="${CORAL_CKPT_ROOT}/format_version.txt"
-# Version 9 uses a stable SimObject phandle and explicit DMA window fallback
-# through memory-region. Linux parses the DT before the checkpoint is taken,
-# so a checkpoint created with the previous DT cannot be repaired on restore.
-export CORAL_CKPT_FORMAT_VERSION=9
+export CORAL_CKPT_CONFIG_META="${CORAL_CKPT_ROOT}/config_signature.txt"
+# Version 10 records configuration that affects the DT, physical-memory map,
+# and checkpoint SimObjects. Linux parses the DT before checkpoint creation,
+# so a checkpoint made with different NPU/memory options cannot be repaired.
+export CORAL_CKPT_FORMAT_VERSION=10
 
 # ---------------------------------------------------------------------------
 # NPU backend configuration.
@@ -135,6 +137,11 @@ export GEM5_REBUILD="${GEM5_REBUILD:-0}"
 export GEM5_CONFIG="${GEM5_CONFIG:-configs/example/arm/arm_multicore_d9300.py}"
 export GEM5_CPU_TYPE="${GEM5_CPU_TYPE:-D9300}"
 export CORAL_CONFIG_OPTIONS="${CORAL_CONFIG_OPTIONS:-}"
+CORAL_CKPT_CONFIG_SIGNATURE="$(printf '%s\n' \
+  "gem5_config=${GEM5_CONFIG}" \
+  "cpu_type=${GEM5_CPU_TYPE}" \
+  "build_target=${GEM5_BUILD_TARGET}" \
+  "config_options=${CORAL_CONFIG_OPTIONS}")"
 
 # ---------------------------------------------------------------------------
 # Backend validation.
@@ -192,7 +199,7 @@ fi
 # ---------------------------------------------------------------------------
 # Checkpoint validity logic.
 #
-#   Eight independent triggers invalidate the checkpoint.  Each trigger
+#   Nine independent triggers invalidate the checkpoint.  Each trigger
 #   removes CORAL_CKPT_ROOT, which causes the script to enter bootstrap
 #   mode on the next run.  Triggers are checked in order:
 #
@@ -204,6 +211,7 @@ fi
 #   (6) Kernel image path changed → different vmlinux file
 #   (7) Kernel image mtime newer than checkpoint → kernel was recompiled
 #   (8) Kernel cmdline changed → different boot parameters
+#   (9) gem5 config/CPU/options changed → different DT or SimObject graph
 #
 #   Metadata files (disk_image_path.txt, kernel_init_path.txt, etc.) are
 #   recorded during bootstrap so subsequent invocations can compare.
@@ -282,6 +290,24 @@ if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ ! -f "${CORAL_CKPT_CMDLINE_META}" ]
   echo "Legacy checkpoint kernel cmdline metadata missing; recording current cmdline"
   mkdir -p "${CORAL_CKPT_ROOT}"
   printf '%s\n' "${CORAL_KERNEL_CMDLINE}" > "${CORAL_CKPT_CMDLINE_META}"
+fi
+
+# (9) Configuration that changes the DT, memory map, or SimObject graph.
+# Missing metadata is unsafe: unlike a userspace path, this state was consumed
+# by Linux before the checkpoint and must be regenerated.
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] &&
+   [ ! -f "${CORAL_CKPT_CONFIG_META}" ]; then
+  echo "Checkpoint configuration metadata missing; rebuilding boot checkpoint"
+  rm -rf "${CORAL_CKPT_ROOT}"
+fi
+
+if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] &&
+   [ -f "${CORAL_CKPT_CONFIG_META}" ]; then
+  if [ "$(cat "${CORAL_CKPT_CONFIG_META}")" !=
+       "${CORAL_CKPT_CONFIG_SIGNATURE}" ]; then
+    echo "gem5/CPU/config options changed; rebuilding boot checkpoint"
+    rm -rf "${CORAL_CKPT_ROOT}"
+  fi
 fi
 
 if [ -f "${CORAL_BOOTED_CKPT}/m5.cpt" ] && [ -f "${CORAL_CKPT_CMDLINE_META}" ]; then
@@ -407,6 +433,7 @@ else
   printf '%s\n' "${CORAL_KERNEL_IMAGE}" > "${CORAL_CKPT_KERNEL_META}"
   printf '%s\n' "${CORAL_KERNEL_CMDLINE}" > "${CORAL_CKPT_CMDLINE_META}"
   printf '%s\n' "${CORAL_CKPT_FORMAT_VERSION}" > "${CORAL_CKPT_FORMAT_META}"
+  printf '%s\n' "${CORAL_CKPT_CONFIG_SIGNATURE}" > "${CORAL_CKPT_CONFIG_META}"
   echo "Boot checkpoint saved at ${CORAL_BOOTED_CKPT}"
   if [ "${CORAL_AUTO_RESUME_AFTER_CKPT}" = "1" ]; then
     echo "Automatically restoring the new checkpoint with backend ${CORAL_NPU_BACKEND}"

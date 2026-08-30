@@ -29,22 +29,22 @@ NPU L2 decode.
 | EXPERT | `gate(TDEQUANT+TMMA) + up(TDEQUANT+TMMA) + TSILU + TMUL + down(TDEQUANT+TMMA)` | rows=1, input=2, intermediate=2, output=2, GPTQ INT4 | 8 | 32 | PASS |
 | ATTENTION, sigmoid gated | `TATTENTION` + gate CSR | rows=1, heads=1, head dim=1, KV length=1 | 1 | 8 | PASS |
 | RECURRENT_UPDATE, gated delta | `TRECURRENT` | rows=1, key/value heads=1, key/value dim=1 | 1 | 21 | PASS |
-| CONVOLUTION | `TCONV` | FP32 NHWC input/output, OHWI weights, groups=1, input=1x3x3x1, kernel=2x2, output=1x2x2x1, bias | 1 | 16 expected | LOCAL PASS / GB10 PENDING |
+| CONVOLUTION | `TCONV` | FP32 NHWC input/output, OHWI weights, groups=1, input=1x3x3x1, kernel=2x2, output=1x2x2x1, bias | 1 | 16 | PASS (`0x40a9cead`) |
 
 The per-operation values above sum to the current full-system baseline:
 
 ```text
 xgraph_batches=5
-xgraph_completed_requests=19
-xgraph_completed_commands=34
-xgraph_output=34,5,1053851104,0
-xgraph_npu_cycles=435
-xgraph_operation_count=435
-xgraph_validated_operators=19
+xgraph_completed_requests=20
+xgraph_completed_commands=35
+xgraph_output=35,5,1053851104,0
+xgraph_npu_cycles=451
+xgraph_operation_count=451
+xgraph_validated_operators=20
 xgraph_correctness=PASS
 ```
 
-Acceptance was run on the GB10 validation host from source commit `aa5e22b`
+Acceptance was run on the GB10 validation host from source commit `ea3dd84`
 with `./tools/coralnpu/run_qwen_command_flow_test.sh` after rebuilding the
 bridge and firmware. The cycle values are functional-model accounting, not RTL
 throughput measurements.
@@ -53,8 +53,8 @@ The first batch contains the nine direct primitives. The second contains GPTQ
 MatMul, COMBINE and KV DMA. The third contains the atomic Router sequence and
 the stateful causal convolution and basic recurrent update requests. The fourth
 contains the eight-command GPTQ Expert decomposition and one atomic causal GQA
-`TATTENTION`. The fifth contains gated `TATTENTION` and `TRECURRENT`. GB10
-full-system acceptance validated all 19 logical operators and the aggregate
+`TATTENTION`. The fifth contains gated `TATTENTION`, `TRECURRENT` and `TCONV`.
+GB10 full-system acceptance validated all 20 logical operators and the aggregate
 correctness verdict. `RECURRENT_UPDATE` atomically emits two `TDMA` records: one
 copies the complete input tensor to the visible output and one publishes the
 final row to persistent state. Its checksum is `0x14a86f48`. Gated-delta now
@@ -82,11 +82,8 @@ measurement column rather than overwriting the functional-model baseline.
 
 The accepted fourth batch appends one generic `TATTENTION` command after the
 eight-command GPTQ `EXPERT` decomposition. The fifth batch adds one gated
-`TATTENTION` and one `TRECURRENT`. The measured totals are 5 batches / 19
-requests / 34 commands / 435 modeled cycles. The fixture covers causal
+`TATTENTION`, one `TRECURRENT` and one `TCONV`. The measured totals are 5
+batches / 20 requests / 35 commands / 451 modeled cycles. The fixture covers causal
 visibility, GQA head mapping, Expert gate/up/down execution, sigmoid attention
-gating and persistent gated-delta state update. Ordinary convolution remains
-the accepted-baseline exception: its generic request ABI, lowering, `TCONV`
-L2 decode and native numerical model are implemented locally, but its expanded
-5 batches / 20 requests / 35 commands / 451 modeled-cycle full-system result
-must not replace the accepted 19-operator baseline until GB10 validation passes.
+gating, persistent gated-delta state update and generic grouped Conv2D. The
+Conv2D fixture produced checksum `0x40a9cead` with zero maximum absolute error.

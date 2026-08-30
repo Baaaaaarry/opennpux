@@ -1009,11 +1009,12 @@ instruction 分流和正常 retire；NPU L2 在 accept 时原子快照 `tensor_s
 native 数值测试覆盖 rows=2、features=2、kernel=3 的 stateful 场景，输出为
 `[14,14;20,20]`，next-state 为最新两行输入，统计 24 element operations / 24 modeled
 cycles；runtime lowering 同时覆盖 operand 容量、state 成对出现、EXTMEM offset 和 fused
-SiLU 标志。该结果是功能模型验证，尚未计入 13 requests / 20 commands / 264 cycles 的
-GB10 full-system 基线。
+SiLU 标志。
 
-Guest XGraph full-system fixture 已完成候选接入：新增第 14 个逻辑请求，在第三批 Router
+Guest XGraph full-system fixture 新增第 14 个逻辑请求，在第三批 Router
 复合请求之后发出 1 条 `TCAUSALCONV`，同时校验 convolution output 和 next-state，预期
-聚合结果为 3 batches / 14 requests / 21 commands / 288 cycles。验收脚本已增加
-`xgraph_op_CAUSAL_CONVOLUTION=PASS` 强制检查；在 GB10 报告完整 PASS 前，上述数据保持
-候选状态，不覆盖已验收的 264-cycle 基线。
+聚合结果为 3 batches / 14 requests / 21 commands / 288 cycles。GB10 全系统测试已按该
+统计通过，`xgraph_operation_count=288`，14 个算子全部 `max_abs_error=0`；其中
+`TCAUSALCONV` checksum 为 `0xaa4fb265`。验收脚本保留
+`xgraph_op_CAUSAL_CONVOLUTION=PASS` 强制检查。该周期数据属于 C++ functional model，
+后续 RTL 实现必须另行记录时序性能，不覆盖本功能基线。

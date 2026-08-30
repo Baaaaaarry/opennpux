@@ -24,7 +24,7 @@ NPU L2 decode.
 | DMA / KV update | `TDMA(K) + TDMA(V)` | 4-byte Key and Value planes | 2 | 8 | PASS |
 | ROUTER | `TMMA + TTOPK + TSOFTMAX + 2xTDMA` | rows=1, features=2, experts=4, K=2 | 5 | 28 | PASS |
 | ATTENTION | decomposition pending | Generic attention geometry is preserved in `.npxtb` | - | - | TODO |
-| CAUSAL_CONVOLUTION | `TCAUSALCONV` | rows=2, features=2, kernel=3, stateful | 1 | 24 | NATIVE PASS / FULL-SYSTEM PENDING |
+| CAUSAL_CONVOLUTION | `TCAUSALCONV` | rows=2, features=2, kernel=3, stateful | 1 | 24 | PASS |
 | RECURRENT_UPDATE | decomposition pending | Persistent recurrent state | - | - | TODO |
 | EXPERT | GPTQ projection and activation composition pending | Selected-expert execution only | - | - | TODO |
 
@@ -32,30 +32,21 @@ The per-operation values above sum to the current full-system baseline:
 
 ```text
 xgraph_batches=3
-xgraph_completed_requests=13
-xgraph_completed_commands=20
-xgraph_npu_cycles=264
-xgraph_operation_count=264
-xgraph_correctness=PASS
-```
-
-The first batch contains the nine direct primitives. The second contains GPTQ
-MatMul, COMBINE and KV DMA. The third contains the atomic Router sequence.
-`TCAUSALCONV` is not included in this accepted 264-cycle baseline. The next
-full-system candidate appends it to the third batch and must produce:
-
-```text
-xgraph_batches=3
 xgraph_completed_requests=14
 xgraph_completed_commands=21
 xgraph_npu_cycles=288
 xgraph_operation_count=288
-xgraph_op_CAUSAL_CONVOLUTION=PASS
+xgraph_op_CAUSAL_CONVOLUTION=PASS checksum=0xaa4fb265 max_abs_error=0
 xgraph_validated_operators=14
 xgraph_correctness=PASS
 ```
 
-Do not replace the accepted baseline above until these fields pass on GB10.
+The first batch contains the nine direct primitives. The second contains GPTQ
+MatMul, COMBINE and KV DMA. The third contains the atomic Router sequence and
+the stateful causal convolution request. GB10 full-system acceptance validated
+all 14 logical operators with zero maximum absolute error. The causal
+convolution checksum is `0xaa4fb265`; the complete per-operator checksums remain
+part of the corresponding test log.
 
 ## Acceptance evidence rule
 

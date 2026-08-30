@@ -228,12 +228,14 @@ XGraph command array is gone. Existing per-operator checksums and numerical
 goldens therefore validate the compiler/runtime lowering path as well as the
 firmware and C++ functional engines.
 
-The command-flow test also carries one independent GPTQ projection. Its ten
-logical requests lower to twelve XOpenNPUX records because the GPTQ MatMul
-expands to `TDEQUANT` plus two row-wise `TMMA` commands. The Guest validates the
-projection against an exact FP32 golden in addition to the original nine
-operator chain. Graph headers, completion checks and origin tracking now use
-the emitted command count rather than assuming one instruction per request.
+The command-flow test also carries one independent GPTQ projection followed by
+a generic COMBINE request. Its eleven logical requests lower to thirteen
+XOpenNPUX records because the GPTQ MatMul expands to `TDEQUANT` plus two
+row-wise `TMMA` commands, while COMBINE is canonically represented by `TADD`.
+The Guest validates both outputs against exact FP32 goldens in addition to the
+original nine-operator chain. Graph headers, completion checks and origin
+tracking use the emitted command count rather than assuming one instruction
+per request.
 
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not
@@ -922,8 +924,9 @@ TMUL、TRMSNORM、TROPE、TSILU、TSOFTMAX、TTOPK 均出现 NPU L2 dispatch 和
 SOFTMAX/ACTIVATION/TOPK` 转换为 XGraph primitive。转换只使用 opcode、显式语义
 选项、shape 和 EXTMEM operand，不读取 Qwen、layer 或 Tensor 名称。
 
-GPTQ MatMul 与 `ATTENTION/CAUSAL_CONV/RECURRENT_UPDATE/ROUTER/EXPERT/COMBINE`
-暂时明确返回 `ENOTSUP`，等待 decomposition/tiling pass 展开，防止把复合 command
+`COMBINE` 的数值语义与逐元素 ADD 等价，因此规范化为 `TADD`，不新增模型专用指令。
+GPTQ MatMul 与 `ATTENTION/CAUSAL_CONV/RECURRENT_UPDATE/ROUTER/EXPERT`
+仍明确返回 `ENOTSUP`，等待 decomposition/tiling pass 展开，防止把复合 command
 错误伪装成单条自定义指令。native gate `test_xgraph_lowering.sh` 已覆盖直接映射、
 RoPE/SiLU/TopK 显式语义、EXTMEM 地址以及 unsupported 路径。
 
@@ -967,9 +970,9 @@ group-range CSR 保证全局 g_idx 在切片后仍按原模型量化组解释。
 
 Guest runtime 已从“一次 lowering 并执行全部命令”升级为有界批次循环。测试刻意把物理
 command capacity 限制为 9：第一批执行 TGATHER 到 TTOPK 的 9 个 primitive，第二批把
-第 10 个 GPTQ MatMul 作为不可拆分逻辑请求展开成 `TDEQUANT + 2xTMMA`。两批分别完成
-后聚合为 10 个逻辑请求、12 条物理命令和 224 modeled cycles，并继续逐算子进行独立
-数值校验。
+第 10 个 GPTQ MatMul 作为不可拆分逻辑请求展开成 `TDEQUANT + 2xTMMA`，再执行第 11 个
+COMBINE 请求所规范化得到的 `TADD`。两批分别完成后聚合为 11 个逻辑请求、13 条物理
+命令和 228 modeled cycles，并继续逐算子进行独立数值校验。
 
 XGraph header 的保留字段现定义 batch sequence、first request、request count、final flag
 和 global first command，不改变 96-byte ABI。每批 command ID 保持从 0 开始的局部稠密

@@ -38,10 +38,11 @@ struct opennpux_npu_xgraph_lowering_failure {
 
 /*
  * Lower one materialized generic command to one XOpenNPUX primitive record.
- * Composite generic commands return ENOTSUP and must first pass through a
- * decomposition pass. All operand addresses must belong to the NPU EXTMEM
- * aperture. GPTQ MatMul also requires decomposition/dequantization and is not
- * silently treated as FP32 TMMA.
+ * Generic commands with primitive-equivalent semantics may be canonicalized
+ * (for example COMBINE to TADD). Other composite commands return ENOTSUP and
+ * must first pass through a decomposition pass. All operand addresses must
+ * belong to the NPU EXTMEM aperture. GPTQ MatMul also requires
+ * decomposition/dequantization and is not silently treated as FP32 TMMA.
  */
 int opennpux_npu_xgraph_lower_primitive(
     const struct opennpux_npu_functional_request *request,

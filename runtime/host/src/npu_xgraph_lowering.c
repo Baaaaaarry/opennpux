@@ -149,6 +149,7 @@ opennpux_npu_xgraph_lower_primitive(
         return set_operands(command, output, input, weight,
                             extmem_base, extmem_size);
     case OPENNPUX_NPU_OP_ADD:
+    case OPENNPUX_NPU_OP_COMBINE:
         command->opcode = OPENNPUX_XGRAPH_OP_TADD;
         return set_operands(command, output, input, secondary,
                             extmem_base, extmem_size);

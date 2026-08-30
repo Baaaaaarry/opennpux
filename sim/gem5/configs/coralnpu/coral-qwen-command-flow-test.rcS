@@ -44,23 +44,23 @@ EOF
     return 1
 }
 
-has_output_line 'xgraph_output=12,5,' ||
+has_output_line 'xgraph_output=13,5,' ||
     fail "batched command chain produced an unexpected TopK result"
 has_output_line 'xgraph_batches=2' || fail "missing two-batch completion"
-has_output_line 'xgraph_completed_requests=10' ||
+has_output_line 'xgraph_completed_requests=11' ||
     fail "missing logical request completion"
-has_output_line 'xgraph_completed_commands=12' ||
+has_output_line 'xgraph_completed_commands=13' ||
     fail "missing physical command completion"
-has_output_line 'xgraph_npu_cycles=224' || fail "unexpected aggregate cycles"
-has_output_line 'xgraph_operation_count=224' ||
+has_output_line 'xgraph_npu_cycles=228' || fail "unexpected aggregate cycles"
+has_output_line 'xgraph_operation_count=228' ||
     fail "unexpected aggregate operation count"
-has_output_line 'xgraph_validated_operators=10' ||
+has_output_line 'xgraph_validated_operators=11' ||
     fail "command chain did not validate every logical operator"
 has_output_line 'xgraph_correctness=PASS' ||
-    fail "ten-operator chain failed numerical validation"
+    fail "eleven-operator chain failed numerical validation"
 has_output_line 'xgraph_test=PASS' || fail "missing runtime PASS"
 
-echo "qwen_command_flow_operators=10"
+echo "qwen_command_flow_operators=11"
 echo "qwen_command_source=guest-xopennpux-graph"
 echo "qwen_command_flow=PASS"
 # Keep the common host wrapper's terminal verdict stable.

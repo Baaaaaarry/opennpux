@@ -455,9 +455,11 @@ Tensor edge. Completion state, command count, operation count, cycle estimate,
 output checksum, and the final packed TopK result return through EXTMEM and the
 shared window.
 
-The initial full-system gate contains all nine functional primitive classes
-plus one GPTQ MatMul request. The runtime intentionally submits them as two
-batches containing 9 and 3 physical commands. This replaces the former
+The initial full-system gate contains all nine functional primitive classes,
+one GPTQ MatMul request, and one generic COMBINE request. The runtime
+intentionally submits them as two batches containing 9 and 4 physical
+commands. GPTQ MatMul expands to three commands; COMBINE is canonically lowered
+to TADD because their numerical semantics are identical. This replaces the former
 firmware-local descriptor smoke:
 the command graph and input Tensor values now originate in the Linux Guest.
 The next compiler increment lowers the existing generic `.npxc/.npxtb`
@@ -471,10 +473,11 @@ The first part of that compiler boundary is implemented by
 functional request produced from `.npxc`, `.npxtb`, runtime shape and explicit
 weight operands. Direct FP32 primitives lower without inspecting a model or
 tensor name. RoPE layout, activation semantics and TopK packed scratch are
-explicit options rather than model-family assumptions. Primitive lowering
-rejects composite commands; batch lowering routes GPTQ MatMul through the
-model-independent tile planner and expands it into `TDEQUANT/TMMA/TADD` before
-instruction emission.
+explicit options rather than model-family assumptions. Generic operations with
+primitive-equivalent semantics may be canonicalized without introducing a
+model-specific instruction. Other composite commands are rejected; batch
+lowering routes GPTQ MatMul through the model-independent tile planner and
+expands it into `TDEQUANT/TMMA/TADD` before instruction emission.
 
 ### Bounded XGraph batches
 

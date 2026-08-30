@@ -1266,7 +1266,9 @@ opennpux_coral_xgraph_test(
         gptq_input = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1d00,
         gptq_scratch = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1e00,
         gptq_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1f00,
-        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2000,
+        combine_secondary = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2000,
+        combine_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2100,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2200,
     };
     static const uint32_t token_values[2] = {0, 1};
     static const float embedding_values[8] = {
@@ -1307,12 +1309,18 @@ opennpux_coral_xgraph_test(
     static const float gptq_expected_values[4] = {
         18.0f, 72.0f, 4.0f, 16.0f,
     };
+    static const float combine_secondary_values[4] = {
+        1.0f, -2.0f, 3.0f, -4.0f,
+    };
+    static const float combine_expected_values[4] = {
+        19.0f, 70.0f, 7.0f, 12.0f,
+    };
     union {
         float value;
         uint32_t bits;
     } epsilon = {1.0e-5f};
     memset(result, 0, sizeof(*result));
-    enum { request_count = 10, command_capacity = 9 };
+    enum { request_count = 11, command_capacity = 9 };
     struct opennpux_npu_functional_request requests[request_count];
     struct opennpux_npu_operator_parameters parameters[request_count];
     struct opennpux_npu_xgraph_lowering_options options[request_count];
@@ -1357,6 +1365,8 @@ opennpux_coral_xgraph_test(
     parameters[9].quantization_group_size = 4;
     parameters[9].quantized_zero_bias = 1;
     parameters[9].scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
+    initialize_xgraph_request(&requests[10], &parameters[10], 10,
+                              OPENNPUX_NPU_OP_COMBINE, 2, 2);
 
 #define ADD_XGRAPH_OPERAND(index, role, offset, size)                         \
     do {                                                                      \
@@ -1421,6 +1431,12 @@ opennpux_coral_xgraph_test(
                        sizeof(gptq_qzeros_values));
     ADD_XGRAPH_OPERAND(9, OPENNPUX_NPU_OPERAND_SCALES, gptq_scales,
                        sizeof(gptq_scale_values));
+    ADD_XGRAPH_OPERAND(10, OPENNPUX_NPU_OPERAND_INPUT, gptq_output,
+                       sizeof(gptq_expected_values));
+    ADD_XGRAPH_OPERAND(10, OPENNPUX_NPU_OPERAND_SECONDARY,
+                       combine_secondary, sizeof(combine_secondary_values));
+    ADD_XGRAPH_OPERAND(10, OPENNPUX_NPU_OPERAND_OUTPUT, combine_output,
+                       sizeof(combine_expected_values));
 #undef ADD_XGRAPH_OPERAND
 
     struct opennpux_coral_shared_window window;
@@ -1462,6 +1478,9 @@ opennpux_coral_xgraph_test(
                            sizeof(gptq_scale_values));
     copy_to_volatile_bytes(window.bytes + gptq_input, gptq_input_values,
                            sizeof(gptq_input_values));
+    copy_to_volatile_bytes(window.bytes + combine_secondary,
+                           combine_secondary_values,
+                           sizeof(combine_secondary_values));
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;
     opennpux_coral_get_info(dev, &before);
@@ -1587,7 +1606,7 @@ opennpux_coral_xgraph_test(
         total_commands += commands_emitted;
     }
     if (run_result != 0 || result->completed_requests != request_count ||
-        result->completed_commands != 12 || result->batch_count != 2) {
+        result->completed_commands != 13 || result->batch_count != 2) {
         opennpux_coral_close_shared_window(&window);
         errno = run_errno == 0 ? EIO : run_errno;
         return -1;
@@ -1722,6 +1741,22 @@ opennpux_coral_xgraph_test(
     }
     ++result->validated_operators;
 
+    float actual_combine[4] = {0};
+    copy_from_volatile_bytes(actual_combine, window.bytes + combine_output,
+                             sizeof(actual_combine));
+    result->operator_checksums[10] =
+        checksum_bytes(actual_combine, sizeof(actual_combine));
+    result->operator_pass[10] = compare_floats(
+        actual_combine, combine_expected_values, 4,
+        &result->operator_max_abs_error[10]);
+    if (!result->operator_pass[10]) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 10;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
     float actual_gptq[4] = {0};
     copy_from_volatile_bytes(actual_gptq, window.bytes + gptq_output,
                              sizeof(actual_gptq));
@@ -1749,7 +1784,7 @@ opennpux_coral_xgraph_test(
         result->output[0] == (int32_t)result->completed_commands &&
         result->output[1] == 5 &&
         result->completed_requests == request_count &&
-        result->completed_commands == 12 &&
+        result->completed_commands == 13 &&
         result->batch_count == 2 &&
         operators_valid;
 

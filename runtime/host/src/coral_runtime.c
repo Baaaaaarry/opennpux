@@ -1593,8 +1593,13 @@ opennpux_coral_xgraph_test(
         return -1;
     }
     result->output[0] = (int32_t)result->completed_commands;
-    copy_from_volatile_bytes(&result->output[1], window.bytes + packed_topk,
-                             2 * sizeof(uint32_t));
+    uint32_t packed_topk_result[2] = {0};
+    copy_from_volatile_bytes(packed_topk_result,
+                             window.bytes + packed_topk,
+                             sizeof(packed_topk_result));
+    /* Packed TopK is [value bits, index]; mailbox output is [index, value]. */
+    result->output[1] = (int32_t)packed_topk_result[1];
+    result->output[2] = (int32_t)packed_topk_result[0];
     result->output[3] = 0;
     result->output_count = OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT;
     result->output_bytes = sizeof(result->output);

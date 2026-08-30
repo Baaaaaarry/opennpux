@@ -683,6 +683,98 @@ test_recurrent_update_lowering(void)
     assert(errno == ENOTSUP);
 }
 
+static void
+test_gptq_expert_lowering(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command commands[8];
+    uint32_t command_count = 0;
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_EXPERT);
+    request.command_id = 23;
+    request.rows = 1;
+    request.features = 2;
+    parameters.flags = OPENNPUX_NPU_PARAMETER_GPTQ;
+    parameters.input_features = 2;
+    parameters.output_features = 2;
+    parameters.intermediate_features = 2;
+    parameters.quantization_bits = 4;
+    parameters.quantization_group_size = 2;
+    parameters.quantized_zero_bias = 1;
+    parameters.scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 8);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x1100, 8);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_GATE_OUTPUT, 0x1200, 8);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_UP_OUTPUT, 0x1300, 8);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_ACTIVATED, 0x1400, 8);
+    const uint32_t projection_roles[][4] = {
+        {OPENNPUX_NPU_OPERAND_GATE_QWEIGHT,
+         OPENNPUX_NPU_OPERAND_GATE_QZEROS,
+         OPENNPUX_NPU_OPERAND_GATE_SCALES,
+         OPENNPUX_NPU_OPERAND_GATE_G_IDX},
+        {OPENNPUX_NPU_OPERAND_UP_QWEIGHT,
+         OPENNPUX_NPU_OPERAND_UP_QZEROS,
+         OPENNPUX_NPU_OPERAND_UP_SCALES,
+         OPENNPUX_NPU_OPERAND_UP_G_IDX},
+        {OPENNPUX_NPU_OPERAND_DOWN_QWEIGHT,
+         OPENNPUX_NPU_OPERAND_DOWN_QZEROS,
+         OPENNPUX_NPU_OPERAND_DOWN_SCALES,
+         OPENNPUX_NPU_OPERAND_DOWN_G_IDX},
+    };
+    for (uint32_t projection = 0; projection < 3; ++projection) {
+        const uint32_t base = 0x2000 + projection * 0x100;
+        add_operand(&request, projection_roles[projection][0], base, 8);
+        add_operand(&request, projection_roles[projection][1], base + 0x20, 4);
+        add_operand(&request, projection_roles[projection][2], base + 0x40, 8);
+    }
+
+    assert(opennpux_npu_xgraph_lower_gptq_expert(
+               &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x3000, 0x100, 40, commands, 8,
+               &command_count) == 0);
+    assert(command_count == 8);
+    const uint32_t expected[] = {
+        OPENNPUX_XGRAPH_OP_TDEQUANT, OPENNPUX_XGRAPH_OP_TMMA,
+        OPENNPUX_XGRAPH_OP_TDEQUANT, OPENNPUX_XGRAPH_OP_TMMA,
+        OPENNPUX_XGRAPH_OP_TSILU, OPENNPUX_XGRAPH_OP_TMUL,
+        OPENNPUX_XGRAPH_OP_TDEQUANT, OPENNPUX_XGRAPH_OP_TMMA,
+    };
+    for (uint32_t index = 0; index < 8; ++index) {
+        assert(commands[index].opcode == expected[index]);
+        assert(commands[index].command_id == 40 + index);
+    }
+    assert(commands[1].source0_offset == 0x1000);
+    assert(commands[1].destination_offset == 0x1200);
+    assert(commands[3].destination_offset == 0x1300);
+    assert(commands[4].source0_offset == 0x1200);
+    assert(commands[4].destination_offset == 0x1400);
+    assert(commands[5].source0_offset == 0x1400);
+    assert(commands[5].source1_offset == 0x1300);
+    assert(commands[5].destination_offset == 0x1400);
+    assert(commands[7].source0_offset == 0x1400);
+    assert(commands[7].destination_offset == 0x1100);
+
+    uint32_t origins[8];
+    uint32_t requests_consumed = 0;
+    uint32_t commands_emitted = 0;
+    struct opennpux_npu_xgraph_lowering_failure failure;
+    assert(opennpux_npu_xgraph_lower_batch(
+               &request, &parameters, NULL, 1, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x3000, 0x100, commands, 8, origins,
+               &requests_consumed, &commands_emitted, &failure) == 0);
+    assert(requests_consumed == 1 && commands_emitted == 8);
+    for (uint32_t index = 0; index < 8; ++index) {
+        assert(origins[index] == 23);
+    }
+
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_gptq_expert(
+               &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x3000, 0x100, 0, commands, 7,
+               &command_count) == -1);
+    assert(errno == ENOSPC);
+}
+
 int
 main(void)
 {
@@ -697,6 +789,7 @@ main(void)
     test_dma_lowering();
     test_router_lowering();
     test_recurrent_update_lowering();
+    test_gptq_expert_lowering();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

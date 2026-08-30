@@ -1283,7 +1283,21 @@ opennpux_coral_xgraph_test(
         recurrent_input = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2e00,
         recurrent_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2f00,
         recurrent_state = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3000,
-        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3100,
+        expert_input = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3100,
+        expert_gate_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3200,
+        expert_up_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3300,
+        expert_activated = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3400,
+        expert_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3500,
+        expert_gate_qweight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3600,
+        expert_gate_qzeros = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3620,
+        expert_gate_scales = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3640,
+        expert_up_qweight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3700,
+        expert_up_qzeros = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3720,
+        expert_up_scales = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3740,
+        expert_down_qweight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3800,
+        expert_down_qzeros = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3820,
+        expert_down_scales = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3840,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3900,
     };
     static const uint32_t token_values[2] = {0, 1};
     static const float embedding_values[8] = {
@@ -1362,12 +1376,18 @@ opennpux_coral_xgraph_test(
         1.5f, -2.5f, 3.5f, 4.5f,
     };
     static const float recurrent_state_expected[2] = {3.5f, 4.5f};
+    static const float expert_input_values[2] = {1.0f, 2.0f};
+    static const uint32_t expert_qweight_values[2] = {
+        UINT32_C(0x00000022), UINT32_C(0x00000022),
+    };
+    static const uint32_t expert_qzeros_value = 0;
+    static const float expert_scale_values[2] = {1.0f, 1.0f};
     union {
         float value;
         uint32_t bits;
     } epsilon = {1.0e-5f};
     memset(result, 0, sizeof(*result));
-    enum { request_count = 15, command_capacity = 9 };
+    enum { request_count = 16, command_capacity = 9 };
     struct opennpux_npu_functional_request requests[request_count];
     struct opennpux_npu_operator_parameters parameters[request_count];
     struct opennpux_npu_xgraph_lowering_options options[request_count];
@@ -1431,6 +1451,16 @@ opennpux_coral_xgraph_test(
     parameters[13].intermediate_features = 3;
     initialize_xgraph_request(&requests[14], &parameters[14], 14,
                               OPENNPUX_NPU_OP_RECURRENT_UPDATE, 2, 2);
+    initialize_xgraph_request(&requests[15], &parameters[15], 15,
+                              OPENNPUX_NPU_OP_EXPERT, 1, 2);
+    parameters[15].flags = OPENNPUX_NPU_PARAMETER_GPTQ;
+    parameters[15].input_features = 2;
+    parameters[15].output_features = 2;
+    parameters[15].intermediate_features = 2;
+    parameters[15].quantization_bits = 4;
+    parameters[15].quantization_group_size = 2;
+    parameters[15].quantized_zero_bias = 1;
+    parameters[15].scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
 
 #define ADD_XGRAPH_OPERAND(index, role, offset, size)                         \
     do {                                                                      \
@@ -1532,6 +1562,34 @@ opennpux_coral_xgraph_test(
                        sizeof(recurrent_input_values));
     ADD_XGRAPH_OPERAND(14, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
                        recurrent_state, sizeof(recurrent_state_expected));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_INPUT, expert_input,
+                       sizeof(expert_input_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_OUTPUT, expert_output,
+                       sizeof(expert_input_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_GATE_OUTPUT,
+                       expert_gate_output, sizeof(expert_input_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_UP_OUTPUT, expert_up_output,
+                       sizeof(expert_input_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_ACTIVATED, expert_activated,
+                       sizeof(expert_input_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_GATE_QWEIGHT,
+                       expert_gate_qweight, sizeof(expert_qweight_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_GATE_QZEROS,
+                       expert_gate_qzeros, sizeof(expert_qzeros_value));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_GATE_SCALES,
+                       expert_gate_scales, sizeof(expert_scale_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_UP_QWEIGHT,
+                       expert_up_qweight, sizeof(expert_qweight_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_UP_QZEROS,
+                       expert_up_qzeros, sizeof(expert_qzeros_value));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_UP_SCALES,
+                       expert_up_scales, sizeof(expert_scale_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_DOWN_QWEIGHT,
+                       expert_down_qweight, sizeof(expert_qweight_values));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_DOWN_QZEROS,
+                       expert_down_qzeros, sizeof(expert_qzeros_value));
+    ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_DOWN_SCALES,
+                       expert_down_scales, sizeof(expert_scale_values));
 #undef ADD_XGRAPH_OPERAND
 
     struct opennpux_coral_shared_window window;
@@ -1596,6 +1654,28 @@ opennpux_coral_xgraph_test(
     copy_to_volatile_bytes(window.bytes + recurrent_input,
                            recurrent_input_values,
                            sizeof(recurrent_input_values));
+    copy_to_volatile_bytes(window.bytes + expert_input,
+                           expert_input_values, sizeof(expert_input_values));
+    const uint32_t expert_qweight_offsets[] = {
+        expert_gate_qweight, expert_up_qweight, expert_down_qweight,
+    };
+    const uint32_t expert_qzeros_offsets[] = {
+        expert_gate_qzeros, expert_up_qzeros, expert_down_qzeros,
+    };
+    const uint32_t expert_scale_offsets[] = {
+        expert_gate_scales, expert_up_scales, expert_down_scales,
+    };
+    for (uint32_t projection = 0; projection < 3; ++projection) {
+        copy_to_volatile_bytes(window.bytes + expert_qweight_offsets[projection],
+                               expert_qweight_values,
+                               sizeof(expert_qweight_values));
+        copy_to_volatile_bytes(window.bytes + expert_qzeros_offsets[projection],
+                               &expert_qzeros_value,
+                               sizeof(expert_qzeros_value));
+        copy_to_volatile_bytes(window.bytes + expert_scale_offsets[projection],
+                               expert_scale_values,
+                               sizeof(expert_scale_values));
+    }
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;
     opennpux_coral_get_info(dev, &before);
@@ -1721,7 +1801,7 @@ opennpux_coral_xgraph_test(
         total_commands += commands_emitted;
     }
     if (run_result != 0 || result->completed_requests != request_count ||
-        result->completed_commands != 23 || result->batch_count != 3) {
+        result->completed_commands != 31 || result->batch_count != 4) {
         opennpux_coral_close_shared_window(&window);
         errno = run_errno == 0 ? EIO : run_errno;
         return -1;
@@ -1851,6 +1931,28 @@ opennpux_coral_xgraph_test(
     if (!topk_valid) {
         if (result->failed_operator == UINT32_MAX) {
             result->failed_operator = 8;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
+    float actual_expert[2] = {0};
+    copy_from_volatile_bytes(actual_expert, window.bytes + expert_output,
+                             sizeof(actual_expert));
+    const float gate_value = 3.0f;
+    const float activated_value =
+        gate_value / (1.0f + expf(-gate_value)) * gate_value;
+    const float expert_expected[2] = {
+        activated_value * 2.0f, activated_value * 2.0f,
+    };
+    result->operator_checksums[15] =
+        checksum_bytes(actual_expert, sizeof(actual_expert));
+    result->operator_pass[15] = compare_floats(
+        actual_expert, expert_expected, 2,
+        &result->operator_max_abs_error[15]);
+    if (!result->operator_pass[15]) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 15;
         }
         operators_valid = 0;
     }
@@ -2006,8 +2108,8 @@ opennpux_coral_xgraph_test(
         result->output[0] == (int32_t)result->completed_commands &&
         result->output[1] == 5 &&
         result->completed_requests == request_count &&
-        result->completed_commands == 23 &&
-        result->batch_count == 3 &&
+        result->completed_commands == 31 &&
+        result->batch_count == 4 &&
         operators_valid;
 
     opennpux_coral_get_info(dev, &after);

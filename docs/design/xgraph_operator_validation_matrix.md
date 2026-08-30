@@ -26,7 +26,7 @@ NPU L2 decode.
 | ATTENTION | decomposition pending | Generic attention geometry is preserved in `.npxtb` | - | - | TODO |
 | CAUSAL_CONVOLUTION | `TCAUSALCONV` | rows=2, features=2, kernel=3, stateful | 1 | 24 | PASS |
 | RECURRENT_UPDATE | `TDMA(full output) + TDMA(final row state)` | rows=2, features=2, basic persistent state | 2 | 6 | PASS |
-| EXPERT | GPTQ projection and activation composition pending | Selected-expert execution only | - | - | TODO |
+| EXPERT | `gate(TDEQUANT+TMMA) + up(TDEQUANT+TMMA) + TSILU + TMUL + down(TDEQUANT+TMMA)` | Candidate: rows=1, input=2, intermediate=2, output=2, GPTQ INT4 | 8 | 32 (candidate) | GB10 TODO |
 
 The per-operation values above sum to the current full-system baseline:
 
@@ -70,3 +70,11 @@ Record all of the following fields:
 Do not present these functional cycles as cycle-accurate RTL performance. When
 an operator is replaced by an RTL execution unit, add a separate RTL row or
 measurement column rather than overwriting the functional-model baseline.
+
+The next full-system candidate adds one generic GPTQ `EXPERT` request as a
+fourth atomic batch. It reuses the existing GPTQ tile planner and dequant
+scratch sequentially for gate/up/down projections, while gate output, up
+output, activated tensor, and final output remain explicit operands. The
+candidate expectation is 4 batches / 16 requests / 31 commands / 326 modeled
+cycles. These values are not an accepted baseline until GB10 reports the
+per-operator checksum and `max_abs_error=0`.

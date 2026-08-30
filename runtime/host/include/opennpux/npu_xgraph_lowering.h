@@ -81,6 +81,20 @@ int opennpux_npu_xgraph_lower_gptq_matmul(
     uint32_t *command_count);
 
 /*
+ * Decompose one GPTQ gated expert into three tiled projections and the
+ * intervening SiLU/multiply activation. Gate, up, and down projections reuse
+ * the dequant scratch sequentially; their tensor outputs remain explicit
+ * operands so the sequence is independent of model-specific memory layouts.
+ */
+int opennpux_npu_xgraph_lower_gptq_expert(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count);
+
+/*
  * Lower one KV-cache update into two contiguous TDMA records. The generic
  * request supplies key/value inputs and a [2, kv_length, kv_heads, head_dim]
  * destination state. Each record updates the visible tail of one state plane.
@@ -122,9 +136,10 @@ int opennpux_npu_xgraph_lower_router(
 /*
  * Lower as many ordered generic commands as fit in one bounded XGraph batch.
  * Primitive commands emit one record; composite GPTQ MatMul commands emit a
- * tiled TDEQUANT/TMMA/TADD sequence, DMA and basic recurrent state updates
- * emit two TDMA records, and Router emits TMMA/TTOPK/TSOFTMAX plus two TDMA
- * writebacks. Output command IDs are local to the batch and dense from zero.
+ * tiled TDEQUANT/TMMA/TADD sequence, GPTQ Expert emits three such projections
+ * around TSILU/TMUL, DMA and basic recurrent state updates emit two TDMA
+ * records, and Router emits TMMA/TTOPK/TSOFTMAX plus two TDMA writebacks.
+ * Output command IDs are local to the batch and dense from zero.
  * command_origins, when non-NULL, maps each emitted record back to its input
  * request command_id.
  *

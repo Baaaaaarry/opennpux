@@ -1031,3 +1031,17 @@ Native lowering、runtime host 和 GB10 全系统测试均已通过；fixture �
 校验完整输出和最终状态。正式基线更新为 3 batches / 15 requests / 23 commands /
 294 cycles，`xgraph_op_RECURRENT_UPDATE=PASS`，checksum `0x14a86f48`，15 个算子全部
 `max_abs_error=0`。该周期数据仍属于 C++ functional model，不代表 RTL 时序性能。
+
+## 2026-08-30 Generic GPTQ Expert Lowering Candidate
+
+新增模型无关 GPTQ `EXPERT` decomposition。lowering 不读取模型名、layer ID 或 expert ID，
+只消费 functional request 中显式的 input/output、gate/up/down GPTQ 分量以及三个中间
+tensor operand。一个逻辑 Expert 被原子展开为 gate 和 up 两次 `TDEQUANT+TMMA`、
+`TSILU+TMUL` 激活门控，以及 down `TDEQUANT+TMMA`。三次投影顺序复用 dequant scratch，
+但不会把模型 layout 固化进协处理器。
+
+Native lowering 已验证最小 GPTQ expert 生成 8 条稠密 command，并覆盖 operand 重映射、
+中间 tensor 地址、in-place activated multiply、command origin 以及容量不足时不拆分请求。
+Full-system fixture 候选增加第 16 个逻辑请求和独立第 4 批，预期为 4 batches / 16 requests /
+31 commands / 326 modeled cycles。该统计和 Expert checksum 尚待 GB10 验收，正式基线仍为
+上一节的 15 requests / 23 commands / 294 cycles。

@@ -455,6 +455,184 @@ opennpux_npu_xgraph_lower_gptq_matmul(
     return 0;
 }
 
+static int
+append_projection_operand(
+    struct opennpux_npu_functional_request *projection,
+    const struct opennpux_npu_functional_request *expert,
+    uint32_t source_role, uint32_t projection_role, int required)
+{
+    const struct opennpux_npu_functional_operand *source =
+        find_operand(expert, source_role);
+    if (source == NULL) {
+        if (!required) {
+            return 0;
+        }
+        errno = EINVAL;
+        return -1;
+    }
+    if (projection->operand_count >= OPENNPUX_NPU_FUNCTIONAL_MAX_OPERANDS) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    struct opennpux_npu_functional_operand *destination =
+        &projection->operands[projection->operand_count++];
+    *destination = *source;
+    destination->role = projection_role;
+    return 0;
+}
+
+static int
+build_expert_projection(
+    const struct opennpux_npu_functional_request *expert,
+    const struct opennpux_npu_operator_parameters *expert_parameters,
+    uint32_t input_role, uint32_t output_role, uint32_t qweight_role,
+    uint32_t qzeros_role, uint32_t scales_role, uint32_t g_idx_role,
+    uint32_t input_features, uint32_t output_features,
+    struct opennpux_npu_functional_request *projection,
+    struct opennpux_npu_operator_parameters *projection_parameters)
+{
+    *projection = *expert;
+    projection->opcode = OPENNPUX_NPU_OP_MATMUL;
+    projection->features = input_features;
+    projection->operand_count = 0;
+    memset(projection->operands, 0, sizeof(projection->operands));
+    *projection_parameters = *expert_parameters;
+    projection_parameters->opcode = OPENNPUX_NPU_OP_MATMUL;
+    projection_parameters->input_features = input_features;
+    projection_parameters->output_features = output_features;
+
+    return append_projection_operand(
+               projection, expert, input_role, OPENNPUX_NPU_OPERAND_INPUT,
+               1) == 0 &&
+           append_projection_operand(
+               projection, expert, output_role, OPENNPUX_NPU_OPERAND_OUTPUT,
+               1) == 0 &&
+           append_projection_operand(
+               projection, expert, qweight_role,
+               OPENNPUX_NPU_OPERAND_QWEIGHT, 1) == 0 &&
+           append_projection_operand(
+               projection, expert, qzeros_role,
+               OPENNPUX_NPU_OPERAND_QZEROS, 1) == 0 &&
+           append_projection_operand(
+               projection, expert, scales_role,
+               OPENNPUX_NPU_OPERAND_SCALES, 1) == 0 &&
+           append_projection_operand(
+               projection, expert, g_idx_role,
+               OPENNPUX_NPU_OPERAND_G_IDX, 0) == 0
+        ? 0
+        : -1;
+}
+
+int
+opennpux_npu_xgraph_lower_gptq_expert(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (command_count != NULL) {
+        *command_count = 0;
+    }
+    if (request == NULL || parameters == NULL || commands == NULL ||
+        command_count == NULL ||
+        validate_request(request, parameters, extmem_size) != 0 ||
+        request->opcode != OPENNPUX_NPU_OP_EXPERT ||
+        (parameters->flags & OPENNPUX_NPU_PARAMETER_GPTQ) == 0 ||
+        parameters->input_features == 0 ||
+        parameters->intermediate_features == 0 ||
+        parameters->output_features != parameters->input_features) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    struct opennpux_npu_functional_request projection;
+    struct opennpux_npu_operator_parameters projection_parameters;
+    uint32_t emitted = 0;
+    uint32_t produced = 0;
+#define LOWER_EXPERT_PROJECTION(input_role, output_role, prefix, input_size,   \
+                                output_size)                                  \
+    do {                                                                       \
+        if (build_expert_projection(                                           \
+                request, parameters, input_role, output_role,                  \
+                OPENNPUX_NPU_OPERAND_##prefix##_QWEIGHT,                       \
+                OPENNPUX_NPU_OPERAND_##prefix##_QZEROS,                        \
+                OPENNPUX_NPU_OPERAND_##prefix##_SCALES,                        \
+                OPENNPUX_NPU_OPERAND_##prefix##_G_IDX, input_size,             \
+                output_size, &projection, &projection_parameters) != 0 ||      \
+            opennpux_npu_xgraph_lower_gptq_matmul(                             \
+                &projection, &projection_parameters, extmem_base, extmem_size, \
+                scratch_address, scratch_size, first_command_id + emitted,     \
+                commands + emitted, command_capacity - emitted,                \
+                &produced) != 0) {                                             \
+            return -1;                                                         \
+        }                                                                      \
+        emitted += produced;                                                   \
+    } while (0)
+
+    LOWER_EXPERT_PROJECTION(
+        OPENNPUX_NPU_OPERAND_INPUT, OPENNPUX_NPU_OPERAND_GATE_OUTPUT, GATE,
+        parameters->input_features, parameters->intermediate_features);
+    LOWER_EXPERT_PROJECTION(
+        OPENNPUX_NPU_OPERAND_INPUT, OPENNPUX_NPU_OPERAND_UP_OUTPUT, UP,
+        parameters->input_features, parameters->intermediate_features);
+
+    if (command_capacity - emitted < 2) {
+        errno = ENOSPC;
+        return -1;
+    }
+    const struct opennpux_npu_functional_operand *gate =
+        find_operand(request, OPENNPUX_NPU_OPERAND_GATE_OUTPUT);
+    const struct opennpux_npu_functional_operand *up =
+        find_operand(request, OPENNPUX_NPU_OPERAND_UP_OUTPUT);
+    const struct opennpux_npu_functional_operand *activated =
+        find_operand(request, OPENNPUX_NPU_OPERAND_ACTIVATED);
+    const uint64_t intermediate_elements =
+        (uint64_t)request->rows * parameters->intermediate_features;
+    const uint64_t intermediate_bytes = intermediate_elements * sizeof(float);
+    if (intermediate_elements > UINT32_MAX || intermediate_bytes > UINT32_MAX ||
+        gate == NULL || up == NULL || activated == NULL ||
+        gate->byte_size < intermediate_bytes || up->byte_size < intermediate_bytes ||
+        activated->byte_size < intermediate_bytes) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    struct opennpux_xgraph_command *silu = &commands[emitted++];
+    memset(silu, 0, sizeof(*silu));
+    silu->opcode = OPENNPUX_XGRAPH_OP_TSILU;
+    silu->command_id = first_command_id + emitted - 1;
+    silu->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    silu->dim0 = request->rows;
+    silu->dim1 = parameters->intermediate_features;
+    silu->dim2 = 1;
+    if (set_operands(silu, activated, gate, NULL, extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+
+    struct opennpux_xgraph_command *multiply = &commands[emitted++];
+    memset(multiply, 0, sizeof(*multiply));
+    multiply->opcode = OPENNPUX_XGRAPH_OP_TMUL;
+    multiply->command_id = first_command_id + emitted - 1;
+    multiply->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    multiply->dim0 = request->rows;
+    multiply->dim1 = parameters->intermediate_features;
+    multiply->dim2 = 1;
+    if (set_operands(multiply, activated, activated, up, extmem_base,
+                     extmem_size) != 0) {
+        return -1;
+    }
+
+    LOWER_EXPERT_PROJECTION(
+        OPENNPUX_NPU_OPERAND_ACTIVATED, OPENNPUX_NPU_OPERAND_OUTPUT, DOWN,
+        parameters->intermediate_features, parameters->output_features);
+#undef LOWER_EXPERT_PROJECTION
+
+    *command_count = emitted;
+    return 0;
+}
+
 int
 opennpux_npu_xgraph_lower_dma(
     const struct opennpux_npu_functional_request *request,
@@ -793,6 +971,9 @@ opennpux_npu_xgraph_lower_batch(
         const int is_gptq_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             (parameters[index].flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0;
+        const int is_gptq_expert =
+            requests[index].opcode == OPENNPUX_NPU_OP_EXPERT &&
+            (parameters[index].flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0;
         const int is_dma = requests[index].opcode == OPENNPUX_NPU_OP_DMA;
         const int is_router = requests[index].opcode == OPENNPUX_NPU_OP_ROUTER;
         const int is_recurrent =
@@ -800,6 +981,16 @@ opennpux_npu_xgraph_lower_batch(
         uint32_t produced = 0;
         if (is_gptq_matmul) {
             if (opennpux_npu_xgraph_lower_gptq_matmul(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, scratch_address, scratch_size, emitted,
+                    commands + emitted, available, &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_gptq_expert) {
+            if (opennpux_npu_xgraph_lower_gptq_expert(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, scratch_address, scratch_size, emitted,
                     commands + emitted, available, &produced) != 0) {

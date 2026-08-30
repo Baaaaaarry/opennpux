@@ -1271,7 +1271,11 @@ opennpux_coral_xgraph_test(
         dma_key = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2200,
         dma_value = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2300,
         dma_state = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2400,
-        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2500,
+        router_input = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2500,
+        router_weight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2600,
+        router_indices = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2700,
+        router_weights = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2800,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2900,
     };
     static const uint32_t token_values[2] = {0, 1};
     static const float embedding_values[8] = {
@@ -1328,12 +1332,18 @@ opennpux_coral_xgraph_test(
         -1.0f, -2.0f, 1.0f, 2.0f, 3.0f, 4.0f,
         -3.0f, -4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
     };
+    static const float router_input_values[2] = {1.0f, 2.0f};
+    static const float router_weight_values[8] = {
+        1.0f, 0.0f, 2.0f, -1.0f,
+        0.0f, 2.0f, 1.0f, 3.0f,
+    };
+    static const uint32_t router_expected_indices[2] = {3, 1};
     union {
         float value;
         uint32_t bits;
     } epsilon = {1.0e-5f};
     memset(result, 0, sizeof(*result));
-    enum { request_count = 12, command_capacity = 9 };
+    enum { request_count = 13, command_capacity = 9 };
     struct opennpux_npu_functional_request requests[request_count];
     struct opennpux_npu_operator_parameters parameters[request_count];
     struct opennpux_npu_xgraph_lowering_options options[request_count];
@@ -1385,6 +1395,11 @@ opennpux_coral_xgraph_test(
     requests[11].kv_heads = 1;
     requests[11].head_dim = 2;
     requests[11].kv_length = 3;
+    initialize_xgraph_request(&requests[12], &parameters[12], 12,
+                              OPENNPUX_NPU_OP_ROUTER, 1, 2);
+    requests[12].top_k = 2;
+    parameters[12].input_features = 2;
+    parameters[12].output_features = 4;
 
 #define ADD_XGRAPH_OPERAND(index, role, offset, size)                         \
     do {                                                                      \
@@ -1461,6 +1476,14 @@ opennpux_coral_xgraph_test(
                        sizeof(dma_value_values));
     ADD_XGRAPH_OPERAND(11, OPENNPUX_NPU_OPERAND_OUTPUT, dma_state,
                        sizeof(dma_initial_state));
+    ADD_XGRAPH_OPERAND(12, OPENNPUX_NPU_OPERAND_INPUT, router_input,
+                       sizeof(router_input_values));
+    ADD_XGRAPH_OPERAND(12, OPENNPUX_NPU_OPERAND_SHARED_ROUTER_WEIGHT,
+                       router_weight, sizeof(router_weight_values));
+    ADD_XGRAPH_OPERAND(12, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES,
+                       router_indices, sizeof(router_expected_indices));
+    ADD_XGRAPH_OPERAND(12, OPENNPUX_NPU_OPERAND_OUTPUT, router_weights,
+                       2 * sizeof(float));
 #undef ADD_XGRAPH_OPERAND
 
     struct opennpux_coral_shared_window window;
@@ -1511,6 +1534,10 @@ opennpux_coral_xgraph_test(
                            sizeof(dma_value_values));
     copy_to_volatile_bytes(window.bytes + dma_state, dma_initial_state,
                            sizeof(dma_initial_state));
+    copy_to_volatile_bytes(window.bytes + router_input, router_input_values,
+                           sizeof(router_input_values));
+    copy_to_volatile_bytes(window.bytes + router_weight, router_weight_values,
+                           sizeof(router_weight_values));
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;
     opennpux_coral_get_info(dev, &before);
@@ -1636,7 +1663,7 @@ opennpux_coral_xgraph_test(
         total_commands += commands_emitted;
     }
     if (run_result != 0 || result->completed_requests != request_count ||
-        result->completed_commands != 15 || result->batch_count != 2) {
+        result->completed_commands != 20 || result->batch_count != 3) {
         opennpux_coral_close_shared_window(&window);
         errno = run_errno == 0 ? EIO : run_errno;
         return -1;
@@ -1771,6 +1798,40 @@ opennpux_coral_xgraph_test(
     }
     ++result->validated_operators;
 
+    float actual_router_weights[2] = {0};
+    uint32_t actual_router_indices[2] = {0};
+    float expected_router_weights[2] = {0};
+    copy_from_volatile_bytes(actual_router_weights,
+                             window.bytes + router_weights,
+                             sizeof(actual_router_weights));
+    copy_from_volatile_bytes(actual_router_indices,
+                             window.bytes + router_indices,
+                             sizeof(actual_router_indices));
+    const float router_maximum = 5.0f;
+    const float router_sum = expf(5.0f - router_maximum) +
+                             expf(4.0f - router_maximum);
+    expected_router_weights[0] = expf(5.0f - router_maximum) / router_sum;
+    expected_router_weights[1] = expf(4.0f - router_maximum) / router_sum;
+    uint8_t router_result_bytes[4 * sizeof(uint32_t)] = {0};
+    memcpy(router_result_bytes, actual_router_weights,
+           sizeof(actual_router_weights));
+    memcpy(router_result_bytes + sizeof(actual_router_weights),
+           actual_router_indices, sizeof(actual_router_indices));
+    result->operator_checksums[12] =
+        checksum_bytes(router_result_bytes, sizeof(router_result_bytes));
+    result->operator_pass[12] = compare_floats(
+        actual_router_weights, expected_router_weights, 2,
+        &result->operator_max_abs_error[12]) &&
+        memcmp(actual_router_indices, router_expected_indices,
+               sizeof(actual_router_indices)) == 0;
+    if (!result->operator_pass[12]) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 12;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
     float actual_dma_state[12] = {0};
     copy_from_volatile_bytes(actual_dma_state, window.bytes + dma_state,
                              sizeof(actual_dma_state));
@@ -1830,8 +1891,8 @@ opennpux_coral_xgraph_test(
         result->output[0] == (int32_t)result->completed_commands &&
         result->output[1] == 5 &&
         result->completed_requests == request_count &&
-        result->completed_commands == 15 &&
-        result->batch_count == 2 &&
+        result->completed_commands == 20 &&
+        result->batch_count == 3 &&
         operators_valid;
 
     opennpux_coral_get_info(dev, &after);

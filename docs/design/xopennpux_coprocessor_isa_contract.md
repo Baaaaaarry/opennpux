@@ -427,6 +427,13 @@ FP32 values followed by `rows*k` uint32 source indices. Equal values are
 ordered by ascending source index, making token-selection results deterministic.
 NaNs sort after numeric values and are mutually ordered by source index.
 
+Generic MoE Router lowering MUST preserve the runtime's selected-softmax
+semantics: first compute logits with TMMA, then TTOPK, then apply TSOFTMAX to
+the packed selected-value region only. Two TDMA instructions may publish the
+normalized values and packed uint32 indices to separate output tensors. This
+five-instruction composition is one logical request for batch atomicity; it
+does not introduce a model-specific router instruction.
+
 ### Primitive versus graph operations
 
 Attention, KV-cache update, routed-expert execution, expert combination, and

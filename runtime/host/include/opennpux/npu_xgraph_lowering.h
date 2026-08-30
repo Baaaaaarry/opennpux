@@ -91,10 +91,25 @@ int opennpux_npu_xgraph_lower_dma(
     uint32_t *command_count);
 
 /*
+ * Lower one dense FP32 MoE router into projection, selection, normalization,
+ * and split result writeback. Scratch contains the transient logits followed
+ * by the packed Top-K values/indices. The five records are one atomic batch
+ * item and expose no model-specific expert policy to the NPU ISA.
+ */
+int opennpux_npu_xgraph_lower_router(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count);
+
+/*
  * Lower as many ordered generic commands as fit in one bounded XGraph batch.
  * Primitive commands emit one record; composite GPTQ MatMul commands emit a
- * tiled TDEQUANT/TMMA/TADD sequence and DMA state updates emit two TDMA
- * records. Output command IDs are local to the batch and dense from zero.
+ * tiled TDEQUANT/TMMA/TADD sequence, DMA state updates emit two TDMA records,
+ * and Router emits TMMA/TTOPK/TSOFTMAX plus two TDMA writebacks. Output command
+ * IDs are local to the batch and dense from zero.
  * command_origins, when non-NULL, maps each emitted record back to its input
  * request command_id.
  *

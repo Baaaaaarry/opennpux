@@ -455,12 +455,13 @@ Tensor edge. Completion state, command count, operation count, cycle estimate,
 output checksum, and the final packed TopK result return through EXTMEM and the
 shared window.
 
-The initial full-system gate contains all nine functional primitive classes,
-one GPTQ MatMul request, one generic COMBINE request, and one KV-cache DMA
-update. The runtime intentionally submits them as two batches containing 9 and
-6 physical commands. GPTQ MatMul expands to three commands; COMBINE is
-canonically lowered to TADD; and DMA expands to two TDMA records that update
-the Key and Value state planes. This replaces the former
+The full-system gate contains all nine functional primitive classes, one GPTQ
+MatMul request, one generic COMBINE request, one KV-cache DMA update, and one
+MoE Router request. The runtime intentionally submits them as three batches
+containing 9, 6, and 5 physical commands. GPTQ MatMul expands to three
+commands; COMBINE is canonically lowered to TADD; DMA expands to two TDMA
+records that update the Key and Value state planes; and Router expands to
+TMMA/TTOPK/TSOFTMAX plus two TDMA result publications. This replaces the former
 firmware-local descriptor smoke:
 the command graph and input Tensor values now originate in the Linux Guest.
 The next compiler increment lowers the existing generic `.npxc/.npxtb`
@@ -481,6 +482,15 @@ lowering routes GPTQ MatMul through the model-independent tile planner and
 expands it into `TDEQUANT/TMMA/TADD` before instruction emission. KV-cache DMA
 uses only generic shape fields to derive the two destination-plane tail
 offsets; it does not inspect model or tensor names.
+
+Router lowering computes dense expert logits, selects Top-K with deterministic
+tie ordering, normalizes only the selected logits, and publishes normalized
+weights and uint32 expert IDs to separate generic outputs. Its five physical
+commands are atomic at an XGraph batch boundary. The scratch layout is
+`[rows, experts]` logits followed by packed `[rows, k]` values and indices;
+neither the lowering pass nor NPU L2 contains a model-family or layer special
+case. This is the first gate where expert selection is performed on the NPU
+command path rather than supplied as an offline CPU route table.
 
 ### Bounded XGraph batches
 

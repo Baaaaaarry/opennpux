@@ -490,6 +490,138 @@ opennpux_npu_xgraph_lower_dma(
 }
 
 int
+opennpux_npu_xgraph_lower_router(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (commands == NULL || command_count == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (command_capacity < 5) {
+        errno = ENOSPC;
+        return -1;
+    }
+    if (validate_request(request, parameters, extmem_size) != 0) {
+        return -1;
+    }
+    if (request->opcode != OPENNPUX_NPU_OP_ROUTER || request->top_k == 0 ||
+        parameters->input_features == 0 || parameters->output_features == 0 ||
+        request->top_k > parameters->output_features ||
+        first_command_id > UINT32_MAX - 4) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const struct opennpux_npu_functional_operand *input =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+    const struct opennpux_npu_functional_operand *weight =
+        find_operand(request, OPENNPUX_NPU_OPERAND_WEIGHT);
+    if (weight == NULL) {
+        weight = find_operand(request,
+                              OPENNPUX_NPU_OPERAND_SHARED_ROUTER_WEIGHT);
+    }
+    const struct opennpux_npu_functional_operand *indices =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES);
+    const struct opennpux_npu_functional_operand *weights =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+    const uint64_t input_elements =
+        (uint64_t)request->rows * parameters->input_features;
+    const uint64_t weight_elements =
+        (uint64_t)parameters->input_features * parameters->output_features;
+    const uint64_t logit_elements =
+        (uint64_t)request->rows * parameters->output_features;
+    const uint64_t selected_elements =
+        (uint64_t)request->rows * request->top_k;
+    const uint64_t logits_bytes = logit_elements * sizeof(float);
+    const uint64_t selected_bytes = selected_elements * sizeof(float);
+    const uint64_t required_scratch = logits_bytes + selected_bytes * 2;
+    if (input == NULL || weight == NULL || indices == NULL || weights == NULL ||
+        input_elements > UINT32_MAX || weight_elements > UINT32_MAX ||
+        logit_elements > UINT32_MAX || selected_elements > UINT32_MAX ||
+        logits_bytes > UINT32_MAX || selected_bytes > UINT32_MAX ||
+        required_scratch > scratch_size ||
+        (uint64_t)scratch_address + required_scratch > UINT32_MAX ||
+        input->byte_size < input_elements * sizeof(float) ||
+        weight->byte_size < weight_elements * sizeof(float) ||
+        indices->byte_size < selected_bytes || weights->byte_size < selected_bytes) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const uint32_t packed_address = scratch_address + (uint32_t)logits_bytes;
+    const struct opennpux_npu_functional_operand logits = {
+        OPENNPUX_NPU_OPERAND_OUTPUT, scratch_address, (uint32_t)logits_bytes, 0};
+    const struct opennpux_npu_functional_operand packed = {
+        OPENNPUX_NPU_OPERAND_OUTPUT, packed_address,
+        (uint32_t)(selected_bytes * 2), 0};
+    const struct opennpux_npu_functional_operand packed_indices = {
+        OPENNPUX_NPU_OPERAND_INPUT, packed_address + (uint32_t)selected_bytes,
+        (uint32_t)selected_bytes, 0};
+
+    memset(commands, 0, 5 * sizeof(*commands));
+    commands[0].opcode = OPENNPUX_XGRAPH_OP_TMMA;
+    commands[0].dim0 = request->rows;
+    commands[0].dim1 = parameters->output_features;
+    commands[0].dim2 = parameters->input_features;
+    commands[0].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    if (set_operands(&commands[0], &logits, input, weight,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+
+    commands[1].opcode = OPENNPUX_XGRAPH_OP_TTOPK;
+    commands[1].dim0 = request->rows;
+    commands[1].dim1 = parameters->output_features;
+    commands[1].dim2 = 1;
+    commands[1].scalar0 = request->top_k;
+    commands[1].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    if (set_operands(&commands[1], &packed, &logits, NULL,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+
+    commands[2].opcode = OPENNPUX_XGRAPH_OP_TSOFTMAX;
+    commands[2].dim0 = request->rows;
+    commands[2].dim1 = request->top_k;
+    commands[2].dim2 = 1;
+    commands[2].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    if (set_operands(&commands[2], &packed, &packed, NULL,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+
+    commands[3].opcode = OPENNPUX_XGRAPH_OP_TDMA;
+    commands[3].dim0 = request->rows;
+    commands[3].dim1 = request->top_k;
+    commands[3].dim2 = 1;
+    commands[3].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    if (set_operands(&commands[3], weights, &packed, NULL,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+
+    commands[4].opcode = OPENNPUX_XGRAPH_OP_TDMA;
+    commands[4].dim0 = request->rows;
+    commands[4].dim1 = request->top_k;
+    commands[4].dim2 = 1;
+    commands[4].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    if (set_operands(&commands[4], indices, &packed_indices, NULL,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+    for (uint32_t index = 0; index < 5; ++index) {
+        commands[index].command_id = first_command_id + index;
+    }
+    *command_count = 5;
+    return 0;
+}
+
+int
 opennpux_npu_xgraph_lower_batch(
     const struct opennpux_npu_functional_request *requests,
     const struct opennpux_npu_operator_parameters *parameters,
@@ -541,6 +673,7 @@ opennpux_npu_xgraph_lower_batch(
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             (parameters[index].flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0;
         const int is_dma = requests[index].opcode == OPENNPUX_NPU_OP_DMA;
+        const int is_router = requests[index].opcode == OPENNPUX_NPU_OP_ROUTER;
         uint32_t produced = 0;
         if (is_gptq_matmul) {
             if (opennpux_npu_xgraph_lower_gptq_matmul(
@@ -557,6 +690,16 @@ opennpux_npu_xgraph_lower_batch(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, emitted, commands + emitted, available,
                     &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_router) {
+            if (opennpux_npu_xgraph_lower_router(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, scratch_address, scratch_size, emitted,
+                    commands + emitted, available, &produced) != 0) {
                 if (errno == ENOSPC && emitted != 0) {
                     break;
                 }

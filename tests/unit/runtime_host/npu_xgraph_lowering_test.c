@@ -529,6 +529,75 @@ test_dma_lowering(void)
     assert(requests_consumed == 0 && commands_emitted == 0);
 }
 
+static void
+test_router_lowering(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command commands[5];
+    uint32_t command_count = 0;
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_ROUTER);
+    request.command_id = 21;
+    request.rows = 2;
+    request.features = 2;
+    request.top_k = 2;
+    parameters.input_features = 4;
+    parameters.output_features = 6;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 32);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SHARED_ROUTER_WEIGHT,
+                0x2000, 96);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES, 0x3000, 16);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x4000, 16);
+
+    assert(opennpux_npu_xgraph_lower_router(
+               &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x5000, 0x100, 9, commands, 5,
+               &command_count) == 0);
+    assert(command_count == 5);
+    assert(commands[0].opcode == OPENNPUX_XGRAPH_OP_TMMA);
+    assert(commands[0].source0_offset == 0x1000);
+    assert(commands[0].source1_offset == 0x2000);
+    assert(commands[0].destination_offset == 0x5000);
+    assert(commands[0].dim0 == 2 && commands[0].dim1 == 6 &&
+           commands[0].dim2 == 4);
+    assert(commands[1].opcode == OPENNPUX_XGRAPH_OP_TTOPK);
+    assert(commands[1].source0_offset == 0x5000);
+    assert(commands[1].destination_offset == 0x5030);
+    assert(commands[1].scalar0 == 2);
+    assert(commands[2].opcode == OPENNPUX_XGRAPH_OP_TSOFTMAX);
+    assert(commands[2].source0_offset == 0x5030 &&
+           commands[2].destination_offset == 0x5030);
+    assert(commands[3].opcode == OPENNPUX_XGRAPH_OP_TDMA);
+    assert(commands[3].source0_offset == 0x5030 &&
+           commands[3].destination_offset == 0x4000);
+    assert(commands[4].opcode == OPENNPUX_XGRAPH_OP_TDMA);
+    assert(commands[4].source0_offset == 0x5040 &&
+           commands[4].destination_offset == 0x3000);
+    assert(commands[0].command_id == 9 && commands[4].command_id == 13);
+
+    uint32_t origins[5] = {UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
+                           UINT32_MAX};
+    uint32_t requests_consumed = 0;
+    uint32_t commands_emitted = 0;
+    struct opennpux_npu_xgraph_lowering_failure failure;
+    assert(opennpux_npu_xgraph_lower_batch(
+               &request, &parameters, NULL, 1, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x5000, 0x100, commands, 5, origins,
+               &requests_consumed, &commands_emitted, &failure) == 0);
+    assert(requests_consumed == 1 && commands_emitted == 5);
+    for (uint32_t index = 0; index < 5; ++index) {
+        assert(origins[index] == 21);
+    }
+
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_batch(
+               &request, &parameters, NULL, 1, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x5000, 0x100, commands, 4, NULL,
+               &requests_consumed, &commands_emitted, &failure) == -1);
+    assert(errno == ENOSPC);
+    assert(requests_consumed == 0 && commands_emitted == 0);
+}
+
 int
 main(void)
 {
@@ -540,6 +609,7 @@ main(void)
     test_gptq_k_tiled_accumulation();
     test_bounded_mixed_batch_lowering();
     test_dma_lowering();
+    test_router_lowering();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

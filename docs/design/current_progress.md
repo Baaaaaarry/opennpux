@@ -927,7 +927,7 @@ SOFTMAX/ACTIVATION/TOPK` 转换为 XGraph primitive。转换只使用 opcode、�
 `COMBINE` 的数值语义与逐元素 ADD 等价，因此规范化为 `TADD`，不新增模型专用指令。
 `DMA` 由通用 KV shape (`rows/kv_heads/head_dim/kv_length`) 分解为 Key/Value 两条
 `TDMA`，目标地址指向两个 state plane 的可见尾部；未覆盖的历史 cache 必须保持不变。
-GPTQ MatMul 与 `ATTENTION/CAUSAL_CONV/RECURRENT_UPDATE/ROUTER/EXPERT`
+GPTQ MatMul 与 `ATTENTION/CAUSAL_CONV/RECURRENT_UPDATE/EXPERT`
 仍明确返回 `ENOTSUP`，等待 decomposition/tiling pass 展开，防止把复合 command
 错误伪装成单条自定义指令。native gate `test_xgraph_lowering.sh` 已覆盖直接映射、
 RoPE/SiLU/TopK 显式语义、EXTMEM 地址以及 unsupported 路径。
@@ -974,11 +974,19 @@ Guest runtime 已从“一次 lowering 并执行全部命令”升级为有界�
 command capacity 限制为 9：第一批执行 TGATHER 到 TTOPK 的 9 个 primitive，第二批把
 第 10 个 GPTQ MatMul 作为不可拆分逻辑请求展开成 `TDEQUANT + 2xTMMA`，再执行第 11 个
 COMBINE 请求所规范化得到的 `TADD`，以及第 12 个 DMA 请求分解得到的两条 `TDMA`。
-两批分别完成后聚合为 12 个逻辑请求、15 条物理命令和 236 modeled cycles，并继续
-逐算子进行独立数值校验。
+第 13 个 Router 请求独占第三批，展开为 `TMMA + TTOPK + TSOFTMAX + 2xTDMA`：NPU
+先计算 expert logits、选择 Top-K、仅在选中项内归一化，再把 weights 和 indices 写回两个
+独立输出。三批聚合为 13 个逻辑请求、20 条物理命令和 264 modeled cycles，并继续逐算子
+进行独立数值校验。
 
 XGraph header 的保留字段现定义 batch sequence、first request、request count、final flag
 和 global first command，不改变 96-byte ABI。每批 command ID 保持从 0 开始的局部稠密
 retire 顺序，全局完成进度由 Host runtime 聚合。Firmware 已移除固定 `TopK index == 5`
 判断，只负责 ABI、地址、opcode、执行和完成协议；模型结果 golden 留在 CPU runtime，
 避免后续接入任意 Transformer 执行图时把模型语义固化进 Coral 控制固件。
+
+Router lowering 只依赖 `rows/input_features/output_features/top_k` 和显式 operand，不读取
+模型名、层号或 expert 策略。五条命令必须作为一个不可跨 batch 的原子复合请求提交；临时
+scratch 依次保存 dense logits 和 packed `[TopK values][TopK indices]`。`TSOFTMAX` 仅覆盖
+packed values 区域，随后两条 `TDMA` 分别发布归一化权重和 uint32 expert IDs。该顺序与
+现有 Host functional Router 的“Top-K 后对选中项归一化”语义一致。

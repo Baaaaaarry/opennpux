@@ -38,6 +38,8 @@ if [ ! -x "${CORALCTL}" ]; then
 elif find "${ROOT_DIR}/runtime/host" -type f -newer "${CORALCTL}" \
      -print -quit | grep -q .; then
     coralctl_stale=1
+elif ! strings "${CORALCTL}" | grep -q 'source=generic-lowering'; then
+    coralctl_stale=1
 fi
 if [ "${coralctl_stale}" -eq 1 ] &&
    [ "${CORAL_NPU_LAUNCH_AUTO_BUILD_CORALCTL:-1}" = 1 ]; then
@@ -50,6 +52,11 @@ fi
 }
 strings "${CORALCTL}" | grep -q 'generic-test' || {
     echo "error: ${CORALCTL} lacks generic-test support" >&2
+    echo "rebuild it with ./tools/guest_tools/build_coralctl.sh" >&2
+    exit 1
+}
+strings "${CORALCTL}" | grep -q 'source=generic-lowering' || {
+    echo "error: ${CORALCTL} lacks generic XGraph lowering support" >&2
     echo "rebuild it with ./tools/guest_tools/build_coralctl.sh" >&2
     exit 1
 }

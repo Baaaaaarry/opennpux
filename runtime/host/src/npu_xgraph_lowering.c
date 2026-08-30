@@ -252,6 +252,39 @@ opennpux_npu_xgraph_lower_primitive(
         return set_operands(command, output, input, weight,
                             extmem_base, extmem_size);
     }
+    case OPENNPUX_NPU_OP_ATTENTION: {
+        const struct opennpux_npu_functional_operand *tertiary =
+            find_operand(request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY);
+        const uint64_t query_elements =
+            (uint64_t)request->rows * request->heads * request->head_dim;
+        const uint64_t state_elements =
+            (uint64_t)2 * request->kv_length * request->kv_heads *
+            request->head_dim;
+        const uint64_t query_bytes = query_elements * sizeof(float);
+        const uint64_t state_bytes = state_elements * sizeof(float);
+        if (request->heads == 0 || request->kv_heads == 0 ||
+            request->head_dim == 0 || request->kv_length == 0 ||
+            request->rows > UINT16_MAX ||
+            (uint64_t)request->heads * request->head_dim > UINT16_MAX ||
+            request->rows > request->kv_length ||
+            request->heads % request->kv_heads != 0 || tertiary != NULL ||
+            query_bytes > UINT32_MAX || state_bytes > UINT32_MAX ||
+            input == NULL || secondary == NULL || output == NULL ||
+            input->byte_size < query_bytes ||
+            secondary->byte_size < state_bytes ||
+            output->byte_size < query_bytes) {
+            errno = tertiary != NULL ? ENOTSUP : EINVAL;
+            return -1;
+        }
+        command->opcode = OPENNPUX_XGRAPH_OP_TATTENTION;
+        command->dim0 = request->rows;
+        command->dim1 = request->heads;
+        command->dim2 = request->head_dim;
+        command->scalar0 = request->kv_heads;
+        command->flags = request->kv_length;
+        return set_operands(command, output, input, secondary,
+                            extmem_base, extmem_size);
+    }
     default:
         errno = ENOTSUP;
         return -1;

@@ -150,6 +150,22 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       }
       break;
     }
+    case OPENNPUX_XGRAPH_OP_TATTENTION: {
+      const uint32_t heads = command.dim1;
+      const uint32_t head_dim = command.dim2;
+      const uint32_t kv_heads = command.scalar0;
+      const uint32_t kv_length = command.flags;
+      if (head_dim == 0 || kv_heads == 0 || kv_length == 0 ||
+          command.dim0 > kv_length || heads % kv_heads != 0) {
+        return false;
+      }
+      source0_elements =
+          static_cast<uint64_t>(command.dim0) * heads * head_dim;
+      source1_elements =
+          static_cast<uint64_t>(2) * kv_length * kv_heads * head_dim;
+      destination_elements = source0_elements;
+      break;
+    }
     case OPENNPUX_XGRAPH_OP_TSILU:
     case OPENNPUX_XGRAPH_OP_TSOFTMAX:
     case OPENNPUX_XGRAPH_OP_TDMA:
@@ -272,6 +288,19 @@ bool Execute(const volatile opennpux_xgraph_command& command,
       *operations += elements * command.dim2 * 2;
       *cycles += elements * command.dim2 * 2;
       return true;
+    case OPENNPUX_XGRAPH_OP_TATTENTION: {
+      xopennpux_attention_fp32(destination, source0, source1, command.dim0,
+                               command.dim1, command.scalar0, command.dim2,
+                               command.flags);
+      const uint64_t rows = command.dim0;
+      const uint64_t visible_positions =
+          rows * (command.flags - rows + 1) + rows * (rows - 1) / 2;
+      const uint64_t attention_operations =
+          visible_positions * command.dim1 * command.dim2 * 4;
+      *operations += attention_operations;
+      *cycles += attention_operations;
+      return true;
+    }
     default:
       return false;
   }

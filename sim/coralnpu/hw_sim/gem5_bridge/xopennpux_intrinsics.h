@@ -64,6 +64,18 @@ static inline void xopennpux_write_tensor_aux_destination_address(
   __asm__ volatile("csrw 0x819, %0" : : "r"(value) : "memory");
 }
 
+static inline void xopennpux_write_attention_heads(uint32_t value) {
+  __asm__ volatile("csrw 0x81a, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_attention_head_dim_flags(uint32_t value) {
+  __asm__ volatile("csrw 0x81b, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_attention_kv_length(uint32_t value) {
+  __asm__ volatile("csrw 0x81c, %0" : : "r"(value) : "memory");
+}
+
 static inline void xopennpux_tmma_fp32(void* destination, const void* lhs,
                                        const void* rhs) {
   // Publish scalar/AXI stores before the coprocessor reads its operands.
@@ -174,6 +186,17 @@ static inline void xopennpux_tcausalconv_fp32(void* destination,
                    :
                    : "r"((uintptr_t)destination), "r"((uintptr_t)input),
                      "r"((uintptr_t)weight)
+                   : "memory");
+}
+
+static inline void xopennpux_tattention_fp32(void* destination,
+                                             const void* query,
+                                             const void* kv_state) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 0, 0x21, %0, %1, %2"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)query),
+                     "r"((uintptr_t)kv_state)
                    : "memory");
 }
 

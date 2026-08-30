@@ -122,6 +122,19 @@ static inline void xopennpux_causal_depthwise_conv_fp32(
   xopennpux_tfence();
 }
 
+static inline void xopennpux_attention_fp32(
+    void* destination, const void* query, const void* kv_state,
+    uint32_t query_rows, uint32_t heads, uint32_t kv_heads,
+    uint32_t head_dim, uint32_t kv_length) {
+  xopennpux_configure_tensor_fp32(query_rows, heads * head_dim);
+  xopennpux_write_attention_heads((heads & 0xffffu) |
+                                  ((kv_heads & 0xffffu) << 16));
+  xopennpux_write_attention_head_dim_flags(head_dim & 0xffffu);
+  xopennpux_write_attention_kv_length(kv_length);
+  xopennpux_tattention_fp32(destination, query, kv_state);
+  xopennpux_tfence();
+}
+
 // Dequantizes one AutoGPTQ output-channel tile to contiguous FP32 [K, N].
 // qweight/qzeros/scales may remain strided views into the full matrix.
 static inline void xopennpux_dequant_int4_fp32(

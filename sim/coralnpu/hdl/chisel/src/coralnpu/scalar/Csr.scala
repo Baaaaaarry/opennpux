@@ -92,6 +92,9 @@ object CsrAddress extends ChiselEnum {
   val QUANT_GROUP_RANGE = Value(0x817.U(12.W))
   val TENSOR_AUX_SOURCE_ADDRESS = Value(0x818.U(12.W))
   val TENSOR_AUX_DESTINATION_ADDRESS = Value(0x819.U(12.W))
+  val ATTENTION_HEADS = Value(0x81A.U(12.W))
+  val ATTENTION_HEAD_DIM_FLAGS = Value(0x81B.U(12.W))
+  val ATTENTION_KV_LENGTH = Value(0x81C.U(12.W))
   val MCYCLE    = Value(0xB00.U(12.W))
   val MINSTRET  = Value(0xB02.U(12.W))
   val MCYCLEH   = Value(0xB80.U(12.W))
@@ -298,6 +301,9 @@ class Csr(p: Parameters) extends Module {
   val quantGroupRange = RegInit(0.U(p.xlen.W))
   val tensorAuxSourceAddress = RegInit(0.U(p.xlen.W))
   val tensorAuxDestinationAddress = RegInit(0.U(p.xlen.W))
+  val attentionHeads = RegInit(0.U(p.xlen.W))
+  val attentionHeadDimFlags = RegInit(0.U(p.xlen.W))
+  val attentionKvLength = RegInit(0.U(p.xlen.W))
   val xnpuCsrEpoch = RegInit(0.U(32.W))
   io.xnpu.mmaShape := mmaShape
   io.xnpu.mmaDataType := mmaDataType
@@ -314,6 +320,9 @@ class Csr(p: Parameters) extends Module {
   io.xnpu.quantGroupRange := quantGroupRange
   io.xnpu.tensorAuxSourceAddress := tensorAuxSourceAddress
   io.xnpu.tensorAuxDestinationAddress := tensorAuxDestinationAddress
+  io.xnpu.attentionHeads := attentionHeads
+  io.xnpu.attentionHeadDimFlags := attentionHeadDimFlags
+  io.xnpu.attentionKvLength := attentionKvLength
   io.xnpu.epoch := xnpuCsrEpoch
 
   // Debug mode CSRs
@@ -438,6 +447,10 @@ class Csr(p: Parameters) extends Module {
     csr_address === CsrAddress.TENSOR_AUX_SOURCE_ADDRESS
   val tensorAuxDestinationAddressEn =
     csr_address === CsrAddress.TENSOR_AUX_DESTINATION_ADDRESS
+  val attentionHeadsEn = csr_address === CsrAddress.ATTENTION_HEADS
+  val attentionHeadDimFlagsEn =
+    csr_address === CsrAddress.ATTENTION_HEAD_DIM_FLAGS
+  val attentionKvLengthEn = csr_address === CsrAddress.ATTENTION_KV_LENGTH
   val kscm0En     = csr_address === CsrAddress.KSCM0
   val kscm1En     = csr_address === CsrAddress.KSCM1
   val kscm2En     = csr_address === CsrAddress.KSCM2
@@ -515,6 +528,9 @@ class Csr(p: Parameters) extends Module {
       quantGroupRangeEn -> quantGroupRange,
       tensorAuxSourceAddressEn -> tensorAuxSourceAddress,
       tensorAuxDestinationAddressEn -> tensorAuxDestinationAddress,
+      attentionHeadsEn -> attentionHeads,
+      attentionHeadDimFlagsEn -> attentionHeadDimFlags,
+      attentionKvLengthEn -> attentionKvLength,
       kscm0En     -> kscm(31,0),
       kscm1En     -> kscm(63,32),
       kscm2En     -> kscm(95,64),
@@ -588,6 +604,9 @@ class Csr(p: Parameters) extends Module {
     when (quantGroupRangeEn) { quantGroupRange := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (tensorAuxSourceAddressEn) { tensorAuxSourceAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (tensorAuxDestinationAddressEn) { tensorAuxDestinationAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (attentionHeadsEn) { attentionHeads := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (attentionHeadDimFlagsEn) { attentionHeadDimFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (attentionKvLengthEn) { attentionKvLength := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (dscratch0En)  { dscratch0 := wdata }
     when (dscratch1En)  { dscratch1 := wdata }
     when (tdata1En)     { tdata1 := LegalizeTdata1(wdata) }

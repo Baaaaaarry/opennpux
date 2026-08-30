@@ -115,6 +115,9 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   quant_group_range_ = 0;
   tensor_aux_source_address_ = 0;
   tensor_aux_destination_address_ = 0;
+  attention_heads_ = 0;
+  attention_head_dim_flags_ = 0;
+  attention_kv_length_ = 0;
   csr_epoch_ = 0;
 }
 
@@ -165,6 +168,15 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrTensorAuxDestinationAddress:
       tensor_aux_destination_address_ = value;
+      break;
+    case xopennpux::kCsrAttentionHeads:
+      attention_heads_ = value;
+      break;
+    case xopennpux::kCsrAttentionHeadDimFlags:
+      attention_head_dim_flags_ = value;
+      break;
+    case xopennpux::kCsrAttentionKvLength:
+      attention_kv_length_ = value;
       break;
     default:
       return false;
@@ -224,6 +236,15 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
     case xopennpux::kCsrTensorAuxDestinationAddress:
       *value = tensor_aux_destination_address_;
       return true;
+    case xopennpux::kCsrAttentionHeads:
+      *value = attention_heads_;
+      return true;
+    case xopennpux::kCsrAttentionHeadDimFlags:
+      *value = attention_head_dim_flags_;
+      return true;
+    case xopennpux::kCsrAttentionKvLength:
+      *value = attention_kv_length_;
+      return true;
     default:
       return false;
   }
@@ -248,6 +269,7 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       operation != xopennpux::Operation::kTdequant &&
       operation != xopennpux::Operation::kTdma &&
       operation != xopennpux::Operation::kTcausalconv &&
+      operation != xopennpux::Operation::kTattention &&
       operation != xopennpux::Operation::kTtopk) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
@@ -370,6 +392,27 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       return Gem5TmmaSubmitResult::kInvalidCsrState;
     }
   }
+  if (operation == xopennpux::Operation::kTattention) {
+    const uint32_t packed_heads = packet.csr_epoch == 0
+                                      ? attention_heads_
+                                      : packet.attention_heads;
+    const uint32_t head_dim_flags = packet.csr_epoch == 0
+                                        ? attention_head_dim_flags_
+                                        : packet.attention_head_dim_flags;
+    const uint32_t kv_length = packet.csr_epoch == 0
+                                   ? attention_kv_length_
+                                   : packet.attention_kv_length;
+    const uint32_t heads = packed_heads & 0xffffu;
+    const uint32_t kv_heads = packed_heads >> 16;
+    const uint32_t head_dim = head_dim_flags & 0xffffu;
+    const uint32_t flags = head_dim_flags >> 16;
+    if (heads == 0 || kv_heads == 0 || head_dim == 0 || kv_length == 0 ||
+        flags != 0 || heads % kv_heads != 0 ||
+        tensor_shape.rows > kv_length ||
+        tensor_shape.features != heads * head_dim) {
+      return Gem5TmmaSubmitResult::kInvalidCsrState;
+    }
+  }
   return Gem5TmmaSubmitResult::kAccepted;
 }
 
@@ -439,6 +482,14 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
   queue_[tail].tensor_aux_destination_address =
       packet.csr_epoch == 0 ? tensor_aux_destination_address_
                             : packet.tensor_aux_destination_address;
+  queue_[tail].attention_heads =
+      packet.csr_epoch == 0 ? attention_heads_ : packet.attention_heads;
+  queue_[tail].attention_head_dim_flags =
+      packet.csr_epoch == 0 ? attention_head_dim_flags_
+                            : packet.attention_head_dim_flags;
+  queue_[tail].attention_kv_length = packet.csr_epoch == 0
+                                         ? attention_kv_length_
+                                         : packet.attention_kv_length;
   ++queue_size_;
   return Gem5TmmaSubmitResult::kAccepted;
 }
@@ -498,6 +549,15 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
     const uint64_t kernel_width = command.scalar_param0 & 0xffffu;
     completion->element_operations = tensor_elements * kernel_width * 2;
     completion->modeled_cycles = completion->element_operations;
+  } else if (command.operation == xopennpux::Operation::kTattention) {
+    const uint64_t rows = command.tensor_shape.rows;
+    const uint64_t kv_length = command.attention_kv_length;
+    const uint64_t visible_positions =
+        rows * (kv_length - rows + 1) + rows * (rows - 1) / 2;
+    const uint64_t heads = command.attention_heads & 0xffffu;
+    const uint64_t head_dim = command.attention_head_dim_flags & 0xffffu;
+    completion->element_operations = visible_positions * heads * head_dim * 4;
+    completion->modeled_cycles = completion->element_operations;
   } else {
     completion->element_operations = tensor_elements;
     completion->modeled_cycles = completion->element_operations;
@@ -530,6 +590,10 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
               ? 0
               : command.operation == xopennpux::Operation::kTrmsnorm
               ? command.tensor_shape.features
+              : command.operation == xopennpux::Operation::kTattention
+              ? static_cast<uint64_t>(2) * command.attention_kv_length *
+                    (command.attention_heads >> 16) *
+                    (command.attention_head_dim_flags & 0xffffu)
               : command.operation == xopennpux::Operation::kTcausalconv
               ? static_cast<uint64_t>(command.tensor_shape.features) *
                     (command.scalar_param0 & 0xffffu)
@@ -925,6 +989,57 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                          (state_row * command.tensor_shape.features + feature) *
                              sizeof(float),
                      value);
+        }
+      }
+    }
+  } else if (command.operation == xopennpux::Operation::kTattention) {
+    const uint32_t rows = command.tensor_shape.rows;
+    const uint32_t heads = command.attention_heads & 0xffffu;
+    const uint32_t kv_heads = command.attention_heads >> 16;
+    const uint32_t head_dim = command.attention_head_dim_flags & 0xffffu;
+    const uint32_t kv_length = command.attention_kv_length;
+    const uint32_t query_start = kv_length - rows;
+    const uint32_t heads_per_kv_head = heads / kv_heads;
+    const uint64_t kv_plane_elements =
+        static_cast<uint64_t>(kv_length) * kv_heads * head_dim;
+    const size_t values_base =
+        rhs_base + static_cast<size_t>(kv_plane_elements) * sizeof(float);
+    const float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
+    std::vector<float> scores(kv_length);
+    for (uint32_t row = 0; row < rows; ++row) {
+      const uint32_t visible = query_start + row + 1;
+      for (uint32_t head = 0; head < heads; ++head) {
+        const uint32_t kv_head = head / heads_per_kv_head;
+        const size_t query_index =
+            (static_cast<size_t>(row) * heads + head) * head_dim;
+        float maximum = -INFINITY;
+        for (uint32_t position = 0; position < visible; ++position) {
+          const size_t key_index =
+              (static_cast<size_t>(position) * kv_heads + kv_head) * head_dim;
+          float dot = 0.0f;
+          for (uint32_t lane = 0; lane < head_dim; ++lane) {
+            dot += LoadFloat(*memory, lhs_base + (query_index + lane) * 4) *
+                   LoadFloat(*memory, rhs_base + (key_index + lane) * 4);
+          }
+          scores[position] = dot * scale;
+          maximum = std::max(maximum, scores[position]);
+        }
+        float denominator = 0.0f;
+        for (uint32_t position = 0; position < visible; ++position) {
+          scores[position] = std::exp(scores[position] - maximum);
+          denominator += scores[position];
+        }
+        for (uint32_t lane = 0; lane < head_dim; ++lane) {
+          float sum = 0.0f;
+          for (uint32_t position = 0; position < visible; ++position) {
+            const size_t value_index =
+                (static_cast<size_t>(position) * kv_heads + kv_head) *
+                    head_dim +
+                lane;
+            sum += (scores[position] / denominator) *
+                   LoadFloat(*memory, values_base + value_index * 4);
+          }
+          StoreFloat(memory, dst_base + (query_index + lane) * 4, sum);
         }
       }
     }

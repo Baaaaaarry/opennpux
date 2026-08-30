@@ -23,6 +23,7 @@ constexpr uint32_t kGatherFunct7 = 0x10;
 constexpr uint32_t kDequantFunct7 = 0x11;
 constexpr uint32_t kDmaFunct7 = 0x12;
 constexpr uint32_t kCausalConvFunct7 = 0x20;
+constexpr uint32_t kAttentionFunct7 = 0x21;
 constexpr uint32_t kMultiOutputFunct3 = 4;
 constexpr uint32_t kTopKFunct7 = 0;
 constexpr uint32_t kFenceFunct3 = 6;
@@ -42,6 +43,9 @@ constexpr uint16_t kCsrQuantScalesStride = 0x816;
 constexpr uint16_t kCsrQuantGroupRange = 0x817;
 constexpr uint16_t kCsrTensorAuxSourceAddress = 0x818;
 constexpr uint16_t kCsrTensorAuxDestinationAddress = 0x819;
+constexpr uint16_t kCsrAttentionHeads = 0x81a;
+constexpr uint16_t kCsrAttentionHeadDimFlags = 0x81b;
+constexpr uint16_t kCsrAttentionKvLength = 0x81c;
 
 constexpr uint32_t kShapeFieldMask = 0x3ff;
 constexpr uint32_t kShapeMShift = 0;
@@ -288,6 +292,19 @@ constexpr bool IsTcausalconv(uint32_t instruction) {
          ((instruction >> 25) & 0x7f) == kCausalConvFunct7;
 }
 
+constexpr uint32_t EncodeTattention(uint32_t rd, uint32_t rs1,
+                                    uint32_t rs2) {
+  return (kAttentionFunct7 << 25) | ((rs2 & 0x1f) << 20) |
+         ((rs1 & 0x1f) << 15) | (kMmaFunct3 << 12) |
+         ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTattention(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kMmaFunct3 &&
+         ((instruction >> 25) & 0x7f) == kAttentionFunct7;
+}
+
 constexpr uint32_t EncodeTtopk(uint32_t rd, uint32_t rs1) {
   return (kTopKFunct7 << 25) | ((rs1 & 0x1f) << 15) |
          (kMultiOutputFunct3 << 12) | ((rd & 0x1f) << 7) |
@@ -322,6 +339,7 @@ enum class Operation : uint8_t {
   kTdequant,
   kTdma,
   kTcausalconv,
+  kTattention,
   kTtopk,
   kTfence,
 };
@@ -338,6 +356,7 @@ constexpr Operation DecodeOperation(uint32_t instruction) {
          : IsTdequant(instruction) ? Operation::kTdequant
          : IsTdma(instruction) ? Operation::kTdma
          : IsTcausalconv(instruction) ? Operation::kTcausalconv
+         : IsTattention(instruction) ? Operation::kTattention
          : IsTtopk(instruction) ? Operation::kTtopk
          : IsTfence(instruction) ? Operation::kTfence
                                  : Operation::kInvalid;
@@ -367,6 +386,8 @@ constexpr const char* OperationName(Operation operation) {
       return "tdma";
     case Operation::kTcausalconv:
       return "tcausalconv";
+    case Operation::kTattention:
+      return "tattention";
     case Operation::kTtopk:
       return "ttopk";
     case Operation::kTfence:

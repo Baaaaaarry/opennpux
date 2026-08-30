@@ -175,6 +175,11 @@ class Gem5CoreMiniAxiWrapper {
         core_.io_xnpu_request_bits_csr_tensorAuxSourceAddress;
     packet.tensor_aux_destination_address =
         core_.io_xnpu_request_bits_csr_tensorAuxDestinationAddress;
+    packet.attention_heads = core_.io_xnpu_request_bits_csr_attentionHeads;
+    packet.attention_head_dim_flags =
+        core_.io_xnpu_request_bits_csr_attentionHeadDimFlags;
+    packet.attention_kv_length =
+        core_.io_xnpu_request_bits_csr_attentionKvLength;
     packet.csr_epoch = core_.io_xnpu_request_bits_csr_epoch;
     packet.sequence_id = sequence_id;
 

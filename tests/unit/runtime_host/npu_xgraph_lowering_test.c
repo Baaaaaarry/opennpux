@@ -155,7 +155,35 @@ test_embed_and_rejections(void)
                &command) == -1);
     assert(errno == ENOTSUP);
 
+}
+
+static void
+test_attention_lowering(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command command;
     initialize(&request, &parameters, OPENNPUX_NPU_OP_ATTENTION);
+    request.rows = 2;
+    request.heads = 4;
+    request.kv_heads = 2;
+    request.head_dim = 8;
+    request.kv_length = 5;
+    request.features = 32;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 256);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SECONDARY, 0x2000, 640);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x3000, 256);
+    assert(opennpux_npu_xgraph_lower_primitive(
+               &request, &parameters, NULL, EXTMEM_BASE, EXTMEM_SIZE,
+               &command) == 0);
+    assert(command.opcode == OPENNPUX_XGRAPH_OP_TATTENTION);
+    assert(command.dim0 == 2 && command.dim1 == 4 && command.dim2 == 8);
+    assert(command.scalar0 == 2 && command.flags == 5);
+    assert(command.source0_offset == 0x1000);
+    assert(command.source1_offset == 0x2000);
+    assert(command.destination_offset == 0x3000);
+
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY, 0x4000, 256);
     errno = 0;
     assert(opennpux_npu_xgraph_lower_primitive(
                &request, &parameters, NULL, EXTMEM_BASE, EXTMEM_SIZE,
@@ -234,8 +262,8 @@ test_sequence_lowering(void)
     assert(commands[2].opcode == OPENNPUX_XGRAPH_OP_TSOFTMAX);
     assert(failure.command_index == UINT32_MAX);
 
-    requests[1].opcode = OPENNPUX_NPU_OP_ATTENTION;
-    parameters[1].opcode = OPENNPUX_NPU_OP_ATTENTION;
+    requests[1].opcode = UINT32_MAX;
+    parameters[1].opcode = UINT32_MAX;
     errno = 0;
     assert(opennpux_npu_xgraph_lower_sequence(
                requests, parameters, options, count, EXTMEM_BASE, EXTMEM_SIZE,
@@ -243,7 +271,7 @@ test_sequence_lowering(void)
     assert(errno == ENOTSUP);
     assert(failure.command_index == 1);
     assert(failure.command_id == 1);
-    assert(failure.opcode == OPENNPUX_NPU_OP_ATTENTION);
+    assert(failure.opcode == UINT32_MAX);
     assert(failure.error_code == ENOTSUP);
     assert(commands[2].opcode == 0);
 
@@ -781,6 +809,7 @@ main(void)
     test_direct_primitives();
     test_semantic_options();
     test_embed_and_rejections();
+    test_attention_lowering();
     test_causal_convolution_lowering();
     test_sequence_lowering();
     test_gptq_tiled_lowering();

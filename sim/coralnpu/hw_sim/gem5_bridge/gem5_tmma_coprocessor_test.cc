@@ -131,6 +131,56 @@ void TestEncodingAndSecondLevelDecode() {
   assert(xopennpux::IsTcausalconv(causal_conv));
   assert(xopennpux::DecodeOperation(causal_conv) ==
          xopennpux::Operation::kTcausalconv);
+  const uint32_t attention = xopennpux::EncodeTattention(12, 10, 11);
+  assert(xopennpux::IsTattention(attention));
+  assert(xopennpux::DecodeOperation(attention) ==
+         xopennpux::Operation::kTattention);
+}
+
+void TestCausalGqaAttention() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 4);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrAttentionHeads,
+                              2u | (1u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrAttentionHeadDimFlags, 2));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrAttentionKvLength, 3));
+
+  Gem5TmmaDispatchPacket packet = Packet(32);
+  packet.instruction = xopennpux::EncodeTattention(12, 10, 11);
+  packet.rs1_value = kMemoryBase + 0x100;
+  packet.rs2_value = kMemoryBase + 0x200;
+  packet.rd_value = kMemoryBase + 0x400;
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const float query[] = {1, 0, 0, 1, 1, 1, 1, -1};
+  const float state[] = {
+      1, 0, 0, 1, 1, 1,  // K plane
+      1, 2, 3, 4, 5, 6,  // V plane
+  };
+  for (size_t index = 0; index < 8; ++index) {
+    WriteFloat(&memory, 0x100 + index * 4, query[index]);
+  }
+  for (size_t index = 0; index < 12; ++index) {
+    WriteFloat(&memory, 0x200 + index * 4, state[index]);
+  }
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTattention);
+  assert(completion.element_operations == 80);
+  assert(completion.modeled_cycles == 80);
+  const float scale = 1.0f / std::sqrt(2.0f);
+  const float exp_scale = std::exp(scale);
+  const float first0 = (exp_scale * 1.0f + 3.0f) / (exp_scale + 1.0f);
+  const float first1 = (exp_scale * 2.0f + 4.0f) / (exp_scale + 1.0f);
+  assert(std::fabs(ReadFloat(memory, 0x400) - first0) < 1.0e-5f);
+  assert(std::fabs(ReadFloat(memory, 0x404) - first1) < 1.0e-5f);
+  assert(std::fabs(ReadFloat(memory, 0x408) -
+                   (1.0f + exp_scale * 3.0f) / (1.0f + exp_scale)) <
+         1.0e-5f);
+  assert(std::isfinite(ReadFloat(memory, 0x41c)));
 }
 
 void TestStatefulCausalDepthwiseConv() {
@@ -830,6 +880,7 @@ int main() {
   TestFp32TensorMul();
   TestFp32Dma();
   TestStatefulCausalDepthwiseConv();
+  TestCausalGqaAttention();
   TestFp32RmsNorm();
   TestRmsNormRejectsInvalidEpsilon();
   TestFp32Silu();

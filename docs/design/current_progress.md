@@ -1045,3 +1045,21 @@ Native lowering 已验证最小 GPTQ expert 生成 8 条稠密 command，并覆�
 Full-system fixture 候选增加第 16 个逻辑请求和独立第 4 批，预期为 4 batches / 16 requests /
 31 commands / 326 modeled cycles。该统计和 Expert checksum 尚待 GB10 验收，正式基线仍为
 上一节的 15 requests / 23 commands / 294 cycles。
+
+GB10 已确认上述 candidate 完成 4 batches / 16 requests / 31 commands / 326 cycles，device
+state complete 且 error=0；当前摘录未包含 `xgraph_op_EXPERT=PASS`、checksum、max error 和
+`xgraph_correctness=PASS`，因此只登记为执行闭环，不提升为正式数值基线。
+
+## 2026-08-30 Generic Causal GQA Attention Candidate
+
+新增模型无关 `TATTENTION` custom3 指令及 ATTENTION lowering。XGraph command 显式携带
+query rows、heads、KV heads、head dimension 和 KV length，输入约定为 query
+`[rows,heads,head_dim]` 以及连续 K/V state
+`[2,kv_length,kv_heads,head_dim]`。Coral 标量核负责 CSR 写入、L1 分流和 retire；NPU L2
+原子快照新增 CSR `0x81a..0x81c`，执行 GQA head 映射、causal visible prefix、scaled dot
+product、stable softmax 和 V 聚合。该接口不携带模型名、层号或 Qwen 专属信息。
+
+Native tests 已验证 lowering 和 rows=2、heads=2、KV heads=1、head dim=2、KV length=3 的
+数值执行，期望 80 operations / 80 modeled cycles。Full-system fixture 候选为 4 batches /
+17 requests / 32 commands / 406 cycles；第 4 批由 Expert 的 8 条命令和 1 条 TATTENTION
+组成。首版拒绝 fused tertiary gate，避免在未定义 CSR/operand 契约时静默执行错误语义。

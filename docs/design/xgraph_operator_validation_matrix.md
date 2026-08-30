@@ -23,10 +23,10 @@ NPU L2 decode.
 | COMBINE | canonical `TADD` | 4 FP32 elements | 1 | 4 | PASS |
 | DMA / KV update | `TDMA(K) + TDMA(V)` | 4-byte Key and Value planes | 2 | 8 | PASS |
 | ROUTER | `TMMA + TTOPK + TSOFTMAX + 2xTDMA` | rows=1, features=2, experts=4, K=2 | 5 | 28 | PASS |
-| ATTENTION | decomposition pending | Generic attention geometry is preserved in `.npxtb` | - | - | TODO |
+| ATTENTION | `TATTENTION` | Candidate: rows=2, heads=2, KV heads=1, head dim=2, KV length=3; causal GQA | 1 | 80 (candidate) | GB10 TODO |
 | CAUSAL_CONVOLUTION | `TCAUSALCONV` | rows=2, features=2, kernel=3, stateful | 1 | 24 | PASS |
 | RECURRENT_UPDATE | `TDMA(full output) + TDMA(final row state)` | rows=2, features=2, basic persistent state | 2 | 6 | PASS |
-| EXPERT | `gate(TDEQUANT+TMMA) + up(TDEQUANT+TMMA) + TSILU + TMUL + down(TDEQUANT+TMMA)` | Candidate: rows=1, input=2, intermediate=2, output=2, GPTQ INT4 | 8 | 32 (candidate) | GB10 TODO |
+| EXPERT | `gate(TDEQUANT+TMMA) + up(TDEQUANT+TMMA) + TSILU + TMUL + down(TDEQUANT+TMMA)` | rows=1, input=2, intermediate=2, output=2, GPTQ INT4 | 8 | 32 | GB10 execution PASS; numerical tail pending |
 
 The per-operation values above sum to the current full-system baseline:
 
@@ -71,10 +71,13 @@ Do not present these functional cycles as cycle-accurate RTL performance. When
 an operator is replaced by an RTL execution unit, add a separate RTL row or
 measurement column rather than overwriting the functional-model baseline.
 
-The next full-system candidate adds one generic GPTQ `EXPERT` request as a
-fourth atomic batch. It reuses the existing GPTQ tile planner and dequant
-scratch sequentially for gate/up/down projections, while gate output, up
-output, activated tensor, and final output remain explicit operands. The
-candidate expectation is 4 batches / 16 requests / 31 commands / 326 modeled
-cycles. These values are not an accepted baseline until GB10 reports the
-per-operator checksum and `max_abs_error=0`.
+GB10 has executed the generic GPTQ `EXPERT` candidate as 4 batches / 16
+requests / 31 commands / 326 modeled cycles with complete state and no device
+error. This is scheduling evidence only: it becomes a numerical baseline only
+after the same log reports `xgraph_op_EXPERT=PASS`, its checksum,
+`max_abs_error=0`, and `xgraph_correctness=PASS`.
+
+The next candidate appends one generic `TATTENTION` command to Expert's
+eight-command final batch. Expected totals are 4 batches / 17 requests / 32
+commands / 406 modeled cycles. The fixture covers causal visibility and GQA
+head mapping; fused attention gating remains explicitly unsupported.

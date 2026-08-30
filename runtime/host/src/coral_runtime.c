@@ -1297,7 +1297,10 @@ opennpux_coral_xgraph_test(
         expert_down_qweight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3800,
         expert_down_qzeros = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3820,
         expert_down_scales = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3840,
-        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3900,
+        attention_query = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3900,
+        attention_state = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3a00,
+        attention_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3b00,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3c00,
     };
     static const uint32_t token_values[2] = {0, 1};
     static const float embedding_values[8] = {
@@ -1382,12 +1385,19 @@ opennpux_coral_xgraph_test(
     };
     static const uint32_t expert_qzeros_value = 0;
     static const float expert_scale_values[2] = {1.0f, 1.0f};
+    static const float attention_query_values[8] = {
+        1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f,
+    };
+    static const float attention_state_values[12] = {
+        1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+        1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f,
+    };
     union {
         float value;
         uint32_t bits;
     } epsilon = {1.0e-5f};
     memset(result, 0, sizeof(*result));
-    enum { request_count = 16, command_capacity = 9 };
+    enum { request_count = 17, command_capacity = 9 };
     struct opennpux_npu_functional_request requests[request_count];
     struct opennpux_npu_operator_parameters parameters[request_count];
     struct opennpux_npu_xgraph_lowering_options options[request_count];
@@ -1461,6 +1471,12 @@ opennpux_coral_xgraph_test(
     parameters[15].quantization_group_size = 2;
     parameters[15].quantized_zero_bias = 1;
     parameters[15].scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
+    initialize_xgraph_request(&requests[16], &parameters[16], 16,
+                              OPENNPUX_NPU_OP_ATTENTION, 2, 4);
+    requests[16].heads = 2;
+    requests[16].kv_heads = 1;
+    requests[16].head_dim = 2;
+    requests[16].kv_length = 3;
 
 #define ADD_XGRAPH_OPERAND(index, role, offset, size)                         \
     do {                                                                      \
@@ -1590,6 +1606,12 @@ opennpux_coral_xgraph_test(
                        expert_down_qzeros, sizeof(expert_qzeros_value));
     ADD_XGRAPH_OPERAND(15, OPENNPUX_NPU_OPERAND_DOWN_SCALES,
                        expert_down_scales, sizeof(expert_scale_values));
+    ADD_XGRAPH_OPERAND(16, OPENNPUX_NPU_OPERAND_INPUT, attention_query,
+                       sizeof(attention_query_values));
+    ADD_XGRAPH_OPERAND(16, OPENNPUX_NPU_OPERAND_SECONDARY, attention_state,
+                       sizeof(attention_state_values));
+    ADD_XGRAPH_OPERAND(16, OPENNPUX_NPU_OPERAND_OUTPUT, attention_output,
+                       sizeof(attention_query_values));
 #undef ADD_XGRAPH_OPERAND
 
     struct opennpux_coral_shared_window window;
@@ -1676,6 +1698,12 @@ opennpux_coral_xgraph_test(
                                expert_scale_values,
                                sizeof(expert_scale_values));
     }
+    copy_to_volatile_bytes(window.bytes + attention_query,
+                           attention_query_values,
+                           sizeof(attention_query_values));
+    copy_to_volatile_bytes(window.bytes + attention_state,
+                           attention_state_values,
+                           sizeof(attention_state_values));
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;
     opennpux_coral_get_info(dev, &before);
@@ -1801,7 +1829,7 @@ opennpux_coral_xgraph_test(
         total_commands += commands_emitted;
     }
     if (run_result != 0 || result->completed_requests != request_count ||
-        result->completed_commands != 31 || result->batch_count != 4) {
+        result->completed_commands != 32 || result->batch_count != 4) {
         opennpux_coral_close_shared_window(&window);
         errno = run_errno == 0 ? EIO : run_errno;
         return -1;
@@ -1931,6 +1959,57 @@ opennpux_coral_xgraph_test(
     if (!topk_valid) {
         if (result->failed_operator == UINT32_MAX) {
             result->failed_operator = 8;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
+    float actual_attention[8] = {0};
+    float expected_attention[8] = {0};
+    copy_from_volatile_bytes(actual_attention,
+                             window.bytes + attention_output,
+                             sizeof(actual_attention));
+    const float attention_scale = 1.0f / sqrtf(2.0f);
+    for (uint32_t row = 0; row < 2; ++row) {
+        const uint32_t visible = 2 + row;
+        for (uint32_t head = 0; head < 2; ++head) {
+            float scores[3] = {0};
+            float maximum = -INFINITY;
+            const uint32_t query_base = (row * 2 + head) * 2;
+            for (uint32_t position = 0; position < visible; ++position) {
+                scores[position] =
+                    (attention_query_values[query_base] *
+                         attention_state_values[position * 2] +
+                     attention_query_values[query_base + 1] *
+                         attention_state_values[position * 2 + 1]) *
+                    attention_scale;
+                if (scores[position] > maximum) {
+                    maximum = scores[position];
+                }
+            }
+            float denominator = 0.0f;
+            for (uint32_t position = 0; position < visible; ++position) {
+                scores[position] = expf(scores[position] - maximum);
+                denominator += scores[position];
+            }
+            for (uint32_t lane = 0; lane < 2; ++lane) {
+                float value = 0.0f;
+                for (uint32_t position = 0; position < visible; ++position) {
+                    value += scores[position] / denominator *
+                             attention_state_values[6 + position * 2 + lane];
+                }
+                expected_attention[query_base + lane] = value;
+            }
+        }
+    }
+    result->operator_checksums[16] =
+        checksum_bytes(actual_attention, sizeof(actual_attention));
+    result->operator_pass[16] = compare_floats(
+        actual_attention, expected_attention, 8,
+        &result->operator_max_abs_error[16]);
+    if (!result->operator_pass[16]) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 16;
         }
         operators_valid = 0;
     }
@@ -2108,7 +2187,7 @@ opennpux_coral_xgraph_test(
         result->output[0] == (int32_t)result->completed_commands &&
         result->output[1] == 5 &&
         result->completed_requests == request_count &&
-        result->completed_commands == 31 &&
+        result->completed_commands == 32 &&
         result->batch_count == 4 &&
         operators_valid;
 

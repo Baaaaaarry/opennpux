@@ -452,14 +452,36 @@ updates persistent history, and optionally applies SiLU to each output. Coral
 retires the accepted instruction through its normal scalar path; NPU L2 owns
 address validation, state ordering, functional execution and completion.
 
+#### Causal grouped-query attention profile
+
+`tattention.ttt (rd),(rs1),(rs2)` uses `custom3`, `funct3=000`, and
+`funct7=0100001`. `rd`, `rs1`, and `rs2` carry output, query, and combined KV
+state addresses. Query and output use `[query_rows, heads, head_dim]`; state
+uses `[2, kv_length, kv_heads, head_dim]` with the K plane followed by V.
+
+The instruction snapshots these RV32 CSRs:
+
+| CSR | Field | Physical layout |
+| --- | --- | --- |
+| `0x802` | tensor shape | query rows `[15:0]`, `heads*head_dim` `[31:16]` |
+| `0x81a` | attention heads | heads `[15:0]`, KV heads `[31:16]` |
+| `0x81b` | attention head dimension and flags | head dimension `[15:0]`, flags `[31:16]`; flags are zero in v0.1 |
+| `0x81c` | KV length | full unsigned 32-bit token count |
+
+NPU L2 validates `heads % kv_heads == 0`, maps query head `h` to
+`h / (heads / kv_heads)`, applies the causal visible prefix, scales QK by
+`1/sqrt(head_dim)`, performs stable softmax, and accumulates V. The current
+profile rejects a fused tertiary gate; a future flag may add it without
+changing the base tensor layout.
+
 ### Primitive versus graph operations
 
-Attention, KV-cache update, routed-expert execution, expert combination, and
-causal recurrent blocks are graph/runtime operations. They MUST lower to
-compositions of XOpenNPUX primitives such as TMMA, ADD, MUL, RMSNorm, Softmax,
-RoPE, SiLU, Gather, TopK, MOV/TDMA, and synchronization. A model frontend MAY
-fuse such compositions after proving equivalent semantics, but NPU Decode L2
-MUST NOT identify Qwen, Llama, model layer numbers, or tensor names.
+KV-cache update, routed-expert execution, expert combination, and causal
+recurrent blocks are graph/runtime operations and normally lower to primitive
+sequences. Architecturally stable, model-independent fused primitives such as
+TATTENTION are permitted when their complete tensor, masking, layout and
+numerical semantics are explicit. NPU Decode L2 MUST NOT identify Qwen, Llama,
+model layer numbers, or tensor names.
 
 ### Cache and prefetch
 

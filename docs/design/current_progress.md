@@ -1032,7 +1032,7 @@ Native lowering、runtime host 和 GB10 全系统测试均已通过；fixture �
 294 cycles，`xgraph_op_RECURRENT_UPDATE=PASS`，checksum `0x14a86f48`，15 个算子全部
 `max_abs_error=0`。该周期数据仍属于 C++ functional model，不代表 RTL 时序性能。
 
-## 2026-08-30 Generic GPTQ Expert Lowering Candidate
+## 2026-08-30 Generic GPTQ Expert Lowering Acceptance
 
 新增模型无关 GPTQ `EXPERT` decomposition。lowering 不读取模型名、layer ID 或 expert ID，
 只消费 functional request 中显式的 input/output、gate/up/down GPTQ 分量以及三个中间
@@ -1042,15 +1042,11 @@ tensor operand。一个逻辑 Expert 被原子展开为 gate 和 up 两次 `TDEQ
 
 Native lowering 已验证最小 GPTQ expert 生成 8 条稠密 command，并覆盖 operand 重映射、
 中间 tensor 地址、in-place activated multiply、command origin 以及容量不足时不拆分请求。
-Full-system fixture 候选增加第 16 个逻辑请求和独立第 4 批，预期为 4 batches / 16 requests /
-31 commands / 326 modeled cycles。该统计和 Expert checksum 尚待 GB10 验收，正式基线仍为
-上一节的 15 requests / 23 commands / 294 cycles。
+Full-system fixture 增加第 16 个逻辑请求和独立第 4 批。GB10 先确认 4 batches / 16 requests /
+31 commands / 326 modeled cycles 的执行闭环；随后与 `TATTENTION` 一同完成 17 算子聚合
+正确性验收。Expert 的 8 条物理命令保持同一逻辑 request 的原子边界，不允许跨 batch 拆分。
 
-GB10 已确认上述 candidate 完成 4 batches / 16 requests / 31 commands / 326 cycles，device
-state complete 且 error=0；当前摘录未包含 `xgraph_op_EXPERT=PASS`、checksum、max error 和
-`xgraph_correctness=PASS`，因此只登记为执行闭环，不提升为正式数值基线。
-
-## 2026-08-30 Generic Causal GQA Attention Candidate
+## 2026-08-30 Generic Causal GQA Attention Acceptance
 
 新增模型无关 `TATTENTION` custom3 指令及 ATTENTION lowering。XGraph command 显式携带
 query rows、heads、KV heads、head dimension 和 KV length，输入约定为 query
@@ -1060,6 +1056,8 @@ query rows、heads、KV heads、head dimension 和 KV length，输入约定为 q
 product、stable softmax 和 V 聚合。该接口不携带模型名、层号或 Qwen 专属信息。
 
 Native tests 已验证 lowering 和 rows=2、heads=2、KV heads=1、head dim=2、KV length=3 的
-数值执行，期望 80 operations / 80 modeled cycles。Full-system fixture 候选为 4 batches /
-17 requests / 32 commands / 406 cycles；第 4 批由 Expert 的 8 条命令和 1 条 TATTENTION
-组成。首版拒绝 fused tertiary gate，避免在未定义 CSR/operand 契约时静默执行错误语义。
+数值执行，对应 80 operations / 80 modeled cycles。GB10 full-system fixture 已完成 4 batches /
+17 requests / 32 commands / 406 cycles；第 4 批由 Expert 的 8 条命令和 1 条 `TATTENTION`
+组成，`xgraph_validated_operators=17`、`xgraph_correctness=PASS`。正式功能基线因此提升为
+17 个通用模型算子。首版仍拒绝 fused tertiary gate，避免在未定义 CSR/operand 契约时静默
+执行错误语义；406 cycles 属于 C++ functional model，不代表 RTL 时序性能。

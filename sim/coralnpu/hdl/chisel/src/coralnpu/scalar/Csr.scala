@@ -100,6 +100,15 @@ object CsrAddress extends ChiselEnum {
   val RECURRENT_BETA_ADDRESS = Value(0x81F.U(12.W))
   val RECURRENT_A_LOG_ADDRESS = Value(0x820.U(12.W))
   val RECURRENT_DT_BIAS_ADDRESS = Value(0x821.U(12.W))
+  val CONV_INPUT_HW = Value(0x822.U(12.W))
+  val CONV_OUTPUT_HW = Value(0x823.U(12.W))
+  val CONV_CHANNELS_GROUPS = Value(0x824.U(12.W))
+  val CONV_KERNEL_HW = Value(0x825.U(12.W))
+  val CONV_STRIDE_HW = Value(0x826.U(12.W))
+  val CONV_PADDING_TL = Value(0x827.U(12.W))
+  val CONV_PADDING_BR = Value(0x828.U(12.W))
+  val CONV_DILATION_HW = Value(0x829.U(12.W))
+  val CONV_BIAS_ADDRESS = Value(0x82A.U(12.W))
   val MCYCLE    = Value(0xB00.U(12.W))
   val MINSTRET  = Value(0xB02.U(12.W))
   val MCYCLEH   = Value(0xB80.U(12.W))
@@ -314,6 +323,15 @@ class Csr(p: Parameters) extends Module {
   val recurrentBetaAddress = RegInit(0.U(p.xlen.W))
   val recurrentALogAddress = RegInit(0.U(p.xlen.W))
   val recurrentDtBiasAddress = RegInit(0.U(p.xlen.W))
+  val convInputHw = RegInit(0.U(p.xlen.W))
+  val convOutputHw = RegInit(0.U(p.xlen.W))
+  val convChannelsGroups = RegInit(0.U(p.xlen.W))
+  val convKernelHw = RegInit(0.U(p.xlen.W))
+  val convStrideHw = RegInit(0.U(p.xlen.W))
+  val convPaddingTl = RegInit(0.U(p.xlen.W))
+  val convPaddingBr = RegInit(0.U(p.xlen.W))
+  val convDilationHw = RegInit(0.U(p.xlen.W))
+  val convBiasAddress = RegInit(0.U(p.xlen.W))
   val xnpuCsrEpoch = RegInit(0.U(32.W))
   io.xnpu.mmaShape := mmaShape
   io.xnpu.mmaDataType := mmaDataType
@@ -338,6 +356,15 @@ class Csr(p: Parameters) extends Module {
   io.xnpu.recurrentBetaAddress := recurrentBetaAddress
   io.xnpu.recurrentALogAddress := recurrentALogAddress
   io.xnpu.recurrentDtBiasAddress := recurrentDtBiasAddress
+  io.xnpu.convInputHw := convInputHw
+  io.xnpu.convOutputHw := convOutputHw
+  io.xnpu.convChannelsGroups := convChannelsGroups
+  io.xnpu.convKernelHw := convKernelHw
+  io.xnpu.convStrideHw := convStrideHw
+  io.xnpu.convPaddingTl := convPaddingTl
+  io.xnpu.convPaddingBr := convPaddingBr
+  io.xnpu.convDilationHw := convDilationHw
+  io.xnpu.convBiasAddress := convBiasAddress
   io.xnpu.epoch := xnpuCsrEpoch
 
   // Debug mode CSRs
@@ -474,6 +501,15 @@ class Csr(p: Parameters) extends Module {
     csr_address === CsrAddress.RECURRENT_A_LOG_ADDRESS
   val recurrentDtBiasAddressEn =
     csr_address === CsrAddress.RECURRENT_DT_BIAS_ADDRESS
+  val convInputHwEn = csr_address === CsrAddress.CONV_INPUT_HW
+  val convOutputHwEn = csr_address === CsrAddress.CONV_OUTPUT_HW
+  val convChannelsGroupsEn = csr_address === CsrAddress.CONV_CHANNELS_GROUPS
+  val convKernelHwEn = csr_address === CsrAddress.CONV_KERNEL_HW
+  val convStrideHwEn = csr_address === CsrAddress.CONV_STRIDE_HW
+  val convPaddingTlEn = csr_address === CsrAddress.CONV_PADDING_TL
+  val convPaddingBrEn = csr_address === CsrAddress.CONV_PADDING_BR
+  val convDilationHwEn = csr_address === CsrAddress.CONV_DILATION_HW
+  val convBiasAddressEn = csr_address === CsrAddress.CONV_BIAS_ADDRESS
   val kscm0En     = csr_address === CsrAddress.KSCM0
   val kscm1En     = csr_address === CsrAddress.KSCM1
   val kscm2En     = csr_address === CsrAddress.KSCM2
@@ -559,6 +595,15 @@ class Csr(p: Parameters) extends Module {
       recurrentBetaAddressEn -> recurrentBetaAddress,
       recurrentALogAddressEn -> recurrentALogAddress,
       recurrentDtBiasAddressEn -> recurrentDtBiasAddress,
+      convInputHwEn -> convInputHw,
+      convOutputHwEn -> convOutputHw,
+      convChannelsGroupsEn -> convChannelsGroups,
+      convKernelHwEn -> convKernelHw,
+      convStrideHwEn -> convStrideHw,
+      convPaddingTlEn -> convPaddingTl,
+      convPaddingBrEn -> convPaddingBr,
+      convDilationHwEn -> convDilationHw,
+      convBiasAddressEn -> convBiasAddress,
       kscm0En     -> kscm(31,0),
       kscm1En     -> kscm(63,32),
       kscm2En     -> kscm(95,64),
@@ -640,6 +685,15 @@ class Csr(p: Parameters) extends Module {
     when (recurrentBetaAddressEn) { recurrentBetaAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (recurrentALogAddressEn) { recurrentALogAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (recurrentDtBiasAddressEn) { recurrentDtBiasAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (convInputHwEn) { convInputHw := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (convOutputHwEn) { convOutputHw := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (convChannelsGroupsEn) { convChannelsGroups := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (convKernelHwEn) { convKernelHw := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (convStrideHwEn) { convStrideHw := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (convPaddingTlEn) { convPaddingTl := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (convPaddingBrEn) { convPaddingBr := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (convDilationHwEn) { convDilationHw := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (convBiasAddressEn) { convBiasAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (dscratch0En)  { dscratch0 := wdata }
     when (dscratch1En)  { dscratch1 := wdata }
     when (tdata1En)     { tdata1 := LegalizeTdata1(wdata) }

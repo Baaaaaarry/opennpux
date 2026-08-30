@@ -188,6 +188,16 @@ class Gem5CoreMiniAxiWrapper {
         core_.io_xnpu_request_bits_csr_recurrentALogAddress;
     packet.recurrent_dt_bias_address =
         core_.io_xnpu_request_bits_csr_recurrentDtBiasAddress;
+    packet.conv_input_hw = core_.io_xnpu_request_bits_csr_convInputHw;
+    packet.conv_output_hw = core_.io_xnpu_request_bits_csr_convOutputHw;
+    packet.conv_channels_groups =
+        core_.io_xnpu_request_bits_csr_convChannelsGroups;
+    packet.conv_kernel_hw = core_.io_xnpu_request_bits_csr_convKernelHw;
+    packet.conv_stride_hw = core_.io_xnpu_request_bits_csr_convStrideHw;
+    packet.conv_padding_tl = core_.io_xnpu_request_bits_csr_convPaddingTl;
+    packet.conv_padding_br = core_.io_xnpu_request_bits_csr_convPaddingBr;
+    packet.conv_dilation_hw = core_.io_xnpu_request_bits_csr_convDilationHw;
+    packet.conv_bias_address = core_.io_xnpu_request_bits_csr_convBiasAddress;
     packet.csr_epoch = core_.io_xnpu_request_bits_csr_epoch;
     packet.sequence_id = sequence_id;
 

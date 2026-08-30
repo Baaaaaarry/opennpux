@@ -802,6 +802,46 @@ every asynchronous operation was followed by an accepted `tfence` with
 | TROPE | 1 | `0xe4adc6cb` |
 | TTOPK | 1 | `0xbb900cd1` |
 
+## Generic Grouped Conv2D Profile
+
+`TCONV` is the model-independent FP32 Conv2D functional instruction. It uses
+`custom3`, `funct7=0x23`, `funct3=0`; the Coral scalar core recognizes the
+instruction at L1, snapshots the custom CSR epoch, submits it to the NPU L2
+decoder and retires through the normal controller path. The convolution loop,
+range checks and writeback belong to the NPU coprocessor, not the Coral scalar
+execute units.
+
+The v0 profile uses NHWC input/output and OHWI weights. It supports batch,
+groups, optional FP32 bias, asymmetric padding, two-dimensional stride and
+dilation. The instruction registers carry input, weight and output addresses;
+the remaining descriptor state is programmed through these RV32 custom CSRs:
+
+| CSR | Meaning | Packing |
+| --- | --- | --- |
+| `0x802` | Input channel count | low 16 bits |
+| `0x822` | Input H/W | H in low 16, W in high 16 |
+| `0x823` | Output H/W | H in low 16, W in high 16 |
+| `0x824` | Output channels/groups | channels in low 16, groups in high 16 |
+| `0x825` | Kernel H/W | H in low 16, W in high 16 |
+| `0x826` | Stride H/W | H in low 16, W in high 16 |
+| `0x827` | Padding top/left | top in low 16, left in high 16 |
+| `0x828` | Padding bottom/right | bottom in low 16, right in high 16 |
+| `0x829` | Dilation H/W | H in low 16, W in high 16 |
+| `0x82a` | Optional bias address | zero means no bias |
+
+The fixed 64-byte XGraph command ABI packs batch/input geometry in
+`dim0..dim2/scalar0`, output channels and groups in `flags`, input/weight/output
+addresses in `source0/source1/destination`, bias in `reserved[0]`, and geometry
+in `reserved[1..4]`. Lowering validates the standard output-shape equation and
+all operand byte ranges before issuing the command. Functional-model cycles
+equal logical MAC operations:
+
+`batch * output_h * output_w * output_channels * kernel_h * kernel_w *
+(input_channels / groups)`.
+
+This is a functional ISA profile, not a claim of a pipelined RTL convolution
+engine or its eventual throughput.
+
 ## Legacy Compatibility
 
 The existing `CUSTOM_0 NPU_LAUNCH -> LSU SW -> MMIO doorbell -> descriptor`

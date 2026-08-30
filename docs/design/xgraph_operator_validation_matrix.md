@@ -29,7 +29,7 @@ NPU L2 decode.
 | EXPERT | `gate(TDEQUANT+TMMA) + up(TDEQUANT+TMMA) + TSILU + TMUL + down(TDEQUANT+TMMA)` | rows=1, input=2, intermediate=2, output=2, GPTQ INT4 | 8 | 32 | PASS |
 | ATTENTION, sigmoid gated | `TATTENTION` + gate CSR | rows=1, heads=1, head dim=1, KV length=1 | 1 | 8 | PASS |
 | RECURRENT_UPDATE, gated delta | `TRECURRENT` | rows=1, key/value heads=1, key/value dim=1 | 1 | 21 | PASS |
-| CONVOLUTION | not lowered | Generic ABI lacks stride, padding, dilation and layout | - | - | ABI BLOCKED |
+| CONVOLUTION | `TCONV` | FP32 NHWC input/output, OHWI weights, groups=1, input=1x3x3x1, kernel=2x2, output=1x2x2x1, bias | 1 | 16 expected | LOCAL PASS / GB10 PENDING |
 
 The per-operation values above sum to the current full-system baseline:
 
@@ -86,5 +86,7 @@ eight-command GPTQ `EXPERT` decomposition. The fifth batch adds one gated
 requests / 34 commands / 435 modeled cycles. The fixture covers causal
 visibility, GQA head mapping, Expert gate/up/down execution, sigmoid attention
 gating and persistent gated-delta state update. Ordinary convolution remains
-blocked until the generic request ABI carries stride, padding, dilation and
-layout explicitly.
+the accepted-baseline exception: its generic request ABI, lowering, `TCONV`
+L2 decode and native numerical model are implemented locally, but its expanded
+5 batches / 20 requests / 35 commands / 451 modeled-cycle full-system result
+must not replace the accepted 19-operator baseline until GB10 validation passes.

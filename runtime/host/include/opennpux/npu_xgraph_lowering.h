@@ -22,11 +22,40 @@ enum opennpux_npu_xgraph_activation {
     OPENNPUX_NPU_XGRAPH_ACTIVATION_SILU = 1,
 };
 
+enum opennpux_npu_xgraph_tensor_layout {
+    OPENNPUX_NPU_XGRAPH_LAYOUT_UNSPECIFIED = 0,
+    OPENNPUX_NPU_XGRAPH_LAYOUT_NHWC = 1,
+    OPENNPUX_NPU_XGRAPH_LAYOUT_OHWI = 2,
+};
+
+struct opennpux_npu_xgraph_convolution_options {
+    uint32_t input_height;
+    uint32_t input_width;
+    uint32_t output_height;
+    uint32_t output_width;
+    uint32_t output_channels;
+    uint32_t kernel_height;
+    uint32_t kernel_width;
+    uint32_t stride_height;
+    uint32_t stride_width;
+    uint32_t padding_top;
+    uint32_t padding_bottom;
+    uint32_t padding_left;
+    uint32_t padding_right;
+    uint32_t dilation_height;
+    uint32_t dilation_width;
+    uint32_t groups;
+    uint32_t input_layout;
+    uint32_t weight_layout;
+    uint32_t output_layout;
+};
+
 struct opennpux_npu_xgraph_lowering_options {
     uint32_t rope_layout;
     uint32_t activation;
     uint32_t topk_packed_address;
     uint32_t topk_packed_size;
+    struct opennpux_npu_xgraph_convolution_options convolution;
 };
 
 struct opennpux_npu_xgraph_lowering_failure {
@@ -40,7 +69,9 @@ struct opennpux_npu_xgraph_lowering_failure {
  * Lower one materialized generic command to one XOpenNPUX primitive record.
  * Generic commands with primitive-equivalent semantics may be canonicalized
  * (for example COMBINE to TADD). Stateful causal depthwise convolution is
- * represented by one TCAUSALCONV record with auxiliary state offsets. Other
+ * represented by one TCAUSALCONV record with auxiliary state offsets. Generic
+ * FP32 Conv2D is represented by one TCONV record when explicit NHWC/OHWI
+ * convolution options are present. Other
  * composite commands return ENOTSUP and
  * must first pass through a decomposition pass. All operand addresses must
  * belong to the NPU EXTMEM aperture. GPTQ MatMul also requires

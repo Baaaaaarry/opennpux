@@ -209,6 +209,38 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       }
       break;
     }
+    case OPENNPUX_XGRAPH_OP_TCONV: {
+      const uint32_t input_channels = command.scalar0;
+      const uint32_t output_channels = command.flags & 0xffffu;
+      const uint32_t groups = command.flags >> 16;
+      const uint32_t output_h = command.reserved[1] & 0xffffu;
+      const uint32_t output_w = command.reserved[1] >> 16;
+      const uint32_t kernel_h = command.reserved[2] & 0xffffu;
+      const uint32_t kernel_w = command.reserved[2] >> 16;
+      const uint32_t stride_h = command.reserved[3] & 0xffu;
+      const uint32_t stride_w = (command.reserved[3] >> 8) & 0xffu;
+      const uint32_t dilation_h = (command.reserved[3] >> 16) & 0xffu;
+      const uint32_t dilation_w = command.reserved[3] >> 24;
+      if (input_channels == 0 || output_channels == 0 || groups == 0 ||
+          output_h == 0 || output_w == 0 || kernel_h == 0 || kernel_w == 0 ||
+          stride_h == 0 || stride_w == 0 || dilation_h == 0 ||
+          dilation_w == 0 || input_channels % groups != 0 ||
+          output_channels % groups != 0) {
+        return false;
+      }
+      source0_elements = static_cast<uint64_t>(command.dim0) * command.dim1 *
+                         command.dim2 * input_channels;
+      source1_elements = static_cast<uint64_t>(output_channels) * kernel_h *
+                         kernel_w * (input_channels / groups);
+      destination_elements = static_cast<uint64_t>(command.dim0) * output_h *
+                             output_w * output_channels;
+      if (command.reserved[0] != 0 &&
+          !RangeValid(command.reserved[0],
+                      output_channels * sizeof(float))) {
+        return false;
+      }
+      break;
+    }
     case OPENNPUX_XGRAPH_OP_TSILU:
     case OPENNPUX_XGRAPH_OP_TSOFTMAX:
     case OPENNPUX_XGRAPH_OP_TDMA:
@@ -367,6 +399,34 @@ bool Execute(const volatile opennpux_xgraph_command& command,
            value_dim * 3 + 8);
       *operations += recurrent_operations;
       *cycles += recurrent_operations;
+      return true;
+    }
+    case OPENNPUX_XGRAPH_OP_TCONV: {
+      const uint32_t output_channels = command.flags & 0xffffu;
+      const uint32_t groups = command.flags >> 16;
+      const uint32_t output_h = command.reserved[1] & 0xffffu;
+      const uint32_t output_w = command.reserved[1] >> 16;
+      const uint32_t kernel_h = command.reserved[2] & 0xffffu;
+      const uint32_t kernel_w = command.reserved[2] >> 16;
+      xopennpux_conv2d_nhwc_ohwi_fp32(
+          destination, source0, source1,
+          command.reserved[0] == 0 ? nullptr
+                                   : ConstAddress(command.reserved[0]),
+          command.dim0, command.dim1, command.dim2, command.scalar0,
+          output_h, output_w, output_channels, kernel_h, kernel_w,
+          command.reserved[3] & 0xffu,
+          (command.reserved[3] >> 8) & 0xffu,
+          command.reserved[4] & 0xffu,
+          (command.reserved[4] >> 16) & 0xffu,
+          (command.reserved[4] >> 8) & 0xffu,
+          command.reserved[4] >> 24,
+          (command.reserved[3] >> 16) & 0xffu,
+          command.reserved[3] >> 24, groups);
+      const uint64_t macs =
+          static_cast<uint64_t>(command.dim0) * output_h * output_w *
+          output_channels * kernel_h * kernel_w * (command.scalar0 / groups);
+      *operations += macs;
+      *cycles += macs;
       return true;
     }
     default:

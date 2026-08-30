@@ -25,6 +25,7 @@ constexpr uint32_t kDmaFunct7 = 0x12;
 constexpr uint32_t kCausalConvFunct7 = 0x20;
 constexpr uint32_t kAttentionFunct7 = 0x21;
 constexpr uint32_t kRecurrentFunct7 = 0x22;
+constexpr uint32_t kConvFunct7 = 0x23;
 constexpr uint32_t kMultiOutputFunct3 = 4;
 constexpr uint32_t kTopKFunct7 = 0;
 constexpr uint32_t kFenceFunct3 = 6;
@@ -52,6 +53,15 @@ constexpr uint16_t kCsrRecurrentDims = 0x81e;
 constexpr uint16_t kCsrRecurrentBetaAddress = 0x81f;
 constexpr uint16_t kCsrRecurrentALogAddress = 0x820;
 constexpr uint16_t kCsrRecurrentDtBiasAddress = 0x821;
+constexpr uint16_t kCsrConvInputHw = 0x822;
+constexpr uint16_t kCsrConvOutputHw = 0x823;
+constexpr uint16_t kCsrConvChannelsGroups = 0x824;
+constexpr uint16_t kCsrConvKernelHw = 0x825;
+constexpr uint16_t kCsrConvStrideHw = 0x826;
+constexpr uint16_t kCsrConvPaddingTl = 0x827;
+constexpr uint16_t kCsrConvPaddingBr = 0x828;
+constexpr uint16_t kCsrConvDilationHw = 0x829;
+constexpr uint16_t kCsrConvBiasAddress = 0x82a;
 
 constexpr uint32_t kShapeFieldMask = 0x3ff;
 constexpr uint32_t kShapeMShift = 0;
@@ -324,6 +334,18 @@ constexpr bool IsTrecurrent(uint32_t instruction) {
          ((instruction >> 25) & 0x7f) == kRecurrentFunct7;
 }
 
+constexpr uint32_t EncodeTconv(uint32_t rd, uint32_t rs1, uint32_t rs2) {
+  return (kConvFunct7 << 25) | ((rs2 & 0x1f) << 20) |
+         ((rs1 & 0x1f) << 15) | (kMmaFunct3 << 12) |
+         ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTconv(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kMmaFunct3 &&
+         ((instruction >> 25) & 0x7f) == kConvFunct7;
+}
+
 constexpr uint32_t EncodeTtopk(uint32_t rd, uint32_t rs1) {
   return (kTopKFunct7 << 25) | ((rs1 & 0x1f) << 15) |
          (kMultiOutputFunct3 << 12) | ((rd & 0x1f) << 7) |
@@ -360,6 +382,7 @@ enum class Operation : uint8_t {
   kTcausalconv,
   kTattention,
   kTrecurrent,
+  kTconv,
   kTtopk,
   kTfence,
 };
@@ -378,6 +401,7 @@ constexpr Operation DecodeOperation(uint32_t instruction) {
          : IsTcausalconv(instruction) ? Operation::kTcausalconv
          : IsTattention(instruction) ? Operation::kTattention
          : IsTrecurrent(instruction) ? Operation::kTrecurrent
+         : IsTconv(instruction) ? Operation::kTconv
          : IsTtopk(instruction) ? Operation::kTtopk
          : IsTfence(instruction) ? Operation::kTfence
                                  : Operation::kInvalid;
@@ -411,6 +435,8 @@ constexpr const char* OperationName(Operation operation) {
       return "tattention";
     case Operation::kTrecurrent:
       return "trecurrent";
+    case Operation::kTconv:
+      return "tconv";
     case Operation::kTtopk:
       return "ttopk";
     case Operation::kTfence:

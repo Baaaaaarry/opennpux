@@ -156,6 +156,37 @@ static inline void xopennpux_recurrent_fp32(
   xopennpux_tfence();
 }
 
+static inline void xopennpux_conv2d_nhwc_ohwi_fp32(
+    void* destination, const void* input, const void* weights,
+    const void* bias, uint32_t batches, uint32_t input_height,
+    uint32_t input_width, uint32_t input_channels, uint32_t output_height,
+    uint32_t output_width, uint32_t output_channels, uint32_t kernel_height,
+    uint32_t kernel_width, uint32_t stride_height, uint32_t stride_width,
+    uint32_t padding_top, uint32_t padding_left, uint32_t padding_bottom,
+    uint32_t padding_right, uint32_t dilation_height,
+    uint32_t dilation_width, uint32_t groups) {
+  xopennpux_configure_tensor_fp32(batches, input_channels);
+  xopennpux_write_conv_input_hw((input_height & 0xffffu) |
+                                ((input_width & 0xffffu) << 16));
+  xopennpux_write_conv_output_hw((output_height & 0xffffu) |
+                                 ((output_width & 0xffffu) << 16));
+  xopennpux_write_conv_channels_groups((output_channels & 0xffffu) |
+                                       ((groups & 0xffffu) << 16));
+  xopennpux_write_conv_kernel_hw((kernel_height & 0xffffu) |
+                                 ((kernel_width & 0xffffu) << 16));
+  xopennpux_write_conv_stride_hw((stride_height & 0xffffu) |
+                                 ((stride_width & 0xffffu) << 16));
+  xopennpux_write_conv_padding_tl((padding_top & 0xffffu) |
+                                  ((padding_left & 0xffffu) << 16));
+  xopennpux_write_conv_padding_br((padding_bottom & 0xffffu) |
+                                  ((padding_right & 0xffffu) << 16));
+  xopennpux_write_conv_dilation_hw((dilation_height & 0xffffu) |
+                                   ((dilation_width & 0xffffu) << 16));
+  xopennpux_write_conv_bias_address((uint32_t)(uintptr_t)bias);
+  xopennpux_tconv_fp32(destination, input, weights);
+  xopennpux_tfence();
+}
+
 // Dequantizes one AutoGPTQ output-channel tile to contiguous FP32 [K, N].
 // qweight/qzeros/scales may remain strided views into the full matrix.
 static inline void xopennpux_dequant_int4_fp32(

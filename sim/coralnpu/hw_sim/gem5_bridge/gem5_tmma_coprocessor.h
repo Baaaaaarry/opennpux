@@ -53,6 +53,15 @@ struct Gem5TmmaDispatchPacket {
   uint32_t recurrent_beta_address = 0;
   uint32_t recurrent_a_log_address = 0;
   uint32_t recurrent_dt_bias_address = 0;
+  uint32_t conv_input_hw = 0;
+  uint32_t conv_output_hw = 0;
+  uint32_t conv_channels_groups = 0;
+  uint32_t conv_kernel_hw = 0;
+  uint32_t conv_stride_hw = 0;
+  uint32_t conv_padding_tl = 0;
+  uint32_t conv_padding_br = 0;
+  uint32_t conv_dilation_hw = 0;
+  uint32_t conv_bias_address = 0;
   uint32_t csr_epoch = 0;
 };
 
@@ -118,6 +127,15 @@ class Gem5XOpenNpuFunctionalCoprocessor {
     uint32_t recurrent_beta_address = 0;
     uint32_t recurrent_a_log_address = 0;
     uint32_t recurrent_dt_bias_address = 0;
+    uint32_t conv_input_hw = 0;
+    uint32_t conv_output_hw = 0;
+    uint32_t conv_channels_groups = 0;
+    uint32_t conv_kernel_hw = 0;
+    uint32_t conv_stride_hw = 0;
+    uint32_t conv_padding_tl = 0;
+    uint32_t conv_padding_br = 0;
+    uint32_t conv_dilation_hw = 0;
+    uint32_t conv_bias_address = 0;
     uint32_t csr_epoch = 0;
   };
 
@@ -147,6 +165,15 @@ class Gem5XOpenNpuFunctionalCoprocessor {
   uint32_t recurrent_beta_address_ = 0;
   uint32_t recurrent_a_log_address_ = 0;
   uint32_t recurrent_dt_bias_address_ = 0;
+  uint32_t conv_input_hw_ = 0;
+  uint32_t conv_output_hw_ = 0;
+  uint32_t conv_channels_groups_ = 0;
+  uint32_t conv_kernel_hw_ = 0;
+  uint32_t conv_stride_hw_ = 0;
+  uint32_t conv_padding_tl_ = 0;
+  uint32_t conv_padding_br_ = 0;
+  uint32_t conv_dilation_hw_ = 0;
+  uint32_t conv_bias_address_ = 0;
   uint32_t csr_epoch_ = 0;
 };
 

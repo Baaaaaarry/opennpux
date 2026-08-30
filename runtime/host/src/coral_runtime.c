@@ -1311,7 +1311,11 @@ opennpux_coral_xgraph_test(
         gated_recurrent_a_log = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4160,
         gated_recurrent_dt_bias = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4180,
         gated_recurrent_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4200,
-        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4300,
+        conv_input = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4300,
+        conv_weight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4400,
+        conv_bias = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4500,
+        conv_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4600,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4700,
     };
     static const uint32_t token_values[2] = {0, 1};
     static const float embedding_values[8] = {
@@ -1408,12 +1412,22 @@ opennpux_coral_xgraph_test(
     static const float gated_attention_gate_value = 0.0f;
     static const float gated_recurrent_qkv_values[3] = {1.0f, 1.0f, 2.0f};
     static const float gated_recurrent_zero = 0.0f;
+    static const float conv_input_values[9] = {
+        1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f,
+    };
+    static const float conv_weight_values[4] = {
+        1.0f, 1.0f, 1.0f, 1.0f,
+    };
+    static const float conv_bias_value = 1.0f;
+    static const float conv_expected_values[4] = {
+        13.0f, 17.0f, 25.0f, 29.0f,
+    };
     union {
         float value;
         uint32_t bits;
     } epsilon = {1.0e-5f};
     memset(result, 0, sizeof(*result));
-    enum { request_count = 19, command_capacity = 9 };
+    enum { request_count = 20, command_capacity = 9 };
     struct opennpux_npu_functional_request requests[request_count];
     struct opennpux_npu_operator_parameters parameters[request_count];
     struct opennpux_npu_xgraph_lowering_options options[request_count];
@@ -1506,6 +1520,26 @@ opennpux_coral_xgraph_test(
     requests[18].head_dim = 1;
     parameters[18].flags = OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET;
     parameters[18].output_features = 1;
+    initialize_xgraph_request(&requests[19], &parameters[19], 19,
+                              OPENNPUX_NPU_OP_CONVOLUTION, 1, 1);
+    options[19].convolution.input_height = 3;
+    options[19].convolution.input_width = 3;
+    options[19].convolution.output_height = 2;
+    options[19].convolution.output_width = 2;
+    options[19].convolution.output_channels = 1;
+    options[19].convolution.kernel_height = 2;
+    options[19].convolution.kernel_width = 2;
+    options[19].convolution.stride_height = 1;
+    options[19].convolution.stride_width = 1;
+    options[19].convolution.dilation_height = 1;
+    options[19].convolution.dilation_width = 1;
+    options[19].convolution.groups = 1;
+    options[19].convolution.input_layout =
+        OPENNPUX_NPU_XGRAPH_LAYOUT_NHWC;
+    options[19].convolution.weight_layout =
+        OPENNPUX_NPU_XGRAPH_LAYOUT_OHWI;
+    options[19].convolution.output_layout =
+        OPENNPUX_NPU_XGRAPH_LAYOUT_NHWC;
 
 #define ADD_XGRAPH_OPERAND(index, role, offset, size)                         \
     do {                                                                      \
@@ -1667,6 +1701,14 @@ opennpux_coral_xgraph_test(
                        gated_recurrent_a_log, sizeof(float));
     ADD_XGRAPH_OPERAND(18, OPENNPUX_NPU_OPERAND_LINEAR_DT_BIAS_WEIGHT,
                        gated_recurrent_dt_bias, sizeof(float));
+    ADD_XGRAPH_OPERAND(19, OPENNPUX_NPU_OPERAND_INPUT, conv_input,
+                       sizeof(conv_input_values));
+    ADD_XGRAPH_OPERAND(19, OPENNPUX_NPU_OPERAND_WEIGHT, conv_weight,
+                       sizeof(conv_weight_values));
+    ADD_XGRAPH_OPERAND(19, OPENNPUX_NPU_OPERAND_SECONDARY, conv_bias,
+                       sizeof(conv_bias_value));
+    ADD_XGRAPH_OPERAND(19, OPENNPUX_NPU_OPERAND_OUTPUT, conv_output,
+                       sizeof(conv_expected_values));
 #undef ADD_XGRAPH_OPERAND
 
     struct opennpux_coral_shared_window window;
@@ -1779,6 +1821,12 @@ opennpux_coral_xgraph_test(
                            &gated_recurrent_zero, sizeof(float));
     copy_to_volatile_bytes(window.bytes + gated_recurrent_dt_bias,
                            &gated_recurrent_zero, sizeof(float));
+    copy_to_volatile_bytes(window.bytes + conv_input, conv_input_values,
+                           sizeof(conv_input_values));
+    copy_to_volatile_bytes(window.bytes + conv_weight, conv_weight_values,
+                           sizeof(conv_weight_values));
+    copy_to_volatile_bytes(window.bytes + conv_bias, &conv_bias_value,
+                           sizeof(conv_bias_value));
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;
     opennpux_coral_get_info(dev, &before);
@@ -1904,7 +1952,7 @@ opennpux_coral_xgraph_test(
         total_commands += commands_emitted;
     }
     if (run_result != 0 || result->completed_requests != request_count ||
-        result->completed_commands != 34 || result->batch_count != 5) {
+        result->completed_commands != 35 || result->batch_count != 5) {
         opennpux_coral_close_shared_window(&window);
         errno = run_errno == 0 ? EIO : run_errno;
         return -1;
@@ -2034,6 +2082,22 @@ opennpux_coral_xgraph_test(
     if (!topk_valid) {
         if (result->failed_operator == UINT32_MAX) {
             result->failed_operator = 8;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
+    float actual_conv[4] = {0};
+    copy_from_volatile_bytes(actual_conv, window.bytes + conv_output,
+                             sizeof(actual_conv));
+    result->operator_checksums[19] =
+        checksum_bytes(actual_conv, sizeof(actual_conv));
+    result->operator_pass[19] = compare_floats(
+        actual_conv, conv_expected_values, 4,
+        &result->operator_max_abs_error[19]);
+    if (!result->operator_pass[19]) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 19;
         }
         operators_valid = 0;
     }
@@ -2315,7 +2379,7 @@ opennpux_coral_xgraph_test(
         result->output[0] == (int32_t)result->completed_commands &&
         result->output[1] == 5 &&
         result->completed_requests == request_count &&
-        result->completed_commands == 34 &&
+        result->completed_commands == 35 &&
         result->batch_count == 5 &&
         operators_valid;
 

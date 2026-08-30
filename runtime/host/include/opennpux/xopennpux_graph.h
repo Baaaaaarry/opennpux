@@ -49,6 +49,7 @@ enum opennpux_xgraph_opcode {
     OPENNPUX_XGRAPH_OP_TCAUSALCONV = 12,
     OPENNPUX_XGRAPH_OP_TATTENTION = 13,
     OPENNPUX_XGRAPH_OP_TRECURRENT = 14,
+    OPENNPUX_XGRAPH_OP_TCONV = 15,
 };
 
 #define OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL UINT32_C(1)
@@ -103,6 +104,14 @@ struct opennpux_xgraph_command {
  * scalar0 packs value heads [15:0] and value dimension [31:16]. source0/source1
  * are QKV/alpha, destination is output, and reserved[0..3] contain beta,
  * persistent state, A-log and dt-bias offsets.
+ *
+ * TCONV uses dim0/dim1/dim2/scalar0 as batch, input height, input width and
+ * input channels. flags packs output channels [15:0] and groups [31:16].
+ * source0/source1/destination are NHWC input, OHWI weights and NHWC output.
+ * reserved[0] is an optional FP32 bias offset. reserved[1]/[2] pack output
+ * and kernel H/W as 16-bit fields. reserved[3] packs stride H/W and dilation
+ * H/W as four 8-bit fields; reserved[4] packs T/B/L/R padding as four 8-bit
+ * fields. The firmware expands these into the dedicated custom CSRs.
  */
 
 struct opennpux_xgraph_header {

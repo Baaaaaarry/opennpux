@@ -2023,6 +2023,7 @@ print_xgraph_test(struct opennpux_coral_device *dev, uint32_t entry,
         "COMBINE", "DMA", "ROUTER", "CAUSAL_CONVOLUTION",
         "RECURRENT_UPDATE", "EXPERT", "ATTENTION", "GATED_ATTENTION",
         "GATED_RECURRENT_UPDATE",
+        "CONVOLUTION",
     };
     struct opennpux_coral_generic_test_result result;
     printf("xgraph_prepare=guest-command-buffer\n");

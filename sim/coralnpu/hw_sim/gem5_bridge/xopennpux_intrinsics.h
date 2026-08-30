@@ -96,6 +96,21 @@ static inline void xopennpux_write_recurrent_dt_bias_address(uint32_t value) {
   __asm__ volatile("csrw 0x821, %0" : : "r"(value) : "memory");
 }
 
+#define XOPENNPUX_CONV_CSR_WRITER(name, csr)                         \
+  static inline void xopennpux_write_conv_##name(uint32_t value) {  \
+    __asm__ volatile("csrw " #csr ", %0" : : "r"(value) : "memory"); \
+  }
+XOPENNPUX_CONV_CSR_WRITER(input_hw, 0x822)
+XOPENNPUX_CONV_CSR_WRITER(output_hw, 0x823)
+XOPENNPUX_CONV_CSR_WRITER(channels_groups, 0x824)
+XOPENNPUX_CONV_CSR_WRITER(kernel_hw, 0x825)
+XOPENNPUX_CONV_CSR_WRITER(stride_hw, 0x826)
+XOPENNPUX_CONV_CSR_WRITER(padding_tl, 0x827)
+XOPENNPUX_CONV_CSR_WRITER(padding_br, 0x828)
+XOPENNPUX_CONV_CSR_WRITER(dilation_hw, 0x829)
+XOPENNPUX_CONV_CSR_WRITER(bias_address, 0x82a)
+#undef XOPENNPUX_CONV_CSR_WRITER
+
 static inline void xopennpux_tmma_fp32(void* destination, const void* lhs,
                                        const void* rhs) {
   // Publish scalar/AXI stores before the coprocessor reads its operands.
@@ -237,6 +252,17 @@ static inline void xopennpux_ttopk_fp32(void* destination,
   __asm__ volatile(".insn r 0x7b, 4, 0, %0, %1, x0"
                    :
                    : "r"((uintptr_t)destination), "r"((uintptr_t)input)
+                   : "memory");
+}
+
+static inline void xopennpux_tconv_fp32(void* destination,
+                                         const void* input,
+                                         const void* weights) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 0, 0x23, %0, %1, %2"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)input),
+                     "r"((uintptr_t)weights)
                    : "memory");
 }
 

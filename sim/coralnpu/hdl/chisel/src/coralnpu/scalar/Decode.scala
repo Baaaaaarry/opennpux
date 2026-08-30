@@ -54,6 +54,15 @@ class XOpenNpuCsrState(p: Parameters) extends Bundle {
   val recurrentBetaAddress = UInt(p.xlen.W)
   val recurrentALogAddress = UInt(p.xlen.W)
   val recurrentDtBiasAddress = UInt(p.xlen.W)
+  val convInputHw = UInt(p.xlen.W)
+  val convOutputHw = UInt(p.xlen.W)
+  val convChannelsGroups = UInt(p.xlen.W)
+  val convKernelHw = UInt(p.xlen.W)
+  val convStrideHw = UInt(p.xlen.W)
+  val convPaddingTl = UInt(p.xlen.W)
+  val convPaddingBr = UInt(p.xlen.W)
+  val convDilationHw = UInt(p.xlen.W)
+  val convBiasAddress = UInt(p.xlen.W)
   val epoch = UInt(32.W)
 }
 

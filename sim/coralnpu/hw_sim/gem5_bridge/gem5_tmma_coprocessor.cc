@@ -123,6 +123,15 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   recurrent_beta_address_ = 0;
   recurrent_a_log_address_ = 0;
   recurrent_dt_bias_address_ = 0;
+  conv_input_hw_ = 0;
+  conv_output_hw_ = 0;
+  conv_channels_groups_ = 0;
+  conv_kernel_hw_ = 0;
+  conv_stride_hw_ = 0;
+  conv_padding_tl_ = 0;
+  conv_padding_br_ = 0;
+  conv_dilation_hw_ = 0;
+  conv_bias_address_ = 0;
   csr_epoch_ = 0;
 }
 
@@ -197,6 +206,33 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrRecurrentDtBiasAddress:
       recurrent_dt_bias_address_ = value;
+      break;
+    case xopennpux::kCsrConvInputHw:
+      conv_input_hw_ = value;
+      break;
+    case xopennpux::kCsrConvOutputHw:
+      conv_output_hw_ = value;
+      break;
+    case xopennpux::kCsrConvChannelsGroups:
+      conv_channels_groups_ = value;
+      break;
+    case xopennpux::kCsrConvKernelHw:
+      conv_kernel_hw_ = value;
+      break;
+    case xopennpux::kCsrConvStrideHw:
+      conv_stride_hw_ = value;
+      break;
+    case xopennpux::kCsrConvPaddingTl:
+      conv_padding_tl_ = value;
+      break;
+    case xopennpux::kCsrConvPaddingBr:
+      conv_padding_br_ = value;
+      break;
+    case xopennpux::kCsrConvDilationHw:
+      conv_dilation_hw_ = value;
+      break;
+    case xopennpux::kCsrConvBiasAddress:
+      conv_bias_address_ = value;
       break;
     default:
       return false;
@@ -280,6 +316,33 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
     case xopennpux::kCsrRecurrentDtBiasAddress:
       *value = recurrent_dt_bias_address_;
       return true;
+    case xopennpux::kCsrConvInputHw:
+      *value = conv_input_hw_;
+      return true;
+    case xopennpux::kCsrConvOutputHw:
+      *value = conv_output_hw_;
+      return true;
+    case xopennpux::kCsrConvChannelsGroups:
+      *value = conv_channels_groups_;
+      return true;
+    case xopennpux::kCsrConvKernelHw:
+      *value = conv_kernel_hw_;
+      return true;
+    case xopennpux::kCsrConvStrideHw:
+      *value = conv_stride_hw_;
+      return true;
+    case xopennpux::kCsrConvPaddingTl:
+      *value = conv_padding_tl_;
+      return true;
+    case xopennpux::kCsrConvPaddingBr:
+      *value = conv_padding_br_;
+      return true;
+    case xopennpux::kCsrConvDilationHw:
+      *value = conv_dilation_hw_;
+      return true;
+    case xopennpux::kCsrConvBiasAddress:
+      *value = conv_bias_address_;
+      return true;
     default:
       return false;
   }
@@ -306,6 +369,7 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       operation != xopennpux::Operation::kTcausalconv &&
       operation != xopennpux::Operation::kTattention &&
       operation != xopennpux::Operation::kTrecurrent &&
+      operation != xopennpux::Operation::kTconv &&
       operation != xopennpux::Operation::kTtopk) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
@@ -483,6 +547,64 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       return Gem5TmmaSubmitResult::kInvalidCsrState;
     }
   }
+  if (operation == xopennpux::Operation::kTconv) {
+    const uint32_t input_hw = packet.csr_epoch == 0
+                                  ? conv_input_hw_
+                                  : packet.conv_input_hw;
+    const uint32_t output_hw = packet.csr_epoch == 0
+                                   ? conv_output_hw_
+                                   : packet.conv_output_hw;
+    const uint32_t channels_groups = packet.csr_epoch == 0
+                                         ? conv_channels_groups_
+                                         : packet.conv_channels_groups;
+    const uint32_t kernel_hw = packet.csr_epoch == 0
+                                   ? conv_kernel_hw_
+                                   : packet.conv_kernel_hw;
+    const uint32_t stride_hw = packet.csr_epoch == 0
+                                   ? conv_stride_hw_
+                                   : packet.conv_stride_hw;
+    const uint32_t padding_tl = packet.csr_epoch == 0
+                                    ? conv_padding_tl_
+                                    : packet.conv_padding_tl;
+    const uint32_t padding_br = packet.csr_epoch == 0
+                                    ? conv_padding_br_
+                                    : packet.conv_padding_br;
+    const uint32_t dilation_hw = packet.csr_epoch == 0
+                                     ? conv_dilation_hw_
+                                     : packet.conv_dilation_hw;
+    const uint32_t input_h = input_hw & 0xffffu;
+    const uint32_t input_w = input_hw >> 16;
+    const uint32_t output_h = output_hw & 0xffffu;
+    const uint32_t output_w = output_hw >> 16;
+    const uint32_t output_channels = channels_groups & 0xffffu;
+    const uint32_t groups = channels_groups >> 16;
+    const uint32_t kernel_h = kernel_hw & 0xffffu;
+    const uint32_t kernel_w = kernel_hw >> 16;
+    const uint32_t stride_h = stride_hw & 0xffffu;
+    const uint32_t stride_w = stride_hw >> 16;
+    const uint32_t dilation_h = dilation_hw & 0xffffu;
+    const uint32_t dilation_w = dilation_hw >> 16;
+    const uint64_t padded_h = static_cast<uint64_t>(input_h) +
+                              (padding_tl & 0xffffu) +
+                              (padding_br & 0xffffu);
+    const uint64_t padded_w = static_cast<uint64_t>(input_w) +
+                              (padding_tl >> 16) + (padding_br >> 16);
+    const uint64_t effective_h =
+        static_cast<uint64_t>(kernel_h - (kernel_h != 0)) * dilation_h + 1;
+    const uint64_t effective_w =
+        static_cast<uint64_t>(kernel_w - (kernel_w != 0)) * dilation_w + 1;
+    if (input_h == 0 || input_w == 0 || output_h == 0 || output_w == 0 ||
+        output_channels == 0 || groups == 0 || kernel_h == 0 ||
+        kernel_w == 0 || stride_h == 0 || stride_w == 0 ||
+        dilation_h == 0 || dilation_w == 0 ||
+        tensor_shape.features % groups != 0 ||
+        output_channels % groups != 0 || padded_h < effective_h ||
+        padded_w < effective_w ||
+        output_h != (padded_h - effective_h) / stride_h + 1 ||
+        output_w != (padded_w - effective_w) / stride_w + 1) {
+      return Gem5TmmaSubmitResult::kInvalidCsrState;
+    }
+  }
   return Gem5TmmaSubmitResult::kAccepted;
 }
 
@@ -573,6 +695,25 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
   queue_[tail].recurrent_dt_bias_address =
       packet.csr_epoch == 0 ? recurrent_dt_bias_address_
                             : packet.recurrent_dt_bias_address;
+  queue_[tail].conv_input_hw =
+      packet.csr_epoch == 0 ? conv_input_hw_ : packet.conv_input_hw;
+  queue_[tail].conv_output_hw =
+      packet.csr_epoch == 0 ? conv_output_hw_ : packet.conv_output_hw;
+  queue_[tail].conv_channels_groups = packet.csr_epoch == 0
+                                          ? conv_channels_groups_
+                                          : packet.conv_channels_groups;
+  queue_[tail].conv_kernel_hw =
+      packet.csr_epoch == 0 ? conv_kernel_hw_ : packet.conv_kernel_hw;
+  queue_[tail].conv_stride_hw =
+      packet.csr_epoch == 0 ? conv_stride_hw_ : packet.conv_stride_hw;
+  queue_[tail].conv_padding_tl =
+      packet.csr_epoch == 0 ? conv_padding_tl_ : packet.conv_padding_tl;
+  queue_[tail].conv_padding_br =
+      packet.csr_epoch == 0 ? conv_padding_br_ : packet.conv_padding_br;
+  queue_[tail].conv_dilation_hw =
+      packet.csr_epoch == 0 ? conv_dilation_hw_ : packet.conv_dilation_hw;
+  queue_[tail].conv_bias_address =
+      packet.csr_epoch == 0 ? conv_bias_address_ : packet.conv_bias_address;
   ++queue_size_;
   return Gem5TmmaSubmitResult::kAccepted;
 }
@@ -596,6 +737,15 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   completion->hart_id = command.dispatch.hart_id;
   completion->operation = command.operation;
   completion->destination_address = command.dispatch.rd_value;
+  const uint32_t conv_input_h = command.conv_input_hw & 0xffffu;
+  const uint32_t conv_input_w = command.conv_input_hw >> 16;
+  const uint32_t conv_output_h = command.conv_output_hw & 0xffffu;
+  const uint32_t conv_output_w = command.conv_output_hw >> 16;
+  const uint32_t conv_output_channels =
+      command.conv_channels_groups & 0xffffu;
+  const uint32_t conv_groups = command.conv_channels_groups >> 16;
+  const uint32_t conv_kernel_h = command.conv_kernel_hw & 0xffffu;
+  const uint32_t conv_kernel_w = command.conv_kernel_hw >> 16;
   const uint64_t tensor_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.m) * command.shape.n *
@@ -655,6 +805,12 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
         rows * value_heads *
         (key_dim * 4 + value_dim * key_dim * 6 + value_dim * 3 + 8);
     completion->modeled_cycles = completion->element_operations;
+  } else if (command.operation == xopennpux::Operation::kTconv) {
+    completion->mac_operations =
+        static_cast<uint64_t>(command.tensor_shape.rows) * conv_output_h *
+        conv_output_w * conv_output_channels * conv_kernel_h * conv_kernel_w *
+        (command.tensor_shape.features / conv_groups);
+    completion->modeled_cycles = completion->mac_operations;
   } else {
     completion->element_operations = tensor_elements;
     completion->modeled_cycles = completion->element_operations;
@@ -676,6 +832,10 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   const uint64_t lhs_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.m) * command.shape.k
+          : command.operation == xopennpux::Operation::kTconv
+              ? static_cast<uint64_t>(command.tensor_shape.rows) *
+                    conv_input_h * conv_input_w *
+                    command.tensor_shape.features
           : command.operation == xopennpux::Operation::kTrecurrent
               ? static_cast<uint64_t>(command.tensor_shape.rows) *
                     (2 * (command.recurrent_heads & 0xffffu) *
@@ -689,6 +849,10 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   const uint64_t rhs_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.k) * command.shape.n
+          : command.operation == xopennpux::Operation::kTconv
+              ? static_cast<uint64_t>(conv_output_channels) * conv_kernel_h *
+                    conv_kernel_w *
+                    (command.tensor_shape.features / conv_groups)
           : command.operation == xopennpux::Operation::kTdequant
               ? 0
               : command.operation == xopennpux::Operation::kTrecurrent
@@ -716,6 +880,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   const uint64_t dst_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.m) * command.shape.n
+          : command.operation == xopennpux::Operation::kTconv
+              ? static_cast<uint64_t>(command.tensor_shape.rows) *
+                    conv_output_h * conv_output_w * conv_output_channels
           : command.operation == xopennpux::Operation::kTdequant
               ? static_cast<uint64_t>(command.shape.k) * command.shape.n
           : command.operation == xopennpux::Operation::kTrecurrent
@@ -794,6 +961,14 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
         return true;
       }
     }
+  }
+  if (command.operation == xopennpux::Operation::kTconv &&
+      command.conv_bias_address != 0 &&
+      !MatrixRangeValid(command.conv_bias_address, conv_output_channels,
+                        memory_base, memory->size())) {
+    completion->error = Gem5TmmaExecutionError::kAddress;
+    completion->faulting_address = command.conv_bias_address;
+    return true;
   }
 
   const size_t lhs_base = command.dispatch.rs1_value - memory_base;
@@ -891,6 +1066,80 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
         const size_t dst_offset =
             dst_base + (row * command.shape.n + column) * sizeof(float);
         StoreFloat(memory, dst_offset, accumulator);
+      }
+    }
+  } else if (command.operation == xopennpux::Operation::kTconv) {
+    const uint32_t stride_h = command.conv_stride_hw & 0xffffu;
+    const uint32_t stride_w = command.conv_stride_hw >> 16;
+    const uint32_t pad_top = command.conv_padding_tl & 0xffffu;
+    const uint32_t pad_left = command.conv_padding_tl >> 16;
+    const uint32_t dilation_h = command.conv_dilation_hw & 0xffffu;
+    const uint32_t dilation_w = command.conv_dilation_hw >> 16;
+    const uint32_t input_channels = command.tensor_shape.features;
+    const uint32_t channels_per_group = input_channels / conv_groups;
+    const uint32_t outputs_per_group = conv_output_channels / conv_groups;
+    const size_t bias_base = command.conv_bias_address == 0
+                                 ? 0
+                                 : command.conv_bias_address - memory_base;
+    for (uint32_t batch = 0; batch < command.tensor_shape.rows; ++batch) {
+      for (uint32_t output_y = 0; output_y < conv_output_h; ++output_y) {
+        for (uint32_t output_x = 0; output_x < conv_output_w; ++output_x) {
+          for (uint32_t output_channel = 0;
+               output_channel < conv_output_channels; ++output_channel) {
+            float accumulator = command.conv_bias_address == 0
+                                    ? 0.0f
+                                    : LoadFloat(
+                                          *memory,
+                                          bias_base + output_channel *
+                                                          sizeof(float));
+            const uint32_t group = output_channel / outputs_per_group;
+            for (uint32_t kernel_y = 0; kernel_y < conv_kernel_h;
+                 ++kernel_y) {
+              const int64_t input_y =
+                  static_cast<int64_t>(output_y) * stride_h +
+                  static_cast<int64_t>(kernel_y) * dilation_h - pad_top;
+              if (input_y < 0 || input_y >= conv_input_h) continue;
+              for (uint32_t kernel_x = 0; kernel_x < conv_kernel_w;
+                   ++kernel_x) {
+                const int64_t input_x =
+                    static_cast<int64_t>(output_x) * stride_w +
+                    static_cast<int64_t>(kernel_x) * dilation_w - pad_left;
+                if (input_x < 0 || input_x >= conv_input_w) continue;
+                for (uint32_t local_channel = 0;
+                     local_channel < channels_per_group; ++local_channel) {
+                  const uint32_t input_channel =
+                      group * channels_per_group + local_channel;
+                  const size_t input_index =
+                      (((static_cast<size_t>(batch) * conv_input_h + input_y) *
+                            conv_input_w +
+                        input_x) *
+                           input_channels +
+                       input_channel);
+                  const size_t weight_index =
+                      (((static_cast<size_t>(output_channel) * conv_kernel_h +
+                         kernel_y) *
+                            conv_kernel_w +
+                        kernel_x) *
+                           channels_per_group +
+                       local_channel);
+                  accumulator +=
+                      LoadFloat(*memory,
+                                lhs_base + input_index * sizeof(float)) *
+                      LoadFloat(*memory,
+                                rhs_base + weight_index * sizeof(float));
+                }
+              }
+            }
+            const size_t output_index =
+                (((static_cast<size_t>(batch) * conv_output_h + output_y) *
+                      conv_output_w +
+                  output_x) *
+                     conv_output_channels +
+                 output_channel);
+            StoreFloat(memory, dst_base + output_index * sizeof(float),
+                       accumulator);
+          }
+        }
       }
     }
   } else if (command.operation == xopennpux::Operation::kTadd) {

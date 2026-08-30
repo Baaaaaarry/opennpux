@@ -1082,3 +1082,23 @@ lowering 与 coprocessor native tests 均已通过，并在 GB10 完成 full-sys
 通用算子硬件 lowering 功能基线。普通 CONVOLUTION 仍明确返回不支持，因为当前 generic
 request ABI 没有 stride、padding、dilation 和 layout；在 ABI 完成前禁止把它错误映射为
 depthwise causal convolution。
+
+## 2026-08-30 Generic Conv2D Functional Instruction Candidate
+
+在已验收 19 算子基线上新增模型无关 `CONVOLUTION -> TCONV` 通路。generic lowering ABI
+现在显式携带 input/weight/output layout、stride、四向 padding、dilation 和 groups；当前 v0
+功能 profile 限定 FP32 NHWC input/output 与 OHWI weight，支持 optional bias 和 grouped
+convolution。固定 64-byte XGraph command 仅使用 `reserved[0..4]`，没有扩大既有 Guest/Host
+ABI。
+
+Coral 标量核新增 `0x822..0x82a` custom CSR 快照和 custom3 L1 识别；`TCONV` 的参数检查、
+地址范围、二级译码、分组卷积数值计算和写回全部位于 NPU C++ functional coprocessor。
+native test 覆盖 groups=2 的 1x3x3x2 input、2x2 kernel、2 output channels 和 bias，独立验证
+8 个输出以及 32 MAC / 32 modeled cycles。lowering 单测覆盖有效请求和无效 layout、shape、
+group、buffer range。
+
+扩展后的 full-system fixture 预期为 5 batches / 20 requests / 35 commands / 451 modeled
+cycles，并要求 `xgraph_op_CONVOLUTION=PASS`、`max_abs_error=0`、
+`xgraph_validated_operators=20`。该数据目前是 GB10 待验证候选，不能替代已经验收的
+5 / 19 / 34 / 435 基线；451 cycles 同样只表示 C++ 功能模型的逻辑 MAC 计数，不代表 RTL
+卷积流水性能。

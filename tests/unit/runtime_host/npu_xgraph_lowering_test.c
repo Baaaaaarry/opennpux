@@ -91,10 +91,10 @@ test_semantic_options(void)
     struct opennpux_npu_operator_parameters parameters;
     struct opennpux_xgraph_command command;
     struct opennpux_npu_xgraph_lowering_options options = {
-        OPENNPUX_NPU_XGRAPH_ROPE_HALF_SPLIT,
-        OPENNPUX_NPU_XGRAPH_ACTIVATION_SILU,
-        EXTMEM_BASE + 0x5000,
-        64,
+        .rope_layout = OPENNPUX_NPU_XGRAPH_ROPE_HALF_SPLIT,
+        .activation = OPENNPUX_NPU_XGRAPH_ACTIVATION_SILU,
+        .topk_packed_address = EXTMEM_BASE + 0x5000,
+        .topk_packed_size = 64,
     };
 
     initialize(&request, &parameters, OPENNPUX_NPU_OP_ROPE);
@@ -223,6 +223,60 @@ test_causal_convolution_lowering(void)
     errno = 0;
     assert(opennpux_npu_xgraph_lower_primitive(
                &request, &parameters, NULL, EXTMEM_BASE, EXTMEM_SIZE,
+               &command) == -1);
+    assert(errno == EINVAL);
+}
+
+static void
+test_convolution_lowering(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command command;
+    struct opennpux_npu_xgraph_lowering_options options = {0};
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_CONVOLUTION);
+    request.rows = 1;
+    request.features = 2;
+    options.convolution.input_height = 3;
+    options.convolution.input_width = 3;
+    options.convolution.output_height = 2;
+    options.convolution.output_width = 2;
+    options.convolution.output_channels = 2;
+    options.convolution.kernel_height = 2;
+    options.convolution.kernel_width = 2;
+    options.convolution.stride_height = 1;
+    options.convolution.stride_width = 1;
+    options.convolution.dilation_height = 1;
+    options.convolution.dilation_width = 1;
+    options.convolution.groups = 1;
+    options.convolution.input_layout = OPENNPUX_NPU_XGRAPH_LAYOUT_NHWC;
+    options.convolution.weight_layout = OPENNPUX_NPU_XGRAPH_LAYOUT_OHWI;
+    options.convolution.output_layout = OPENNPUX_NPU_XGRAPH_LAYOUT_NHWC;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 72);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_WEIGHT, 0x2000, 64);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SECONDARY, 0x2800, 8);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x3000, 32);
+    assert(opennpux_npu_xgraph_lower_primitive(
+               &request, &parameters, &options, EXTMEM_BASE, EXTMEM_SIZE,
+               &command) == 0);
+    assert(command.opcode == OPENNPUX_XGRAPH_OP_TCONV);
+    assert(command.dim0 == 1 && command.dim1 == 3 && command.dim2 == 3);
+    assert(command.scalar0 == 2);
+    assert(command.flags == (2u | (1u << 16)));
+    assert(command.source0_offset == 0x1000);
+    assert(command.source1_offset == 0x2000);
+    assert(command.destination_offset == 0x3000);
+    assert(command.reserved[0] == 0x2800);
+    assert(command.reserved[1] == (2u | (2u << 16)));
+    assert(command.reserved[2] == (2u | (2u << 16)));
+    assert(command.reserved[3] == UINT32_C(0x01010101));
+    assert(command.reserved[4] == 0);
+
+    options.convolution.weight_layout =
+        OPENNPUX_NPU_XGRAPH_LAYOUT_NHWC;
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_primitive(
+               &request, &parameters, &options, EXTMEM_BASE, EXTMEM_SIZE,
                &command) == -1);
     assert(errno == EINVAL);
 }
@@ -848,6 +902,7 @@ main(void)
     test_embed_and_rejections();
     test_attention_lowering();
     test_causal_convolution_lowering();
+    test_convolution_lowering();
     test_sequence_lowering();
     test_gptq_tiled_lowering();
     test_gptq_k_tiled_accumulation();

@@ -252,6 +252,109 @@ opennpux_npu_xgraph_lower_primitive(
         return set_operands(command, output, input, weight,
                             extmem_base, extmem_size);
     }
+    case OPENNPUX_NPU_OP_CONVOLUTION: {
+        if (options == NULL) {
+            errno = EINVAL;
+            return -1;
+        }
+        const struct opennpux_npu_xgraph_convolution_options *conv =
+            &options->convolution;
+        const uint32_t input_channels = request->features;
+        if (input == NULL || weight == NULL || output == NULL ||
+            request->rows > UINT16_MAX || input_channels == 0 ||
+            input_channels > UINT16_MAX || conv->input_height == 0 ||
+            conv->input_width == 0 || conv->output_height == 0 ||
+            conv->output_width == 0 || conv->output_channels == 0 ||
+            conv->output_channels > UINT16_MAX || conv->kernel_height == 0 ||
+            conv->kernel_width == 0 || conv->stride_height == 0 ||
+            conv->stride_width == 0 || conv->dilation_height == 0 ||
+            conv->dilation_width == 0 || conv->groups == 0 ||
+            conv->groups > UINT16_MAX || input_channels % conv->groups != 0 ||
+            conv->output_channels % conv->groups != 0 ||
+            conv->input_layout != OPENNPUX_NPU_XGRAPH_LAYOUT_NHWC ||
+            conv->weight_layout != OPENNPUX_NPU_XGRAPH_LAYOUT_OHWI ||
+            conv->output_layout != OPENNPUX_NPU_XGRAPH_LAYOUT_NHWC ||
+            conv->input_height > UINT16_MAX || conv->input_width > UINT16_MAX ||
+            conv->output_height > UINT16_MAX ||
+            conv->output_width > UINT16_MAX ||
+            conv->kernel_height > UINT16_MAX ||
+            conv->kernel_width > UINT16_MAX ||
+            conv->stride_height > UINT8_MAX ||
+            conv->stride_width > UINT8_MAX ||
+            conv->padding_top > UINT8_MAX ||
+            conv->padding_bottom > UINT8_MAX ||
+            conv->padding_left > UINT8_MAX ||
+            conv->padding_right > UINT8_MAX ||
+            conv->dilation_height > UINT8_MAX ||
+            conv->dilation_width > UINT8_MAX) {
+            errno = EINVAL;
+            return -1;
+        }
+        const uint64_t input_elements =
+            (uint64_t)request->rows * conv->input_height *
+            conv->input_width * input_channels;
+        const uint64_t weight_elements =
+            (uint64_t)conv->output_channels * conv->kernel_height *
+            conv->kernel_width * (input_channels / conv->groups);
+        const uint64_t output_elements =
+            (uint64_t)request->rows * conv->output_height *
+            conv->output_width * conv->output_channels;
+        const uint64_t padded_height =
+            (uint64_t)conv->input_height + conv->padding_top +
+            conv->padding_bottom;
+        const uint64_t padded_width =
+            (uint64_t)conv->input_width + conv->padding_left +
+            conv->padding_right;
+        const uint64_t effective_kernel_height =
+            (uint64_t)(conv->kernel_height - 1) * conv->dilation_height + 1;
+        const uint64_t effective_kernel_width =
+            (uint64_t)(conv->kernel_width - 1) * conv->dilation_width + 1;
+        if (padded_height < effective_kernel_height ||
+            padded_width < effective_kernel_width ||
+            conv->output_height !=
+                (padded_height - effective_kernel_height) /
+                        conv->stride_height +
+                    1 ||
+            conv->output_width !=
+                (padded_width - effective_kernel_width) /
+                        conv->stride_width +
+                    1 ||
+            input_elements > UINT32_MAX / sizeof(float) ||
+            weight_elements > UINT32_MAX / sizeof(float) ||
+            output_elements > UINT32_MAX / sizeof(float) ||
+            input->byte_size < input_elements * sizeof(float) ||
+            weight->byte_size < weight_elements * sizeof(float) ||
+            output->byte_size < output_elements * sizeof(float) ||
+            (secondary != NULL &&
+             secondary->byte_size <
+                 (uint64_t)conv->output_channels * sizeof(float))) {
+            errno = EINVAL;
+            return -1;
+        }
+        command->opcode = OPENNPUX_XGRAPH_OP_TCONV;
+        command->dim0 = request->rows;
+        command->dim1 = conv->input_height;
+        command->dim2 = conv->input_width;
+        command->scalar0 = input_channels;
+        command->flags = conv->output_channels | (conv->groups << 16);
+        command->reserved[1] =
+            conv->output_height | (conv->output_width << 16);
+        command->reserved[2] =
+            conv->kernel_height | (conv->kernel_width << 16);
+        command->reserved[3] = conv->stride_height |
+            (conv->stride_width << 8) | (conv->dilation_height << 16) |
+            (conv->dilation_width << 24);
+        command->reserved[4] = conv->padding_top |
+            (conv->padding_bottom << 8) | (conv->padding_left << 16) |
+            (conv->padding_right << 24);
+        if (secondary != NULL &&
+            operand_offset(secondary, extmem_base, extmem_size,
+                           &command->reserved[0]) != 0) {
+            return -1;
+        }
+        return set_operands(command, output, input, weight,
+                            extmem_base, extmem_size);
+    }
     case OPENNPUX_NPU_OP_ATTENTION: {
         const struct opennpux_npu_functional_operand *tertiary =
             find_operand(request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY);

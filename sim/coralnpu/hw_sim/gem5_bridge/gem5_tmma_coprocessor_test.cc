@@ -139,6 +139,62 @@ void TestEncodingAndSecondLevelDecode() {
   assert(xopennpux::IsTrecurrent(recurrent));
   assert(xopennpux::DecodeOperation(recurrent) ==
          xopennpux::Operation::kTrecurrent);
+  const uint32_t conv = xopennpux::EncodeTconv(12, 10, 11);
+  assert(xopennpux::IsTconv(conv));
+  assert(xopennpux::DecodeOperation(conv) ==
+         xopennpux::Operation::kTconv);
+}
+
+void TestFp32GroupedConv2d() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 1, 2);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrConvInputHw,
+                              3u | (3u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrConvOutputHw,
+                              2u | (2u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrConvChannelsGroups,
+                              2u | (2u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrConvKernelHw,
+                              2u | (2u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrConvStrideHw,
+                              1u | (1u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrConvPaddingTl, 0));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrConvPaddingBr, 0));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrConvDilationHw,
+                              1u | (1u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrConvBiasAddress,
+                              kMemoryBase + 0x300));
+
+  Gem5TmmaDispatchPacket packet = Packet(34);
+  packet.instruction = xopennpux::EncodeTconv(12, 10, 11);
+  packet.rs1_value = kMemoryBase + 0x100;
+  packet.rs2_value = kMemoryBase + 0x200;
+  packet.rd_value = kMemoryBase + 0x400;
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  for (uint32_t pixel = 0; pixel < 9; ++pixel) {
+    WriteFloat(&memory, 0x100 + (pixel * 2) * 4,
+               static_cast<float>(pixel + 1));
+    WriteFloat(&memory, 0x100 + (pixel * 2 + 1) * 4,
+               static_cast<float>((pixel + 1) * 10));
+  }
+  for (uint32_t index = 0; index < 8; ++index) {
+    WriteFloat(&memory, 0x200 + index * 4, 1.0f);
+  }
+  WriteFloat(&memory, 0x300, 1.0f);
+  WriteFloat(&memory, 0x304, -1.0f);
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTconv);
+  assert(completion.mac_operations == 32);
+  assert(completion.modeled_cycles == 32);
+  const float expected[] = {13, 119, 17, 159, 25, 239, 29, 279};
+  for (size_t index = 0; index < 8; ++index) {
+    assert(ReadFloat(memory, 0x400 + index * 4) == expected[index]);
+  }
 }
 
 void TestGatedRecurrentUpdate() {
@@ -961,6 +1017,7 @@ int main() {
   TestCausalGqaAttention();
   TestGatedAttention();
   TestGatedRecurrentUpdate();
+  TestFp32GroupedConv2d();
   TestFp32RmsNorm();
   TestRmsNormRejectsInvalidEpsilon();
   TestFp32Silu();

@@ -1116,5 +1116,23 @@ runtime lowering 现在优先消费显式 `OUTPUT + OUTPUT_INDICES` operands，�
 split-output flag；20 算子 full-system fixture 也已改为两个真实 operand，连续内存布局仅用于
 保持既有结果读取和 checksum。native coprocessor 数值测试验证 2x5、K=2 的独立 values 与
 indices 写回，lowering 单测同时覆盖 split 和 packed fallback。该改动不增加逻辑 request、
-物理 command 或 modeled cycles，因此 GB10 复验预期仍为 5 batches / 20 requests / 35
-commands / 451 cycles；正式接受前不得替换上一节已验收基线。
+物理 command 或 modeled cycles，因此 GB10 复验目标保持 5 batches / 20 requests / 35
+commands / 451 cycles。
+
+GB10 已完成 split-output full-system 复验，统计保持 5 batches / 20 requests / 35
+commands / 451 cycles，全部 20 个算子继续 `max_abs_error=0`。因此双输出 TopK 已纳入正式
+功能基线，不再属于 pending 项。
+
+## 2026-08-31 真实 Materialized Request Lowering 审计
+
+为把 35B Host C++ 正确性参考逐步替换为 XOpenNPUX 指令流，`Gem5HostFunctionalGraph`
+新增同步只读 request observer。observer 位于所有普通 numerical kernel 的统一 `Execute()`
+边界，可看到实际执行使用的完整 operand、参数地址和 memory regions；动态 routed expert 的
+Host-fused 旁路则以独立 execution path 显式上报，禁止静默计入硬件 lowering 覆盖率。
+
+新增 `Gem5XGraphLoweringAudit` 对 prefill 首步的真实 materialized requests 逐条调用同一套
+generic XGraph lowering，汇总 observed/lowerable/host-fused requests、物理 command 数以及按
+opcode/errno 聚合的首个失败 command。设置
+`CORAL_HOST_FUNCTIONAL_XGRAPH_AUDIT=1` 后，35B Host preflight 会输出该报告但不改变数值
+执行或 token 选择。目标验收为 `observed_requests=524`，随后按报告逐项消除 QKV、linear
+attention、动态 routed expert 等剩余语义缺口，最终达到 `xgraph_audit_complete=PASS`。

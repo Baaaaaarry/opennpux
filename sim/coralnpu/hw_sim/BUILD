@@ -167,6 +167,21 @@ cc_library(
 )
 
 cc_library(
+    name = "gem5_xgraph_lowering_runtime",
+    srcs = [
+        "gem5_bridge/opennpux/npu_gptq_tile_plan.c",
+        "gem5_bridge/opennpux/npu_xgraph_lowering.c",
+    ],
+    hdrs = [
+        "gem5_bridge/opennpux/npu_gptq_tile_plan.h",
+        "gem5_bridge/opennpux/npu_xgraph_lowering.h",
+        "gem5_bridge/opennpux/xopennpux_graph.h",
+    ],
+    includes = ["gem5_bridge"],
+    deps = [":gem5_npu_submission_headers"],
+)
+
+cc_library(
     name = "gem5_generic_command_dispatch_headers",
     hdrs = [
         "gem5_bridge/coral_operator.h",
@@ -190,6 +205,25 @@ cc_library(
         ":gem5_host_routed_expert",
         ":gem5_host_tensor_arena",
         ":gem5_transformer_kernel_headers",
+    ],
+)
+
+cc_library(
+    name = "gem5_xgraph_lowering_audit",
+    srcs = ["gem5_bridge/gem5_xgraph_lowering_audit.cc"],
+    hdrs = ["gem5_bridge/gem5_xgraph_lowering_audit.h"],
+    deps = [
+        ":gem5_host_functional_graph",
+        ":gem5_xgraph_lowering_runtime",
+    ],
+)
+
+cc_test(
+    name = "gem5_xgraph_lowering_audit_test",
+    srcs = ["gem5_bridge/gem5_xgraph_lowering_audit_test.cc"],
+    deps = [
+        ":gem5_npu_submission_headers",
+        ":gem5_xgraph_lowering_audit",
     ],
 )
 

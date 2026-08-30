@@ -16,7 +16,8 @@ CC=${CC:-cc}
 mkdir -p "$BUILD_DIR" "$WORK_DIR"
 
 for source in npu_submission npu_executable npu_functional_materializer \
-              npu_tensor_plan model_package npu_weight_ranges; do
+              npu_tensor_plan model_package npu_weight_ranges \
+              npu_gptq_tile_plan npu_xgraph_lowering; do
     "$CC" -O2 -Wall -Wextra -Werror -std=c11 \
         -I"${ROOT_DIR}/runtime/host/include" \
         -c "${ROOT_DIR}/runtime/host/src/${source}.c" \
@@ -35,6 +36,7 @@ done
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_weight_provider.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_routed_expert.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_graph.cc" \
+    "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_xgraph_lowering_audit.cc" \
     "${ROOT_DIR}/sim/coralnpu/hw_sim/gem5_bridge/gem5_host_functional_runner.cc" \
     "${WORK_DIR}/npu_submission.o" \
     "${WORK_DIR}/npu_executable.o" \
@@ -42,6 +44,8 @@ done
     "${WORK_DIR}/npu_tensor_plan.o" \
     "${WORK_DIR}/model_package.o" \
     "${WORK_DIR}/npu_weight_ranges.o" \
+    "${WORK_DIR}/npu_gptq_tile_plan.o" \
+    "${WORK_DIR}/npu_xgraph_lowering.o" \
     -o "${BUILD_DIR}/gem5_host_functional_runner"
 
 exec "${BUILD_DIR}/gem5_host_functional_runner" \

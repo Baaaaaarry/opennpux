@@ -18,7 +18,7 @@ NPU L2 decode.
 | ROPE | `TROPE` | 8 FP32 elements | 1 | 24 | PASS |
 | ACTIVATION, SiLU | `TSILU` | 8 FP32 elements | 1 | 24 | PASS |
 | SOFTMAX | `TSOFTMAX` | 8 FP32 elements | 1 | 32 | PASS |
-| TOPK | `TTOPK`, split values/indices outputs | 8 inputs, K=1 | 1 | 8 | PASS; GB10 split-output rerun pending |
+| TOPK | `TTOPK`, split values/indices outputs | 8 inputs, K=1 | 1 | 8 | PASS |
 | MATMUL, GPTQ INT4 | `TDEQUANT + 2xTMMA` | M=2, K=8, N=2 | 3 | 48 | PASS |
 | COMBINE | canonical `TADD` | 4 FP32 elements | 1 | 4 | PASS |
 | DMA / KV update | `TDMA(K) + TDMA(V)` | 4-byte Key and Value planes | 2 | 8 | PASS |

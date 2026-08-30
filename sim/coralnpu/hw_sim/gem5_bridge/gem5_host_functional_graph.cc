@@ -230,6 +230,10 @@ bool Gem5HostFunctionalGraph::Execute(
   } catch (...) {
     return false;
   }
+  if (observer_ != nullptr) {
+    observer_->Observe(Gem5HostFunctionalExecutionPath::kGenericRequest,
+                       *request, regions.data(), regions.size());
+  }
   if (!ExecuteGem5FunctionalRequestInRegions(request, regions.data(),
                                               regions.size())) {
     return false;
@@ -451,6 +455,14 @@ bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
   const void* parameters = submission_.data() +
       (request.parameter_address - submission_base_);
   Gem5HostRoutedExpertStats routed_stats = {};
+  if (observer_ != nullptr) {
+    const Gem5FunctionalMemoryRegion regions[] = {
+        {submission_base_, submission_.data(), submission_.size()},
+        {arena_.base(), arena_.data(), arena_.size()},
+    };
+    observer_->Observe(Gem5HostFunctionalExecutionPath::kHostFusedRoutedExpert,
+                       request, regions, 2);
+  }
   if (!RunGem5HostRoutedExpert(
           parameters, request.rows, input_data, input->byte_size, id_data,
           route_data, arena_.runtime().active_experts, output_data,

@@ -13,6 +13,24 @@
 class Gem5HostWeightProvider;
 struct Gem5HostWeightBinding;
 
+enum class Gem5HostFunctionalExecutionPath {
+  kGenericRequest,
+  kHostFusedRoutedExpert,
+};
+
+// Synchronously observes the exact address-based request presented to the
+// numerical backend. The observer is non-owning and must not retain pointers
+// to requests or regions after Observe() returns.
+class Gem5HostFunctionalRequestObserver {
+ public:
+  virtual ~Gem5HostFunctionalRequestObserver() = default;
+  virtual void Observe(
+      Gem5HostFunctionalExecutionPath path,
+      const opennpux_npu_functional_request& request,
+      const Gem5FunctionalMemoryRegion* regions,
+      size_t region_count) = 0;
+};
+
 struct Gem5HostFunctionalGraphStats {
   uint32_t completed_commands;
   uint64_t operations;
@@ -74,6 +92,9 @@ class Gem5HostFunctionalGraph {
   bool SetInputTokenIds(const uint32_t* token_ids, size_t token_count);
   bool ReadNextToken(uint32_t* token_id) const;
   void ResetInvocation();
+  void SetRequestObserver(Gem5HostFunctionalRequestObserver* observer) {
+    observer_ = observer;
+  }
 
   uint32_t command_count() const {
     return configured_ ? program_.header->command_count : 0;
@@ -112,6 +133,7 @@ class Gem5HostFunctionalGraph {
   Gem5HostTensorArena arena_;
   opennpux_npu_functional_program program_ = {};
   Gem5HostFunctionalGraphStats stats_ = {};
+  Gem5HostFunctionalRequestObserver* observer_ = nullptr;
   bool configured_ = false;
 };
 

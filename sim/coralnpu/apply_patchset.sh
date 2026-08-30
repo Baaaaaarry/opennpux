@@ -124,13 +124,15 @@ copy_if_changed \
 for runtime_file in \
     model_package.h npu_gptq_weights.h npu_submission.h \
     npu_functional_request.h npu_functional_materializer.h \
-    npu_weight_ranges.h xopennpux_graph.h; do
+    npu_gptq_tile_plan.h npu_weight_ranges.h npu_xgraph_lowering.h \
+    xopennpux_graph.h; do
     copy_if_changed \
         "${SUPER_ROOT}/runtime/host/include/opennpux/${runtime_file}" \
         "${RUNTIME_PLAN_DIR}/${runtime_file}"
 done
 for runtime_file in model_package.c npu_gptq_weights.c npu_submission.c \
-    npu_functional_materializer.c npu_weight_ranges.c; do
+    npu_functional_materializer.c npu_gptq_tile_plan.c npu_weight_ranges.c \
+    npu_xgraph_lowering.c; do
     copy_if_changed \
         "${SUPER_ROOT}/runtime/host/src/${runtime_file}" \
         "${RUNTIME_PLAN_DIR}/${runtime_file}"

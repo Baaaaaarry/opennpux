@@ -12,6 +12,7 @@
 
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
+#include "hw_sim/gem5_bridge/gem5_xgraph_lowering_audit.h"
 #include "opennpux/npu_executable.h"
 
 namespace {
@@ -80,6 +81,11 @@ bool TraceEnabled() {
   }
   return value != nullptr && value[0] != '\0' &&
          std::strcmp(value, "0") != 0;
+}
+
+bool EnvironmentFlag(const char* name) {
+  const char* value = std::getenv(name);
+  return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
 }
 
 uint32_t TraceStep() {
@@ -638,6 +644,12 @@ int main(int argc, char** argv) {
           bindings, 5, submission, kSubmissionCapacity, &submission_size) == 0;
   Gem5HostFunctionalGraph graph;
   Gem5HostWeightProvider weights;
+  Gem5XGraphLoweringAudit xgraph_audit;
+  const bool audit_xgraph =
+      EnvironmentFlag("OPENNPUX_HOST_FUNCTIONAL_XGRAPH_AUDIT");
+  if (audit_xgraph) {
+    graph.SetRequestObserver(&xgraph_audit);
+  }
   const bool trace = TraceEnabled();
   const bool logits_trace = LogitsTraceEnabled();
   const bool progress = ProgressEnabled();
@@ -706,6 +718,10 @@ int main(int argc, char** argv) {
                           layer_trace_path);
         TraceLayerBoundary(graph, step, command_index, layer_trace_path);
       }
+    }
+    if (audit_xgraph && step == 0) {
+      graph.SetRequestObserver(nullptr);
+      xgraph_audit.Print(stderr);
     }
     ready = ready && graph.ReadNextToken(&next_token);
     token_mismatch =

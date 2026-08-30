@@ -21,6 +21,24 @@ const opennpux_npu_functional_operand* FindOperand(
   return nullptr;
 }
 
+class CapturingObserver final : public Gem5HostFunctionalRequestObserver {
+ public:
+  void Observe(Gem5HostFunctionalExecutionPath observed_path,
+               const opennpux_npu_functional_request& request,
+               const Gem5FunctionalMemoryRegion*, size_t region_count) override {
+    ++count;
+    path = observed_path;
+    command_id = request.command_id;
+    regions = region_count;
+  }
+
+  uint32_t count = 0;
+  uint32_t command_id = UINT32_MAX;
+  size_t regions = 0;
+  Gem5HostFunctionalExecutionPath path =
+      Gem5HostFunctionalExecutionPath::kHostFusedRoutedExpert;
+};
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -89,7 +107,13 @@ int main(int argc, char** argv) {
   lhs_data[0] = 1.001f;
   rhs_data[0] = 0.0f;
   assert(setenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION", "bf16", 1) == 0);
+  CapturingObserver observer;
+  graph.SetRequestObserver(&observer);
   assert(graph.Execute(&request));
+  graph.SetRequestObserver(nullptr);
+  assert(observer.count == 1 && observer.command_id == add_index &&
+         observer.regions == 2 &&
+         observer.path == Gem5HostFunctionalExecutionPath::kGenericRequest);
   assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION") == 0);
   assert(output_data[0] == 1.0f);
   for (size_t index = 1; index < count; ++index) {

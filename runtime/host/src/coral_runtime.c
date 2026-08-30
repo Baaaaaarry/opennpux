@@ -1275,7 +1275,12 @@ opennpux_coral_xgraph_test(
         router_weight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2600,
         router_indices = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2700,
         router_weights = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2800,
-        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2900,
+        causal_input = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2900,
+        causal_weight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2a00,
+        causal_previous_state = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2b00,
+        causal_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2c00,
+        causal_next_state = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2d00,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2e00,
     };
     static const uint32_t token_values[2] = {0, 1};
     static const float embedding_values[8] = {
@@ -1338,12 +1343,24 @@ opennpux_coral_xgraph_test(
         0.0f, 2.0f, 1.0f, 3.0f,
     };
     static const uint32_t router_expected_indices[2] = {3, 1};
+    static const float causal_input_values[4] = {
+        3.0f, 30.0f, 4.0f, 40.0f,
+    };
+    static const float causal_weight_values[6] = {
+        1.0f, 2.0f, 3.0f, 0.1f, 0.2f, 0.3f,
+    };
+    static const float causal_previous_state_values[4] = {
+        1.0f, 10.0f, 2.0f, 20.0f,
+    };
+    static const float causal_expected_values[4] = {
+        14.0f, 14.0f, 20.0f, 20.0f,
+    };
     union {
         float value;
         uint32_t bits;
     } epsilon = {1.0e-5f};
     memset(result, 0, sizeof(*result));
-    enum { request_count = 13, command_capacity = 9 };
+    enum { request_count = 14, command_capacity = 9 };
     struct opennpux_npu_functional_request requests[request_count];
     struct opennpux_npu_operator_parameters parameters[request_count];
     struct opennpux_npu_xgraph_lowering_options options[request_count];
@@ -1400,6 +1417,11 @@ opennpux_coral_xgraph_test(
     requests[12].top_k = 2;
     parameters[12].input_features = 2;
     parameters[12].output_features = 4;
+    initialize_xgraph_request(&requests[13], &parameters[13], 13,
+                              OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION, 2, 2);
+    parameters[13].input_features = 2;
+    parameters[13].output_features = 2;
+    parameters[13].intermediate_features = 3;
 
 #define ADD_XGRAPH_OPERAND(index, role, offset, size)                         \
     do {                                                                      \
@@ -1484,6 +1506,17 @@ opennpux_coral_xgraph_test(
                        router_indices, sizeof(router_expected_indices));
     ADD_XGRAPH_OPERAND(12, OPENNPUX_NPU_OPERAND_OUTPUT, router_weights,
                        2 * sizeof(float));
+    ADD_XGRAPH_OPERAND(13, OPENNPUX_NPU_OPERAND_INPUT, causal_input,
+                       sizeof(causal_input_values));
+    ADD_XGRAPH_OPERAND(13, OPENNPUX_NPU_OPERAND_WEIGHT, causal_weight,
+                       sizeof(causal_weight_values));
+    ADD_XGRAPH_OPERAND(13, OPENNPUX_NPU_OPERAND_SECONDARY,
+                       causal_previous_state,
+                       sizeof(causal_previous_state_values));
+    ADD_XGRAPH_OPERAND(13, OPENNPUX_NPU_OPERAND_OUTPUT, causal_output,
+                       sizeof(causal_expected_values));
+    ADD_XGRAPH_OPERAND(13, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
+                       causal_next_state, sizeof(causal_input_values));
 #undef ADD_XGRAPH_OPERAND
 
     struct opennpux_coral_shared_window window;
@@ -1538,6 +1571,13 @@ opennpux_coral_xgraph_test(
                            sizeof(router_input_values));
     copy_to_volatile_bytes(window.bytes + router_weight, router_weight_values,
                            sizeof(router_weight_values));
+    copy_to_volatile_bytes(window.bytes + causal_input, causal_input_values,
+                           sizeof(causal_input_values));
+    copy_to_volatile_bytes(window.bytes + causal_weight, causal_weight_values,
+                           sizeof(causal_weight_values));
+    copy_to_volatile_bytes(window.bytes + causal_previous_state,
+                           causal_previous_state_values,
+                           sizeof(causal_previous_state_values));
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;
     opennpux_coral_get_info(dev, &before);
@@ -1663,7 +1703,7 @@ opennpux_coral_xgraph_test(
         total_commands += commands_emitted;
     }
     if (run_result != 0 || result->completed_requests != request_count ||
-        result->completed_commands != 20 || result->batch_count != 3) {
+        result->completed_commands != 21 || result->batch_count != 3) {
         opennpux_coral_close_shared_window(&window);
         errno = run_errno == 0 ? EIO : run_errno;
         return -1;
@@ -1832,6 +1872,33 @@ opennpux_coral_xgraph_test(
     }
     ++result->validated_operators;
 
+    float actual_causal[4] = {0};
+    float actual_causal_state[4] = {0};
+    copy_from_volatile_bytes(actual_causal, window.bytes + causal_output,
+                             sizeof(actual_causal));
+    copy_from_volatile_bytes(actual_causal_state,
+                             window.bytes + causal_next_state,
+                             sizeof(actual_causal_state));
+    result->operator_checksums[13] =
+        checksum_bytes(actual_causal, sizeof(actual_causal));
+    const int causal_output_valid = compare_floats(
+        actual_causal, causal_expected_values, 4,
+        &result->operator_max_abs_error[13]);
+    float causal_state_error = 0.0f;
+    const int causal_state_valid = compare_floats(
+        actual_causal_state, causal_input_values, 4, &causal_state_error);
+    if (causal_state_error > result->operator_max_abs_error[13]) {
+        result->operator_max_abs_error[13] = causal_state_error;
+    }
+    result->operator_pass[13] = causal_output_valid && causal_state_valid;
+    if (!result->operator_pass[13]) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 13;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
     float actual_dma_state[12] = {0};
     copy_from_volatile_bytes(actual_dma_state, window.bytes + dma_state,
                              sizeof(actual_dma_state));
@@ -1891,7 +1958,7 @@ opennpux_coral_xgraph_test(
         result->output[0] == (int32_t)result->completed_commands &&
         result->output[1] == 5 &&
         result->completed_requests == request_count &&
-        result->completed_commands == 20 &&
+        result->completed_commands == 21 &&
         result->batch_count == 3 &&
         operators_valid;
 

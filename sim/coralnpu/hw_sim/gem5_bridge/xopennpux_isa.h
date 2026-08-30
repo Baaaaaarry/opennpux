@@ -22,6 +22,7 @@ constexpr uint32_t kMoveFunct3 = 3;
 constexpr uint32_t kGatherFunct7 = 0x10;
 constexpr uint32_t kDequantFunct7 = 0x11;
 constexpr uint32_t kDmaFunct7 = 0x12;
+constexpr uint32_t kCausalConvFunct7 = 0x20;
 constexpr uint32_t kMultiOutputFunct3 = 4;
 constexpr uint32_t kTopKFunct7 = 0;
 constexpr uint32_t kFenceFunct3 = 6;
@@ -39,6 +40,8 @@ constexpr uint16_t kCsrQuantQweightStride = 0x814;
 constexpr uint16_t kCsrQuantQzerosStride = 0x815;
 constexpr uint16_t kCsrQuantScalesStride = 0x816;
 constexpr uint16_t kCsrQuantGroupRange = 0x817;
+constexpr uint16_t kCsrTensorAuxSourceAddress = 0x818;
+constexpr uint16_t kCsrTensorAuxDestinationAddress = 0x819;
 
 constexpr uint32_t kShapeFieldMask = 0x3ff;
 constexpr uint32_t kShapeMShift = 0;
@@ -272,6 +275,19 @@ constexpr bool IsTdma(uint32_t instruction) {
          ((instruction >> 20) & 0x1f) == 0;
 }
 
+constexpr uint32_t EncodeTcausalconv(uint32_t rd, uint32_t rs1,
+                                     uint32_t rs2) {
+  return (kCausalConvFunct7 << 25) | ((rs2 & 0x1f) << 20) |
+         ((rs1 & 0x1f) << 15) | (kMmaFunct3 << 12) |
+         ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTcausalconv(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kMmaFunct3 &&
+         ((instruction >> 25) & 0x7f) == kCausalConvFunct7;
+}
+
 constexpr uint32_t EncodeTtopk(uint32_t rd, uint32_t rs1) {
   return (kTopKFunct7 << 25) | ((rs1 & 0x1f) << 15) |
          (kMultiOutputFunct3 << 12) | ((rd & 0x1f) << 7) |
@@ -305,6 +321,7 @@ enum class Operation : uint8_t {
   kTgather,
   kTdequant,
   kTdma,
+  kTcausalconv,
   kTtopk,
   kTfence,
 };
@@ -320,6 +337,7 @@ constexpr Operation DecodeOperation(uint32_t instruction) {
          : IsTgather(instruction) ? Operation::kTgather
          : IsTdequant(instruction) ? Operation::kTdequant
          : IsTdma(instruction) ? Operation::kTdma
+         : IsTcausalconv(instruction) ? Operation::kTcausalconv
          : IsTtopk(instruction) ? Operation::kTtopk
          : IsTfence(instruction) ? Operation::kTfence
                                  : Operation::kInvalid;
@@ -347,6 +365,8 @@ constexpr const char* OperationName(Operation operation) {
       return "tdequant";
     case Operation::kTdma:
       return "tdma";
+    case Operation::kTcausalconv:
+      return "tcausalconv";
     case Operation::kTtopk:
       return "ttopk";
     case Operation::kTfence:

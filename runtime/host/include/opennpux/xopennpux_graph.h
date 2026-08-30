@@ -46,7 +46,11 @@ enum opennpux_xgraph_opcode {
     OPENNPUX_XGRAPH_OP_TTOPK = 9,
     OPENNPUX_XGRAPH_OP_TDEQUANT = 10,
     OPENNPUX_XGRAPH_OP_TDMA = 11,
+    OPENNPUX_XGRAPH_OP_TCAUSALCONV = 12,
 };
+
+#define OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL UINT32_C(1)
+#define OPENNPUX_XGRAPH_TCAUSALCONV_SILU UINT32_C(2)
 
 enum opennpux_xgraph_data_type {
     OPENNPUX_XGRAPH_DTYPE_FP32 = 2,
@@ -81,6 +85,10 @@ struct opennpux_xgraph_command {
  *   flags: global quant group count `[31:16]`, tile group base `[15:0]`
  *   reserved[0..4]: scales offset, optional g_idx offset, then qweight,
  *                   qzeros, and scales row strides in bytes.
+ *
+ * TCAUSALCONV uses dim0/dim1/dim2 as rows/features/kernel width. For a
+ * stateful command, reserved[0] and reserved[1] contain previous-state and
+ * next-state offsets. The state has shape [kernel_width - 1, features].
  */
 
 struct opennpux_xgraph_header {

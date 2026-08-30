@@ -124,6 +124,8 @@ opennpux_npu_xgraph_lower_primitive(
         find_operand(request, OPENNPUX_NPU_OPERAND_INPUT_INDICES);
     const struct opennpux_npu_functional_operand *output =
         find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+    const struct opennpux_npu_functional_operand *output_secondary =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY);
 
     memset(command, 0, sizeof(*command));
     command->command_id = request->command_id;
@@ -207,6 +209,47 @@ opennpux_npu_xgraph_lower_primitive(
         command->opcode = OPENNPUX_XGRAPH_OP_TTOPK;
         command->scalar0 = request->top_k;
         return set_operands(command, &packed, input, NULL,
+                            extmem_base, extmem_size);
+    }
+    case OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION: {
+        const uint32_t kernel_width = parameters->intermediate_features;
+        const uint64_t tensor_bytes =
+            (uint64_t)request->rows * request->features * sizeof(float);
+        const uint64_t weight_bytes =
+            (uint64_t)kernel_width * request->features * sizeof(float);
+        const uint64_t state_bytes = kernel_width > 1
+            ? (uint64_t)(kernel_width - 1) * request->features * sizeof(float)
+            : 0;
+        const int has_previous_state = secondary != NULL;
+        const int has_next_state = output_secondary != NULL;
+        if (kernel_width == 0 || tensor_bytes > UINT32_MAX ||
+            weight_bytes > UINT32_MAX || state_bytes > UINT32_MAX ||
+            input == NULL || weight == NULL || output == NULL ||
+            input->byte_size < tensor_bytes ||
+            weight->byte_size < weight_bytes ||
+            output->byte_size < tensor_bytes ||
+            has_previous_state != has_next_state ||
+            ((has_previous_state != 0) &&
+             (secondary->byte_size < state_bytes ||
+              output_secondary->byte_size < state_bytes))) {
+            errno = EINVAL;
+            return -1;
+        }
+        command->opcode = OPENNPUX_XGRAPH_OP_TCAUSALCONV;
+        command->dim2 = kernel_width;
+        if (has_previous_state != 0) {
+            command->flags |= OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL;
+            if (operand_offset(secondary, extmem_base, extmem_size,
+                               &command->reserved[0]) != 0 ||
+                operand_offset(output_secondary, extmem_base, extmem_size,
+                               &command->reserved[1]) != 0) {
+                return -1;
+            }
+        }
+        if ((parameters->flags & OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0) {
+            command->flags |= OPENNPUX_XGRAPH_TCAUSALCONV_SILU;
+        }
+        return set_operands(command, output, input, weight,
                             extmem_base, extmem_size);
     }
     default:

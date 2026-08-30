@@ -107,6 +107,21 @@ static inline void xopennpux_dma_fp32(void* destination, const void* source,
   xopennpux_tfence();
 }
 
+static inline void xopennpux_causal_depthwise_conv_fp32(
+    void* destination, const void* input, const void* weight, uint32_t rows,
+    uint32_t features, uint32_t kernel_width, const void* previous_state,
+    void* next_state, uint32_t flags) {
+  xopennpux_configure_tensor_fp32(rows, features);
+  xopennpux_write_scalar_param0((kernel_width & 0xffffu) |
+                                ((flags & 0xffffu) << 16));
+  xopennpux_write_tensor_aux_source_address(
+      (uint32_t)(uintptr_t)previous_state);
+  xopennpux_write_tensor_aux_destination_address(
+      (uint32_t)(uintptr_t)next_state);
+  xopennpux_tcausalconv_fp32(destination, input, weight);
+  xopennpux_tfence();
+}
+
 // Dequantizes one AutoGPTQ output-channel tile to contiguous FP32 [K, N].
 // qweight/qzeros/scales may remain strided views into the full matrix.
 static inline void xopennpux_dequant_int4_fp32(

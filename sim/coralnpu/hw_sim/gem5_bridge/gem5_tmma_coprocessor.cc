@@ -113,6 +113,8 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   quant_qzeros_stride_ = 0;
   quant_scales_stride_ = 0;
   quant_group_range_ = 0;
+  tensor_aux_source_address_ = 0;
+  tensor_aux_destination_address_ = 0;
   csr_epoch_ = 0;
 }
 
@@ -157,6 +159,12 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrQuantGroupRange:
       quant_group_range_ = value;
+      break;
+    case xopennpux::kCsrTensorAuxSourceAddress:
+      tensor_aux_source_address_ = value;
+      break;
+    case xopennpux::kCsrTensorAuxDestinationAddress:
+      tensor_aux_destination_address_ = value;
       break;
     default:
       return false;
@@ -210,6 +218,12 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
     case xopennpux::kCsrQuantGroupRange:
       *value = quant_group_range_;
       return true;
+    case xopennpux::kCsrTensorAuxSourceAddress:
+      *value = tensor_aux_source_address_;
+      return true;
+    case xopennpux::kCsrTensorAuxDestinationAddress:
+      *value = tensor_aux_destination_address_;
+      return true;
     default:
       return false;
   }
@@ -233,6 +247,7 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       operation != xopennpux::Operation::kTgather &&
       operation != xopennpux::Operation::kTdequant &&
       operation != xopennpux::Operation::kTdma &&
+      operation != xopennpux::Operation::kTcausalconv &&
       operation != xopennpux::Operation::kTtopk) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
@@ -338,6 +353,23 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       (scalar_param0 == 0 || scalar_param0 > tensor_shape.features)) {
     return Gem5TmmaSubmitResult::kInvalidCsrState;
   }
+  if (operation == xopennpux::Operation::kTcausalconv) {
+    const uint32_t kernel_width = scalar_param0 & 0xffffu;
+    const uint32_t flags = scalar_param0 >> 16;
+    const uint32_t state_source = packet.csr_epoch == 0
+                                      ? tensor_aux_source_address_
+                                      : packet.tensor_aux_source_address;
+    const uint32_t state_destination =
+        packet.csr_epoch == 0 ? tensor_aux_destination_address_
+                              : packet.tensor_aux_destination_address;
+    const bool stateful = (flags & 1u) != 0;
+    if (kernel_width == 0 || (flags & ~3u) != 0 ||
+        (stateful && kernel_width > 1 &&
+         (state_source == 0 || state_destination == 0)) ||
+        (!stateful && (state_source != 0 || state_destination != 0))) {
+      return Gem5TmmaSubmitResult::kInvalidCsrState;
+    }
+  }
   return Gem5TmmaSubmitResult::kAccepted;
 }
 
@@ -401,6 +433,12 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
   queue_[tail].quant_group_range = packet.csr_epoch == 0
                                         ? quant_group_range_
                                         : packet.quant_group_range;
+  queue_[tail].tensor_aux_source_address =
+      packet.csr_epoch == 0 ? tensor_aux_source_address_
+                            : packet.tensor_aux_source_address;
+  queue_[tail].tensor_aux_destination_address =
+      packet.csr_epoch == 0 ? tensor_aux_destination_address_
+                            : packet.tensor_aux_destination_address;
   ++queue_size_;
   return Gem5TmmaSubmitResult::kAccepted;
 }
@@ -456,6 +494,10 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
     completion->element_operations =
         tensor_elements * command.scalar_param0;
     completion->modeled_cycles = completion->element_operations;
+  } else if (command.operation == xopennpux::Operation::kTcausalconv) {
+    const uint64_t kernel_width = command.scalar_param0 & 0xffffu;
+    completion->element_operations = tensor_elements * kernel_width * 2;
+    completion->modeled_cycles = completion->element_operations;
   } else {
     completion->element_operations = tensor_elements;
     completion->modeled_cycles = completion->element_operations;
@@ -486,8 +528,11 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
           ? static_cast<uint64_t>(command.shape.k) * command.shape.n
           : command.operation == xopennpux::Operation::kTdequant
               ? 0
-          : command.operation == xopennpux::Operation::kTrmsnorm
+              : command.operation == xopennpux::Operation::kTrmsnorm
               ? command.tensor_shape.features
+              : command.operation == xopennpux::Operation::kTcausalconv
+              ? static_cast<uint64_t>(command.tensor_shape.features) *
+                    (command.scalar_param0 & 0xffffu)
               : command.operation == xopennpux::Operation::kTrope
                   ? tensor_elements * 2
               : command.operation == xopennpux::Operation::kTgather
@@ -527,6 +572,21 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
     completion->error = Gem5TmmaExecutionError::kAddress;
     completion->faulting_address = command.dispatch.rd_value;
     return true;
+  }
+  if (command.operation == xopennpux::Operation::kTcausalconv &&
+      ((command.scalar_param0 >> 16) & 1u) != 0 &&
+      (command.scalar_param0 & 0xffffu) > 1) {
+    const uint64_t state_elements =
+        static_cast<uint64_t>((command.scalar_param0 & 0xffffu) - 1) *
+        command.tensor_shape.features;
+    if (!MatrixRangeValid(command.tensor_aux_source_address, state_elements,
+                          memory_base, memory->size()) ||
+        !MatrixRangeValid(command.tensor_aux_destination_address,
+                          state_elements, memory_base, memory->size())) {
+      completion->error = Gem5TmmaExecutionError::kAddress;
+      completion->faulting_address = command.tensor_aux_source_address;
+      return true;
+    }
   }
 
   const size_t lhs_base = command.dispatch.rs1_value - memory_base;
@@ -769,6 +829,105 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   } else if (command.operation == xopennpux::Operation::kTdma) {
     std::memmove(memory->data() + dst_base, memory->data() + lhs_base,
                  static_cast<size_t>(tensor_elements) * sizeof(float));
+  } else if (command.operation == xopennpux::Operation::kTcausalconv) {
+    const uint32_t kernel_width = command.scalar_param0 & 0xffffu;
+    const uint32_t flags = command.scalar_param0 >> 16;
+    const bool stateful = (flags & 1u) != 0 && kernel_width > 1;
+    const bool silu = (flags & 2u) != 0;
+    std::vector<float> history;
+    if (stateful) {
+      const size_t state_elements =
+          static_cast<size_t>(kernel_width - 1) *
+          command.tensor_shape.features;
+      const size_t state_base =
+          command.tensor_aux_source_address - memory_base;
+      history.resize(state_elements);
+      for (size_t index = 0; index < state_elements; ++index) {
+        history[index] =
+            LoadFloat(*memory, state_base + index * sizeof(float));
+      }
+    }
+    for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
+      for (uint32_t feature = 0; feature < command.tensor_shape.features;
+           ++feature) {
+        float sum = LoadFloat(
+                        *memory,
+                        lhs_base +
+                            (static_cast<size_t>(row) *
+                                 command.tensor_shape.features +
+                             feature) *
+                                sizeof(float)) *
+                    LoadFloat(*memory,
+                              rhs_base +
+                                  (static_cast<size_t>(feature) * kernel_width +
+                                   kernel_width - 1) *
+                                      sizeof(float));
+        for (uint32_t tap = 1; tap < kernel_width; ++tap) {
+          float sample = 0.0f;
+          if (tap <= row) {
+            sample = LoadFloat(
+                *memory,
+                lhs_base +
+                    (static_cast<size_t>(row - tap) *
+                         command.tensor_shape.features +
+                     feature) *
+                        sizeof(float));
+          } else if (stateful) {
+            const size_t history_row = kernel_width - 1 + row - tap;
+            sample = history[history_row * command.tensor_shape.features +
+                             feature];
+          }
+          sum += sample *
+                 LoadFloat(*memory,
+                           rhs_base +
+                               (static_cast<size_t>(feature) * kernel_width +
+                                kernel_width - 1 - tap) *
+                                   sizeof(float));
+        }
+        if (silu) {
+          sum /= 1.0f + std::exp(-sum);
+        }
+        StoreFloat(memory,
+                   dst_base +
+                       (static_cast<size_t>(row) *
+                            command.tensor_shape.features +
+                        feature) *
+                           sizeof(float),
+                   sum);
+      }
+    }
+    if (stateful) {
+      const size_t state_rows = kernel_width - 1;
+      const size_t next_base =
+          command.tensor_aux_destination_address - memory_base;
+      for (size_t state_row = 0; state_row < state_rows; ++state_row) {
+        const int64_t input_row =
+            static_cast<int64_t>(command.tensor_shape.rows) - state_rows +
+            state_row;
+        for (uint32_t feature = 0; feature < command.tensor_shape.features;
+             ++feature) {
+          float value = 0.0f;
+          if (input_row >= 0) {
+            value = LoadFloat(
+                *memory,
+                lhs_base +
+                    (static_cast<size_t>(input_row) *
+                         command.tensor_shape.features +
+                     feature) *
+                        sizeof(float));
+          } else {
+            value = history[(state_rows + input_row) *
+                                command.tensor_shape.features +
+                            feature];
+          }
+          StoreFloat(memory,
+                     next_base +
+                         (state_row * command.tensor_shape.features + feature) *
+                             sizeof(float),
+                     value);
+        }
+      }
+    }
   } else if (command.operation == xopennpux::Operation::kTtopk) {
     const uint32_t k = command.scalar_param0;
     const size_t value_count =

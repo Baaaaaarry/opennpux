@@ -164,6 +164,42 @@ test_embed_and_rejections(void)
 }
 
 static void
+test_causal_convolution_lowering(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command command;
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION);
+    parameters.intermediate_features = 3;
+    parameters.flags = OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 32);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_WEIGHT, 0x2000, 48);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SECONDARY, 0x3000, 32);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x4000, 32);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
+                0x5000, 32);
+    assert(opennpux_npu_xgraph_lower_primitive(
+               &request, &parameters, NULL, EXTMEM_BASE, EXTMEM_SIZE,
+               &command) == 0);
+    assert(command.opcode == OPENNPUX_XGRAPH_OP_TCAUSALCONV);
+    assert(command.dim0 == 2 && command.dim1 == 4 && command.dim2 == 3);
+    assert(command.source0_offset == 0x1000);
+    assert(command.source1_offset == 0x2000);
+    assert(command.destination_offset == 0x4000);
+    assert(command.reserved[0] == 0x3000);
+    assert(command.reserved[1] == 0x5000);
+    assert(command.flags == (OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL |
+                             OPENNPUX_XGRAPH_TCAUSALCONV_SILU));
+
+    request.operand_count--;
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_primitive(
+               &request, &parameters, NULL, EXTMEM_BASE, EXTMEM_SIZE,
+               &command) == -1);
+    assert(errno == EINVAL);
+}
+
+static void
 test_sequence_lowering(void)
 {
     enum { count = 3 };
@@ -604,6 +640,7 @@ main(void)
     test_direct_primitives();
     test_semantic_options();
     test_embed_and_rejections();
+    test_causal_convolution_lowering();
     test_sequence_lowering();
     test_gptq_tiled_lowering();
     test_gptq_k_tiled_accumulation();

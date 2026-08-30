@@ -90,6 +90,8 @@ object CsrAddress extends ChiselEnum {
   val QUANT_QZEROS_STRIDE = Value(0x815.U(12.W))
   val QUANT_SCALES_STRIDE = Value(0x816.U(12.W))
   val QUANT_GROUP_RANGE = Value(0x817.U(12.W))
+  val TENSOR_AUX_SOURCE_ADDRESS = Value(0x818.U(12.W))
+  val TENSOR_AUX_DESTINATION_ADDRESS = Value(0x819.U(12.W))
   val MCYCLE    = Value(0xB00.U(12.W))
   val MINSTRET  = Value(0xB02.U(12.W))
   val MCYCLEH   = Value(0xB80.U(12.W))
@@ -294,6 +296,8 @@ class Csr(p: Parameters) extends Module {
   val quantQzerosStride = RegInit(0.U(p.xlen.W))
   val quantScalesStride = RegInit(0.U(p.xlen.W))
   val quantGroupRange = RegInit(0.U(p.xlen.W))
+  val tensorAuxSourceAddress = RegInit(0.U(p.xlen.W))
+  val tensorAuxDestinationAddress = RegInit(0.U(p.xlen.W))
   val xnpuCsrEpoch = RegInit(0.U(32.W))
   io.xnpu.mmaShape := mmaShape
   io.xnpu.mmaDataType := mmaDataType
@@ -308,6 +312,8 @@ class Csr(p: Parameters) extends Module {
   io.xnpu.quantQzerosStride := quantQzerosStride
   io.xnpu.quantScalesStride := quantScalesStride
   io.xnpu.quantGroupRange := quantGroupRange
+  io.xnpu.tensorAuxSourceAddress := tensorAuxSourceAddress
+  io.xnpu.tensorAuxDestinationAddress := tensorAuxDestinationAddress
   io.xnpu.epoch := xnpuCsrEpoch
 
   // Debug mode CSRs
@@ -428,6 +434,10 @@ class Csr(p: Parameters) extends Module {
   val quantQzerosStrideEn = csr_address === CsrAddress.QUANT_QZEROS_STRIDE
   val quantScalesStrideEn = csr_address === CsrAddress.QUANT_SCALES_STRIDE
   val quantGroupRangeEn = csr_address === CsrAddress.QUANT_GROUP_RANGE
+  val tensorAuxSourceAddressEn =
+    csr_address === CsrAddress.TENSOR_AUX_SOURCE_ADDRESS
+  val tensorAuxDestinationAddressEn =
+    csr_address === CsrAddress.TENSOR_AUX_DESTINATION_ADDRESS
   val kscm0En     = csr_address === CsrAddress.KSCM0
   val kscm1En     = csr_address === CsrAddress.KSCM1
   val kscm2En     = csr_address === CsrAddress.KSCM2
@@ -503,6 +513,8 @@ class Csr(p: Parameters) extends Module {
       quantQzerosStrideEn -> quantQzerosStride,
       quantScalesStrideEn -> quantScalesStride,
       quantGroupRangeEn -> quantGroupRange,
+      tensorAuxSourceAddressEn -> tensorAuxSourceAddress,
+      tensorAuxDestinationAddressEn -> tensorAuxDestinationAddress,
       kscm0En     -> kscm(31,0),
       kscm1En     -> kscm(63,32),
       kscm2En     -> kscm(95,64),
@@ -574,6 +586,8 @@ class Csr(p: Parameters) extends Module {
     when (quantQzerosStrideEn) { quantQzerosStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (quantScalesStrideEn) { quantScalesStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (quantGroupRangeEn) { quantGroupRange := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (tensorAuxSourceAddressEn) { tensorAuxSourceAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (tensorAuxDestinationAddressEn) { tensorAuxDestinationAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (dscratch0En)  { dscratch0 := wdata }
     when (dscratch1En)  { dscratch1 := wdata }
     when (tdata1En)     { tdata1 := LegalizeTdata1(wdata) }

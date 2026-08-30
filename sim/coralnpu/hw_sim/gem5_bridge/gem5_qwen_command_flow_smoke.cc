@@ -126,6 +126,30 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       destination_elements =
           static_cast<uint64_t>(command.dim0) * command.scalar0 * 2;
       break;
+    case OPENNPUX_XGRAPH_OP_TCAUSALCONV: {
+      const bool stateful =
+          (command.flags & OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL) != 0;
+      if (command.dim2 == 0 ||
+          (command.flags & ~(OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL |
+                             OPENNPUX_XGRAPH_TCAUSALCONV_SILU)) != 0) {
+        return false;
+      }
+      source1_elements =
+          static_cast<uint64_t>(command.dim1) * command.dim2;
+      if (stateful && command.dim2 > 1) {
+        const uint64_t state_elements =
+            static_cast<uint64_t>(command.dim2 - 1) * command.dim1;
+        if (!RangeValid(command.reserved[0],
+                        state_elements * sizeof(float)) ||
+            !RangeValid(command.reserved[1],
+                        state_elements * sizeof(float))) {
+          return false;
+        }
+      } else if (command.reserved[0] != 0 || command.reserved[1] != 0) {
+        return false;
+      }
+      break;
+    }
     case OPENNPUX_XGRAPH_OP_TSILU:
     case OPENNPUX_XGRAPH_OP_TSOFTMAX:
     case OPENNPUX_XGRAPH_OP_TDMA:
@@ -233,6 +257,20 @@ bool Execute(const volatile opennpux_xgraph_command& command,
                           command.scalar0);
       *operations += elements * command.scalar0;
       *cycles += elements * command.scalar0;
+      return true;
+    case OPENNPUX_XGRAPH_OP_TCAUSALCONV:
+      xopennpux_causal_depthwise_conv_fp32(
+          destination, source0, source1, command.dim0, command.dim1,
+          command.dim2,
+          (command.flags & OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL) != 0
+              ? ConstAddress(command.reserved[0])
+              : nullptr,
+          (command.flags & OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL) != 0
+              ? Address(command.reserved[1])
+              : nullptr,
+          command.flags);
+      *operations += elements * command.dim2 * 2;
+      *cycles += elements * command.dim2 * 2;
       return true;
     default:
       return false;

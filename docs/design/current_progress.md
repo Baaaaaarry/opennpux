@@ -996,3 +996,24 @@ packed values 区域，随后两条 `TDMA` 分别发布归一化权重和 uint32
 必须在同一变更中补充 generic opcode、指令序列、requests/commands/batches、实际 cycles/
 operation count、checksum 或 max error 以及测试环境；RTL 性能数据另列，不覆盖功能模型
 基线。
+
+## 2026-08-30 Stateful Causal Convolution 指令闭环
+
+新增模型无关 `TCAUSALCONV` custom3 指令，将 generic
+`CAUSAL_CONVOLUTION` 的 rows、features、kernel width、可选 SiLU 以及前后 state
+地址 lowering 为单条 XGraph command。Coral 标量流水仍执行 CSR 写入、L1 custom
+instruction 分流和正常 retire；NPU L2 在 accept 时原子快照 `tensor_shape`、
+`scalar_param0` 及新增辅助 state CSR `0x818/0x819`，C++ functional coprocessor 完成
+地址检查、depthwise causal convolution、next-state 更新和 completion。
+
+native 数值测试覆盖 rows=2、features=2、kernel=3 的 stateful 场景，输出为
+`[14,14;20,20]`，next-state 为最新两行输入，统计 24 element operations / 24 modeled
+cycles；runtime lowering 同时覆盖 operand 容量、state 成对出现、EXTMEM offset 和 fused
+SiLU 标志。该结果是功能模型验证，尚未计入 13 requests / 20 commands / 264 cycles 的
+GB10 full-system 基线。
+
+Guest XGraph full-system fixture 已完成候选接入：新增第 14 个逻辑请求，在第三批 Router
+复合请求之后发出 1 条 `TCAUSALCONV`，同时校验 convolution output 和 next-state，预期
+聚合结果为 3 batches / 14 requests / 21 commands / 288 cycles。验收脚本已增加
+`xgraph_op_CAUSAL_CONVOLUTION=PASS` 强制检查；在 GB10 报告完整 PASS 前，上述数据保持
+候选状态，不覆盖已验收的 264-cycle 基线。

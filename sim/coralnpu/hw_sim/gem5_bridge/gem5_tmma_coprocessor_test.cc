@@ -126,6 +126,54 @@ void TestEncodingAndSecondLevelDecode() {
   assert(xopennpux::IsTdma(dma));
   assert(xopennpux::DecodeOperation(dma) == xopennpux::Operation::kTdma);
   assert(!xopennpux::IsTdma(dma | (1u << 20)));
+  const uint32_t causal_conv =
+      xopennpux::EncodeTcausalconv(12, 10, 11);
+  assert(xopennpux::IsTcausalconv(causal_conv));
+  assert(xopennpux::DecodeOperation(causal_conv) ==
+         xopennpux::Operation::kTcausalconv);
+}
+
+void TestStatefulCausalDepthwiseConv() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 2);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0,
+                              3u | (1u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrTensorAuxSourceAddress,
+                              kMemoryBase + 0x300));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrTensorAuxDestinationAddress,
+                              kMemoryBase + 0x400));
+
+  Gem5TmmaDispatchPacket packet = Packet(31);
+  packet.instruction = xopennpux::EncodeTcausalconv(12, 10, 11);
+  packet.rs1_value = kMemoryBase + 0x100;
+  packet.rs2_value = kMemoryBase + 0x200;
+  packet.rd_value = kMemoryBase + 0x500;
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const float input[] = {3.0f, 30.0f, 4.0f, 40.0f};
+  const float weight[] = {1.0f, 2.0f, 3.0f, 0.1f, 0.2f, 0.3f};
+  const float state[] = {1.0f, 10.0f, 2.0f, 20.0f};
+  for (size_t index = 0; index < 4; ++index) {
+    WriteFloat(&memory, 0x100 + index * sizeof(float), input[index]);
+    WriteFloat(&memory, 0x300 + index * sizeof(float), state[index]);
+  }
+  for (size_t index = 0; index < 6; ++index) {
+    WriteFloat(&memory, 0x200 + index * sizeof(float), weight[index]);
+  }
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTcausalconv);
+  assert(completion.element_operations == 24);
+  assert(completion.modeled_cycles == 24);
+  assert(std::fabs(ReadFloat(memory, 0x500) - 14.0f) < 1.0e-5f);
+  assert(std::fabs(ReadFloat(memory, 0x504) - 14.0f) < 1.0e-5f);
+  assert(std::fabs(ReadFloat(memory, 0x508) - 20.0f) < 1.0e-5f);
+  assert(std::fabs(ReadFloat(memory, 0x50c) - 20.0f) < 1.0e-5f);
+  for (size_t index = 0; index < 4; ++index) {
+    assert(ReadFloat(memory, 0x400 + index * sizeof(float)) == input[index]);
+  }
 }
 
 void ConfigureInt4Dequant(Gem5XOpenNpuFunctionalCoprocessor* coprocessor,
@@ -781,6 +829,7 @@ int main() {
   TestFp32TensorAdd();
   TestFp32TensorMul();
   TestFp32Dma();
+  TestStatefulCausalDepthwiseConv();
   TestFp32RmsNorm();
   TestRmsNormRejectsInvalidEpsilon();
   TestFp32Silu();

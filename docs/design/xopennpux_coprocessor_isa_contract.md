@@ -154,6 +154,8 @@ or 100 percent for values 0 through 4 respectively. Other values are reserved.
 | `0x809` | `prefetch_cfg` | stride, threshold, and prefetch count |
 | `0x80a` | `prefetch_start_time` | prefetch insertion time |
 | `0x80b` | `scalar_param0` | operation-specific FP32 scalar, snapshotted at dispatch |
+| `0x818` | `tensor_aux_source_address` | optional persistent-state source address |
+| `0x819` | `tensor_aux_destination_address` | optional persistent-state destination address |
 
 The supported logical data types are FP16, BF16, FP32, INT16, INT8,
 FP8-E4M3, FP8-E5M2, INT4, INT2, MXFP6, and MXFP4. Each instruction definition
@@ -433,6 +435,22 @@ the packed selected-value region only. Two TDMA instructions may publish the
 normalized values and packed uint32 indices to separate output tensors. This
 five-instruction composition is one logical request for batch atomicity; it
 does not introduce a model-specific router instruction.
+
+#### Stateful causal depthwise convolution profile
+
+`tcausalconv.ttt (rd),(rs1),(rs2)` uses `custom3`, `funct3=000`, and
+`funct7=0100000`. `rd`, `rs1`, and `rs2` carry output, input, and depthwise
+weight addresses. `tensor_shape` supplies rows and features. `scalar_param0`
+packs kernel width in bits `[15:0]`, stateful in bit 16, and fused SiLU in bit
+17; all other bits are reserved. Stateful execution snapshots CSR `0x818` and
+`0x819` as previous-state and next-state addresses. Both states have contiguous
+shape `[kernel_width - 1, features]`.
+
+The instruction is model independent. It implements causal depthwise
+convolution with feature-major weights `[features, kernel_width]`, optionally
+updates persistent history, and optionally applies SiLU to each output. Coral
+retires the accepted instruction through its normal scalar path; NPU L2 owns
+address validation, state ordering, functional execution and completion.
 
 ### Primitive versus graph operations
 

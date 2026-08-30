@@ -39,7 +39,9 @@ struct opennpux_npu_xgraph_lowering_failure {
 /*
  * Lower one materialized generic command to one XOpenNPUX primitive record.
  * Generic commands with primitive-equivalent semantics may be canonicalized
- * (for example COMBINE to TADD). Other composite commands return ENOTSUP and
+ * (for example COMBINE to TADD). Stateful causal depthwise convolution is
+ * represented by one TCAUSALCONV record with auxiliary state offsets. Other
+ * composite commands return ENOTSUP and
  * must first pass through a decomposition pass. All operand addresses must
  * belong to the NPU EXTMEM aperture. GPTQ MatMul also requires
  * decomposition/dequantization and is not silently treated as FP32 TMMA.

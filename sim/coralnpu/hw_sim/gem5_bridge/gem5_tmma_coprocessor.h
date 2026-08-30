@@ -43,6 +43,8 @@ struct Gem5TmmaDispatchPacket {
   uint32_t quant_qzeros_stride = 0;
   uint32_t quant_scales_stride = 0;
   uint32_t quant_group_range = 0;
+  uint32_t tensor_aux_source_address = 0;
+  uint32_t tensor_aux_destination_address = 0;
   uint32_t csr_epoch = 0;
 };
 
@@ -98,6 +100,8 @@ class Gem5XOpenNpuFunctionalCoprocessor {
     uint32_t quant_qzeros_stride = 0;
     uint32_t quant_scales_stride = 0;
     uint32_t quant_group_range = 0;
+    uint32_t tensor_aux_source_address = 0;
+    uint32_t tensor_aux_destination_address = 0;
     uint32_t csr_epoch = 0;
   };
 
@@ -117,6 +121,8 @@ class Gem5XOpenNpuFunctionalCoprocessor {
   uint32_t quant_qzeros_stride_ = 0;
   uint32_t quant_scales_stride_ = 0;
   uint32_t quant_group_range_ = 0;
+  uint32_t tensor_aux_source_address_ = 0;
+  uint32_t tensor_aux_destination_address_ = 0;
   uint32_t csr_epoch_ = 0;
 };
 

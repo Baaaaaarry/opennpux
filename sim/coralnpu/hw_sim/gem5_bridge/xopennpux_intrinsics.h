@@ -55,6 +55,15 @@ static inline void xopennpux_write_quant_group_range(uint32_t value) {
   __asm__ volatile("csrw 0x817, %0" : : "r"(value) : "memory");
 }
 
+static inline void xopennpux_write_tensor_aux_source_address(uint32_t value) {
+  __asm__ volatile("csrw 0x818, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_tensor_aux_destination_address(
+    uint32_t value) {
+  __asm__ volatile("csrw 0x819, %0" : : "r"(value) : "memory");
+}
+
 static inline void xopennpux_tmma_fp32(void* destination, const void* lhs,
                                        const void* rhs) {
   // Publish scalar/AXI stores before the coprocessor reads its operands.
@@ -154,6 +163,17 @@ static inline void xopennpux_tdma_fp32(void* destination,
   __asm__ volatile(".insn r 0x7b, 3, 0x12, %0, %1, x0"
                    :
                    : "r"((uintptr_t)destination), "r"((uintptr_t)source)
+                   : "memory");
+}
+
+static inline void xopennpux_tcausalconv_fp32(void* destination,
+                                              const void* input,
+                                              const void* weight) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 0, 0x20, %0, %1, %2"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)input),
+                     "r"((uintptr_t)weight)
                    : "memory");
 }
 

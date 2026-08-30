@@ -155,8 +155,12 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       const uint32_t head_dim = command.dim2;
       const uint32_t kv_heads = command.scalar0;
       const uint32_t kv_length = command.flags;
+      const uint32_t attention_flags = command.reserved[1];
       if (head_dim == 0 || kv_heads == 0 || kv_length == 0 ||
-          command.dim0 > kv_length || heads % kv_heads != 0) {
+          command.dim0 > kv_length || heads % kv_heads != 0 ||
+          (attention_flags & ~OPENNPUX_XGRAPH_TATTENTION_GATED) != 0 ||
+          (((attention_flags & OPENNPUX_XGRAPH_TATTENTION_GATED) != 0) !=
+           (command.reserved[0] != 0))) {
         return false;
       }
       source0_elements =
@@ -164,6 +168,45 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       source1_elements =
           static_cast<uint64_t>(2) * kv_length * kv_heads * head_dim;
       destination_elements = source0_elements;
+      if ((attention_flags & OPENNPUX_XGRAPH_TATTENTION_GATED) != 0 &&
+          !RangeValid(command.reserved[0],
+                      source0_elements * sizeof(float))) {
+        return false;
+      }
+      break;
+    }
+    case OPENNPUX_XGRAPH_OP_TRECURRENT: {
+      const uint32_t key_heads = command.dim1;
+      const uint32_t key_dim = command.dim2;
+      const uint32_t value_heads = command.scalar0 & 0xffffu;
+      const uint32_t value_dim = command.scalar0 >> 16;
+      if (key_heads == 0 || key_dim == 0 || value_heads == 0 ||
+          value_dim == 0 ||
+          value_heads % key_heads != 0 || command.reserved[0] == 0 ||
+          command.reserved[1] == 0 || command.reserved[2] == 0 ||
+          command.reserved[3] == 0) {
+        return false;
+      }
+      source0_elements =
+          static_cast<uint64_t>(command.dim0) *
+          (static_cast<uint64_t>(2) * key_heads * key_dim +
+           static_cast<uint64_t>(value_heads) * value_dim);
+      source1_elements =
+          static_cast<uint64_t>(command.dim0) * value_heads;
+      destination_elements =
+          static_cast<uint64_t>(command.dim0) * value_heads * value_dim;
+      const uint64_t state_elements =
+          static_cast<uint64_t>(value_heads) * key_dim * value_dim;
+      if (!RangeValid(command.reserved[0],
+                      source1_elements * sizeof(float)) ||
+          !RangeValid(command.reserved[1],
+                      state_elements * sizeof(float)) ||
+          !RangeValid(command.reserved[2],
+                      value_heads * sizeof(float)) ||
+          !RangeValid(command.reserved[3],
+                      value_heads * sizeof(float))) {
+        return false;
+      }
       break;
     }
     case OPENNPUX_XGRAPH_OP_TSILU:
@@ -291,14 +334,39 @@ bool Execute(const volatile opennpux_xgraph_command& command,
     case OPENNPUX_XGRAPH_OP_TATTENTION: {
       xopennpux_attention_fp32(destination, source0, source1, command.dim0,
                                command.dim1, command.scalar0, command.dim2,
-                               command.flags);
+                               command.flags,
+                               command.reserved[0] == 0
+                                   ? nullptr
+                                   : ConstAddress(command.reserved[0]),
+                               command.reserved[1]);
       const uint64_t rows = command.dim0;
       const uint64_t visible_positions =
           rows * (command.flags - rows + 1) + rows * (rows - 1) / 2;
       const uint64_t attention_operations =
           visible_positions * command.dim1 * command.dim2 * 4;
-      *operations += attention_operations;
-      *cycles += attention_operations;
+      const uint64_t gate_operations =
+          (command.reserved[1] & OPENNPUX_XGRAPH_TATTENTION_GATED) != 0
+              ? static_cast<uint64_t>(command.dim0) * command.dim1 *
+                    command.dim2 * 4
+              : 0;
+      *operations += attention_operations + gate_operations;
+      *cycles += attention_operations + gate_operations;
+      return true;
+    }
+    case OPENNPUX_XGRAPH_OP_TRECURRENT: {
+      const uint32_t value_heads = command.scalar0 & 0xffffu;
+      const uint32_t value_dim = command.scalar0 >> 16;
+      xopennpux_recurrent_fp32(
+          destination, source0, source1, ConstAddress(command.reserved[0]),
+          Address(command.reserved[1]), ConstAddress(command.reserved[2]),
+          ConstAddress(command.reserved[3]), command.dim0, command.dim1,
+          value_heads, command.dim2, value_dim);
+      const uint64_t recurrent_operations =
+          static_cast<uint64_t>(command.dim0) * value_heads *
+          (command.dim2 * 4 + value_dim * command.dim2 * 6 +
+           value_dim * 3 + 8);
+      *operations += recurrent_operations;
+      *cycles += recurrent_operations;
       return true;
     }
     default:

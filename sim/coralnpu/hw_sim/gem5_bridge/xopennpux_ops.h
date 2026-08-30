@@ -125,13 +125,34 @@ static inline void xopennpux_causal_depthwise_conv_fp32(
 static inline void xopennpux_attention_fp32(
     void* destination, const void* query, const void* kv_state,
     uint32_t query_rows, uint32_t heads, uint32_t kv_heads,
-    uint32_t head_dim, uint32_t kv_length) {
+    uint32_t head_dim, uint32_t kv_length, const void* gate,
+    uint32_t flags) {
   xopennpux_configure_tensor_fp32(query_rows, heads * head_dim);
   xopennpux_write_attention_heads((heads & 0xffffu) |
                                   ((kv_heads & 0xffffu) << 16));
-  xopennpux_write_attention_head_dim_flags(head_dim & 0xffffu);
+  xopennpux_write_attention_head_dim_flags(
+      (head_dim & 0xffffu) | ((flags & 0xffffu) << 16));
   xopennpux_write_attention_kv_length(kv_length);
+  xopennpux_write_tensor_aux_source_address((uint32_t)(uintptr_t)gate);
   xopennpux_tattention_fp32(destination, query, kv_state);
+  xopennpux_tfence();
+}
+
+static inline void xopennpux_recurrent_fp32(
+    void* destination, const void* qkv, const void* alpha, const void* beta,
+    void* state, const void* a_log, const void* dt_bias, uint32_t rows,
+    uint32_t key_heads, uint32_t value_heads, uint32_t key_dim,
+    uint32_t value_dim) {
+  xopennpux_configure_tensor_fp32(rows, key_heads * key_dim);
+  xopennpux_write_recurrent_heads((key_heads & 0xffffu) |
+                                  ((value_heads & 0xffffu) << 16));
+  xopennpux_write_recurrent_dims((key_dim & 0xffffu) |
+                                 ((value_dim & 0xffffu) << 16));
+  xopennpux_write_recurrent_beta_address((uint32_t)(uintptr_t)beta);
+  xopennpux_write_tensor_aux_destination_address((uint32_t)(uintptr_t)state);
+  xopennpux_write_recurrent_a_log_address((uint32_t)(uintptr_t)a_log);
+  xopennpux_write_recurrent_dt_bias_address((uint32_t)(uintptr_t)dt_bias);
+  xopennpux_trecurrent_fp32(destination, qkv, alpha);
   xopennpux_tfence();
 }
 

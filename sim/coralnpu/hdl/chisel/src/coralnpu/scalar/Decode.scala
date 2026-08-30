@@ -49,6 +49,11 @@ class XOpenNpuCsrState(p: Parameters) extends Bundle {
   val attentionHeads = UInt(p.xlen.W)
   val attentionHeadDimFlags = UInt(p.xlen.W)
   val attentionKvLength = UInt(p.xlen.W)
+  val recurrentHeads = UInt(p.xlen.W)
+  val recurrentDims = UInt(p.xlen.W)
+  val recurrentBetaAddress = UInt(p.xlen.W)
+  val recurrentALogAddress = UInt(p.xlen.W)
+  val recurrentDtBiasAddress = UInt(p.xlen.W)
   val epoch = UInt(32.W)
 }
 

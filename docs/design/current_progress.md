@@ -1059,5 +1059,23 @@ Native tests 已验证 lowering 和 rows=2、heads=2、KV heads=1、head dim=2�
 数值执行，对应 80 operations / 80 modeled cycles。GB10 full-system fixture 已完成 4 batches /
 17 requests / 32 commands / 406 cycles；第 4 批由 Expert 的 8 条命令和 1 条 `TATTENTION`
 组成，`xgraph_validated_operators=17`、`xgraph_correctness=PASS`。正式功能基线因此提升为
-17 个通用模型算子。首版仍拒绝 fused tertiary gate，避免在未定义 CSR/operand 契约时静默
-执行错误语义；406 cycles 属于 C++ functional model，不代表 RTL 时序性能。
+17 个通用模型算子。406 cycles 属于 C++ functional model，不代表 RTL 时序性能。
+
+## 2026-08-30 Remaining Generic Lowering: Gated Attention and Recurrent
+
+在不增加模型专用 opcode 的前提下补齐两类剩余 Transformer 语义。带 tertiary gate 的
+ATTENTION 继续使用 `TATTENTION`，通过 `0x818` 快照 gate 地址，并在 `0x81b` 高 16 位设置
+gate flag；NPU L2 在 attention 输出上逐元素应用 sigmoid gate。native 数值测试采用
+rows=1、heads=1、head_dim=1、KV length=1，输出 1.5，统计 8 modeled cycles。
+
+带 `GATED_DELTA_NET` 标志的 RECURRENT_UPDATE 不再返回 `ENOTSUP`，而是 lowering 为单条
+`TRECURRENT`。新增 CSR `0x81d..0x821` 携带 key/value heads、key/value dimensions、beta、
+A-log 和 dt-bias，复用 `0x819` 持久 state 地址。C++ NPU L2 实现 Q/K normalize、sigmoid
+beta、softplus decay、state update 和输出投影；最小 native 数值闭环统计 21 modeled cycles。
+Coral 标量核仍只负责 CSR、L1 custom3 分流及正常 retire，全部计算语义属于 NPU 二级译码
+和协处理器。
+
+lowering 与 coprocessor native tests 均已通过。上述两项尚未计入 17 requests / 32 commands /
+406 cycles 的 GB10 full-system 基线，需在目标机重建 RTL bridge/firmware 后验收。普通
+CONVOLUTION 仍明确返回不支持，因为当前 generic request ABI 没有 stride、padding、dilation
+和 layout；在 ABI 完成前禁止把它错误映射为 depthwise causal convolution。

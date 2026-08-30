@@ -267,13 +267,14 @@ opennpux_npu_xgraph_lower_primitive(
             request->rows > UINT16_MAX ||
             (uint64_t)request->heads * request->head_dim > UINT16_MAX ||
             request->rows > request->kv_length ||
-            request->heads % request->kv_heads != 0 || tertiary != NULL ||
+            request->heads % request->kv_heads != 0 ||
             query_bytes > UINT32_MAX || state_bytes > UINT32_MAX ||
             input == NULL || secondary == NULL || output == NULL ||
             input->byte_size < query_bytes ||
             secondary->byte_size < state_bytes ||
-            output->byte_size < query_bytes) {
-            errno = tertiary != NULL ? ENOTSUP : EINVAL;
+            output->byte_size < query_bytes ||
+            (tertiary != NULL && tertiary->byte_size < query_bytes)) {
+            errno = EINVAL;
             return -1;
         }
         command->opcode = OPENNPUX_XGRAPH_OP_TATTENTION;
@@ -282,6 +283,13 @@ opennpux_npu_xgraph_lower_primitive(
         command->dim2 = request->head_dim;
         command->scalar0 = request->kv_heads;
         command->flags = request->kv_length;
+        if (tertiary != NULL) {
+            command->reserved[1] = OPENNPUX_XGRAPH_TATTENTION_GATED;
+            if (operand_offset(tertiary, extmem_base, extmem_size,
+                               &command->reserved[0]) != 0) {
+                return -1;
+            }
+        }
         return set_operands(command, output, input, secondary,
                             extmem_base, extmem_size);
     }
@@ -755,20 +763,95 @@ opennpux_npu_xgraph_lower_recurrent_update(
         errno = EINVAL;
         return -1;
     }
-    if (command_capacity < 2) {
-        errno = ENOSPC;
-        return -1;
-    }
     if (validate_request(request, parameters, extmem_size) != 0) {
         return -1;
     }
-    if (request->opcode != OPENNPUX_NPU_OP_RECURRENT_UPDATE ||
-        (parameters->flags & OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0 ||
-        first_command_id > UINT32_MAX - 1) {
-        errno = (parameters->flags &
-                 OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0
-                    ? ENOTSUP
-                    : EINVAL;
+    if (request->opcode != OPENNPUX_NPU_OP_RECURRENT_UPDATE) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if ((parameters->flags & OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0) {
+        const struct opennpux_npu_functional_operand *qkv =
+            find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+        const struct opennpux_npu_functional_operand *alpha =
+            find_operand(request, OPENNPUX_NPU_OPERAND_SECONDARY);
+        const struct opennpux_npu_functional_operand *beta =
+            find_operand(request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY);
+        const struct opennpux_npu_functional_operand *output =
+            find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+        const struct opennpux_npu_functional_operand *state =
+            find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY);
+        const struct opennpux_npu_functional_operand *a_log =
+            find_operand(request, OPENNPUX_NPU_OPERAND_LINEAR_A_LOG_WEIGHT);
+        const struct opennpux_npu_functional_operand *dt_bias =
+            find_operand(request, OPENNPUX_NPU_OPERAND_LINEAR_DT_BIAS_WEIGHT);
+        const uint32_t key_heads = request->heads;
+        const uint32_t value_heads = request->kv_heads;
+        const uint32_t key_dim = request->head_dim;
+        const uint32_t value_dim = value_heads == 0
+                                       ? 0
+                                       : parameters->output_features /
+                                             value_heads;
+        const uint64_t key_features = (uint64_t)key_heads * key_dim;
+        const uint64_t value_features = (uint64_t)value_heads * value_dim;
+        const uint64_t qkv_features = key_features * 2 + value_features;
+        const uint64_t qkv_bytes =
+            (uint64_t)request->rows * qkv_features * sizeof(float);
+        const uint64_t gate_bytes =
+            (uint64_t)request->rows * value_heads * sizeof(float);
+        const uint64_t output_bytes =
+            (uint64_t)request->rows * value_features * sizeof(float);
+        const uint64_t state_bytes =
+            (uint64_t)value_heads * key_dim * value_dim * sizeof(float);
+        const uint64_t vector_bytes = (uint64_t)value_heads * sizeof(float);
+        if (command_capacity < 1) {
+            errno = ENOSPC;
+            return -1;
+        }
+        if (qkv == NULL || alpha == NULL || beta == NULL || output == NULL ||
+            state == NULL || a_log == NULL || dt_bias == NULL ||
+            key_heads == 0 || value_heads == 0 || key_dim == 0 ||
+            value_dim == 0 || value_heads % key_heads != 0 ||
+            parameters->output_features % value_heads != 0 ||
+            key_features > UINT32_MAX || qkv_features > UINT32_MAX ||
+            value_heads > UINT16_MAX || value_dim > UINT16_MAX ||
+            qkv_bytes > UINT32_MAX || gate_bytes > UINT32_MAX ||
+            output_bytes > UINT32_MAX || state_bytes > UINT32_MAX ||
+            qkv->byte_size < qkv_bytes || alpha->byte_size < gate_bytes ||
+            beta->byte_size < gate_bytes || output->byte_size < output_bytes ||
+            state->byte_size < state_bytes || a_log->byte_size < vector_bytes ||
+            dt_bias->byte_size < vector_bytes) {
+            errno = EINVAL;
+            return -1;
+        }
+
+        memset(commands, 0, sizeof(*commands));
+        commands[0].opcode = OPENNPUX_XGRAPH_OP_TRECURRENT;
+        commands[0].command_id = first_command_id;
+        commands[0].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+        commands[0].dim0 = request->rows;
+        commands[0].dim1 = key_heads;
+        commands[0].dim2 = key_dim;
+        commands[0].scalar0 = value_heads | (value_dim << 16);
+        if (set_operands(&commands[0], output, qkv, alpha,
+                         extmem_base, extmem_size) != 0 ||
+            operand_offset(beta, extmem_base, extmem_size,
+                           &commands[0].reserved[0]) != 0 ||
+            operand_offset(state, extmem_base, extmem_size,
+                           &commands[0].reserved[1]) != 0 ||
+            operand_offset(a_log, extmem_base, extmem_size,
+                           &commands[0].reserved[2]) != 0 ||
+            operand_offset(dt_bias, extmem_base, extmem_size,
+                           &commands[0].reserved[3]) != 0) {
+            return -1;
+        }
+        *command_count = 1;
+        return 0;
+    }
+
+    if (command_capacity < 2 || first_command_id > UINT32_MAX - 1) {
+        errno = command_capacity < 2 ? ENOSPC : EINVAL;
         return -1;
     }
 

@@ -135,6 +135,53 @@ void TestEncodingAndSecondLevelDecode() {
   assert(xopennpux::IsTattention(attention));
   assert(xopennpux::DecodeOperation(attention) ==
          xopennpux::Operation::kTattention);
+  const uint32_t recurrent = xopennpux::EncodeTrecurrent(12, 10, 11);
+  assert(xopennpux::IsTrecurrent(recurrent));
+  assert(xopennpux::DecodeOperation(recurrent) ==
+         xopennpux::Operation::kTrecurrent);
+}
+
+void TestGatedRecurrentUpdate() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 1, 1);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrRecurrentHeads,
+                              1u | (1u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrRecurrentDims,
+                              1u | (1u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrRecurrentBetaAddress,
+                              kMemoryBase + 0x300));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrTensorAuxDestinationAddress,
+                              kMemoryBase + 0x400));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrRecurrentALogAddress,
+                              kMemoryBase + 0x500));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrRecurrentDtBiasAddress,
+                              kMemoryBase + 0x600));
+
+  Gem5TmmaDispatchPacket packet = Packet(33);
+  packet.instruction = xopennpux::EncodeTrecurrent(12, 10, 11);
+  packet.rs1_value = kMemoryBase + 0x100;
+  packet.rs2_value = kMemoryBase + 0x200;
+  packet.rd_value = kMemoryBase + 0x700;
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  WriteFloat(&memory, 0x100, 1.0f);  // Q
+  WriteFloat(&memory, 0x104, 1.0f);  // K
+  WriteFloat(&memory, 0x108, 2.0f);  // V
+  WriteFloat(&memory, 0x200, 0.0f);  // alpha
+  WriteFloat(&memory, 0x300, 0.0f);  // beta
+  WriteFloat(&memory, 0x400, 0.0f);  // state
+  WriteFloat(&memory, 0x500, 0.0f);  // A-log
+  WriteFloat(&memory, 0x600, 0.0f);  // dt-bias
+
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTrecurrent);
+  assert(completion.element_operations == 21);
+  assert(completion.modeled_cycles == 21);
+  assert(std::fabs(ReadFloat(memory, 0x400) - 1.0f) < 2.0e-6f);
+  assert(std::fabs(ReadFloat(memory, 0x700) - 1.0f) < 3.0e-6f);
 }
 
 void TestCausalGqaAttention() {
@@ -181,6 +228,37 @@ void TestCausalGqaAttention() {
                    (1.0f + exp_scale * 3.0f) / (1.0f + exp_scale)) <
          1.0e-5f);
   assert(std::isfinite(ReadFloat(memory, 0x41c)));
+}
+
+void TestGatedAttention() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 1, 1);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrAttentionHeads,
+                              1u | (1u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrAttentionHeadDimFlags,
+                              1u | (1u << 16)));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrAttentionKvLength, 1));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrTensorAuxSourceAddress,
+                              kMemoryBase + 0x300));
+
+  Gem5TmmaDispatchPacket packet = Packet(34);
+  packet.instruction = xopennpux::EncodeTattention(12, 10, 11);
+  packet.rs1_value = kMemoryBase + 0x100;
+  packet.rs2_value = kMemoryBase + 0x200;
+  packet.rd_value = kMemoryBase + 0x400;
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  WriteFloat(&memory, 0x100, 2.0f);
+  WriteFloat(&memory, 0x200, 2.0f);  // K
+  WriteFloat(&memory, 0x204, 3.0f);  // V
+  WriteFloat(&memory, 0x300, 0.0f);  // sigmoid gate = 0.5
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.element_operations == 8);
+  assert(completion.modeled_cycles == 8);
+  assert(std::fabs(ReadFloat(memory, 0x400) - 1.5f) < 1.0e-6f);
 }
 
 void TestStatefulCausalDepthwiseConv() {
@@ -881,6 +959,8 @@ int main() {
   TestFp32Dma();
   TestStatefulCausalDepthwiseConv();
   TestCausalGqaAttention();
+  TestGatedAttention();
+  TestGatedRecurrentUpdate();
   TestFp32RmsNorm();
   TestRmsNormRejectsInvalidEpsilon();
   TestFp32Silu();

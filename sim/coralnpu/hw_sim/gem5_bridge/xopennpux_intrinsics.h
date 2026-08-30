@@ -76,6 +76,26 @@ static inline void xopennpux_write_attention_kv_length(uint32_t value) {
   __asm__ volatile("csrw 0x81c, %0" : : "r"(value) : "memory");
 }
 
+static inline void xopennpux_write_recurrent_heads(uint32_t value) {
+  __asm__ volatile("csrw 0x81d, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_recurrent_dims(uint32_t value) {
+  __asm__ volatile("csrw 0x81e, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_recurrent_beta_address(uint32_t value) {
+  __asm__ volatile("csrw 0x81f, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_recurrent_a_log_address(uint32_t value) {
+  __asm__ volatile("csrw 0x820, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_recurrent_dt_bias_address(uint32_t value) {
+  __asm__ volatile("csrw 0x821, %0" : : "r"(value) : "memory");
+}
+
 static inline void xopennpux_tmma_fp32(void* destination, const void* lhs,
                                        const void* rhs) {
   // Publish scalar/AXI stores before the coprocessor reads its operands.
@@ -197,6 +217,17 @@ static inline void xopennpux_tattention_fp32(void* destination,
                    :
                    : "r"((uintptr_t)destination), "r"((uintptr_t)query),
                      "r"((uintptr_t)kv_state)
+                   : "memory");
+}
+
+static inline void xopennpux_trecurrent_fp32(void* destination,
+                                             const void* qkv,
+                                             const void* alpha) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 0, 0x22, %0, %1, %2"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)qkv),
+                     "r"((uintptr_t)alpha)
                    : "memory");
 }
 

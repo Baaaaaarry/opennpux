@@ -1300,7 +1300,18 @@ opennpux_coral_xgraph_test(
         attention_query = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3900,
         attention_state = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3a00,
         attention_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3b00,
-        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3c00,
+        gated_attention_query = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3c00,
+        gated_attention_state = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3d00,
+        gated_attention_gate = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3e00,
+        gated_attention_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x3f00,
+        gated_recurrent_qkv = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4000,
+        gated_recurrent_alpha = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4100,
+        gated_recurrent_beta = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4120,
+        gated_recurrent_state = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4140,
+        gated_recurrent_a_log = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4160,
+        gated_recurrent_dt_bias = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4180,
+        gated_recurrent_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4200,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x4300,
     };
     static const uint32_t token_values[2] = {0, 1};
     static const float embedding_values[8] = {
@@ -1392,12 +1403,17 @@ opennpux_coral_xgraph_test(
         1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
         1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f,
     };
+    static const float gated_attention_query_value = 2.0f;
+    static const float gated_attention_state_values[2] = {2.0f, 3.0f};
+    static const float gated_attention_gate_value = 0.0f;
+    static const float gated_recurrent_qkv_values[3] = {1.0f, 1.0f, 2.0f};
+    static const float gated_recurrent_zero = 0.0f;
     union {
         float value;
         uint32_t bits;
     } epsilon = {1.0e-5f};
     memset(result, 0, sizeof(*result));
-    enum { request_count = 17, command_capacity = 9 };
+    enum { request_count = 19, command_capacity = 9 };
     struct opennpux_npu_functional_request requests[request_count];
     struct opennpux_npu_operator_parameters parameters[request_count];
     struct opennpux_npu_xgraph_lowering_options options[request_count];
@@ -1477,6 +1493,19 @@ opennpux_coral_xgraph_test(
     requests[16].kv_heads = 1;
     requests[16].head_dim = 2;
     requests[16].kv_length = 3;
+    initialize_xgraph_request(&requests[17], &parameters[17], 17,
+                              OPENNPUX_NPU_OP_ATTENTION, 1, 1);
+    requests[17].heads = 1;
+    requests[17].kv_heads = 1;
+    requests[17].head_dim = 1;
+    requests[17].kv_length = 1;
+    initialize_xgraph_request(&requests[18], &parameters[18], 18,
+                              OPENNPUX_NPU_OP_RECURRENT_UPDATE, 1, 3);
+    requests[18].heads = 1;
+    requests[18].kv_heads = 1;
+    requests[18].head_dim = 1;
+    parameters[18].flags = OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET;
+    parameters[18].output_features = 1;
 
 #define ADD_XGRAPH_OPERAND(index, role, offset, size)                         \
     do {                                                                      \
@@ -1612,6 +1641,32 @@ opennpux_coral_xgraph_test(
                        sizeof(attention_state_values));
     ADD_XGRAPH_OPERAND(16, OPENNPUX_NPU_OPERAND_OUTPUT, attention_output,
                        sizeof(attention_query_values));
+    ADD_XGRAPH_OPERAND(17, OPENNPUX_NPU_OPERAND_INPUT,
+                       gated_attention_query,
+                       sizeof(gated_attention_query_value));
+    ADD_XGRAPH_OPERAND(17, OPENNPUX_NPU_OPERAND_SECONDARY,
+                       gated_attention_state,
+                       sizeof(gated_attention_state_values));
+    ADD_XGRAPH_OPERAND(17, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY,
+                       gated_attention_gate,
+                       sizeof(gated_attention_gate_value));
+    ADD_XGRAPH_OPERAND(17, OPENNPUX_NPU_OPERAND_OUTPUT,
+                       gated_attention_output, sizeof(float));
+    ADD_XGRAPH_OPERAND(18, OPENNPUX_NPU_OPERAND_INPUT,
+                       gated_recurrent_qkv,
+                       sizeof(gated_recurrent_qkv_values));
+    ADD_XGRAPH_OPERAND(18, OPENNPUX_NPU_OPERAND_SECONDARY,
+                       gated_recurrent_alpha, sizeof(float));
+    ADD_XGRAPH_OPERAND(18, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY,
+                       gated_recurrent_beta, sizeof(float));
+    ADD_XGRAPH_OPERAND(18, OPENNPUX_NPU_OPERAND_OUTPUT,
+                       gated_recurrent_output, sizeof(float));
+    ADD_XGRAPH_OPERAND(18, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
+                       gated_recurrent_state, sizeof(float));
+    ADD_XGRAPH_OPERAND(18, OPENNPUX_NPU_OPERAND_LINEAR_A_LOG_WEIGHT,
+                       gated_recurrent_a_log, sizeof(float));
+    ADD_XGRAPH_OPERAND(18, OPENNPUX_NPU_OPERAND_LINEAR_DT_BIAS_WEIGHT,
+                       gated_recurrent_dt_bias, sizeof(float));
 #undef ADD_XGRAPH_OPERAND
 
     struct opennpux_coral_shared_window window;
@@ -1704,6 +1759,26 @@ opennpux_coral_xgraph_test(
     copy_to_volatile_bytes(window.bytes + attention_state,
                            attention_state_values,
                            sizeof(attention_state_values));
+    copy_to_volatile_bytes(window.bytes + gated_attention_query,
+                           &gated_attention_query_value, sizeof(float));
+    copy_to_volatile_bytes(window.bytes + gated_attention_state,
+                           gated_attention_state_values,
+                           sizeof(gated_attention_state_values));
+    copy_to_volatile_bytes(window.bytes + gated_attention_gate,
+                           &gated_attention_gate_value, sizeof(float));
+    copy_to_volatile_bytes(window.bytes + gated_recurrent_qkv,
+                           gated_recurrent_qkv_values,
+                           sizeof(gated_recurrent_qkv_values));
+    copy_to_volatile_bytes(window.bytes + gated_recurrent_alpha,
+                           &gated_recurrent_zero, sizeof(float));
+    copy_to_volatile_bytes(window.bytes + gated_recurrent_beta,
+                           &gated_recurrent_zero, sizeof(float));
+    copy_to_volatile_bytes(window.bytes + gated_recurrent_state,
+                           &gated_recurrent_zero, sizeof(float));
+    copy_to_volatile_bytes(window.bytes + gated_recurrent_a_log,
+                           &gated_recurrent_zero, sizeof(float));
+    copy_to_volatile_bytes(window.bytes + gated_recurrent_dt_bias,
+                           &gated_recurrent_zero, sizeof(float));
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;
     opennpux_coral_get_info(dev, &before);
@@ -1829,7 +1904,7 @@ opennpux_coral_xgraph_test(
         total_commands += commands_emitted;
     }
     if (run_result != 0 || result->completed_requests != request_count ||
-        result->completed_commands != 32 || result->batch_count != 4) {
+        result->completed_commands != 34 || result->batch_count != 5) {
         opennpux_coral_close_shared_window(&window);
         errno = run_errno == 0 ? EIO : run_errno;
         return -1;
@@ -2015,6 +2090,59 @@ opennpux_coral_xgraph_test(
     }
     ++result->validated_operators;
 
+    float actual_gated_attention = 0.0f;
+    const float expected_gated_attention = 1.5f;
+    copy_from_volatile_bytes(&actual_gated_attention,
+                             window.bytes + gated_attention_output,
+                             sizeof(actual_gated_attention));
+    result->operator_checksums[17] = checksum_bytes(
+        &actual_gated_attention, sizeof(actual_gated_attention));
+    result->operator_pass[17] = compare_floats(
+        &actual_gated_attention, &expected_gated_attention, 1,
+        &result->operator_max_abs_error[17]);
+    if (!result->operator_pass[17]) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 17;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
+    float actual_gated_recurrent_output = 0.0f;
+    float actual_gated_recurrent_state = 0.0f;
+    copy_from_volatile_bytes(&actual_gated_recurrent_output,
+                             window.bytes + gated_recurrent_output,
+                             sizeof(actual_gated_recurrent_output));
+    copy_from_volatile_bytes(&actual_gated_recurrent_state,
+                             window.bytes + gated_recurrent_state,
+                             sizeof(actual_gated_recurrent_state));
+    const float recurrent_norm = 1.0f / sqrtf(1.0f + 1.0e-6f);
+    const float expected_gated_recurrent_state = recurrent_norm;
+    const float expected_gated_recurrent_output =
+        recurrent_norm * recurrent_norm;
+    result->operator_checksums[18] = checksum_bytes(
+        &actual_gated_recurrent_output,
+        sizeof(actual_gated_recurrent_output));
+    const int gated_recurrent_output_valid = compare_floats(
+        &actual_gated_recurrent_output, &expected_gated_recurrent_output, 1,
+        &result->operator_max_abs_error[18]);
+    float gated_recurrent_state_error = 0.0f;
+    const int gated_recurrent_state_valid = compare_floats(
+        &actual_gated_recurrent_state, &expected_gated_recurrent_state, 1,
+        &gated_recurrent_state_error);
+    if (gated_recurrent_state_error > result->operator_max_abs_error[18]) {
+        result->operator_max_abs_error[18] = gated_recurrent_state_error;
+    }
+    result->operator_pass[18] =
+        gated_recurrent_output_valid && gated_recurrent_state_valid;
+    if (!result->operator_pass[18]) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 18;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
     float actual_expert[2] = {0};
     copy_from_volatile_bytes(actual_expert, window.bytes + expert_output,
                              sizeof(actual_expert));
@@ -2187,8 +2315,8 @@ opennpux_coral_xgraph_test(
         result->output[0] == (int32_t)result->completed_commands &&
         result->output[1] == 5 &&
         result->completed_requests == request_count &&
-        result->completed_commands == 32 &&
-        result->batch_count == 4 &&
+        result->completed_commands == 34 &&
+        result->batch_count == 5 &&
         operators_valid;
 
     opennpux_coral_get_info(dev, &after);

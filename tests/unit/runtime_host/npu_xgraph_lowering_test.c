@@ -184,11 +184,11 @@ test_attention_lowering(void)
     assert(command.destination_offset == 0x3000);
 
     add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY, 0x4000, 256);
-    errno = 0;
     assert(opennpux_npu_xgraph_lower_primitive(
                &request, &parameters, NULL, EXTMEM_BASE, EXTMEM_SIZE,
-               &command) == -1);
-    assert(errno == ENOTSUP);
+               &command) == 0);
+    assert(command.reserved[0] == 0x4000);
+    assert(command.reserved[1] == OPENNPUX_XGRAPH_TATTENTION_GATED);
 }
 
 static void
@@ -703,12 +703,49 @@ test_recurrent_update_lowering(void)
     assert(requests_consumed == 1 && commands_emitted == 2);
     assert(origins[0] == 22 && origins[1] == 22);
 
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_RECURRENT_UPDATE);
+    request.rows = 2;
+    request.features = 10;
+    request.heads = 1;
+    request.kv_heads = 2;
+    request.head_dim = 2;
     parameters.flags = OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET;
-    errno = 0;
+    parameters.output_features = 6;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 80);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SECONDARY, 0x2000, 16);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY, 0x2100, 16);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x3000, 48);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY, 0x4000, 48);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_LINEAR_A_LOG_WEIGHT,
+                0x5000, 8);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_LINEAR_DT_BIAS_WEIGHT,
+                0x5100, 8);
     assert(opennpux_npu_xgraph_lower_recurrent_update(
                &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE, 0,
-               commands, 2, &command_count) == -1);
-    assert(errno == ENOTSUP);
+               commands, 2, &command_count) == 0);
+    assert(command_count == 1);
+    assert(commands[0].opcode == OPENNPUX_XGRAPH_OP_TRECURRENT);
+    assert(commands[0].dim0 == 2 && commands[0].dim1 == 1 &&
+           commands[0].dim2 == 2);
+    assert(commands[0].scalar0 == (2u | (3u << 16)));
+    assert(commands[0].source0_offset == 0x1000);
+    assert(commands[0].source1_offset == 0x2000);
+    assert(commands[0].destination_offset == 0x3000);
+    assert(commands[0].reserved[0] == 0x2100);
+    assert(commands[0].reserved[1] == 0x4000);
+    assert(commands[0].reserved[2] == 0x5000);
+    assert(commands[0].reserved[3] == 0x5100);
+
+    uint32_t gated_origin = UINT32_MAX;
+    requests_consumed = 0;
+    commands_emitted = 0;
+    assert(opennpux_npu_xgraph_lower_batch(
+               &request, &parameters, NULL, 1, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x6000, 0x100, commands, 1, &gated_origin,
+               &requests_consumed, &commands_emitted, &failure) == 0);
+    assert(requests_consumed == 1 && commands_emitted == 1);
+    assert(gated_origin == request.command_id);
+    assert(commands[0].opcode == OPENNPUX_XGRAPH_OP_TRECURRENT);
 }
 
 static void

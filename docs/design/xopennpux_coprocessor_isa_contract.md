@@ -465,23 +465,45 @@ The instruction snapshots these RV32 CSRs:
 | --- | --- | --- |
 | `0x802` | tensor shape | query rows `[15:0]`, `heads*head_dim` `[31:16]` |
 | `0x81a` | attention heads | heads `[15:0]`, KV heads `[31:16]` |
-| `0x81b` | attention head dimension and flags | head dimension `[15:0]`, flags `[31:16]`; flags are zero in v0.1 |
+| `0x81b` | attention head dimension and flags | head dimension `[15:0]`, flags `[31:16]`; bit 16 enables sigmoid gating |
 | `0x81c` | KV length | full unsigned 32-bit token count |
+| `0x818` | optional gate address | contiguous FP32 `[query_rows,heads,head_dim]`; zero when gating is disabled |
 
 NPU L2 validates `heads % kv_heads == 0`, maps query head `h` to
 `h / (heads / kv_heads)`, applies the causal visible prefix, scales QK by
-`1/sqrt(head_dim)`, performs stable softmax, and accumulates V. The current
-profile rejects a fused tertiary gate; a future flag may add it without
-changing the base tensor layout.
+`1/sqrt(head_dim)`, performs stable softmax, and accumulates V. When the gate
+flag is set, NPU L2 also reads the gate tensor snapshotted through `0x818` and
+multiplies each result by `sigmoid(gate)`. Flag and address presence must agree.
+
+#### Gated recurrent update profile
+
+`trecurrent.ttt (rd),(rs1),(rs2)` uses `custom3`, `funct3=000`, and
+`funct7=0100010`. `rs1`, `rs2`, and `rd` carry QKV, alpha, and output
+addresses. The operation is a model-independent gated-delta recurrent update.
+
+| CSR | Field | Physical layout |
+| --- | --- | --- |
+| `0x802` | tensor shape | rows `[15:0]`, `key_heads*key_dim` `[31:16]` |
+| `0x81d` | recurrent heads | key heads `[15:0]`, value heads `[31:16]` |
+| `0x81e` | recurrent dimensions | key dimension `[15:0]`, value dimension `[31:16]` |
+| `0x81f` | beta address | contiguous FP32 `[rows,value_heads]` |
+| `0x819` | persistent state address | FP32 `[value_heads,key_dim,value_dim]`, updated in place |
+| `0x820` | A-log address | contiguous FP32 `[value_heads]` |
+| `0x821` | dt-bias address | contiguous FP32 `[value_heads]` |
+
+QKV is contiguous `[rows, 2*key_heads*key_dim +
+value_heads*value_dim]`; alpha is `[rows,value_heads]`; output is
+`[rows,value_heads,value_dim]`. NPU L2 normalizes Q/K, computes sigmoid beta,
+softplus/decay, updates persistent state, and projects state through normalized
+Q. Coral retires after coprocessor acceptance; `tfence` orders completion.
 
 ### Primitive versus graph operations
 
-KV-cache update, routed-expert execution, expert combination, and causal
-recurrent blocks are graph/runtime operations and normally lower to primitive
-sequences. Architecturally stable, model-independent fused primitives such as
-TATTENTION are permitted when their complete tensor, masking, layout and
-numerical semantics are explicit. NPU Decode L2 MUST NOT identify Qwen, Llama,
-model layer numbers, or tensor names.
+KV-cache update, routed-expert execution, and expert combination normally lower
+to primitive sequences. Architecturally stable, model-independent fused
+primitives such as TATTENTION and TRECURRENT are permitted when their complete
+tensor, masking, state, layout and numerical semantics are explicit. NPU
+Decode L2 MUST NOT identify Qwen, Llama, model layer numbers, or tensor names.
 
 ### Cache and prefetch
 

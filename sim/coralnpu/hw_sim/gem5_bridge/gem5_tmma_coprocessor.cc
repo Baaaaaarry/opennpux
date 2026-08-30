@@ -118,6 +118,11 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   attention_heads_ = 0;
   attention_head_dim_flags_ = 0;
   attention_kv_length_ = 0;
+  recurrent_heads_ = 0;
+  recurrent_dims_ = 0;
+  recurrent_beta_address_ = 0;
+  recurrent_a_log_address_ = 0;
+  recurrent_dt_bias_address_ = 0;
   csr_epoch_ = 0;
 }
 
@@ -177,6 +182,21 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrAttentionKvLength:
       attention_kv_length_ = value;
+      break;
+    case xopennpux::kCsrRecurrentHeads:
+      recurrent_heads_ = value;
+      break;
+    case xopennpux::kCsrRecurrentDims:
+      recurrent_dims_ = value;
+      break;
+    case xopennpux::kCsrRecurrentBetaAddress:
+      recurrent_beta_address_ = value;
+      break;
+    case xopennpux::kCsrRecurrentALogAddress:
+      recurrent_a_log_address_ = value;
+      break;
+    case xopennpux::kCsrRecurrentDtBiasAddress:
+      recurrent_dt_bias_address_ = value;
       break;
     default:
       return false;
@@ -245,6 +265,21 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
     case xopennpux::kCsrAttentionKvLength:
       *value = attention_kv_length_;
       return true;
+    case xopennpux::kCsrRecurrentHeads:
+      *value = recurrent_heads_;
+      return true;
+    case xopennpux::kCsrRecurrentDims:
+      *value = recurrent_dims_;
+      return true;
+    case xopennpux::kCsrRecurrentBetaAddress:
+      *value = recurrent_beta_address_;
+      return true;
+    case xopennpux::kCsrRecurrentALogAddress:
+      *value = recurrent_a_log_address_;
+      return true;
+    case xopennpux::kCsrRecurrentDtBiasAddress:
+      *value = recurrent_dt_bias_address_;
+      return true;
     default:
       return false;
   }
@@ -270,6 +305,7 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       operation != xopennpux::Operation::kTdma &&
       operation != xopennpux::Operation::kTcausalconv &&
       operation != xopennpux::Operation::kTattention &&
+      operation != xopennpux::Operation::kTrecurrent &&
       operation != xopennpux::Operation::kTtopk) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
@@ -406,10 +442,44 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
     const uint32_t kv_heads = packed_heads >> 16;
     const uint32_t head_dim = head_dim_flags & 0xffffu;
     const uint32_t flags = head_dim_flags >> 16;
+    const uint32_t gate_address = packet.csr_epoch == 0
+                                      ? tensor_aux_source_address_
+                                      : packet.tensor_aux_source_address;
     if (heads == 0 || kv_heads == 0 || head_dim == 0 || kv_length == 0 ||
-        flags != 0 || heads % kv_heads != 0 ||
+        (flags & ~1u) != 0 || heads % kv_heads != 0 ||
+        (((flags & 1u) != 0) != (gate_address != 0)) ||
         tensor_shape.rows > kv_length ||
         tensor_shape.features != heads * head_dim) {
+      return Gem5TmmaSubmitResult::kInvalidCsrState;
+    }
+  }
+  if (operation == xopennpux::Operation::kTrecurrent) {
+    const uint32_t heads = packet.csr_epoch == 0
+                               ? recurrent_heads_
+                               : packet.recurrent_heads;
+    const uint32_t dims = packet.csr_epoch == 0
+                              ? recurrent_dims_
+                              : packet.recurrent_dims;
+    const uint32_t key_heads = heads & 0xffffu;
+    const uint32_t value_heads = heads >> 16;
+    const uint32_t key_dim = dims & 0xffffu;
+    const uint32_t value_dim = dims >> 16;
+    const uint32_t beta = packet.csr_epoch == 0
+                              ? recurrent_beta_address_
+                              : packet.recurrent_beta_address;
+    const uint32_t state = packet.csr_epoch == 0
+                               ? tensor_aux_destination_address_
+                               : packet.tensor_aux_destination_address;
+    const uint32_t a_log = packet.csr_epoch == 0
+                               ? recurrent_a_log_address_
+                               : packet.recurrent_a_log_address;
+    const uint32_t dt_bias = packet.csr_epoch == 0
+                                 ? recurrent_dt_bias_address_
+                                 : packet.recurrent_dt_bias_address;
+    if (key_heads == 0 || value_heads == 0 || key_dim == 0 ||
+        value_dim == 0 || value_heads % key_heads != 0 || beta == 0 ||
+        state == 0 || a_log == 0 || dt_bias == 0 ||
+        tensor_shape.features != key_heads * key_dim) {
       return Gem5TmmaSubmitResult::kInvalidCsrState;
     }
   }
@@ -490,6 +560,19 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
   queue_[tail].attention_kv_length = packet.csr_epoch == 0
                                          ? attention_kv_length_
                                          : packet.attention_kv_length;
+  queue_[tail].recurrent_heads =
+      packet.csr_epoch == 0 ? recurrent_heads_ : packet.recurrent_heads;
+  queue_[tail].recurrent_dims =
+      packet.csr_epoch == 0 ? recurrent_dims_ : packet.recurrent_dims;
+  queue_[tail].recurrent_beta_address =
+      packet.csr_epoch == 0 ? recurrent_beta_address_
+                            : packet.recurrent_beta_address;
+  queue_[tail].recurrent_a_log_address =
+      packet.csr_epoch == 0 ? recurrent_a_log_address_
+                            : packet.recurrent_a_log_address;
+  queue_[tail].recurrent_dt_bias_address =
+      packet.csr_epoch == 0 ? recurrent_dt_bias_address_
+                            : packet.recurrent_dt_bias_address;
   ++queue_size_;
   return Gem5TmmaSubmitResult::kAccepted;
 }
@@ -556,7 +639,21 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
         rows * (kv_length - rows + 1) + rows * (rows - 1) / 2;
     const uint64_t heads = command.attention_heads & 0xffffu;
     const uint64_t head_dim = command.attention_head_dim_flags & 0xffffu;
-    completion->element_operations = visible_positions * heads * head_dim * 4;
+    const uint64_t gate_operations =
+        (command.attention_head_dim_flags >> 16) != 0
+            ? rows * heads * head_dim * 4
+            : 0;
+    completion->element_operations =
+        visible_positions * heads * head_dim * 4 + gate_operations;
+    completion->modeled_cycles = completion->element_operations;
+  } else if (command.operation == xopennpux::Operation::kTrecurrent) {
+    const uint64_t rows = command.tensor_shape.rows;
+    const uint64_t value_heads = command.recurrent_heads >> 16;
+    const uint64_t key_dim = command.recurrent_dims & 0xffffu;
+    const uint64_t value_dim = command.recurrent_dims >> 16;
+    completion->element_operations =
+        rows * value_heads *
+        (key_dim * 4 + value_dim * key_dim * 6 + value_dim * 3 + 8);
     completion->modeled_cycles = completion->element_operations;
   } else {
     completion->element_operations = tensor_elements;
@@ -579,6 +676,12 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   const uint64_t lhs_elements =
       command.operation == xopennpux::Operation::kTmma
           ? static_cast<uint64_t>(command.shape.m) * command.shape.k
+          : command.operation == xopennpux::Operation::kTrecurrent
+              ? static_cast<uint64_t>(command.tensor_shape.rows) *
+                    (2 * (command.recurrent_heads & 0xffffu) *
+                         (command.recurrent_dims & 0xffffu) +
+                     (command.recurrent_heads >> 16) *
+                         (command.recurrent_dims >> 16))
           : command.operation == xopennpux::Operation::kTgather
               ? static_cast<uint64_t>(command.scalar_param0) *
                     command.tensor_shape.features
@@ -588,6 +691,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
           ? static_cast<uint64_t>(command.shape.k) * command.shape.n
           : command.operation == xopennpux::Operation::kTdequant
               ? 0
+              : command.operation == xopennpux::Operation::kTrecurrent
+              ? static_cast<uint64_t>(command.tensor_shape.rows) *
+                    (command.recurrent_heads >> 16)
               : command.operation == xopennpux::Operation::kTrmsnorm
               ? command.tensor_shape.features
               : command.operation == xopennpux::Operation::kTattention
@@ -612,6 +718,10 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
           ? static_cast<uint64_t>(command.shape.m) * command.shape.n
           : command.operation == xopennpux::Operation::kTdequant
               ? static_cast<uint64_t>(command.shape.k) * command.shape.n
+          : command.operation == xopennpux::Operation::kTrecurrent
+              ? static_cast<uint64_t>(command.tensor_shape.rows) *
+                    (command.recurrent_heads >> 16) *
+                    (command.recurrent_dims >> 16)
           : command.operation == xopennpux::Operation::kTtopk
               ? static_cast<uint64_t>(command.tensor_shape.rows) *
                     command.scalar_param0 * 2
@@ -622,6 +732,14 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                         memory->size())) {
     completion->error = Gem5TmmaExecutionError::kAddress;
     completion->faulting_address = command.dispatch.rs1_value;
+    return true;
+  }
+  if (command.operation == xopennpux::Operation::kTattention &&
+      (command.attention_head_dim_flags >> 16) != 0 &&
+      !MatrixRangeValid(command.tensor_aux_source_address, tensor_elements,
+                        memory_base, memory->size())) {
+    completion->error = Gem5TmmaExecutionError::kAddress;
+    completion->faulting_address = command.tensor_aux_source_address;
     return true;
   }
   if (rhs_elements != 0 &&
@@ -650,6 +768,31 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
       completion->error = Gem5TmmaExecutionError::kAddress;
       completion->faulting_address = command.tensor_aux_source_address;
       return true;
+    }
+  }
+  if (command.operation == xopennpux::Operation::kTrecurrent) {
+    const uint64_t rows = command.tensor_shape.rows;
+    const uint64_t value_heads = command.recurrent_heads >> 16;
+    const uint64_t key_dim = command.recurrent_dims & 0xffffu;
+    const uint64_t value_dim = command.recurrent_dims >> 16;
+    const uint64_t gates = rows * value_heads;
+    const uint64_t state = value_heads * key_dim * value_dim;
+    const struct {
+      uint32_t address;
+      uint64_t elements;
+    } ranges[] = {
+        {command.recurrent_beta_address, gates},
+        {command.tensor_aux_destination_address, state},
+        {command.recurrent_a_log_address, value_heads},
+        {command.recurrent_dt_bias_address, value_heads},
+    };
+    for (const auto& range : ranges) {
+      if (!MatrixRangeValid(range.address, range.elements, memory_base,
+                            memory->size())) {
+        completion->error = Gem5TmmaExecutionError::kAddress;
+        completion->faulting_address = range.address;
+        return true;
+      }
     }
   }
 
@@ -1039,7 +1182,144 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
             sum += (scores[position] / denominator) *
                    LoadFloat(*memory, values_base + value_index * 4);
           }
+          if ((command.attention_head_dim_flags >> 16) != 0) {
+            const float gate = LoadFloat(
+                *memory, static_cast<size_t>(command.tensor_aux_source_address -
+                                             memory_base) +
+                             (query_index + lane) * sizeof(float));
+            sum *= 1.0f / (1.0f + std::exp(-gate));
+          }
           StoreFloat(memory, dst_base + (query_index + lane) * 4, sum);
+        }
+      }
+    }
+  } else if (command.operation == xopennpux::Operation::kTrecurrent) {
+    const uint32_t rows = command.tensor_shape.rows;
+    const uint32_t key_heads = command.recurrent_heads & 0xffffu;
+    const uint32_t value_heads = command.recurrent_heads >> 16;
+    const uint32_t key_dim = command.recurrent_dims & 0xffffu;
+    const uint32_t value_dim = command.recurrent_dims >> 16;
+    const uint32_t repeat = value_heads / key_heads;
+    const size_t key_features = static_cast<size_t>(key_heads) * key_dim;
+    const size_t value_features = static_cast<size_t>(value_heads) * value_dim;
+    const size_t qkv_features = key_features * 2 + value_features;
+    const size_t state_per_head = static_cast<size_t>(key_dim) * value_dim;
+    const size_t beta_base = command.recurrent_beta_address - memory_base;
+    const size_t state_base =
+        command.tensor_aux_destination_address - memory_base;
+    const size_t a_log_base = command.recurrent_a_log_address - memory_base;
+    const size_t dt_bias_base =
+        command.recurrent_dt_bias_address - memory_base;
+    const float query_scale = 1.0f / std::sqrt(static_cast<float>(key_dim));
+    std::vector<float> normalized_q(key_dim);
+    std::vector<float> normalized_k(key_dim);
+    std::vector<float> delta(value_dim);
+    for (uint32_t row = 0; row < rows; ++row) {
+      const size_t row_base = lhs_base + row * qkv_features * sizeof(float);
+      const size_t key_base = row_base + key_features * sizeof(float);
+      const size_t value_base = key_base + key_features * sizeof(float);
+      for (uint32_t value_head = 0; value_head < value_heads; ++value_head) {
+        const uint32_t key_head = value_head / repeat;
+        double q_sum = 0.0;
+        double k_sum = 0.0;
+        for (uint32_t index = 0; index < key_dim; ++index) {
+          const float q = LoadFloat(
+              *memory, row_base +
+                           (static_cast<size_t>(key_head) * key_dim + index) *
+                               sizeof(float));
+          const float k = LoadFloat(
+              *memory, key_base +
+                           (static_cast<size_t>(key_head) * key_dim + index) *
+                               sizeof(float));
+          q_sum += static_cast<double>(q) * q;
+          k_sum += static_cast<double>(k) * k;
+        }
+        const float q_norm =
+            1.0f / std::sqrt(static_cast<float>(q_sum) + 1e-6f);
+        const float k_norm =
+            1.0f / std::sqrt(static_cast<float>(k_sum) + 1e-6f);
+        for (uint32_t index = 0; index < key_dim; ++index) {
+          normalized_q[index] =
+              LoadFloat(*memory,
+                        row_base +
+                            (static_cast<size_t>(key_head) * key_dim + index) *
+                                sizeof(float)) *
+              q_norm * query_scale;
+          normalized_k[index] =
+              LoadFloat(*memory,
+                        key_base +
+                            (static_cast<size_t>(key_head) * key_dim + index) *
+                                sizeof(float)) *
+              k_norm;
+        }
+        const size_t gate_index =
+            static_cast<size_t>(row) * value_heads + value_head;
+        const float beta = LoadFloat(
+            *memory, beta_base + gate_index * sizeof(float));
+        const float beta_value = 1.0f / (1.0f + std::exp(-beta));
+        const float alpha_value =
+            LoadFloat(*memory, rhs_base + gate_index * sizeof(float)) +
+            LoadFloat(*memory,
+                      dt_bias_base + value_head * sizeof(float));
+        const float softplus = alpha_value > 20.0f
+                                   ? alpha_value
+                                   : std::log1p(std::exp(alpha_value));
+        const float decay = std::exp(
+            -std::exp(LoadFloat(*memory,
+                                a_log_base + value_head * sizeof(float))) *
+            softplus);
+        const size_t head_state =
+            state_base + value_head * state_per_head * sizeof(float);
+        for (uint32_t value_index = 0; value_index < value_dim;
+             ++value_index) {
+          float memory_value = 0.0f;
+          for (uint32_t key_index = 0; key_index < key_dim; ++key_index) {
+            const size_t cell =
+                head_state +
+                (static_cast<size_t>(key_index) * value_dim + value_index) *
+                    sizeof(float);
+            const float decayed = LoadFloat(*memory, cell) * decay;
+            StoreFloat(memory, cell, decayed);
+            memory_value += decayed * normalized_k[key_index];
+          }
+          const float value = LoadFloat(
+              *memory, value_base +
+                           (static_cast<size_t>(value_head) * value_dim +
+                            value_index) *
+                               sizeof(float));
+          delta[value_index] = (value - memory_value) * beta_value;
+        }
+        for (uint32_t key_index = 0; key_index < key_dim; ++key_index) {
+          for (uint32_t value_index = 0; value_index < value_dim;
+               ++value_index) {
+            const size_t cell =
+                head_state +
+                (static_cast<size_t>(key_index) * value_dim + value_index) *
+                    sizeof(float);
+            StoreFloat(memory, cell,
+                       LoadFloat(*memory, cell) +
+                           normalized_k[key_index] * delta[value_index]);
+          }
+        }
+        for (uint32_t value_index = 0; value_index < value_dim;
+             ++value_index) {
+          float value = 0.0f;
+          for (uint32_t key_index = 0; key_index < key_dim; ++key_index) {
+            value += LoadFloat(
+                         *memory,
+                         head_state +
+                             (static_cast<size_t>(key_index) * value_dim +
+                              value_index) *
+                                 sizeof(float)) *
+                     normalized_q[key_index];
+          }
+          StoreFloat(memory,
+                     dst_base +
+                         (static_cast<size_t>(row) * value_features +
+                          static_cast<size_t>(value_head) * value_dim +
+                          value_index) *
+                             sizeof(float),
+                     value);
         }
       }
     }

@@ -27,6 +27,9 @@ NPU L2 decode.
 | CAUSAL_CONVOLUTION | `TCAUSALCONV` | rows=2, features=2, kernel=3, stateful | 1 | 24 | PASS |
 | RECURRENT_UPDATE | `TDMA(full output) + TDMA(final row state)` | rows=2, features=2, basic persistent state | 2 | 6 | PASS |
 | EXPERT | `gate(TDEQUANT+TMMA) + up(TDEQUANT+TMMA) + TSILU + TMUL + down(TDEQUANT+TMMA)` | rows=1, input=2, intermediate=2, output=2, GPTQ INT4 | 8 | 32 | PASS |
+| ATTENTION, sigmoid gated | `TATTENTION` + gate CSR | native rows=1, heads=1, head dim=1, KV length=1 | 1 | 8 | NATIVE PASS / GB10 PENDING |
+| RECURRENT_UPDATE, gated delta | `TRECURRENT` | native rows=1, key/value heads=1, key/value dim=1 | 1 | 21 | NATIVE PASS / GB10 PENDING |
+| CONVOLUTION | not lowered | Generic ABI lacks stride, padding, dilation and layout | - | - | ABI BLOCKED |
 
 The per-operation values above sum to the current full-system baseline:
 
@@ -48,8 +51,9 @@ contains the eight-command GPTQ Expert decomposition and one atomic causal GQA
 `TATTENTION`. GB10 full-system acceptance validated all 17 logical operators
 and the aggregate correctness verdict. `RECURRENT_UPDATE` atomically emits two `TDMA` records: one
 copies the complete input tensor to the visible output and one publishes the
-final row to persistent state. Its checksum is `0x14a86f48`; gated-delta
-semantics remain explicitly unsupported rather than being reduced to a copy.
+final row to persistent state. Its checksum is `0x14a86f48`. Gated-delta now
+lowers separately to `TRECURRENT`; it is not reduced to this copy sequence and
+does not alter the 17-operator full-system baseline until GB10 acceptance.
 
 ## Acceptance evidence rule
 
@@ -75,4 +79,6 @@ The accepted fourth batch appends one generic `TATTENTION` command after the
 eight-command GPTQ `EXPERT` decomposition. The measured totals are 4 batches /
 17 requests / 32 commands / 406 modeled cycles. The fixture covers causal
 visibility, GQA head mapping and Expert gate/up/down execution. Fused attention
-gating remains explicitly unsupported.
+gating and gated recurrent update pass native numerical tests but remain
+outside this measured baseline. Ordinary convolution remains blocked until the
+generic request ABI carries stride, padding, dilation and layout explicitly.

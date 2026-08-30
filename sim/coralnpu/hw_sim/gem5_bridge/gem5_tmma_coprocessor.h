@@ -48,6 +48,11 @@ struct Gem5TmmaDispatchPacket {
   uint32_t attention_heads = 0;
   uint32_t attention_head_dim_flags = 0;
   uint32_t attention_kv_length = 0;
+  uint32_t recurrent_heads = 0;
+  uint32_t recurrent_dims = 0;
+  uint32_t recurrent_beta_address = 0;
+  uint32_t recurrent_a_log_address = 0;
+  uint32_t recurrent_dt_bias_address = 0;
   uint32_t csr_epoch = 0;
 };
 
@@ -108,6 +113,11 @@ class Gem5XOpenNpuFunctionalCoprocessor {
     uint32_t attention_heads = 0;
     uint32_t attention_head_dim_flags = 0;
     uint32_t attention_kv_length = 0;
+    uint32_t recurrent_heads = 0;
+    uint32_t recurrent_dims = 0;
+    uint32_t recurrent_beta_address = 0;
+    uint32_t recurrent_a_log_address = 0;
+    uint32_t recurrent_dt_bias_address = 0;
     uint32_t csr_epoch = 0;
   };
 
@@ -132,6 +142,11 @@ class Gem5XOpenNpuFunctionalCoprocessor {
   uint32_t attention_heads_ = 0;
   uint32_t attention_head_dim_flags_ = 0;
   uint32_t attention_kv_length_ = 0;
+  uint32_t recurrent_heads_ = 0;
+  uint32_t recurrent_dims_ = 0;
+  uint32_t recurrent_beta_address_ = 0;
+  uint32_t recurrent_a_log_address_ = 0;
+  uint32_t recurrent_dt_bias_address_ = 0;
   uint32_t csr_epoch_ = 0;
 };
 

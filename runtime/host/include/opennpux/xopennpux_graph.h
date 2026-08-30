@@ -48,10 +48,12 @@ enum opennpux_xgraph_opcode {
     OPENNPUX_XGRAPH_OP_TDMA = 11,
     OPENNPUX_XGRAPH_OP_TCAUSALCONV = 12,
     OPENNPUX_XGRAPH_OP_TATTENTION = 13,
+    OPENNPUX_XGRAPH_OP_TRECURRENT = 14,
 };
 
 #define OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL UINT32_C(1)
 #define OPENNPUX_XGRAPH_TCAUSALCONV_SILU UINT32_C(2)
+#define OPENNPUX_XGRAPH_TATTENTION_GATED UINT32_C(1)
 
 enum opennpux_xgraph_data_type {
     OPENNPUX_XGRAPH_DTYPE_FP32 = 2,
@@ -94,6 +96,13 @@ struct opennpux_xgraph_command {
  * TATTENTION uses dim0/dim1/dim2 as query rows, query heads, and head
  * dimension. scalar0 is the KV-head count and flags is the KV length.
  * source1 contains K followed by V, each [kv_length, kv_heads, head_dim].
+ * reserved[0] is an optional FP32 sigmoid-gate tensor and reserved[1] carries
+ * OPENNPUX_XGRAPH_TATTENTION_* flags.
+ *
+ * TRECURRENT uses dim0/dim1/dim2 as rows, key heads and key dimension.
+ * scalar0 packs value heads [15:0] and value dimension [31:16]. source0/source1
+ * are QKV/alpha, destination is output, and reserved[0..3] contain beta,
+ * persistent state, A-log and dt-bias offsets.
  */
 
 struct opennpux_xgraph_header {

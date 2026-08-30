@@ -95,6 +95,11 @@ object CsrAddress extends ChiselEnum {
   val ATTENTION_HEADS = Value(0x81A.U(12.W))
   val ATTENTION_HEAD_DIM_FLAGS = Value(0x81B.U(12.W))
   val ATTENTION_KV_LENGTH = Value(0x81C.U(12.W))
+  val RECURRENT_HEADS = Value(0x81D.U(12.W))
+  val RECURRENT_DIMS = Value(0x81E.U(12.W))
+  val RECURRENT_BETA_ADDRESS = Value(0x81F.U(12.W))
+  val RECURRENT_A_LOG_ADDRESS = Value(0x820.U(12.W))
+  val RECURRENT_DT_BIAS_ADDRESS = Value(0x821.U(12.W))
   val MCYCLE    = Value(0xB00.U(12.W))
   val MINSTRET  = Value(0xB02.U(12.W))
   val MCYCLEH   = Value(0xB80.U(12.W))
@@ -304,6 +309,11 @@ class Csr(p: Parameters) extends Module {
   val attentionHeads = RegInit(0.U(p.xlen.W))
   val attentionHeadDimFlags = RegInit(0.U(p.xlen.W))
   val attentionKvLength = RegInit(0.U(p.xlen.W))
+  val recurrentHeads = RegInit(0.U(p.xlen.W))
+  val recurrentDims = RegInit(0.U(p.xlen.W))
+  val recurrentBetaAddress = RegInit(0.U(p.xlen.W))
+  val recurrentALogAddress = RegInit(0.U(p.xlen.W))
+  val recurrentDtBiasAddress = RegInit(0.U(p.xlen.W))
   val xnpuCsrEpoch = RegInit(0.U(32.W))
   io.xnpu.mmaShape := mmaShape
   io.xnpu.mmaDataType := mmaDataType
@@ -323,6 +333,11 @@ class Csr(p: Parameters) extends Module {
   io.xnpu.attentionHeads := attentionHeads
   io.xnpu.attentionHeadDimFlags := attentionHeadDimFlags
   io.xnpu.attentionKvLength := attentionKvLength
+  io.xnpu.recurrentHeads := recurrentHeads
+  io.xnpu.recurrentDims := recurrentDims
+  io.xnpu.recurrentBetaAddress := recurrentBetaAddress
+  io.xnpu.recurrentALogAddress := recurrentALogAddress
+  io.xnpu.recurrentDtBiasAddress := recurrentDtBiasAddress
   io.xnpu.epoch := xnpuCsrEpoch
 
   // Debug mode CSRs
@@ -451,6 +466,14 @@ class Csr(p: Parameters) extends Module {
   val attentionHeadDimFlagsEn =
     csr_address === CsrAddress.ATTENTION_HEAD_DIM_FLAGS
   val attentionKvLengthEn = csr_address === CsrAddress.ATTENTION_KV_LENGTH
+  val recurrentHeadsEn = csr_address === CsrAddress.RECURRENT_HEADS
+  val recurrentDimsEn = csr_address === CsrAddress.RECURRENT_DIMS
+  val recurrentBetaAddressEn =
+    csr_address === CsrAddress.RECURRENT_BETA_ADDRESS
+  val recurrentALogAddressEn =
+    csr_address === CsrAddress.RECURRENT_A_LOG_ADDRESS
+  val recurrentDtBiasAddressEn =
+    csr_address === CsrAddress.RECURRENT_DT_BIAS_ADDRESS
   val kscm0En     = csr_address === CsrAddress.KSCM0
   val kscm1En     = csr_address === CsrAddress.KSCM1
   val kscm2En     = csr_address === CsrAddress.KSCM2
@@ -531,6 +554,11 @@ class Csr(p: Parameters) extends Module {
       attentionHeadsEn -> attentionHeads,
       attentionHeadDimFlagsEn -> attentionHeadDimFlags,
       attentionKvLengthEn -> attentionKvLength,
+      recurrentHeadsEn -> recurrentHeads,
+      recurrentDimsEn -> recurrentDims,
+      recurrentBetaAddressEn -> recurrentBetaAddress,
+      recurrentALogAddressEn -> recurrentALogAddress,
+      recurrentDtBiasAddressEn -> recurrentDtBiasAddress,
       kscm0En     -> kscm(31,0),
       kscm1En     -> kscm(63,32),
       kscm2En     -> kscm(95,64),
@@ -607,6 +635,11 @@ class Csr(p: Parameters) extends Module {
     when (attentionHeadsEn) { attentionHeads := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (attentionHeadDimFlagsEn) { attentionHeadDimFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (attentionKvLengthEn) { attentionKvLength := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (recurrentHeadsEn) { recurrentHeads := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (recurrentDimsEn) { recurrentDims := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (recurrentBetaAddressEn) { recurrentBetaAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (recurrentALogAddressEn) { recurrentALogAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (recurrentDtBiasAddressEn) { recurrentDtBiasAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (dscratch0En)  { dscratch0 := wdata }
     when (dscratch1En)  { dscratch1 := wdata }
     when (tdata1En)     { tdata1 := LegalizeTdata1(wdata) }

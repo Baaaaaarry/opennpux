@@ -107,10 +107,9 @@ int opennpux_npu_xgraph_lower_dma(
     uint32_t *command_count);
 
 /*
- * Lower one basic recurrent state update into two contiguous TDMA records.
- * The first copies all rows to OUTPUT; the second publishes the final row to
- * OUTPUT_SECONDARY as persistent state. Gated-delta semantics require a
- * dedicated compute sequence and are intentionally rejected here.
+ * Lower one recurrent state update. Basic copy semantics use two contiguous
+ * TDMA records. Gated-delta semantics use one TRECURRENT record carrying QKV,
+ * alpha, beta, persistent state, A-log, and dt-bias through generic operands.
  */
 int opennpux_npu_xgraph_lower_recurrent_update(
     const struct opennpux_npu_functional_request *request,

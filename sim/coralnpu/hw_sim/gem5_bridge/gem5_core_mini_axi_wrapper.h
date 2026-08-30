@@ -180,6 +180,14 @@ class Gem5CoreMiniAxiWrapper {
         core_.io_xnpu_request_bits_csr_attentionHeadDimFlags;
     packet.attention_kv_length =
         core_.io_xnpu_request_bits_csr_attentionKvLength;
+    packet.recurrent_heads = core_.io_xnpu_request_bits_csr_recurrentHeads;
+    packet.recurrent_dims = core_.io_xnpu_request_bits_csr_recurrentDims;
+    packet.recurrent_beta_address =
+        core_.io_xnpu_request_bits_csr_recurrentBetaAddress;
+    packet.recurrent_a_log_address =
+        core_.io_xnpu_request_bits_csr_recurrentALogAddress;
+    packet.recurrent_dt_bias_address =
+        core_.io_xnpu_request_bits_csr_recurrentDtBiasAddress;
     packet.csr_epoch = core_.io_xnpu_request_bits_csr_epoch;
     packet.sequence_id = sequence_id;
 

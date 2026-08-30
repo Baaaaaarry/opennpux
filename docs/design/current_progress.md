@@ -990,3 +990,9 @@ Router lowering 只依赖 `rows/input_features/output_features/top_k` 和显式 
 scratch 依次保存 dense logits 和 packed `[TopK values][TopK indices]`。`TSOFTMAX` 仅覆盖
 packed values 区域，随后两条 `TDMA` 分别发布归一化权重和 uint32 expert IDs。该顺序与
 现有 Host functional Router 的“Top-K 后对选中项归一化”语义一致。
+
+逐算子 lowering、测试 shape、物理 command 数和实际 functional modeled cycles 的规范化
+台账见 `docs/design/xgraph_operator_validation_matrix.md`。后续每次 GB10/full-system PASS
+必须在同一变更中补充 generic opcode、指令序列、requests/commands/batches、实际 cycles/
+operation count、checksum 或 max error 以及测试环境；RTL 性能数据另列，不覆盖功能模型
+基线。

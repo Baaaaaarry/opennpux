@@ -44,15 +44,15 @@ EOF
     return 1
 }
 
-has_output_line 'xgraph_output=9,5,' ||
-    fail "nine-operator chain produced an unexpected TopK result"
-has_output_line 'xgraph_validated_operators=9' ||
-    fail "nine-operator chain did not validate every intermediate tensor"
+has_output_line 'xgraph_output=12,5,' ||
+    fail "lowered command chain produced an unexpected TopK result"
+has_output_line 'xgraph_validated_operators=10' ||
+    fail "command chain did not validate every logical operator"
 has_output_line 'xgraph_correctness=PASS' ||
     fail "nine-operator chain failed numerical validation"
 has_output_line 'xgraph_test=PASS' || fail "missing runtime PASS"
 
-echo "qwen_command_flow_operators=9"
+echo "qwen_command_flow_operators=10"
 echo "qwen_command_source=guest-xopennpux-graph"
 echo "qwen_command_flow=PASS"
 # Keep the common host wrapper's terminal verdict stable.

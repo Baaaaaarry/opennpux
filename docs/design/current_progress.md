@@ -221,12 +221,19 @@ The lowerer stops before a composite command that does not fit, so the runtime
 can stream a large executable through fixed-capacity XGraph buffers without
 splitting an operator or introducing model-specific submission rules.
 
-The full-system nine-operator command-flow test now uses that same boundary.
+The full-system command-flow test now uses that same boundary.
 Guest runtime code materializes generic operator requests and lowers them into
 XOpenNPUX commands immediately before submission; the previous hand-authored
 XGraph command array is gone. Existing per-operator checksums and numerical
 goldens therefore validate the compiler/runtime lowering path as well as the
 firmware and C++ functional engines.
+
+The command-flow test also carries one independent GPTQ projection. Its ten
+logical requests lower to twelve XOpenNPUX records because the GPTQ MatMul
+expands to `TDEQUANT` plus two row-wise `TMMA` commands. The Guest validates the
+projection against an exact FP32 golden in addition to the original nine
+operator chain. Graph headers, completion checks and origin tracking now use
+the emitted command count rather than assuming one instruction per request.
 
 Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not

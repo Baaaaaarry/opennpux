@@ -1260,7 +1260,13 @@ opennpux_coral_xgraph_test(
         tensor6 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1600,
         tensor7 = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1700,
         packed_topk = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1800,
-        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1900,
+        gptq_qweight = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1a00,
+        gptq_qzeros = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1b00,
+        gptq_scales = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1c00,
+        gptq_input = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1d00,
+        gptq_scratch = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1e00,
+        gptq_output = OPENNPUX_XGRAPH_DATA_OFFSET + 0x1f00,
+        required_size = OPENNPUX_XGRAPH_DATA_OFFSET + 0x2000,
     };
     static const uint32_t token_values[2] = {0, 1};
     static const float embedding_values[8] = {
@@ -1285,17 +1291,33 @@ opennpux_coral_xgraph_test(
         0.3122499f, 0.3122499f, 0.3122499f, 0.3122499f,
         0.3122499f, 0.3122499f, 0.3122499f, 0.3122499f,
     };
+    static const uint32_t gptq_qweight_values[2] = {
+        UINT32_C(0x99999999), UINT32_C(0xaaaaaaaa),
+    };
+    static const uint32_t gptq_qzeros_values[2] = {
+        UINT32_C(0x00000077), UINT32_C(0x00000077),
+    };
+    static const float gptq_scale_values[4] = {
+        0.5f, 1.0f, 0.5f, 1.0f,
+    };
+    static const float gptq_input_values[16] = {
+        1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+    };
+    static const float gptq_expected_values[4] = {
+        18.0f, 72.0f, 4.0f, 16.0f,
+    };
     union {
         float value;
         uint32_t bits;
     } epsilon = {1.0e-5f};
     memset(result, 0, sizeof(*result));
-    enum { command_count = 9 };
-    struct opennpux_npu_functional_request requests[command_count];
-    struct opennpux_npu_operator_parameters parameters[command_count];
-    struct opennpux_npu_xgraph_lowering_options options[command_count];
-    struct opennpux_xgraph_command commands[command_count];
-    uint32_t command_origins[command_count];
+    enum { request_count = 10, command_capacity = 16 };
+    struct opennpux_npu_functional_request requests[request_count];
+    struct opennpux_npu_operator_parameters parameters[request_count];
+    struct opennpux_npu_xgraph_lowering_options options[request_count];
+    struct opennpux_xgraph_command commands[command_capacity];
+    uint32_t command_origins[command_capacity];
     uint32_t requests_consumed = 0;
     uint32_t commands_emitted = 0;
     struct opennpux_npu_xgraph_lowering_failure lowering_failure;
@@ -1329,6 +1351,15 @@ opennpux_coral_xgraph_test(
     options[8].topk_packed_address =
         CORAL_LOCAL_EXTMEM_BASE + packed_topk;
     options[8].topk_packed_size = 2 * sizeof(uint32_t);
+    initialize_xgraph_request(&requests[9], &parameters[9], 9,
+                              OPENNPUX_NPU_OP_MATMUL, 2, 8);
+    parameters[9].flags = OPENNPUX_NPU_PARAMETER_GPTQ;
+    parameters[9].input_features = 8;
+    parameters[9].output_features = 2;
+    parameters[9].quantization_bits = 4;
+    parameters[9].quantization_group_size = 4;
+    parameters[9].quantized_zero_bias = 1;
+    parameters[9].scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT32;
 
 #define ADD_XGRAPH_OPERAND(index, role, offset, size)                         \
     do {                                                                      \
@@ -1383,15 +1414,26 @@ opennpux_coral_xgraph_test(
                        sizeof(embedding_values));
     ADD_XGRAPH_OPERAND(8, OPENNPUX_NPU_OPERAND_INPUT, tensor7,
                        sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(9, OPENNPUX_NPU_OPERAND_INPUT, gptq_input,
+                       sizeof(gptq_input_values));
+    ADD_XGRAPH_OPERAND(9, OPENNPUX_NPU_OPERAND_OUTPUT, gptq_output,
+                       sizeof(gptq_expected_values));
+    ADD_XGRAPH_OPERAND(9, OPENNPUX_NPU_OPERAND_QWEIGHT, gptq_qweight,
+                       sizeof(gptq_qweight_values));
+    ADD_XGRAPH_OPERAND(9, OPENNPUX_NPU_OPERAND_QZEROS, gptq_qzeros,
+                       sizeof(gptq_qzeros_values));
+    ADD_XGRAPH_OPERAND(9, OPENNPUX_NPU_OPERAND_SCALES, gptq_scales,
+                       sizeof(gptq_scale_values));
 #undef ADD_XGRAPH_OPERAND
 
     const int lowering_result = opennpux_npu_xgraph_lower_batch(
-        requests, parameters, options, command_count,
-        CORAL_LOCAL_EXTMEM_BASE, required_size, 0, 0, commands,
-        command_count, command_origins, &requests_consumed,
+        requests, parameters, options, request_count,
+        CORAL_LOCAL_EXTMEM_BASE, required_size,
+        CORAL_LOCAL_EXTMEM_BASE + gptq_scratch, 0x100, commands,
+        command_capacity, command_origins, &requests_consumed,
         &commands_emitted, &lowering_failure);
-    if (lowering_result != 0 || requests_consumed != command_count ||
-        commands_emitted != command_count) {
+    if (lowering_result != 0 || requests_consumed != request_count ||
+        commands_emitted != 12) {
         if (lowering_result == 0) {
             lowering_failure.command_index = requests_consumed;
             lowering_failure.command_id = UINT32_MAX;
@@ -1411,8 +1453,9 @@ opennpux_coral_xgraph_test(
         }
         return -1;
     }
-    for (uint32_t index = 0; index < command_count; ++index) {
-        if (command_origins[index] != index) {
+    for (uint32_t index = 0; index < commands_emitted; ++index) {
+        const uint32_t expected_origin = index < 9 ? index : 9;
+        if (command_origins[index] != expected_origin) {
             errno = EIO;
             return -1;
         }
@@ -1441,7 +1484,7 @@ opennpux_coral_xgraph_test(
             OPENNPUX_XGRAPH_OFFSET);
     zero_volatile_bytes((volatile uint8_t *)(void *)header, sizeof(*header));
     copy_to_volatile_bytes((volatile uint8_t *)(void *)(header + 1), commands,
-                           sizeof(commands));
+                           commands_emitted * sizeof(commands[0]));
     fprintf(stderr, "xgraph_stage=stage-tensors offset=0x%08x\n", tokens);
     copy_to_volatile_bytes(window.bytes + tokens, token_values,
                            sizeof(token_values));
@@ -1457,12 +1500,22 @@ opennpux_coral_xgraph_test(
                            sizeof(norm_weight_values));
     copy_to_volatile_bytes(window.bytes + rope_table, rope_values,
                            sizeof(rope_values));
+    copy_to_volatile_bytes(window.bytes + gptq_qweight,
+                           gptq_qweight_values,
+                           sizeof(gptq_qweight_values));
+    copy_to_volatile_bytes(window.bytes + gptq_qzeros, gptq_qzeros_values,
+                           sizeof(gptq_qzeros_values));
+    copy_to_volatile_bytes(window.bytes + gptq_scales, gptq_scale_values,
+                           sizeof(gptq_scale_values));
+    copy_to_volatile_bytes(window.bytes + gptq_input, gptq_input_values,
+                           sizeof(gptq_input_values));
     header->magic = OPENNPUX_XGRAPH_MAGIC;
     header->version = OPENNPUX_XGRAPH_VERSION;
     header->header_size = sizeof(*header);
     header->command_size = sizeof(commands[0]);
-    header->command_count = sizeof(commands) / sizeof(commands[0]);
-    header->total_size = sizeof(*header) + sizeof(commands);
+    header->command_count = commands_emitted;
+    header->total_size =
+        sizeof(*header) + commands_emitted * sizeof(commands[0]);
     header->output_offset = packed_topk;
     header->output_bytes = 2 * sizeof(uint32_t);
     __sync_synchronize();
@@ -1614,15 +1667,32 @@ opennpux_coral_xgraph_test(
     }
     ++result->validated_operators;
 
+    float actual_gptq[4] = {0};
+    copy_from_volatile_bytes(actual_gptq, window.bytes + gptq_output,
+                             sizeof(actual_gptq));
+    result->operator_checksums[9] =
+        checksum_bytes(actual_gptq, sizeof(actual_gptq));
+    result->operator_pass[9] = compare_floats(
+        actual_gptq, gptq_expected_values, 4,
+        &result->operator_max_abs_error[9]);
+    if (!result->operator_pass[9]) {
+        if (result->failed_operator == UINT32_MAX) {
+            result->failed_operator = 9;
+        }
+        operators_valid = 0;
+    }
+    ++result->validated_operators;
+
     const int valid =
         header->state == OPENNPUX_XGRAPH_STATE_COMPLETE &&
         header->error == OPENNPUX_XGRAPH_ERROR_NONE &&
-        header->completed_commands == 9 &&
+        header->completed_commands == commands_emitted &&
         mailbox->magic == OPENNPUX_CORAL_GENERIC_TEST_MAGIC &&
         mailbox->state == OPENNPUX_CORAL_GENERIC_TEST_COMPLETE &&
         mailbox->error_code == OPENNPUX_CORAL_GENERIC_TEST_ERROR_NONE &&
         result->output_count == OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT &&
-        result->output[0] == 9 && result->output[1] == 5 &&
+        result->output[0] == (int32_t)commands_emitted &&
+        result->output[1] == 5 &&
         operators_valid;
 
     opennpux_coral_get_info(dev, &after);

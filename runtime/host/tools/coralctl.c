@@ -2021,6 +2021,7 @@ print_xgraph_test(struct opennpux_coral_device *dev, uint32_t entry,
         "TGATHER", "TMMA", "TADD", "TMUL", "TRMSNORM",
         "TROPE", "TSILU", "TSOFTMAX", "TTOPK", "GPTQ_MATMUL",
         "COMBINE", "DMA", "ROUTER", "CAUSAL_CONVOLUTION",
+        "RECURRENT_UPDATE",
     };
     struct opennpux_coral_generic_test_result result;
     printf("xgraph_prepare=guest-command-buffer\n");

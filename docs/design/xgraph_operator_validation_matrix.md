@@ -25,7 +25,7 @@ NPU L2 decode.
 | ROUTER | `TMMA + TTOPK + TSOFTMAX + 2xTDMA` | rows=1, features=2, experts=4, K=2 | 5 | 28 | PASS |
 | ATTENTION | decomposition pending | Generic attention geometry is preserved in `.npxtb` | - | - | TODO |
 | CAUSAL_CONVOLUTION | `TCAUSALCONV` | rows=2, features=2, kernel=3, stateful | 1 | 24 | PASS |
-| RECURRENT_UPDATE | decomposition pending | Persistent recurrent state | - | - | TODO |
+| RECURRENT_UPDATE | `TDMA(full output) + TDMA(final row state)` | rows=2, features=2, basic persistent state | 2 | 6 (candidate) | NATIVE PASS / FULL-SYSTEM CANDIDATE |
 | EXPERT | GPTQ projection and activation composition pending | Selected-expert execution only | - | - | TODO |
 
 The per-operation values above sum to the current full-system baseline:
@@ -47,6 +47,24 @@ the stateful causal convolution request. GB10 full-system acceptance validated
 all 14 logical operators with zero maximum absolute error. The causal
 convolution checksum is `0xaa4fb265`; the complete per-operator checksums remain
 part of the corresponding test log.
+
+The next full-system candidate adds one model-independent basic
+`RECURRENT_UPDATE` request. It atomically emits two `TDMA` records: one copies
+the complete input tensor to the visible output and one publishes the final
+row to persistent state. Native lowering tests pass, including rejection of
+the more complex gated-delta variant with `ENOTSUP`. The pending GB10
+acceptance target is:
+
+```text
+xgraph_batches=3
+xgraph_completed_requests=15
+xgraph_completed_commands=23
+xgraph_npu_cycles=294
+xgraph_operation_count=294
+xgraph_op_RECURRENT_UPDATE=PASS ... max_abs_error=0
+xgraph_validated_operators=15
+xgraph_correctness=PASS
+```
 
 ## Acceptance evidence rule
 

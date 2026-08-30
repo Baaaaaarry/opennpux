@@ -44,25 +44,27 @@ EOF
     return 1
 }
 
-has_output_line 'xgraph_output=21,5,' ||
+has_output_line 'xgraph_output=23,5,' ||
     fail "batched command chain produced an unexpected TopK result"
 has_output_line 'xgraph_batches=3' || fail "missing three-batch completion"
-has_output_line 'xgraph_completed_requests=14' ||
+has_output_line 'xgraph_completed_requests=15' ||
     fail "missing logical request completion"
-has_output_line 'xgraph_completed_commands=21' ||
+has_output_line 'xgraph_completed_commands=23' ||
     fail "missing physical command completion"
-has_output_line 'xgraph_npu_cycles=288' || fail "unexpected aggregate cycles"
-has_output_line 'xgraph_operation_count=288' ||
+has_output_line 'xgraph_npu_cycles=294' || fail "unexpected aggregate cycles"
+has_output_line 'xgraph_operation_count=294' ||
     fail "unexpected aggregate operation count"
-has_output_line 'xgraph_validated_operators=14' ||
+has_output_line 'xgraph_validated_operators=15' ||
     fail "command chain did not validate every logical operator"
 has_output_line 'xgraph_correctness=PASS' ||
-    fail "fourteen-operator chain failed numerical validation"
+    fail "fifteen-operator chain failed numerical validation"
 has_output_line 'xgraph_op_CAUSAL_CONVOLUTION=PASS' ||
     fail "stateful causal convolution validation missing"
+has_output_line 'xgraph_op_RECURRENT_UPDATE=PASS' ||
+    fail "recurrent state update validation missing"
 has_output_line 'xgraph_test=PASS' || fail "missing runtime PASS"
 
-echo "qwen_command_flow_operators=14"
+echo "qwen_command_flow_operators=15"
 echo "qwen_command_source=guest-xopennpux-graph"
 echo "qwen_command_flow=PASS"
 # Keep the common host wrapper's terminal verdict stable.

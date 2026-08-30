@@ -533,6 +533,84 @@ opennpux_npu_xgraph_lower_dma(
 }
 
 int
+opennpux_npu_xgraph_lower_recurrent_update(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (commands == NULL || command_count == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (command_capacity < 2) {
+        errno = ENOSPC;
+        return -1;
+    }
+    if (validate_request(request, parameters, extmem_size) != 0) {
+        return -1;
+    }
+    if (request->opcode != OPENNPUX_NPU_OP_RECURRENT_UPDATE ||
+        (parameters->flags & OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0 ||
+        first_command_id > UINT32_MAX - 1) {
+        errno = (parameters->flags &
+                 OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0
+                    ? ENOTSUP
+                    : EINVAL;
+        return -1;
+    }
+
+    const struct opennpux_npu_functional_operand *input =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+    const struct opennpux_npu_functional_operand *output =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+    const struct opennpux_npu_functional_operand *state =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY);
+    const uint64_t row_bytes = (uint64_t)request->features * sizeof(float);
+    const uint64_t tensor_bytes = (uint64_t)request->rows * row_bytes;
+    if (input == NULL || output == NULL || state == NULL ||
+        row_bytes > UINT32_MAX || tensor_bytes > UINT32_MAX ||
+        input->byte_size < tensor_bytes || output->byte_size < tensor_bytes ||
+        state->byte_size < row_bytes ||
+        (uint64_t)input->address + tensor_bytes > UINT32_MAX) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const struct opennpux_npu_functional_operand final_row = {
+        OPENNPUX_NPU_OPERAND_INPUT,
+        input->address + (uint32_t)(tensor_bytes - row_bytes),
+        (uint32_t)row_bytes,
+        0,
+    };
+    memset(commands, 0, 2 * sizeof(*commands));
+    commands[0].opcode = OPENNPUX_XGRAPH_OP_TDMA;
+    commands[0].command_id = first_command_id;
+    commands[0].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    commands[0].dim0 = request->rows;
+    commands[0].dim1 = request->features;
+    commands[0].dim2 = 1;
+    if (set_operands(&commands[0], output, input, NULL,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+
+    commands[1].opcode = OPENNPUX_XGRAPH_OP_TDMA;
+    commands[1].command_id = first_command_id + 1;
+    commands[1].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    commands[1].dim0 = 1;
+    commands[1].dim1 = request->features;
+    commands[1].dim2 = 1;
+    if (set_operands(&commands[1], state, &final_row, NULL,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+    *command_count = 2;
+    return 0;
+}
+
+int
 opennpux_npu_xgraph_lower_router(
     const struct opennpux_npu_functional_request *request,
     const struct opennpux_npu_operator_parameters *parameters,
@@ -717,6 +795,8 @@ opennpux_npu_xgraph_lower_batch(
             (parameters[index].flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0;
         const int is_dma = requests[index].opcode == OPENNPUX_NPU_OP_DMA;
         const int is_router = requests[index].opcode == OPENNPUX_NPU_OP_ROUTER;
+        const int is_recurrent =
+            requests[index].opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE;
         uint32_t produced = 0;
         if (is_gptq_matmul) {
             if (opennpux_npu_xgraph_lower_gptq_matmul(
@@ -743,6 +823,16 @@ opennpux_npu_xgraph_lower_batch(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, scratch_address, scratch_size, emitted,
                     commands + emitted, available, &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_recurrent) {
+            if (opennpux_npu_xgraph_lower_recurrent_update(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, emitted, commands + emitted, available,
+                    &produced) != 0) {
                 if (errno == ENOSPC && emitted != 0) {
                     break;
                 }

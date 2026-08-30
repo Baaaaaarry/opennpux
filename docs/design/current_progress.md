@@ -1018,3 +1018,17 @@ Guest XGraph full-system fixture 新增第 14 个逻辑请求，在第三批 Rou
 `TCAUSALCONV` checksum 为 `0xaa4fb265`。验收脚本保留
 `xgraph_op_CAUSAL_CONVOLUTION=PASS` 强制检查。该周期数据属于 C++ functional model，
 后续 RTL 实现必须另行记录时序性能，不覆盖本功能基线。
+
+## 2026-08-30 Basic Recurrent State Update 候选
+
+新增 generic `RECURRENT_UPDATE` lowering，但不引入模型专用指令。基础语义被原子降低为
+两条现有 `TDMA`：第一条复制完整 `[rows, features]` 输入到可见输出，第二条复制最后一行
+到 `OUTPUT_SECONDARY` 持久状态。两个物理 command 都映射回同一逻辑 request，batch
+容量不足时不得拆分。带 `OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET` 的复杂状态递推明确返回
+`ENOTSUP`，后续应由独立 compute sequence 实现，不能错误退化为 copy。
+
+Native lowering 和 runtime host 测试已通过；全系统 fixture 已扩展为第 15 个逻辑算子，
+同时校验完整输出和最终状态。GB10 候选统计为 3 batches / 15 requests / 23 commands /
+294 cycles，验收必须出现 `xgraph_op_RECURRENT_UPDATE=PASS`、15 个算子全部
+`max_abs_error=0`。在 GB10 结果返回前，已接受基线仍是 14 requests / 21 commands /
+288 cycles。

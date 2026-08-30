@@ -634,6 +634,55 @@ test_router_lowering(void)
     assert(requests_consumed == 0 && commands_emitted == 0);
 }
 
+static void
+test_recurrent_update_lowering(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command commands[2];
+    uint32_t command_count = 0;
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_RECURRENT_UPDATE);
+    request.command_id = 22;
+    request.rows = 2;
+    request.features = 3;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 24);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x2000, 24);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY, 0x3000, 12);
+
+    assert(opennpux_npu_xgraph_lower_recurrent_update(
+               &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE, 14,
+               commands, 2, &command_count) == 0);
+    assert(command_count == 2);
+    assert(commands[0].opcode == OPENNPUX_XGRAPH_OP_TDMA);
+    assert(commands[0].command_id == 14);
+    assert(commands[0].source0_offset == 0x1000);
+    assert(commands[0].destination_offset == 0x2000);
+    assert(commands[0].dim0 == 2 && commands[0].dim1 == 3);
+    assert(commands[1].opcode == OPENNPUX_XGRAPH_OP_TDMA);
+    assert(commands[1].command_id == 15);
+    assert(commands[1].source0_offset == 0x100c);
+    assert(commands[1].destination_offset == 0x3000);
+    assert(commands[1].dim0 == 1 && commands[1].dim1 == 3);
+
+    uint32_t origins[2] = {UINT32_MAX, UINT32_MAX};
+    uint32_t requests_consumed = 0;
+    uint32_t commands_emitted = 0;
+    struct opennpux_npu_xgraph_lowering_failure failure;
+    assert(opennpux_npu_xgraph_lower_batch(
+               &request, &parameters, NULL, 1, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x5000, 0x1000, commands, 2, origins,
+               &requests_consumed, &commands_emitted, &failure) == 0);
+    assert(requests_consumed == 1 && commands_emitted == 2);
+    assert(origins[0] == 22 && origins[1] == 22);
+
+    parameters.flags = OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET;
+    errno = 0;
+    assert(opennpux_npu_xgraph_lower_recurrent_update(
+               &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE, 0,
+               commands, 2, &command_count) == -1);
+    assert(errno == ENOTSUP);
+}
+
 int
 main(void)
 {
@@ -647,6 +696,7 @@ main(void)
     test_bounded_mixed_batch_lowering();
     test_dma_lowering();
     test_router_lowering();
+    test_recurrent_update_lowering();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

@@ -2032,6 +2032,11 @@ print_xgraph_test(struct opennpux_coral_device *dev, uint32_t entry,
     printf("xgraph_error=%" PRIu32 "\n", result.error_code);
     printf("xgraph_npu_cycles=%" PRIu64 "\n", result.npu_cycles);
     printf("xgraph_operation_count=%" PRIu64 "\n", result.operation_count);
+    printf("xgraph_batches=%" PRIu32 "\n", result.batch_count);
+    printf("xgraph_completed_requests=%" PRIu32 "\n",
+           result.completed_requests);
+    printf("xgraph_completed_commands=%" PRIu32 "\n",
+           result.completed_commands);
     printf("xgraph_output=");
     for (uint32_t i = 0; i < result.output_count &&
                          i < OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT; ++i) {

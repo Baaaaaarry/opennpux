@@ -962,3 +962,17 @@ lowering 已继续实现二维 N/K tile：K tile 同时按 int4 打包和 GPTQ g
 第一片直接写输出，后续片写 partial scratch 并通过 TADD 显式累加。新增 `0x817`
 group-range CSR 保证全局 g_idx 在切片后仍按原模型量化组解释。K=2048 回归规划为
 896/896/256，下一验收点是在 GB10 执行大 K 的完整 TDEQUANT/TMMA/TADD 指令链。
+
+## 2026-08-30 XGraph 有界多批次提交
+
+Guest runtime 已从“一次 lowering 并执行全部命令”升级为有界批次循环。测试刻意把物理
+command capacity 限制为 9：第一批执行 TGATHER 到 TTOPK 的 9 个 primitive，第二批把
+第 10 个 GPTQ MatMul 作为不可拆分逻辑请求展开成 `TDEQUANT + 2xTMMA`。两批分别完成
+后聚合为 10 个逻辑请求、12 条物理命令和 224 modeled cycles，并继续逐算子进行独立
+数值校验。
+
+XGraph header 的保留字段现定义 batch sequence、first request、request count、final flag
+和 global first command，不改变 96-byte ABI。每批 command ID 保持从 0 开始的局部稠密
+retire 顺序，全局完成进度由 Host runtime 聚合。Firmware 已移除固定 `TopK index == 5`
+判断，只负责 ABI、地址、opcode、执行和完成协议；模型结果 golden 留在 CPU runtime，
+避免后续接入任意 Transformer 执行图时把模型语义固化进 Coral 控制固件。

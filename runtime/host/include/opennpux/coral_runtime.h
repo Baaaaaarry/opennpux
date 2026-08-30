@@ -130,6 +130,9 @@ struct opennpux_coral_generic_test_result {
     uint32_t dma_requests;
     uint32_t dma_completions;
     uint32_t dma_errors;
+    uint32_t batch_count;
+    uint32_t completed_requests;
+    uint32_t completed_commands;
     uint32_t validated_operators;
     uint32_t failed_operator;
     uint32_t operator_pass[OPENNPUX_CORAL_XGRAPH_TEST_OPERATORS];

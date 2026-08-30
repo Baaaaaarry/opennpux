@@ -1312,15 +1312,12 @@ opennpux_coral_xgraph_test(
         uint32_t bits;
     } epsilon = {1.0e-5f};
     memset(result, 0, sizeof(*result));
-    enum { request_count = 10, command_capacity = 16 };
+    enum { request_count = 10, command_capacity = 9 };
     struct opennpux_npu_functional_request requests[request_count];
     struct opennpux_npu_operator_parameters parameters[request_count];
     struct opennpux_npu_xgraph_lowering_options options[request_count];
     struct opennpux_xgraph_command commands[command_capacity];
     uint32_t command_origins[command_capacity];
-    uint32_t requests_consumed = 0;
-    uint32_t commands_emitted = 0;
-    struct opennpux_npu_xgraph_lowering_failure lowering_failure;
     memset(options, 0, sizeof(options));
 
     initialize_xgraph_request(&requests[0], &parameters[0], 0,
@@ -1426,41 +1423,6 @@ opennpux_coral_xgraph_test(
                        sizeof(gptq_scale_values));
 #undef ADD_XGRAPH_OPERAND
 
-    const int lowering_result = opennpux_npu_xgraph_lower_batch(
-        requests, parameters, options, request_count,
-        CORAL_LOCAL_EXTMEM_BASE, required_size,
-        CORAL_LOCAL_EXTMEM_BASE + gptq_scratch, 0x100, commands,
-        command_capacity, command_origins, &requests_consumed,
-        &commands_emitted, &lowering_failure);
-    if (lowering_result != 0 || requests_consumed != request_count ||
-        commands_emitted != 12) {
-        if (lowering_result == 0) {
-            lowering_failure.command_index = requests_consumed;
-            lowering_failure.command_id = UINT32_MAX;
-            lowering_failure.opcode = OPENNPUX_NPU_OP_INVALID;
-            lowering_failure.error_code = EIO;
-        }
-        fprintf(stderr,
-                "xgraph_stage=lowering-failed request=%" PRIu32
-                " command_id=%" PRIu32 " opcode=%" PRIu32
-                " error=%" PRId32 " consumed=%" PRIu32
-                " emitted=%" PRIu32 "\n",
-                lowering_failure.command_index, lowering_failure.command_id,
-                lowering_failure.opcode, lowering_failure.error_code,
-                requests_consumed, commands_emitted);
-        if (errno == 0) {
-            errno = EIO;
-        }
-        return -1;
-    }
-    for (uint32_t index = 0; index < commands_emitted; ++index) {
-        const uint32_t expected_origin = index < 9 ? index : 9;
-        if (command_origins[index] != expected_origin) {
-            errno = EIO;
-            return -1;
-        }
-    }
-
     struct opennpux_coral_shared_window window;
     fprintf(stderr, "xgraph_stage=open-shared-window required=0x%zx\n",
             (size_t)required_size);
@@ -1473,18 +1435,9 @@ opennpux_coral_xgraph_test(
             window.base, window.size);
     volatile uint8_t *mailbox_bytes =
         window.bytes + OPENNPUX_CORAL_GENERIC_TEST_MAILBOX_OFFSET;
-    fprintf(stderr, "xgraph_stage=clear-mailbox offset=0x%08" PRIx32 "\n",
-            OPENNPUX_CORAL_GENERIC_TEST_MAILBOX_OFFSET);
-    zero_volatile_bytes(
-        mailbox_bytes, sizeof(struct opennpux_coral_generic_test_mailbox));
     volatile struct opennpux_xgraph_header *header =
         (volatile struct opennpux_xgraph_header *)(void *)(
             window.bytes + OPENNPUX_XGRAPH_OFFSET);
-    fprintf(stderr, "xgraph_stage=stage-control offset=0x%08" PRIx32 "\n",
-            OPENNPUX_XGRAPH_OFFSET);
-    zero_volatile_bytes((volatile uint8_t *)(void *)header, sizeof(*header));
-    copy_to_volatile_bytes((volatile uint8_t *)(void *)(header + 1), commands,
-                           commands_emitted * sizeof(commands[0]));
     fprintf(stderr, "xgraph_stage=stage-tensors offset=0x%08x\n", tokens);
     copy_to_volatile_bytes(window.bytes + tokens, token_values,
                            sizeof(token_values));
@@ -1509,47 +1462,144 @@ opennpux_coral_xgraph_test(
                            sizeof(gptq_scale_values));
     copy_to_volatile_bytes(window.bytes + gptq_input, gptq_input_values,
                            sizeof(gptq_input_values));
-    header->magic = OPENNPUX_XGRAPH_MAGIC;
-    header->version = OPENNPUX_XGRAPH_VERSION;
-    header->header_size = sizeof(*header);
-    header->command_size = sizeof(commands[0]);
-    header->command_count = commands_emitted;
-    header->total_size =
-        sizeof(*header) + commands_emitted * sizeof(commands[0]);
-    header->output_offset = packed_topk;
-    header->output_bytes = 2 * sizeof(uint32_t);
-    __sync_synchronize();
-    header->state = OPENNPUX_XGRAPH_STATE_READY;
-    __sync_synchronize();
-    fprintf(stderr,
-            "xgraph_stage=submission-ready source=generic-lowering"
-            " requests=%" PRIu32 " commands=%" PRIu32 "\n",
-            requests_consumed, commands_emitted);
-
     struct opennpux_coral_info before;
     struct opennpux_coral_info after;
     opennpux_coral_get_info(dev, &before);
-    const int run_result =
-        opennpux_coral_run(dev, entry, polls, &result->device_status);
-    const int run_errno = errno;
-    __sync_synchronize();
-
     volatile const struct opennpux_coral_generic_test_mailbox *mailbox =
         (volatile const struct opennpux_coral_generic_test_mailbox *)
             mailbox_bytes;
-    result->state = mailbox->state;
-    result->error_code = mailbox->error_code;
-    result->output_count = mailbox->output_count;
-    for (uint32_t i = 0; i < OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT; ++i) {
-        result->output[i] = mailbox->output[i];
+    uint32_t request_offset = 0;
+    uint32_t total_commands = 0;
+    uint32_t final_batch_commands = 0;
+    int run_result = 0;
+    int run_errno = 0;
+    while (request_offset < request_count) {
+        uint32_t requests_consumed = 0;
+        uint32_t commands_emitted = 0;
+        struct opennpux_npu_xgraph_lowering_failure lowering_failure;
+        const int lowering_result = opennpux_npu_xgraph_lower_batch(
+            requests + request_offset, parameters + request_offset,
+            options + request_offset, request_count - request_offset,
+            CORAL_LOCAL_EXTMEM_BASE, required_size,
+            CORAL_LOCAL_EXTMEM_BASE + gptq_scratch, 0x100, commands,
+            command_capacity, command_origins, &requests_consumed,
+            &commands_emitted, &lowering_failure);
+        if (lowering_result != 0 || requests_consumed == 0 ||
+            commands_emitted == 0) {
+            fprintf(stderr,
+                    "xgraph_stage=lowering-failed request=%" PRIu32
+                    " command_id=%" PRIu32 " opcode=%" PRIu32
+                    " error=%" PRId32 " consumed=%" PRIu32
+                    " emitted=%" PRIu32 "\n",
+                    request_offset + lowering_failure.command_index,
+                    lowering_failure.command_id, lowering_failure.opcode,
+                    lowering_failure.error_code, requests_consumed,
+                    commands_emitted);
+            run_errno = errno == 0 ? EIO : errno;
+            run_result = -1;
+            break;
+        }
+        for (uint32_t index = 0; index < commands_emitted; ++index) {
+            if (command_origins[index] < request_offset ||
+                command_origins[index] >=
+                    request_offset + requests_consumed) {
+                run_errno = EIO;
+                run_result = -1;
+                break;
+            }
+        }
+        if (run_result != 0) {
+            break;
+        }
+
+        const uint32_t batch = result->batch_count;
+        const int final_batch =
+            request_offset + requests_consumed == request_count;
+        fprintf(stderr, "xgraph_stage=clear-mailbox offset=0x%08" PRIx32
+                        " batch=%" PRIu32 "\n",
+                OPENNPUX_CORAL_GENERIC_TEST_MAILBOX_OFFSET, batch);
+        zero_volatile_bytes(
+            mailbox_bytes, sizeof(struct opennpux_coral_generic_test_mailbox));
+        zero_volatile_bytes((volatile uint8_t *)(void *)header,
+                            sizeof(*header));
+        copy_to_volatile_bytes((volatile uint8_t *)(void *)(header + 1),
+                               commands,
+                               commands_emitted * sizeof(commands[0]));
+        header->magic = OPENNPUX_XGRAPH_MAGIC;
+        header->version = OPENNPUX_XGRAPH_VERSION;
+        header->header_size = sizeof(*header);
+        header->command_size = sizeof(commands[0]);
+        header->command_count = commands_emitted;
+        header->total_size =
+            sizeof(*header) + commands_emitted * sizeof(commands[0]);
+        header->output_offset = packed_topk;
+        header->output_bytes = 2 * sizeof(uint32_t);
+        header->reserved[OPENNPUX_XGRAPH_BATCH_SEQUENCE] = batch;
+        header->reserved[OPENNPUX_XGRAPH_BATCH_FIRST_REQUEST] =
+            request_offset;
+        header->reserved[OPENNPUX_XGRAPH_BATCH_REQUEST_COUNT] =
+            requests_consumed;
+        header->reserved[OPENNPUX_XGRAPH_BATCH_FLAGS] =
+            final_batch ? OPENNPUX_XGRAPH_BATCH_FLAG_FINAL : 0;
+        header->reserved[OPENNPUX_XGRAPH_BATCH_FIRST_COMMAND] =
+            total_commands;
+        __sync_synchronize();
+        header->state = OPENNPUX_XGRAPH_STATE_READY;
+        __sync_synchronize();
+        fprintf(stderr,
+                "xgraph_stage=submission-ready source=generic-lowering"
+                " batch=%" PRIu32 " requests=%" PRIu32
+                " commands=%" PRIu32 " final=%d\n",
+                batch, requests_consumed, commands_emitted, final_batch);
+
+        run_result =
+            opennpux_coral_run(dev, entry, polls, &result->device_status);
+        run_errno = errno;
+        __sync_synchronize();
+        if (run_result != 0 ||
+            header->state != OPENNPUX_XGRAPH_STATE_COMPLETE ||
+            header->error != OPENNPUX_XGRAPH_ERROR_NONE ||
+            header->completed_commands != commands_emitted ||
+            mailbox->magic != OPENNPUX_CORAL_GENERIC_TEST_MAGIC ||
+            mailbox->state != OPENNPUX_CORAL_GENERIC_TEST_COMPLETE ||
+            mailbox->error_code != OPENNPUX_CORAL_GENERIC_TEST_ERROR_NONE ||
+            mailbox->output[0] != (int32_t)commands_emitted) {
+            if (run_result == 0) {
+                run_result = -1;
+                run_errno = EIO;
+            }
+            break;
+        }
+
+        result->state = mailbox->state;
+        result->error_code = mailbox->error_code;
+        result->output_count = mailbox->output_count;
+        result->operation_count += mailbox->operation_count;
+        result->bytes_read += mailbox->bytes_read;
+        result->bytes_written += mailbox->bytes_written;
+        result->npu_cycles += ((uint64_t)mailbox->cycle_high << 32) |
+                              mailbox->cycle_low;
+        ++result->batch_count;
+        result->completed_requests += requests_consumed;
+        result->completed_commands += commands_emitted;
+        final_batch_commands = commands_emitted;
+        request_offset += requests_consumed;
+        total_commands += commands_emitted;
     }
-    result->output_checksum = mailbox->output_checksum;
-    result->output_bytes = mailbox->output_bytes;
-    result->operation_count = mailbox->operation_count;
-    result->bytes_read = mailbox->bytes_read;
-    result->bytes_written = mailbox->bytes_written;
-    result->npu_cycles = ((uint64_t)mailbox->cycle_high << 32) |
-                         mailbox->cycle_low;
+    if (run_result != 0 || result->completed_requests != request_count ||
+        result->completed_commands != 12 || result->batch_count != 2) {
+        opennpux_coral_close_shared_window(&window);
+        errno = run_errno == 0 ? EIO : run_errno;
+        return -1;
+    }
+    result->output[0] = (int32_t)result->completed_commands;
+    copy_from_volatile_bytes(&result->output[1], window.bytes + packed_topk,
+                             2 * sizeof(uint32_t));
+    result->output[3] = 0;
+    result->output_count = OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT;
+    result->output_bytes = sizeof(result->output);
+    result->output_checksum =
+        checksum_bytes(result->output, sizeof(result->output));
     static const uint32_t tensor_offsets[8] = {
         tensor0, tensor1, tensor2, tensor3,
         tensor4, tensor5, tensor6, tensor7,
@@ -1686,13 +1736,16 @@ opennpux_coral_xgraph_test(
     const int valid =
         header->state == OPENNPUX_XGRAPH_STATE_COMPLETE &&
         header->error == OPENNPUX_XGRAPH_ERROR_NONE &&
-        header->completed_commands == commands_emitted &&
+        header->completed_commands == final_batch_commands &&
         mailbox->magic == OPENNPUX_CORAL_GENERIC_TEST_MAGIC &&
         mailbox->state == OPENNPUX_CORAL_GENERIC_TEST_COMPLETE &&
         mailbox->error_code == OPENNPUX_CORAL_GENERIC_TEST_ERROR_NONE &&
         result->output_count == OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT &&
-        result->output[0] == (int32_t)commands_emitted &&
+        result->output[0] == (int32_t)result->completed_commands &&
         result->output[1] == 5 &&
+        result->completed_requests == request_count &&
+        result->completed_commands == 12 &&
+        result->batch_count == 2 &&
         operators_valid;
 
     opennpux_coral_get_info(dev, &after);
@@ -1701,10 +1754,6 @@ opennpux_coral_xgraph_test(
         after.dma_completions - before.dma_completions;
     result->dma_errors = after.dma_errors - before.dma_errors;
     opennpux_coral_close_shared_window(&window);
-    if (run_result != 0) {
-        errno = run_errno;
-        return -1;
-    }
     if (!valid) {
         errno = EIO;
         return -1;

@@ -455,8 +455,10 @@ Tensor edge. Completion state, command count, operation count, cycle estimate,
 output checksum, and the final packed TopK result return through EXTMEM and the
 shared window.
 
-The initial full-system gate contains nine commands and all nine functional
-primitive classes. This replaces the former firmware-local descriptor smoke:
+The initial full-system gate contains all nine functional primitive classes
+plus one GPTQ MatMul request. The runtime intentionally submits them as two
+batches containing 9 and 3 physical commands. This replaces the former
+firmware-local descriptor smoke:
 the command graph and input Tensor values now originate in the Linux Guest.
 The next compiler increment lowers the existing generic `.npxc/.npxtb`
 invocation into the same graph ABI, tiles dimensions that exceed CSR fields,
@@ -469,6 +471,23 @@ The first part of that compiler boundary is implemented by
 functional request produced from `.npxc`, `.npxtb`, runtime shape and explicit
 weight operands. Direct FP32 primitives lower without inspecting a model or
 tensor name. RoPE layout, activation semantics and TopK packed scratch are
-explicit options rather than model-family assumptions. Composite generic
-commands and GPTQ MatMul deliberately return `ENOTSUP`; a later decomposition
-and tiling pass must expand them before instruction emission.
+explicit options rather than model-family assumptions. Primitive lowering
+rejects composite commands; batch lowering routes GPTQ MatMul through the
+model-independent tile planner and expands it into `TDEQUANT/TMMA/TADD` before
+instruction emission.
+
+### Bounded XGraph batches
+
+The runtime does not require a complete executable to fit in one command
+buffer. It lowers only whole logical requests that fit in the current batch,
+submits the batch, waits for completion, and resumes at the next request. A
+composite request such as GPTQ MatMul is never split halfway across two
+submissions: all of its `TDEQUANT/TMMA/TADD` records must fit together.
+
+`opennpux_xgraph_header.reserved[0..4]` carry the batch sequence, first logical
+request, request count, final-batch flag, and first global physical command.
+Command IDs remain local and dense inside each batch because Coral firmware
+retires a freshly loaded stream after every restart. The host runtime
+aggregates completed logical requests, physical commands, operations, cycles,
+and DMA statistics. Numerical validation remains a runtime/compiler concern;
+generic firmware must not embed a model golden such as a fixed TopK index.

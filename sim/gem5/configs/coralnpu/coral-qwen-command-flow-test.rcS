@@ -45,11 +45,19 @@ EOF
 }
 
 has_output_line 'xgraph_output=12,5,' ||
-    fail "lowered command chain produced an unexpected TopK result"
+    fail "batched command chain produced an unexpected TopK result"
+has_output_line 'xgraph_batches=2' || fail "missing two-batch completion"
+has_output_line 'xgraph_completed_requests=10' ||
+    fail "missing logical request completion"
+has_output_line 'xgraph_completed_commands=12' ||
+    fail "missing physical command completion"
+has_output_line 'xgraph_npu_cycles=224' || fail "unexpected aggregate cycles"
+has_output_line 'xgraph_operation_count=224' ||
+    fail "unexpected aggregate operation count"
 has_output_line 'xgraph_validated_operators=10' ||
     fail "command chain did not validate every logical operator"
 has_output_line 'xgraph_correctness=PASS' ||
-    fail "nine-operator chain failed numerical validation"
+    fail "ten-operator chain failed numerical validation"
 has_output_line 'xgraph_test=PASS' || fail "missing runtime PASS"
 
 echo "qwen_command_flow_operators=10"

@@ -21,6 +21,7 @@ constexpr uint32_t kSiluFunct7 = 0x46;
 constexpr uint32_t kMoveFunct3 = 3;
 constexpr uint32_t kGatherFunct7 = 0x10;
 constexpr uint32_t kDequantFunct7 = 0x11;
+constexpr uint32_t kDmaFunct7 = 0x12;
 constexpr uint32_t kMultiOutputFunct3 = 4;
 constexpr uint32_t kTopKFunct7 = 0;
 constexpr uint32_t kFenceFunct3 = 6;
@@ -259,6 +260,18 @@ constexpr bool IsTdequant(uint32_t instruction) {
          ((instruction >> 20) & 0x1f) == 0;
 }
 
+constexpr uint32_t EncodeTdma(uint32_t rd, uint32_t rs1) {
+  return (kDmaFunct7 << 25) | ((rs1 & 0x1f) << 15) |
+         (kMoveFunct3 << 12) | ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTdma(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kMoveFunct3 &&
+         ((instruction >> 25) & 0x7f) == kDmaFunct7 &&
+         ((instruction >> 20) & 0x1f) == 0;
+}
+
 constexpr uint32_t EncodeTtopk(uint32_t rd, uint32_t rs1) {
   return (kTopKFunct7 << 25) | ((rs1 & 0x1f) << 15) |
          (kMultiOutputFunct3 << 12) | ((rd & 0x1f) << 7) |
@@ -291,6 +304,7 @@ enum class Operation : uint8_t {
   kTsilu,
   kTgather,
   kTdequant,
+  kTdma,
   kTtopk,
   kTfence,
 };
@@ -305,6 +319,7 @@ constexpr Operation DecodeOperation(uint32_t instruction) {
          : IsTsilu(instruction) ? Operation::kTsilu
          : IsTgather(instruction) ? Operation::kTgather
          : IsTdequant(instruction) ? Operation::kTdequant
+         : IsTdma(instruction) ? Operation::kTdma
          : IsTtopk(instruction) ? Operation::kTtopk
          : IsTfence(instruction) ? Operation::kTfence
                                  : Operation::kInvalid;
@@ -330,6 +345,8 @@ constexpr const char* OperationName(Operation operation) {
       return "tgather";
     case Operation::kTdequant:
       return "tdequant";
+    case Operation::kTdma:
+      return "tdma";
     case Operation::kTtopk:
       return "ttopk";
     case Operation::kTfence:

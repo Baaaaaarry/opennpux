@@ -122,6 +122,10 @@ void TestEncodingAndSecondLevelDecode() {
   assert(xopennpux::DecodeOperation(dequant) ==
          xopennpux::Operation::kTdequant);
   assert(!xopennpux::IsTdequant(dequant | (1u << 20)));
+  const uint32_t dma = xopennpux::EncodeTdma(12, 10);
+  assert(xopennpux::IsTdma(dma));
+  assert(xopennpux::DecodeOperation(dma) == xopennpux::Operation::kTdma);
+  assert(!xopennpux::IsTdma(dma | (1u << 20)));
 }
 
 void ConfigureInt4Dequant(Gem5XOpenNpuFunctionalCoprocessor* coprocessor,
@@ -341,6 +345,30 @@ void TestFp32TensorMul() {
   for (size_t index = 0; index < 6; ++index) {
     assert(ReadFloat(memory, 0x200 + index * sizeof(float)) ==
            static_cast<float>((index + 1) * 2));
+  }
+}
+
+void TestFp32Dma() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 3);
+  Gem5TmmaDispatchPacket packet = Packet(10);
+  packet.instruction = xopennpux::EncodeTdma(12, 10);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  for (size_t index = 0; index < 6; ++index) {
+    WriteFloat(&memory, index * sizeof(float),
+               static_cast<float>(index + 1));
+  }
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(completion.operation == xopennpux::Operation::kTdma);
+  assert(completion.element_operations == 6);
+  assert(completion.modeled_cycles == 6);
+  for (size_t index = 0; index < 6; ++index) {
+    assert(ReadFloat(memory, 0x200 + index * sizeof(float)) ==
+           static_cast<float>(index + 1));
   }
 }
 
@@ -752,6 +780,7 @@ int main() {
   TestInt4DequantThenFp32Matmul();
   TestFp32TensorAdd();
   TestFp32TensorMul();
+  TestFp32Dma();
   TestFp32RmsNorm();
   TestRmsNormRejectsInvalidEpsilon();
   TestFp32Silu();

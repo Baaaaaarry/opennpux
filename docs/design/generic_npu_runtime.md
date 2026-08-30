@@ -456,10 +456,11 @@ output checksum, and the final packed TopK result return through EXTMEM and the
 shared window.
 
 The initial full-system gate contains all nine functional primitive classes,
-one GPTQ MatMul request, and one generic COMBINE request. The runtime
-intentionally submits them as two batches containing 9 and 4 physical
-commands. GPTQ MatMul expands to three commands; COMBINE is canonically lowered
-to TADD because their numerical semantics are identical. This replaces the former
+one GPTQ MatMul request, one generic COMBINE request, and one KV-cache DMA
+update. The runtime intentionally submits them as two batches containing 9 and
+6 physical commands. GPTQ MatMul expands to three commands; COMBINE is
+canonically lowered to TADD; and DMA expands to two TDMA records that update
+the Key and Value state planes. This replaces the former
 firmware-local descriptor smoke:
 the command graph and input Tensor values now originate in the Linux Guest.
 The next compiler increment lowers the existing generic `.npxc/.npxtb`
@@ -477,7 +478,9 @@ explicit options rather than model-family assumptions. Generic operations with
 primitive-equivalent semantics may be canonicalized without introducing a
 model-specific instruction. Other composite commands are rejected; batch
 lowering routes GPTQ MatMul through the model-independent tile planner and
-expands it into `TDEQUANT/TMMA/TADD` before instruction emission.
+expands it into `TDEQUANT/TMMA/TADD` before instruction emission. KV-cache DMA
+uses only generic shape fields to derive the two destination-plane tail
+offsets; it does not inspect model or tensor names.
 
 ### Bounded XGraph batches
 

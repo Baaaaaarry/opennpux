@@ -45,6 +45,7 @@ enum opennpux_xgraph_opcode {
     OPENNPUX_XGRAPH_OP_TGATHER = 8,
     OPENNPUX_XGRAPH_OP_TTOPK = 9,
     OPENNPUX_XGRAPH_OP_TDEQUANT = 10,
+    OPENNPUX_XGRAPH_OP_TDMA = 11,
 };
 
 enum opennpux_xgraph_data_type {

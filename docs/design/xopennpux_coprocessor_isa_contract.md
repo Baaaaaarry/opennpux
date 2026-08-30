@@ -404,6 +404,19 @@ width, and `scalar_param0` is the source-table row count used for bounds
 checking. Embedding lookup is a compiler lowering to this generic gather
 primitive; vocabulary or model identity is not architectural state.
 
+#### TDMA profile
+
+The v0.2 functional profile assigns `funct3=011`, `funct7=0010010` to
+`tdma.tt`. `rs1` addresses a contiguous FP32 source tensor, `rd` addresses the
+destination tensor, and `rs2` MUST be `x0`. `tensor_shape.rows *
+tensor_shape.features` is the copied element count. Source and destination may
+overlap and therefore have `memmove` semantics in the functional model.
+
+KV-cache update is not encoded as a model-specific instruction. Generic
+lowering derives the Key and Value plane tail addresses from
+`rows/kv_heads/head_dim/kv_length` and emits two independent `tdma.tt`
+instructions. NPU Decode L2 only observes the resulting copy instructions.
+
 ### Multi-output selection
 
 The v0.2 functional profile assigns `funct3=100`, `funct7=0000000` to
@@ -651,7 +664,7 @@ The first mandatory implementation subset is:
 - tensor memory read/write;
 - `tfence`;
 - generic operation classification for TMMA, TADD, TMUL, TRMSNORM, TSOFTMAX,
-  TROPE, TSILU, TGATHER, and TTOPK;
+  TROPE, TSILU, TGATHER, TTOPK, TDEQUANT, and TDMA;
 - FP32 matrix, elementwise, normalization, activation, rotation, gather, and
   selection execution with per-operation statistics;
 - `xopennpux_ops.h` as the firmware/compiler-facing operator-library boundary;

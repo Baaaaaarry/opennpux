@@ -148,6 +148,15 @@ static inline void xopennpux_tdequant_int4_fp32(void* destination,
                    : "memory");
 }
 
+static inline void xopennpux_tdma_fp32(void* destination,
+                                       const void* source) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 3, 0x12, %0, %1, x0"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)source)
+                   : "memory");
+}
+
 static inline void xopennpux_ttopk_fp32(void* destination,
                                         const void* input) {
   __asm__ volatile("fence rw, rw" : : : "memory");

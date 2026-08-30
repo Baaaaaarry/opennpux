@@ -100,6 +100,13 @@ static inline void xopennpux_gather_fp32(void* destination,
   xopennpux_tfence();
 }
 
+static inline void xopennpux_dma_fp32(void* destination, const void* source,
+                                      uint32_t rows, uint32_t features) {
+  xopennpux_configure_tensor_fp32(rows, features);
+  xopennpux_tdma_fp32(destination, source);
+  xopennpux_tfence();
+}
+
 // Dequantizes one AutoGPTQ output-channel tile to contiguous FP32 [K, N].
 // qweight/qzeros/scales may remain strided views into the full matrix.
 static inline void xopennpux_dequant_int4_fp32(

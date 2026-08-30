@@ -128,6 +128,7 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       break;
     case OPENNPUX_XGRAPH_OP_TSILU:
     case OPENNPUX_XGRAPH_OP_TSOFTMAX:
+    case OPENNPUX_XGRAPH_OP_TDMA:
       source1_elements = 0;
       break;
     case OPENNPUX_XGRAPH_OP_TADD:
@@ -219,6 +220,11 @@ bool Execute(const volatile opennpux_xgraph_command& command,
           destination, source0,
           reinterpret_cast<const uint32_t*>(source1), command.dim0,
           command.dim1, command.scalar0);
+      *operations += elements;
+      *cycles += elements;
+      return true;
+    case OPENNPUX_XGRAPH_OP_TDMA:
+      xopennpux_dma_fp32(destination, source0, command.dim0, command.dim1);
       *operations += elements;
       *cycles += elements;
       return true;

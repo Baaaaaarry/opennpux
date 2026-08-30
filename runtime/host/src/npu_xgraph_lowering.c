@@ -413,6 +413,83 @@ opennpux_npu_xgraph_lower_gptq_matmul(
 }
 
 int
+opennpux_npu_xgraph_lower_dma(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (commands == NULL || command_count == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (command_capacity < 2) {
+        errno = ENOSPC;
+        return -1;
+    }
+    if (validate_request(request, parameters, extmem_size) != 0) {
+        return -1;
+    }
+    if (request->opcode != OPENNPUX_NPU_OP_DMA || request->kv_heads == 0 ||
+        request->head_dim == 0 || request->kv_length < request->rows ||
+        first_command_id > UINT32_MAX - 1) {
+        errno = EINVAL;
+        return -1;
+    }
+    const struct opennpux_npu_functional_operand *key =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+    const struct opennpux_npu_functional_operand *value =
+        find_operand(request, OPENNPUX_NPU_OPERAND_SECONDARY);
+    const struct opennpux_npu_functional_operand *state =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+    const uint64_t row_elements =
+        (uint64_t)request->kv_heads * request->head_dim;
+    const uint64_t copy_elements = (uint64_t)request->rows * row_elements;
+    const uint64_t plane_elements =
+        (uint64_t)request->kv_length * row_elements;
+    const uint64_t copy_bytes = copy_elements * sizeof(float);
+    const uint64_t plane_bytes = plane_elements * sizeof(float);
+    const uint64_t tail_bytes =
+        (uint64_t)(request->kv_length - request->rows) * row_elements *
+        sizeof(float);
+    if (key == NULL || value == NULL || state == NULL ||
+        row_elements > UINT32_MAX || copy_bytes > UINT32_MAX ||
+        plane_bytes > UINT32_MAX || key->byte_size < copy_bytes ||
+        value->byte_size < copy_bytes || state->byte_size < plane_bytes * 2 ||
+        (uint64_t)state->address + plane_bytes * 2 > UINT32_MAX) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const struct opennpux_npu_functional_operand *sources[2] = {key, value};
+    for (uint32_t plane = 0; plane < 2; ++plane) {
+        const uint64_t destination_address =
+            (uint64_t)state->address + plane * plane_bytes + tail_bytes;
+        const struct opennpux_npu_functional_operand destination = {
+            OPENNPUX_NPU_OPERAND_OUTPUT,
+            (uint32_t)destination_address,
+            (uint32_t)copy_bytes,
+            0,
+        };
+        struct opennpux_xgraph_command *command = &commands[plane];
+        memset(command, 0, sizeof(*command));
+        command->opcode = OPENNPUX_XGRAPH_OP_TDMA;
+        command->command_id = first_command_id + plane;
+        command->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+        command->dim0 = request->rows;
+        command->dim1 = (uint32_t)row_elements;
+        command->dim2 = 1;
+        if (set_operands(command, &destination, sources[plane], NULL,
+                         extmem_base, extmem_size) != 0) {
+            return -1;
+        }
+    }
+    *command_count = 2;
+    return 0;
+}
+
+int
 opennpux_npu_xgraph_lower_batch(
     const struct opennpux_npu_functional_request *requests,
     const struct opennpux_npu_operator_parameters *parameters,
@@ -463,12 +540,23 @@ opennpux_npu_xgraph_lower_batch(
         const int is_gptq_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             (parameters[index].flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0;
+        const int is_dma = requests[index].opcode == OPENNPUX_NPU_OP_DMA;
         uint32_t produced = 0;
         if (is_gptq_matmul) {
             if (opennpux_npu_xgraph_lower_gptq_matmul(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, scratch_address, scratch_size, emitted,
                     commands + emitted, available, &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_dma) {
+            if (opennpux_npu_xgraph_lower_dma(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, emitted, commands + emitted, available,
+                    &produced) != 0) {
                 if (errno == ENOSPC && emitted != 0) {
                     break;
                 }

@@ -232,6 +232,7 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       operation != xopennpux::Operation::kTsilu &&
       operation != xopennpux::Operation::kTgather &&
       operation != xopennpux::Operation::kTdequant &&
+      operation != xopennpux::Operation::kTdma &&
       operation != xopennpux::Operation::kTtopk) {
     return Gem5TmmaSubmitResult::kIllegalInstruction;
   }
@@ -493,6 +494,7 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                   ? command.tensor_shape.rows
               : command.operation == xopennpux::Operation::kTsoftmax ||
                         command.operation == xopennpux::Operation::kTsilu ||
+                        command.operation == xopennpux::Operation::kTdma ||
                         command.operation == xopennpux::Operation::kTtopk
                     ? 0
                     : tensor_elements;
@@ -764,6 +766,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                    LoadFloat(*memory, lhs_base + source_offset));
       }
     }
+  } else if (command.operation == xopennpux::Operation::kTdma) {
+    std::memmove(memory->data() + dst_base, memory->data() + lhs_base,
+                 static_cast<size_t>(tensor_elements) * sizeof(float));
   } else if (command.operation == xopennpux::Operation::kTtopk) {
     const uint32_t k = command.scalar_param0;
     const size_t value_count =

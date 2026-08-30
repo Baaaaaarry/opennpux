@@ -123,8 +123,17 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       break;
     case OPENNPUX_XGRAPH_OP_TTOPK:
       source1_elements = 0;
+      if ((command.flags & ~OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT) != 0) {
+        return false;
+      }
       destination_elements =
-          static_cast<uint64_t>(command.dim0) * command.scalar0 * 2;
+          static_cast<uint64_t>(command.dim0) * command.scalar0;
+      if ((command.flags & OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT) == 0) {
+        destination_elements *= 2;
+      } else if (!RangeValid(command.reserved[0],
+                             destination_elements * sizeof(uint32_t))) {
+        return false;
+      }
       break;
     case OPENNPUX_XGRAPH_OP_TCAUSALCONV: {
       const bool stateful =
@@ -344,8 +353,12 @@ bool Execute(const volatile opennpux_xgraph_command& command,
       *cycles += elements;
       return true;
     case OPENNPUX_XGRAPH_OP_TTOPK:
-      xopennpux_topk_fp32(destination, source0, command.dim0, command.dim1,
-                          command.scalar0);
+      xopennpux_topk_fp32(
+          destination,
+          (command.flags & OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT) != 0
+              ? Address(command.reserved[0])
+              : nullptr,
+          source0, command.dim0, command.dim1, command.scalar0);
       *operations += elements * command.scalar0;
       *cycles += elements * command.scalar0;
       return true;

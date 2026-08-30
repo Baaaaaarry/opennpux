@@ -126,6 +126,8 @@ opennpux_npu_xgraph_lower_primitive(
         find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
     const struct opennpux_npu_functional_operand *output_secondary =
         find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY);
+    const struct opennpux_npu_functional_operand *output_indices =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES);
 
     memset(command, 0, sizeof(*command));
     command->command_id = request->command_id;
@@ -189,27 +191,41 @@ opennpux_npu_xgraph_lower_primitive(
         return set_operands(command, output, input, NULL,
                             extmem_base, extmem_size);
     case OPENNPUX_NPU_OP_TOPK: {
-        if (options == NULL || options->topk_packed_size == 0 ||
-            request->top_k == 0) {
+        if (request->top_k == 0) {
             errno = EINVAL;
             return -1;
         }
-        const uint64_t required =
-            (uint64_t)request->rows * request->top_k * 2 * sizeof(float);
-        if (required > options->topk_packed_size) {
-            errno = ENOSPC;
+        command->opcode = OPENNPUX_XGRAPH_OP_TTOPK;
+        command->scalar0 = request->top_k;
+        const uint64_t plane_bytes =
+            (uint64_t)request->rows * request->top_k * sizeof(uint32_t);
+        if (output != NULL && output_indices != NULL) {
+            if (plane_bytes > UINT32_MAX || output->byte_size < plane_bytes ||
+                output_indices->byte_size < plane_bytes ||
+                operand_offset(output_indices, extmem_base, extmem_size,
+                               &command->reserved[0]) != 0) {
+                if (errno == 0) {
+                    errno = EINVAL;
+                }
+                return -1;
+            }
+            command->flags = OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT;
+            return set_operands(command, output, input, NULL, extmem_base,
+                                extmem_size);
+        }
+        if (options == NULL || options->topk_packed_size == 0 ||
+            plane_bytes > UINT32_MAX / 2 ||
+            plane_bytes * 2 > options->topk_packed_size) {
+            errno = options == NULL || options->topk_packed_size == 0
+                        ? EINVAL
+                        : ENOSPC;
             return -1;
         }
         const struct opennpux_npu_functional_operand packed = {
-            OPENNPUX_NPU_OPERAND_OUTPUT,
-            options->topk_packed_address,
-            options->topk_packed_size,
-            0,
-        };
-        command->opcode = OPENNPUX_XGRAPH_OP_TTOPK;
-        command->scalar0 = request->top_k;
-        return set_operands(command, &packed, input, NULL,
-                            extmem_base, extmem_size);
+            OPENNPUX_NPU_OPERAND_OUTPUT, options->topk_packed_address,
+            options->topk_packed_size, 0};
+        return set_operands(command, &packed, input, NULL, extmem_base,
+                            extmem_size);
     }
     case OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION: {
         const uint32_t kernel_width = parameters->intermediate_features;

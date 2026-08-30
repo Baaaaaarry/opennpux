@@ -422,12 +422,22 @@ instructions. NPU Decode L2 only observes the resulting copy instructions.
 ### Multi-output selection
 
 The v0.2 functional profile assigns `funct3=100`, `funct7=0000000` to
-`ttopk.tt`. `rs1` addresses an FP32 tensor, `rd` addresses a packed result, and
-`rs2` MUST be `x0`. `scalar_param0` is `k`, which MUST be in
-`[1, tensor_shape.features]`. The packed result contains `rows*k` descending
-FP32 values followed by `rows*k` uint32 source indices. Equal values are
-ordered by ascending source index, making token-selection results deterministic.
-NaNs sort after numeric values and are mutually ordered by source index.
+`ttopk.tt`. `rs1` addresses an FP32 tensor, `rd` addresses the descending FP32
+value tensor, and `rs2` MUST be `x0`. `scalar_param0` is `k`, which MUST be in
+`[1, tensor_shape.features]`. When custom CSR
+`tensor_aux_destination_address` (`0x819`) is nonzero, it addresses the
+independent uint32 source-index tensor. Both outputs contain `rows*k` elements.
+The CSR is snapshotted with the instruction so a later CSR write cannot redirect
+an accepted command. Equal values are ordered by ascending source index, making
+token-selection results deterministic. NaNs sort after numeric values and are
+mutually ordered by source index.
+
+For compatibility with the original operator smoke, an auxiliary destination
+of zero retains the packed layout at `rd`: `rows*k` FP32 values followed by
+`rows*k` uint32 indices. Generic functional requests MUST use the split form
+when both `OUTPUT` and `OUTPUT_INDICES` operands are present. Packed output is a
+lowering scratch/compatibility convention, not the production multi-output
+tensor ABI.
 
 Generic MoE Router lowering MUST preserve the runtime's selected-softmax
 semantics: first compute logits with TMMA, then TTOPK, then apply TSOFTMAX to

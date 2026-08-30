@@ -293,7 +293,8 @@ int main(void) {
                        XOPENNPUX_ROPE_HALF_SPLIT);
 
   WriteWords(topk_input, kTopKInput, 10);
-  xopennpux_topk_fp32((void*)topk_dst, (const void*)topk_input, 2, 5, 2);
+  xopennpux_topk_fp32((void*)topk_dst, NULL, (const void*)topk_input, 2, 5,
+                      2);
 
   WriteWords(dequant_qweight, kDequantQweight, 2);
   WriteWords(dequant_qzeros, kDequantQzeros, 2);

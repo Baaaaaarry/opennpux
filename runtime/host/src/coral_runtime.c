@@ -1460,9 +1460,6 @@ opennpux_coral_xgraph_test(
     initialize_xgraph_request(&requests[8], &parameters[8], 8,
                               OPENNPUX_NPU_OP_TOPK, 1, 8);
     requests[8].top_k = 1;
-    options[8].topk_packed_address =
-        CORAL_LOCAL_EXTMEM_BASE + packed_topk;
-    options[8].topk_packed_size = 2 * sizeof(uint32_t);
     initialize_xgraph_request(&requests[9], &parameters[9], 9,
                               OPENNPUX_NPU_OP_MATMUL, 2, 8);
     parameters[9].flags = OPENNPUX_NPU_PARAMETER_GPTQ;
@@ -1594,6 +1591,10 @@ opennpux_coral_xgraph_test(
                        sizeof(embedding_values));
     ADD_XGRAPH_OPERAND(8, OPENNPUX_NPU_OPERAND_INPUT, tensor7,
                        sizeof(embedding_values));
+    ADD_XGRAPH_OPERAND(8, OPENNPUX_NPU_OPERAND_OUTPUT, packed_topk,
+                       sizeof(float));
+    ADD_XGRAPH_OPERAND(8, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES,
+                       packed_topk + sizeof(float), sizeof(uint32_t));
     ADD_XGRAPH_OPERAND(9, OPENNPUX_NPU_OPERAND_INPUT, gptq_input,
                        sizeof(gptq_input_values));
     ADD_XGRAPH_OPERAND(9, OPENNPUX_NPU_OPERAND_OUTPUT, gptq_output,
@@ -1962,7 +1963,7 @@ opennpux_coral_xgraph_test(
     copy_from_volatile_bytes(packed_topk_result,
                              window.bytes + packed_topk,
                              sizeof(packed_topk_result));
-    /* Packed TopK is [value bits, index]; mailbox output is [index, value]. */
+    /* Split TopK tensors are contiguous here as [value bits, index]. */
     result->output[1] = (int32_t)packed_topk_result[1];
     result->output[2] = (int32_t)packed_topk_result[0];
     result->output[3] = 0;

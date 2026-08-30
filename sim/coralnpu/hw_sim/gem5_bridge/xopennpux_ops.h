@@ -212,14 +212,17 @@ static inline void xopennpux_dequant_int4_fp32(
   xopennpux_tfence();
 }
 
-// The packed result contains rows*k FP32 values followed by rows*k uint32
-// indices. Equal values are ordered by ascending source index.
-static inline void xopennpux_topk_fp32(void* packed_destination,
+// A null indices destination selects the legacy packed values/indices layout.
+// Equal values are ordered by ascending source index.
+static inline void xopennpux_topk_fp32(void* values_destination,
+                                       void* indices_destination,
                                        const void* input, uint32_t rows,
                                        uint32_t features, uint32_t k) {
   xopennpux_configure_tensor_fp32(rows, features);
   xopennpux_write_scalar_param0(k);
-  xopennpux_ttopk_fp32(packed_destination, input);
+  xopennpux_write_tensor_aux_destination_address(
+      (uint32_t)(uintptr_t)indices_destination);
+  xopennpux_ttopk_fp32(values_destination, input);
   xopennpux_tfence();
 }
 

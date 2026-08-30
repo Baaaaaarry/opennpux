@@ -118,11 +118,24 @@ test_semantic_options(void)
     initialize(&request, &parameters, OPENNPUX_NPU_OP_TOPK);
     request.top_k = 2;
     add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 32);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x2800, 16);
     add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES, 0x3000, 16);
     assert(opennpux_npu_xgraph_lower_primitive(
                &request, &parameters, &options, EXTMEM_BASE, EXTMEM_SIZE,
                &command) == 0);
     assert(command.opcode == OPENNPUX_XGRAPH_OP_TTOPK);
+    assert(command.flags == OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT);
+    assert(command.destination_offset == 0x2800);
+    assert(command.reserved[0] == 0x3000);
+
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_TOPK);
+    request.top_k = 2;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000, 32);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES, 0x3000, 16);
+    assert(opennpux_npu_xgraph_lower_primitive(
+               &request, &parameters, &options, EXTMEM_BASE, EXTMEM_SIZE,
+               &command) == 0);
+    assert(command.flags == 0);
     assert(command.destination_offset == 0x5000);
 }
 

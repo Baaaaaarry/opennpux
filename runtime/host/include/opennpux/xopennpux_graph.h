@@ -55,6 +55,7 @@ enum opennpux_xgraph_opcode {
 #define OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL UINT32_C(1)
 #define OPENNPUX_XGRAPH_TCAUSALCONV_SILU UINT32_C(2)
 #define OPENNPUX_XGRAPH_TATTENTION_GATED UINT32_C(1)
+#define OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT UINT32_C(1)
 
 enum opennpux_xgraph_data_type {
     OPENNPUX_XGRAPH_DTYPE_FP32 = 2,
@@ -112,6 +113,10 @@ struct opennpux_xgraph_command {
  * and kernel H/W as 16-bit fields. reserved[3] packs stride H/W and dilation
  * H/W as four 8-bit fields; reserved[4] packs T/B/L/R padding as four 8-bit
  * fields. The firmware expands these into the dedicated custom CSRs.
+ *
+ * TTOPK normally writes packed FP32 values followed by uint32 indices. With
+ * OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT, destination is the values tensor and
+ * reserved[0] is the independent indices tensor offset.
  */
 
 struct opennpux_xgraph_header {

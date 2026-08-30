@@ -1102,3 +1102,19 @@ cycles，`xgraph_op_CONVOLUTION=PASS checksum=0x40a9cead max_abs_error=0`、
 `xgraph_validated_operators=20`、`xgraph_correctness=PASS`。该数据替代 5 / 19 / 34 / 435，
 成为当前通用算子硬件 lowering 功能基线。451 cycles 只表示 C++ 功能模型的逻辑 MAC
 计数，不代表 RTL 卷积流水性能。
+
+## 2026-08-31 TopK 真实双输出 Tensor ABI
+
+端到端 524-command functional request 中 TopK 的 values 与 indices 是两个独立输出
+Tensor，而早期 XGraph smoke 只支持测试专用的 packed `[values][indices]` scratch。该差异会
+使真实 invocation 无法直接复用 generic lowering。现已在不改变 32-bit `TTOPK` 编码的
+前提下，复用 custom CSR `tensor_aux_destination_address`：`rd` 指向 FP32 values，CSR
+`0x819` 指向 uint32 indices；NPU L2 在 accept 时原子快照两者并分别做地址检查和写回。
+辅助地址为零时仍保留 packed 兼容语义，供旧 native smoke 和 Router 内部临时 scratch 使用。
+
+runtime lowering 现在优先消费显式 `OUTPUT + OUTPUT_INDICES` operands，并设置 XGraph
+split-output flag；20 算子 full-system fixture 也已改为两个真实 operand，连续内存布局仅用于
+保持既有结果读取和 checksum。native coprocessor 数值测试验证 2x5、K=2 的独立 values 与
+indices 写回，lowering 单测同时覆盖 split 和 packed fallback。该改动不增加逻辑 request、
+物理 command 或 modeled cycles，因此 GB10 复验预期仍为 5 batches / 20 requests / 35
+commands / 451 cycles；正式接受前不得替换上一节已验收基线。

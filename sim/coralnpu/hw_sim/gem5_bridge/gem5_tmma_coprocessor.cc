@@ -891,7 +891,8 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                     (command.recurrent_dims >> 16)
           : command.operation == xopennpux::Operation::kTtopk
               ? static_cast<uint64_t>(command.tensor_shape.rows) *
-                    command.scalar_param0 * 2
+                    command.scalar_param0 *
+                    (command.tensor_aux_destination_address == 0 ? 2 : 1)
           : tensor_elements;
   const uint64_t dst_bytes = dst_elements * sizeof(float);
   if (command.operation != xopennpux::Operation::kTdequant &&
@@ -968,6 +969,17 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                         memory_base, memory->size())) {
     completion->error = Gem5TmmaExecutionError::kAddress;
     completion->faulting_address = command.conv_bias_address;
+    return true;
+  }
+  if (command.operation == xopennpux::Operation::kTtopk &&
+      command.tensor_aux_destination_address != 0 &&
+      !MatrixRangeValid(
+          command.tensor_aux_destination_address,
+          static_cast<uint64_t>(command.tensor_shape.rows) *
+              command.scalar_param0,
+          memory_base, memory->size())) {
+    completion->error = Gem5TmmaExecutionError::kAddress;
+    completion->faulting_address = command.tensor_aux_destination_address;
     return true;
   }
 
@@ -1576,6 +1588,10 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
     const uint32_t k = command.scalar_param0;
     const size_t value_count =
         static_cast<size_t>(command.tensor_shape.rows) * k;
+    const size_t indices_base = command.tensor_aux_destination_address == 0
+                                    ? dst_base + value_count * sizeof(float)
+                                    : command.tensor_aux_destination_address -
+                                          memory_base;
     std::vector<std::pair<float, uint32_t>> candidates(
         command.tensor_shape.features);
     for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
@@ -1605,7 +1621,7 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
         StoreFloat(memory, dst_base + output * sizeof(float),
                    candidates[rank].first);
         StoreUint32(memory,
-                    dst_base + (value_count + output) * sizeof(uint32_t),
+                    indices_base + output * sizeof(uint32_t),
                     candidates[rank].second);
       }
     }

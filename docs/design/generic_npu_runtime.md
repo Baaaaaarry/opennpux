@@ -452,8 +452,8 @@ buffer and lowers each record to XOpenNPUX CSR writes plus a 32-bit custom
 instruction through `xopennpux_ops.h`. Coral performs L1 custom classification,
 the NPU performs L2 operator decode, and `tfence` protects every dependent
 Tensor edge. Completion state, command count, operation count, cycle estimate,
-output checksum, and the final packed TopK result return through EXTMEM and the
-shared window.
+output checksum, and the final split TopK values/indices tensors return through
+EXTMEM and the shared window.
 
 The full-system gate contains all nine functional primitive classes, one GPTQ
 MatMul request, one generic COMBINE request, one KV-cache DMA update, and one
@@ -474,8 +474,11 @@ The first part of that compiler boundary is implemented by
 `opennpux_npu_xgraph_lower_primitive()`. It consumes the model-independent
 functional request produced from `.npxc`, `.npxtb`, runtime shape and explicit
 weight operands. Direct FP32 primitives lower without inspecting a model or
-tensor name. RoPE layout, activation semantics and TopK packed scratch are
-explicit options rather than model-family assumptions. Generic operations with
+tensor name. RoPE layout and activation semantics are explicit options rather
+than model-family assumptions. TopK uses independent `OUTPUT` values and
+`OUTPUT_INDICES` operands; lowering places the indices offset in the existing
+auxiliary-destination CSR snapshot. The old packed TopK scratch remains only as
+a compatibility fallback. Generic operations with
 primitive-equivalent semantics may be canonicalized without introducing a
 model-specific instruction. Other composite commands are rejected; batch
 lowering routes GPTQ MatMul through the model-independent tile planner and

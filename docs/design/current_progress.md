@@ -1075,7 +1075,10 @@ beta、softplus decay、state update 和输出投影；最小 native 数值闭�
 Coral 标量核仍只负责 CSR、L1 custom3 分流及正常 retire，全部计算语义属于 NPU 二级译码
 和协处理器。
 
-lowering 与 coprocessor native tests 均已通过。上述两项尚未计入 17 requests / 32 commands /
-406 cycles 的 GB10 full-system 基线，需在目标机重建 RTL bridge/firmware 后验收。普通
-CONVOLUTION 仍明确返回不支持，因为当前 generic request ABI 没有 stride、padding、dilation
-和 layout；在 ABI 完成前禁止把它错误映射为 depthwise causal convolution。
+lowering 与 coprocessor native tests 均已通过，并在 GB10 完成 full-system 验收。第五批
+原子提交 gated `TATTENTION` 与 `TRECURRENT`，最终结果为 5 batches / 19 requests /
+34 commands / 435 modeled cycles，`xgraph_validated_operators=19`、
+`xgraph_correctness=PASS`。这组数据替代 17 requests / 32 commands / 406 cycles，成为当前
+通用算子硬件 lowering 功能基线。普通 CONVOLUTION 仍明确返回不支持，因为当前 generic
+request ABI 没有 stride、padding、dilation 和 layout；在 ABI 完成前禁止把它错误映射为
+depthwise causal convolution。

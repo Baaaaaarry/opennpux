@@ -27,33 +27,38 @@ NPU L2 decode.
 | CAUSAL_CONVOLUTION | `TCAUSALCONV` | rows=2, features=2, kernel=3, stateful | 1 | 24 | PASS |
 | RECURRENT_UPDATE | `TDMA(full output) + TDMA(final row state)` | rows=2, features=2, basic persistent state | 2 | 6 | PASS |
 | EXPERT | `gate(TDEQUANT+TMMA) + up(TDEQUANT+TMMA) + TSILU + TMUL + down(TDEQUANT+TMMA)` | rows=1, input=2, intermediate=2, output=2, GPTQ INT4 | 8 | 32 | PASS |
-| ATTENTION, sigmoid gated | `TATTENTION` + gate CSR | native rows=1, heads=1, head dim=1, KV length=1 | 1 | 8 | NATIVE PASS / GB10 PENDING |
-| RECURRENT_UPDATE, gated delta | `TRECURRENT` | native rows=1, key/value heads=1, key/value dim=1 | 1 | 21 | NATIVE PASS / GB10 PENDING |
+| ATTENTION, sigmoid gated | `TATTENTION` + gate CSR | rows=1, heads=1, head dim=1, KV length=1 | 1 | 8 | PASS |
+| RECURRENT_UPDATE, gated delta | `TRECURRENT` | rows=1, key/value heads=1, key/value dim=1 | 1 | 21 | PASS |
 | CONVOLUTION | not lowered | Generic ABI lacks stride, padding, dilation and layout | - | - | ABI BLOCKED |
 
 The per-operation values above sum to the current full-system baseline:
 
 ```text
-xgraph_batches=4
-xgraph_completed_requests=17
-xgraph_completed_commands=32
-xgraph_output=32,5,1053851104,0
-xgraph_npu_cycles=406
-xgraph_operation_count=406
-xgraph_validated_operators=17
+xgraph_batches=5
+xgraph_completed_requests=19
+xgraph_completed_commands=34
+xgraph_output=34,5,1053851104,0
+xgraph_npu_cycles=435
+xgraph_operation_count=435
+xgraph_validated_operators=19
 xgraph_correctness=PASS
 ```
+
+Acceptance was run on the GB10 validation host from source commit `aa5e22b`
+with `./tools/coralnpu/run_qwen_command_flow_test.sh` after rebuilding the
+bridge and firmware. The cycle values are functional-model accounting, not RTL
+throughput measurements.
 
 The first batch contains the nine direct primitives. The second contains GPTQ
 MatMul, COMBINE and KV DMA. The third contains the atomic Router sequence and
 the stateful causal convolution and basic recurrent update requests. The fourth
 contains the eight-command GPTQ Expert decomposition and one atomic causal GQA
-`TATTENTION`. GB10 full-system acceptance validated all 17 logical operators
-and the aggregate correctness verdict. `RECURRENT_UPDATE` atomically emits two `TDMA` records: one
+`TATTENTION`. The fifth contains gated `TATTENTION` and `TRECURRENT`. GB10
+full-system acceptance validated all 19 logical operators and the aggregate
+correctness verdict. `RECURRENT_UPDATE` atomically emits two `TDMA` records: one
 copies the complete input tensor to the visible output and one publishes the
 final row to persistent state. Its checksum is `0x14a86f48`. Gated-delta now
-lowers separately to `TRECURRENT`; it is not reduced to this copy sequence and
-does not alter the 17-operator full-system baseline until GB10 acceptance.
+lowers separately to `TRECURRENT`; it is not reduced to this copy sequence.
 
 ## Acceptance evidence rule
 
@@ -76,9 +81,10 @@ an operator is replaced by an RTL execution unit, add a separate RTL row or
 measurement column rather than overwriting the functional-model baseline.
 
 The accepted fourth batch appends one generic `TATTENTION` command after the
-eight-command GPTQ `EXPERT` decomposition. The measured totals are 4 batches /
-17 requests / 32 commands / 406 modeled cycles. The fixture covers causal
-visibility, GQA head mapping and Expert gate/up/down execution. Fused attention
-gating and gated recurrent update pass native numerical tests but remain
-outside this measured baseline. Ordinary convolution remains blocked until the
-generic request ABI carries stride, padding, dilation and layout explicitly.
+eight-command GPTQ `EXPERT` decomposition. The fifth batch adds one gated
+`TATTENTION` and one `TRECURRENT`. The measured totals are 5 batches / 19
+requests / 34 commands / 435 modeled cycles. The fixture covers causal
+visibility, GQA head mapping, Expert gate/up/down execution, sigmoid attention
+gating and persistent gated-delta state update. Ordinary convolution remains
+blocked until the generic request ABI carries stride, padding, dilation and
+layout explicitly.

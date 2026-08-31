@@ -113,6 +113,7 @@ object CsrAddress extends ChiselEnum {
   val MMA_RHS_STRIDE = Value(0x82C.U(12.W))
   val MMA_DST_STRIDE = Value(0x82D.U(12.W))
   val MMA_FLAGS = Value(0x82E.U(12.W))
+  val TENSOR_FLAGS = Value(0x82F.U(12.W))
   val MCYCLE    = Value(0xB00.U(12.W))
   val MINSTRET  = Value(0xB02.U(12.W))
   val MCYCLEH   = Value(0xB80.U(12.W))
@@ -340,6 +341,7 @@ class Csr(p: Parameters) extends Module {
   val mmaRhsStride = RegInit(0.U(p.xlen.W))
   val mmaDstStride = RegInit(0.U(p.xlen.W))
   val mmaFlags = RegInit(0.U(p.xlen.W))
+  val tensorFlags = RegInit(0.U(p.xlen.W))
   val xnpuCsrEpoch = RegInit(0.U(32.W))
   io.xnpu.mmaShape := mmaShape
   io.xnpu.mmaDataType := mmaDataType
@@ -377,6 +379,7 @@ class Csr(p: Parameters) extends Module {
   io.xnpu.mmaRhsStride := mmaRhsStride
   io.xnpu.mmaDstStride := mmaDstStride
   io.xnpu.mmaFlags := mmaFlags
+  io.xnpu.tensorFlags := tensorFlags
   io.xnpu.epoch := xnpuCsrEpoch
 
   // Debug mode CSRs
@@ -526,6 +529,7 @@ class Csr(p: Parameters) extends Module {
   val mmaRhsStrideEn = csr_address === CsrAddress.MMA_RHS_STRIDE
   val mmaDstStrideEn = csr_address === CsrAddress.MMA_DST_STRIDE
   val mmaFlagsEn = csr_address === CsrAddress.MMA_FLAGS
+  val tensorFlagsEn = csr_address === CsrAddress.TENSOR_FLAGS
   val kscm0En     = csr_address === CsrAddress.KSCM0
   val kscm1En     = csr_address === CsrAddress.KSCM1
   val kscm2En     = csr_address === CsrAddress.KSCM2
@@ -624,6 +628,7 @@ class Csr(p: Parameters) extends Module {
       mmaRhsStrideEn -> mmaRhsStride,
       mmaDstStrideEn -> mmaDstStride,
       mmaFlagsEn -> mmaFlags,
+      tensorFlagsEn -> tensorFlags,
       kscm0En     -> kscm(31,0),
       kscm1En     -> kscm(63,32),
       kscm2En     -> kscm(95,64),
@@ -718,6 +723,7 @@ class Csr(p: Parameters) extends Module {
     when (mmaRhsStrideEn) { mmaRhsStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (mmaDstStrideEn) { mmaDstStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (mmaFlagsEn) { mmaFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (tensorFlagsEn) { tensorFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (dscratch0En)  { dscratch0 := wdata }
     when (dscratch1En)  { dscratch1 := wdata }
     when (tdata1En)     { tdata1 := LegalizeTdata1(wdata) }

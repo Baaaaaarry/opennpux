@@ -202,6 +202,7 @@ class Gem5CoreMiniAxiWrapper {
     packet.mma_rhs_stride = core_.io_xnpu_request_bits_csr_mmaRhsStride;
     packet.mma_dst_stride = core_.io_xnpu_request_bits_csr_mmaDstStride;
     packet.mma_flags = core_.io_xnpu_request_bits_csr_mmaFlags;
+    packet.tensor_flags = core_.io_xnpu_request_bits_csr_tensorFlags;
     packet.csr_epoch = core_.io_xnpu_request_bits_csr_epoch;
     packet.sequence_id = sequence_id;
 

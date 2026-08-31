@@ -151,6 +151,11 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
                               command.dim1 * sizeof(float));
       }
     case OPENNPUX_XGRAPH_OP_TRMSNORM:
+      if ((command.flags &
+           ~(OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET |
+             OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_INPUT)) != 0) {
+        return false;
+      }
       source1_elements = command.dim1;
       break;
     case OPENNPUX_XGRAPH_OP_TROPE:
@@ -359,8 +364,9 @@ bool Execute(const volatile opennpux_xgraph_command& command,
         uint32_t bits;
         float value;
       } epsilon = {command.scalar0};
-      xopennpux_rmsnorm_fp32(destination, source0, source1, command.dim0,
-                             command.dim1, epsilon.value);
+      xopennpux_rmsnorm_fp32_flags(destination, source0, source1,
+                                   command.dim0, command.dim1, epsilon.value,
+                                   command.flags);
       *operations += elements * 4;
       *cycles += elements * 4;
       return true;

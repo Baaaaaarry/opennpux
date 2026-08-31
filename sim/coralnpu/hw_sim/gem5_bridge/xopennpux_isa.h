@@ -68,8 +68,11 @@ constexpr uint16_t kCsrMmaLhsStride = 0x82b;
 constexpr uint16_t kCsrMmaRhsStride = 0x82c;
 constexpr uint16_t kCsrMmaDstStride = 0x82d;
 constexpr uint16_t kCsrMmaFlags = 0x82e;
+constexpr uint16_t kCsrTensorFlags = 0x82f;
 constexpr uint32_t kMmaFlagTransposeRhs = 1u;
 constexpr uint32_t kMmaFlagAccumulate = 2u;
+constexpr uint32_t kTensorFlagNormWeightOffset = 1u;
+constexpr uint32_t kTensorFlagBfloat16Input = 2u;
 
 constexpr uint32_t kShapeFieldMask = 0x3ff;
 constexpr uint32_t kShapeMShift = 0;

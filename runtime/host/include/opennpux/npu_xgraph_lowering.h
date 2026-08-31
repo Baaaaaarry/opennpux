@@ -136,6 +136,18 @@ int opennpux_npu_xgraph_lower_dense_multi_projection(
     struct opennpux_xgraph_command *commands, uint32_t command_capacity,
     uint32_t *command_count);
 
+/*
+ * Lower explicit FP32 Q/K/V projections and per-head Q/K normalization.
+ * A gated query projection is split by head into query and gate outputs using
+ * strided TMMA destinations; no model-specific tensor layout is inferred.
+ */
+int opennpux_npu_xgraph_lower_attention_projection(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count);
+
 /* Lower a dense shared expert to tiled projections and elementwise ops. */
 int opennpux_npu_xgraph_lower_shared_expert(
     const struct opennpux_npu_functional_request *request,

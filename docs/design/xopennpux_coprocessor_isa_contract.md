@@ -156,6 +156,9 @@ or 100 percent for values 0 through 4 respectively. Other values are reserved.
 | `0x80b` | `scalar_param0` | operation-specific FP32 scalar, snapshotted at dispatch |
 | `0x818` | `tensor_aux_source_address` | optional persistent-state source address |
 | `0x819` | `tensor_aux_destination_address` | optional persistent-state destination address |
+| `0x82b..0x82d` | `mma_lhs/rhs/dst_stride` | byte row strides for strided TMMA operands |
+| `0x82e` | `mma_flags` | transpose-RHS `[0]`, destination accumulate `[1]` |
+| `0x82f` | `tensor_flags` | RMSNorm weight-offset `[0]`, BF16-input rounding `[1]` |
 
 The supported logical data types are FP16, BF16, FP32, INT16, INT8,
 FP8-E4M3, FP8-E5M2, INT4, INT2, MXFP6, and MXFP4. Each instruction definition

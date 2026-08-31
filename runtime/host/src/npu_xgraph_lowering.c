@@ -46,6 +46,23 @@ has_dense_multi_projection_operands(
 }
 
 static int
+has_attention_projection_operands(
+    const struct opennpux_npu_functional_request *request)
+{
+    return find_operand(request, OPENNPUX_NPU_OPERAND_INPUT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_ATTENTION_Q_WEIGHT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_ATTENTION_K_WEIGHT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_ATTENTION_V_WEIGHT) != NULL &&
+        find_operand(request,
+                     OPENNPUX_NPU_OPERAND_ATTENTION_Q_NORM_WEIGHT) != NULL &&
+        find_operand(request,
+                     OPENNPUX_NPU_OPERAND_ATTENTION_K_NORM_WEIGHT) != NULL;
+}
+
+static int
 operand_offset(const struct opennpux_npu_functional_operand *operand,
                uint32_t extmem_base, uint32_t extmem_size, uint32_t *offset)
 {
@@ -143,11 +160,13 @@ xopennpux_scale_data_type(uint32_t data_type)
 #define OPENNPUX_TMMA_TILE_LIMIT UINT32_C(1023)
 
 static int
-lower_dense_matmul_operands(
+lower_dense_matmul_operands_strided(
     const struct opennpux_npu_functional_operand *input,
     const struct opennpux_npu_functional_operand *weight,
     const struct opennpux_npu_functional_operand *output,
     uint32_t rows, uint32_t input_features, uint32_t output_features,
+    uint32_t input_row_stride, uint32_t weight_row_stride,
+    uint32_t output_row_stride,
     uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
     struct opennpux_xgraph_command *commands, uint32_t command_capacity,
     uint32_t *command_count)
@@ -155,12 +174,24 @@ lower_dense_matmul_operands(
     if (command_count != NULL) {
         *command_count = 0;
     }
+    const uint64_t minimum_input_stride =
+        (uint64_t)input_features * sizeof(float);
+    const uint64_t minimum_weight_stride = minimum_input_stride;
+    const uint64_t minimum_output_stride =
+        (uint64_t)output_features * sizeof(float);
+    const uint64_t input_stride =
+        input_row_stride == 0 ? minimum_input_stride : input_row_stride;
+    const uint64_t weight_stride =
+        weight_row_stride == 0 ? minimum_weight_stride : weight_row_stride;
+    const uint64_t output_stride =
+        output_row_stride == 0 ? minimum_output_stride : output_row_stride;
     const uint64_t input_bytes =
-        (uint64_t)rows * input_features * sizeof(float);
-    const uint64_t weight_bytes =
-        (uint64_t)output_features * input_features * sizeof(float);
+        (uint64_t)(rows - 1) * input_stride + minimum_input_stride;
+    const uint64_t weight_bytes = (uint64_t)(output_features - 1) *
+            weight_stride +
+        minimum_weight_stride;
     const uint64_t output_bytes =
-        (uint64_t)rows * output_features * sizeof(float);
+        (uint64_t)(rows - 1) * output_stride + minimum_output_stride;
     const uint64_t m_tiles =
         (rows + OPENNPUX_TMMA_TILE_LIMIT - 1) / OPENNPUX_TMMA_TILE_LIMIT;
     const uint64_t n_tiles =
@@ -172,7 +203,11 @@ lower_dense_matmul_operands(
     const uint64_t required_commands = m_tiles * n_tiles * k_tiles;
     if (input == NULL || weight == NULL || output == NULL || commands == NULL ||
         command_count == NULL || rows == 0 || input_features == 0 ||
-        output_features == 0 || input_bytes > UINT32_MAX ||
+        output_features == 0 || input_stride < minimum_input_stride ||
+        weight_stride < minimum_weight_stride ||
+        output_stride < minimum_output_stride || input_stride > UINT32_MAX ||
+        weight_stride > UINT32_MAX || output_stride > UINT32_MAX ||
+        input_bytes > UINT32_MAX ||
         weight_bytes > UINT32_MAX || output_bytes > UINT32_MAX ||
         input->byte_size < input_bytes || weight->byte_size < weight_bytes ||
         output->byte_size < output_bytes || required_commands == 0 ||
@@ -210,9 +245,9 @@ lower_dense_matmul_operands(
                 command->dim0 = m;
                 command->dim1 = n;
                 command->dim2 = k;
-                command->reserved[0] = input_features * sizeof(float);
-                command->reserved[1] = input_features * sizeof(float);
-                command->reserved[2] = output_features * sizeof(float);
+                command->reserved[0] = (uint32_t)input_stride;
+                command->reserved[1] = (uint32_t)weight_stride;
+                command->reserved[2] = (uint32_t)output_stride;
                 const uint64_t input_address =
                     (uint64_t)input->address +
                     ((uint64_t)m_base * input_features + k_base) *
@@ -251,6 +286,22 @@ lower_dense_matmul_operands(
     }
     *command_count = emitted;
     return 0;
+}
+
+static int
+lower_dense_matmul_operands(
+    const struct opennpux_npu_functional_operand *input,
+    const struct opennpux_npu_functional_operand *weight,
+    const struct opennpux_npu_functional_operand *output,
+    uint32_t rows, uint32_t input_features, uint32_t output_features,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    return lower_dense_matmul_operands_strided(
+        input, weight, output, rows, input_features, output_features, 0, 0, 0,
+        extmem_base, extmem_size, first_command_id, commands,
+        command_capacity, command_count);
 }
 
 int
@@ -337,6 +388,178 @@ opennpux_npu_xgraph_lower_dense_multi_projection(
             return -1;
         }
         emitted += produced;
+    }
+    *command_count = emitted;
+    return 0;
+}
+
+int
+opennpux_npu_xgraph_lower_attention_projection(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (command_count != NULL) {
+        *command_count = 0;
+    }
+    if (validate_request(request, parameters, extmem_size) != 0 ||
+        request->opcode != OPENNPUX_NPU_OP_MATMUL || commands == NULL ||
+        command_count == NULL || !has_attention_projection_operands(request) ||
+        parameters->input_features == 0 || request->heads == 0 ||
+        request->kv_heads == 0 || request->head_dim == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    const uint64_t query_features64 =
+        (uint64_t)request->heads * request->head_dim;
+    const uint64_t key_features64 =
+        (uint64_t)request->kv_heads * request->head_dim;
+    if (query_features64 > UINT32_MAX || key_features64 > UINT32_MAX ||
+        request->features != query_features64) {
+        errno = EINVAL;
+        return -1;
+    }
+    const uint32_t query_features = (uint32_t)query_features64;
+    const uint32_t key_features = (uint32_t)key_features64;
+    const struct opennpux_npu_functional_operand *input =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+    const struct opennpux_npu_functional_operand *query =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+    const struct opennpux_npu_functional_operand *key =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY);
+    const struct opennpux_npu_functional_operand *value =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY);
+    const struct opennpux_npu_functional_operand *gate =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_QUATERNARY);
+    const struct opennpux_npu_functional_operand *q_weight =
+        find_operand(request, OPENNPUX_NPU_OPERAND_ATTENTION_Q_WEIGHT);
+    const struct opennpux_npu_functional_operand *k_weight =
+        find_operand(request, OPENNPUX_NPU_OPERAND_ATTENTION_K_WEIGHT);
+    const struct opennpux_npu_functional_operand *v_weight =
+        find_operand(request, OPENNPUX_NPU_OPERAND_ATTENTION_V_WEIGHT);
+    const struct opennpux_npu_functional_operand *q_norm = find_operand(
+        request, OPENNPUX_NPU_OPERAND_ATTENTION_Q_NORM_WEIGHT);
+    const struct opennpux_npu_functional_operand *k_norm = find_operand(
+        request, OPENNPUX_NPU_OPERAND_ATTENTION_K_NORM_WEIGHT);
+    const uint64_t input_stride64 =
+        (uint64_t)parameters->input_features * sizeof(float);
+    const uint64_t query_stride64 =
+        (uint64_t)query_features * sizeof(float);
+    const uint64_t key_stride64 = (uint64_t)key_features * sizeof(float);
+    const uint64_t q_weight_features =
+        q_weight->byte_size / sizeof(float) / parameters->input_features;
+    const int gated_query = gate != NULL;
+    if (input_stride64 > UINT32_MAX || query_stride64 > UINT32_MAX ||
+        key_stride64 > UINT32_MAX ||
+        q_weight->byte_size % sizeof(float) != 0 ||
+        q_weight->byte_size / sizeof(float) % parameters->input_features != 0 ||
+        q_weight_features != query_features * (gated_query ? 2u : 1u) ||
+        k_weight->byte_size != input_stride64 * key_features ||
+        v_weight->byte_size != input_stride64 * key_features ||
+        q_norm->byte_size != request->head_dim * sizeof(float) ||
+        k_norm->byte_size != request->head_dim * sizeof(float)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    uint32_t emitted = 0;
+    uint32_t produced = 0;
+    for (uint32_t head = 0; head < request->heads; ++head) {
+        const uint32_t projection_count = gated_query ? 2 : 1;
+        for (uint32_t projection = 0; projection < projection_count;
+             ++projection) {
+            const uint64_t weight_offset =
+                ((uint64_t)head * projection_count + projection) *
+                request->head_dim * input_stride64;
+            const uint64_t output_offset =
+                (uint64_t)head * request->head_dim * sizeof(float);
+            struct opennpux_npu_functional_operand weight_view = *q_weight;
+            struct opennpux_npu_functional_operand output_view =
+                projection == 0 ? *query : *gate;
+            weight_view.address += (uint32_t)weight_offset;
+            weight_view.byte_size -= (uint32_t)weight_offset;
+            output_view.address += (uint32_t)output_offset;
+            output_view.byte_size -= (uint32_t)output_offset;
+            if (lower_dense_matmul_operands_strided(
+                    input, &weight_view, &output_view, request->rows,
+                    parameters->input_features, request->head_dim,
+                    (uint32_t)input_stride64, (uint32_t)input_stride64,
+                    (uint32_t)query_stride64, extmem_base, extmem_size,
+                    first_command_id + emitted, commands + emitted,
+                    command_capacity - emitted, &produced) != 0) {
+                return -1;
+            }
+            emitted += produced;
+        }
+    }
+#define LOWER_ATTENTION_DENSE(WEIGHT, OUTPUT)                                 \
+    do {                                                                       \
+        if (lower_dense_matmul_operands(                                       \
+                input, (WEIGHT), (OUTPUT), request->rows,                      \
+                parameters->input_features, key_features, extmem_base,         \
+                extmem_size, first_command_id + emitted, commands + emitted,   \
+                command_capacity - emitted, &produced) != 0) {                 \
+            return -1;                                                         \
+        }                                                                      \
+        emitted += produced;                                                   \
+    } while (0)
+    LOWER_ATTENTION_DENSE(k_weight, key);
+    LOWER_ATTENTION_DENSE(v_weight, value);
+#undef LOWER_ATTENTION_DENSE
+
+    const uint64_t norm_commands =
+        (uint64_t)request->rows * (request->heads + request->kv_heads);
+    if (norm_commands > command_capacity - emitted) {
+        errno = ENOSPC;
+        return -1;
+    }
+    const struct {
+        const struct opennpux_npu_functional_operand *tensor;
+        const struct opennpux_npu_functional_operand *weight;
+        uint32_t heads;
+        uint32_t row_stride;
+    } norm_groups[] = {
+        {query, q_norm, request->heads, (uint32_t)query_stride64},
+        {key, k_norm, request->kv_heads, (uint32_t)key_stride64},
+    };
+    for (uint32_t group = 0; group < 2; ++group) {
+        for (uint32_t row = 0; row < request->rows; ++row) {
+            for (uint32_t head = 0; head < norm_groups[group].heads; ++head) {
+                const uint64_t tensor_offset =
+                    (uint64_t)row * norm_groups[group].row_stride +
+                    (uint64_t)head * request->head_dim * sizeof(float);
+                struct opennpux_npu_functional_operand tensor_view =
+                    *norm_groups[group].tensor;
+                tensor_view.address += (uint32_t)tensor_offset;
+                tensor_view.byte_size -= (uint32_t)tensor_offset;
+                struct opennpux_xgraph_command *command = &commands[emitted++];
+                memset(command, 0, sizeof(*command));
+                command->command_id = first_command_id + emitted - 1;
+                command->opcode = OPENNPUX_XGRAPH_OP_TRMSNORM;
+                command->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+                command->dim0 = 1;
+                command->dim1 = request->head_dim;
+                command->dim2 = 1;
+                command->flags =
+                    ((parameters->flags &
+                      OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0
+                         ? OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET
+                         : 0) |
+                    ((parameters->flags &
+                      OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0
+                         ? OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_INPUT
+                         : 0);
+                memcpy(&command->scalar0, &request->epsilon,
+                       sizeof(command->scalar0));
+                if (set_operands(command, &tensor_view, &tensor_view,
+                                 norm_groups[group].weight, extmem_base,
+                                 extmem_size) != 0) {
+                    return -1;
+                }
+            }
+        }
     }
     *command_count = emitted;
     return 0;
@@ -546,6 +769,15 @@ opennpux_npu_xgraph_lower_primitive(
                             extmem_base, extmem_size);
     case OPENNPUX_NPU_OP_NORMALIZE:
         command->opcode = OPENNPUX_XGRAPH_OP_TRMSNORM;
+        command->flags =
+            ((parameters->flags &
+              OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0
+                 ? OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET
+                 : 0) |
+            ((parameters->flags &
+              OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0
+                 ? OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_INPUT
+                 : 0);
         memcpy(&command->scalar0, &request->epsilon,
                sizeof(command->scalar0));
         return set_operands(command, output, input, weight,
@@ -1632,16 +1864,19 @@ opennpux_npu_xgraph_lower_batch(
         }
 
         const uint32_t available = command_capacity - emitted;
+        const int is_attention_projection =
+            requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
+            has_attention_projection_operands(&requests[index]);
         const int is_gptq_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
-            has_gptq_operands(&requests[index]);
+            has_gptq_operands(&requests[index]) && !is_attention_projection;
         const int is_dense_multi_projection =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             has_dense_multi_projection_operands(&requests[index]);
         const int is_dense_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             !has_gptq_operands(&requests[index]) &&
-            !is_dense_multi_projection;
+            !is_dense_multi_projection && !is_attention_projection;
         const int is_shared_expert =
             requests[index].opcode == OPENNPUX_NPU_OP_EXPERT &&
             find_operand(&requests[index],
@@ -1655,7 +1890,17 @@ opennpux_npu_xgraph_lower_batch(
         const int is_recurrent =
             requests[index].opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE;
         uint32_t produced = 0;
-        if (is_gptq_matmul) {
+        if (is_attention_projection) {
+            if (opennpux_npu_xgraph_lower_attention_projection(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, emitted, commands + emitted, available,
+                    &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_gptq_matmul) {
             if (opennpux_npu_xgraph_lower_gptq_matmul(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, scratch_address, scratch_size, emitted,

@@ -123,6 +123,9 @@ static inline void xopennpux_write_mma_dst_stride(uint32_t value) {
 static inline void xopennpux_write_mma_flags(uint32_t value) {
   __asm__ volatile("csrw 0x82e, %0" : : "r"(value) : "memory");
 }
+static inline void xopennpux_write_tensor_flags(uint32_t value) {
+  __asm__ volatile("csrw 0x82f, %0" : : "r"(value) : "memory");
+}
 
 static inline void xopennpux_tmma_fp32(void* destination, const void* lhs,
                                        const void* rhs) {

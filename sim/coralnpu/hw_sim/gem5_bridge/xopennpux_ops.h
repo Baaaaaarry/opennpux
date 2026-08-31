@@ -69,14 +69,22 @@ static inline void xopennpux_row_scale_fp32(void* destination,
 }
 
 
+static inline void xopennpux_rmsnorm_fp32_flags(
+    void* destination, const void* input, const void* weight, uint32_t rows,
+    uint32_t features, float epsilon, uint32_t flags) {
+  xopennpux_configure_tensor_fp32(rows, features);
+  xopennpux_write_scalar_param0(xopennpux_fp32_bits(epsilon));
+  xopennpux_write_tensor_flags(flags);
+  xopennpux_trmsnorm_fp32(destination, input, weight);
+  xopennpux_tfence();
+}
+
 static inline void xopennpux_rmsnorm_fp32(void* destination,
                                           const void* input,
                                           const void* weight, uint32_t rows,
                                           uint32_t features, float epsilon) {
-  xopennpux_configure_tensor_fp32(rows, features);
-  xopennpux_write_scalar_param0(xopennpux_fp32_bits(epsilon));
-  xopennpux_trmsnorm_fp32(destination, input, weight);
-  xopennpux_tfence();
+  xopennpux_rmsnorm_fp32_flags(destination, input, weight, rows, features,
+                              epsilon, 0);
 }
 
 static inline void xopennpux_softmax_fp32(void* destination,

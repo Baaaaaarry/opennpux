@@ -1191,3 +1191,14 @@ shape 为 `18x2048 -> 8192/32/32`。generic lowering 现按每个 weight operand
 shape。该真实 shape 分别生成 `27+3+3=33` 条命令，覆盖主投影以及两个窄投影的独立输出
 地址、stride 和尾 tile。下一轮审计预期达到 484 lowerable、约 3762 emitted；此后唯一保留
 的失败应为 40 个有意 Host-fused 的动态 routed Expert。
+
+GB10 下一轮审计达到 474 lowerable / 3432 emitted，验证上述三路 projection 已消除；新增
+的 10 个 MATMUL 是四输出 attention projection。其显式 roles 52/53/54 为 FP32 Q/K/V
+权重，roles 55/56 为逐 head Q/K norm，role 57 为 gated-query 输出。当前 generic lowering
+按 `heads/kv_heads/head_dim` 展开，不使用模型名：Q 权重按每个 head 的 `[query,gate]` 两块
+分别生成 strided tiled TMMA，K/V 各自投影，随后 Q/K 逐 row/head 生成 TRMSNORM。真实
+`rows=18, K=2048, heads=16, kv_heads=2, head_dim=256` 请求生成 426 条物理命令，其中
+102 条 projection TMMA、324 条 per-head norm。TRMSNORM command 同时保留 weight-offset 与
+BF16-input flags；Coral CSR `0x82f tensor_flags`、L1 snapshot、bridge packet 和 NPU functional
+coprocessor 已端到端实现这两个语义。下一轮审计预期 484 lowerable、约 7692 emitted，只剩
+40 个动态 routed Expert。

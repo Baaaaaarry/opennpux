@@ -66,6 +66,7 @@ struct Gem5TmmaDispatchPacket {
   uint32_t mma_rhs_stride = 0;
   uint32_t mma_dst_stride = 0;
   uint32_t mma_flags = 0;
+  uint32_t tensor_flags = 0;
   uint32_t csr_epoch = 0;
 };
 
@@ -144,6 +145,7 @@ class Gem5XOpenNpuFunctionalCoprocessor {
     uint32_t mma_rhs_stride = 0;
     uint32_t mma_dst_stride = 0;
     uint32_t mma_flags = 0;
+    uint32_t tensor_flags = 0;
     uint32_t csr_epoch = 0;
   };
 
@@ -186,6 +188,7 @@ class Gem5XOpenNpuFunctionalCoprocessor {
   uint32_t mma_rhs_stride_ = 0;
   uint32_t mma_dst_stride_ = 0;
   uint32_t mma_flags_ = 0;
+  uint32_t tensor_flags_ = 0;
   uint32_t csr_epoch_ = 0;
 };
 

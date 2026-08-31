@@ -702,6 +702,35 @@ void TestFp32RmsNorm() {
   }
 }
 
+void TestRmsNormFlags() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 1, 2);
+  float epsilon = 1.0e-6f;
+  uint32_t epsilon_bits = 0;
+  std::memcpy(&epsilon_bits, &epsilon, sizeof(epsilon_bits));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, epsilon_bits));
+  assert(coprocessor.WriteCsr(
+      xopennpux::kCsrTensorFlags,
+      xopennpux::kTensorFlagNormWeightOffset |
+          xopennpux::kTensorFlagBfloat16Input));
+
+  Gem5TmmaDispatchPacket packet = Packet(20);
+  packet.instruction = xopennpux::EncodeTrmsnorm(12, 10, 11);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  WriteFloat(&memory, 0, 1.001f);
+  WriteFloat(&memory, sizeof(float), 2.001f);
+  WriteFloat(&memory, 0x100, 0.0f);
+  WriteFloat(&memory, 0x100 + sizeof(float), 0.0f);
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  const float inverse_rms = 1.0f / std::sqrt(2.5f + epsilon);
+  assert(std::fabs(ReadFloat(memory, 0x200) - inverse_rms) < 1.0e-6f);
+  assert(std::fabs(ReadFloat(memory, 0x204) - 2.0f * inverse_rms) < 1.0e-6f);
+}
+
 void TestRmsNormRejectsInvalidEpsilon() {
   Gem5XOpenNpuFunctionalCoprocessor coprocessor;
   ConfigureTensorFp32(&coprocessor, 1, 4);
@@ -1154,6 +1183,7 @@ int main() {
   TestGatedRecurrentUpdate();
   TestFp32GroupedConv2d();
   TestFp32RmsNorm();
+  TestRmsNormFlags();
   TestRmsNormRejectsInvalidEpsilon();
   TestFp32Silu();
   TestFp32Softmax();

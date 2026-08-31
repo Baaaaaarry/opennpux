@@ -65,6 +65,17 @@ float DecodeFloat(uint32_t bits) {
   return value;
 }
 
+float RoundBfloat16(float value) {
+  uint32_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+  if ((bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000)) {
+    bits += UINT32_C(0x00007fff) + ((bits >> 16) & 1U);
+    bits &= UINT32_C(0xffff0000);
+    std::memcpy(&value, &bits, sizeof(bits));
+  }
+  return value;
+}
+
 float DecodeFloat16(uint16_t value) {
   const uint32_t sign = static_cast<uint32_t>(value & 0x8000u) << 16;
   const uint32_t exponent = (value >> 10) & 0x1fu;
@@ -148,6 +159,7 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   mma_rhs_stride_ = 0;
   mma_dst_stride_ = 0;
   mma_flags_ = 0;
+  tensor_flags_ = 0;
   csr_epoch_ = 0;
 }
 
@@ -261,6 +273,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrMmaFlags:
       mma_flags_ = value;
+      break;
+    case xopennpux::kCsrTensorFlags:
+      tensor_flags_ = value;
       break;
     default:
       return false;
@@ -383,6 +398,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
     case xopennpux::kCsrMmaFlags:
       *value = mma_flags_;
       return true;
+    case xopennpux::kCsrTensorFlags:
+      *value = tensor_flags_;
+      return true;
     default:
       return false;
   }
@@ -480,6 +498,14 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
         ((effective_lhs_stride | effective_rhs_stride |
           effective_dst_stride) &
          (sizeof(float) - 1)) != 0) {
+      return Gem5TmmaSubmitResult::kInvalidCsrState;
+    }
+  }
+  if (operation == xopennpux::Operation::kTrmsnorm) {
+    const uint32_t flags =
+        packet.csr_epoch == 0 ? tensor_flags_ : packet.tensor_flags;
+    if ((flags & ~(xopennpux::kTensorFlagNormWeightOffset |
+                   xopennpux::kTensorFlagBfloat16Input)) != 0) {
       return Gem5TmmaSubmitResult::kInvalidCsrState;
     }
   }
@@ -799,6 +825,8 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
       packet.csr_epoch == 0 ? mma_dst_stride_ : packet.mma_dst_stride;
   queue_[tail].mma_flags =
       packet.csr_epoch == 0 ? mma_flags_ : packet.mma_flags;
+  queue_[tail].tensor_flags =
+      packet.csr_epoch == 0 ? tensor_flags_ : packet.tensor_flags;
   ++queue_size_;
   return Gem5TmmaSubmitResult::kAccepted;
 }
@@ -1345,15 +1373,21 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
     }
   } else if (command.operation == xopennpux::Operation::kTrmsnorm) {
     const float epsilon = DecodeFloat(command.scalar_param0);
+    const bool weight_offset =
+        (command.tensor_flags & xopennpux::kTensorFlagNormWeightOffset) != 0;
+    const bool bfloat16_input =
+        (command.tensor_flags & xopennpux::kTensorFlagBfloat16Input) != 0;
     for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
       float sum_squares = 0.0f;
       const size_t row_base =
           static_cast<size_t>(row) * command.tensor_shape.features;
       for (uint32_t feature = 0; feature < command.tensor_shape.features;
            ++feature) {
-        const float value =
+        const float source =
             LoadFloat(*memory, lhs_base +
                                    (row_base + feature) * sizeof(float));
+        const float value =
+            bfloat16_input ? RoundBfloat16(source) : source;
         sum_squares += value * value;
       }
       const float inverse_rms =
@@ -1361,11 +1395,14 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                            epsilon);
       for (uint32_t feature = 0; feature < command.tensor_shape.features;
            ++feature) {
-        const float value =
+        const float source =
             LoadFloat(*memory, lhs_base +
                                    (row_base + feature) * sizeof(float));
+        const float value =
+            bfloat16_input ? RoundBfloat16(source) : source;
         const float weight =
-            LoadFloat(*memory, rhs_base + feature * sizeof(float));
+            LoadFloat(*memory, rhs_base + feature * sizeof(float)) +
+            (weight_offset ? 1.0f : 0.0f);
         StoreFloat(memory,
                    dst_base + (row_base + feature) * sizeof(float),
                    value * inverse_rms * weight);

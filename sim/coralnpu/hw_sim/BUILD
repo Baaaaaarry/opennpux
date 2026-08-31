@@ -173,7 +173,9 @@ cc_library(
         "gem5_bridge/opennpux/npu_xgraph_lowering.c",
     ],
     hdrs = [
+        "gem5_bridge/opennpux/npu_functional_request.h",
         "gem5_bridge/opennpux/npu_gptq_tile_plan.h",
+        "gem5_bridge/opennpux/npu_submission.h",
         "gem5_bridge/opennpux/npu_xgraph_lowering.h",
         "gem5_bridge/opennpux/xopennpux_graph.h",
     ],

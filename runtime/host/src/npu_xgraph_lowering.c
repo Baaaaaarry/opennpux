@@ -205,11 +205,14 @@ opennpux_npu_xgraph_lower_primitive(
         }
         command->opcode = OPENNPUX_XGRAPH_OP_TTOPK;
         command->scalar0 = request->top_k;
-        const uint64_t plane_bytes =
+        const uint64_t full_plane_bytes =
             (uint64_t)request->rows * request->top_k * sizeof(uint32_t);
+        const uint64_t row_plane_bytes =
+            (uint64_t)request->top_k * sizeof(uint32_t);
         if (output != NULL && output_indices != NULL) {
-            if (plane_bytes > UINT32_MAX || output->byte_size < plane_bytes ||
-                output_indices->byte_size < plane_bytes ||
+            if (full_plane_bytes > UINT32_MAX ||
+                output->byte_size < full_plane_bytes ||
+                output_indices->byte_size < full_plane_bytes ||
                 operand_offset(output_indices, extmem_base, extmem_size,
                                &command->reserved[0]) != 0) {
                 if (errno == 0) {
@@ -221,9 +224,52 @@ opennpux_npu_xgraph_lower_primitive(
             return set_operands(command, output, input, NULL, extmem_base,
                                 extmem_size);
         }
+        if (output == NULL && output_indices != NULL) {
+            const int last_row_only =
+                output_indices->byte_size >= row_plane_bytes &&
+                output_indices->byte_size < full_plane_bytes;
+            const uint64_t required_indices =
+                last_row_only ? row_plane_bytes : full_plane_bytes;
+            const uint64_t input_bytes =
+                (uint64_t)request->rows * request->features * sizeof(float);
+            if (input == NULL || options == NULL ||
+                options->topk_packed_size < required_indices ||
+                required_indices > UINT32_MAX || input_bytes > UINT32_MAX ||
+                input->byte_size < input_bytes ||
+                output_indices->byte_size < required_indices) {
+                errno = EINVAL;
+                return -1;
+            }
+            struct opennpux_npu_functional_operand values = {
+                OPENNPUX_NPU_OPERAND_OUTPUT,
+                options->topk_packed_address,
+                (uint32_t)required_indices, 0};
+            struct opennpux_npu_functional_operand selected_input = *input;
+            if (last_row_only) {
+                const uint64_t row_bytes =
+                    (uint64_t)request->features * sizeof(float);
+                const uint64_t selected_address =
+                    (uint64_t)input->address +
+                    (uint64_t)(request->rows - 1) * row_bytes;
+                if (row_bytes > UINT32_MAX || selected_address > UINT32_MAX) {
+                    errno = EOVERFLOW;
+                    return -1;
+                }
+                selected_input.address = (uint32_t)selected_address;
+                selected_input.byte_size = (uint32_t)row_bytes;
+                command->dim0 = 1;
+            }
+            command->flags = OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT;
+            if (operand_offset(output_indices, extmem_base, extmem_size,
+                               &command->reserved[0]) != 0) {
+                return -1;
+            }
+            return set_operands(command, &values, &selected_input, NULL,
+                                extmem_base, extmem_size);
+        }
         if (options == NULL || options->topk_packed_size == 0 ||
-            plane_bytes > UINT32_MAX / 2 ||
-            plane_bytes * 2 > options->topk_packed_size) {
+            full_plane_bytes > UINT32_MAX / 2 ||
+            full_plane_bytes * 2 > options->topk_packed_size) {
             errno = options == NULL || options->topk_packed_size == 0
                         ? EINVAL
                         : ENOSPC;
@@ -1276,11 +1322,19 @@ opennpux_npu_xgraph_lower_batch(
             if (available == 0) {
                 break;
             }
-            const struct opennpux_npu_xgraph_lowering_options *command_options =
-                options == NULL ? NULL : &options[index];
+            struct opennpux_npu_xgraph_lowering_options local_options;
+            memset(&local_options, 0, sizeof(local_options));
+            if (options != NULL) {
+                local_options = options[index];
+            }
+            if (requests[index].opcode == OPENNPUX_NPU_OP_TOPK &&
+                local_options.topk_packed_size == 0) {
+                local_options.topk_packed_address = scratch_address;
+                local_options.topk_packed_size = scratch_size;
+            }
             struct opennpux_xgraph_command primitive;
             if (opennpux_npu_xgraph_lower_primitive(
-                    &requests[index], &parameters[index], command_options,
+                    &requests[index], &parameters[index], &local_options,
                     extmem_base, extmem_size, &primitive) != 0) {
                 goto fail;
             }

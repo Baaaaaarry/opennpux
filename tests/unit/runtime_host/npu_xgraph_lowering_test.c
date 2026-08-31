@@ -135,8 +135,9 @@ test_semantic_options(void)
     assert(opennpux_npu_xgraph_lower_primitive(
                &request, &parameters, &options, EXTMEM_BASE, EXTMEM_SIZE,
                &command) == 0);
-    assert(command.flags == 0);
+    assert(command.flags == OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT);
     assert(command.destination_offset == 0x5000);
+    assert(command.reserved[0] == 0x3000);
 }
 
 static void
@@ -467,6 +468,38 @@ test_dense_matmul_with_model_gptq_capability(void)
     assert(command.source0_offset == 0x1000);
     assert(command.source1_offset == 0x2000);
     assert(command.destination_offset == 0x3000);
+}
+
+static void
+test_last_row_indices_only_topk(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command command;
+    uint32_t requests_consumed = 0;
+    uint32_t commands_emitted = 0;
+    struct opennpux_npu_xgraph_lowering_failure failure;
+
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_TOPK);
+    request.command_id = 523;
+    request.rows = 18;
+    request.features = 16;
+    request.top_k = 1;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x1000,
+                18 * 16 * 4);
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT_INDICES, 0x3000, 4);
+
+    assert(opennpux_npu_xgraph_lower_batch(
+               &request, &parameters, NULL, 1, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x4000, 0x1000, &command, 1, NULL,
+               &requests_consumed, &commands_emitted, &failure) == 0);
+    assert(requests_consumed == 1 && commands_emitted == 1);
+    assert(command.opcode == OPENNPUX_XGRAPH_OP_TTOPK);
+    assert(command.flags == OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT);
+    assert(command.dim0 == 1 && command.dim1 == 16 && command.scalar0 == 1);
+    assert(command.source0_offset == 0x1000 + 17 * 16 * 4);
+    assert(command.destination_offset == 0x4000);
+    assert(command.reserved[0] == 0x3000);
 }
 
 static void
@@ -960,6 +993,7 @@ main(void)
     test_sequence_lowering();
     test_gptq_tiled_lowering();
     test_dense_matmul_with_model_gptq_capability();
+    test_last_row_indices_only_topk();
     test_gptq_k_tiled_accumulation();
     test_bounded_mixed_batch_lowering();
     test_dma_lowering();

@@ -33,6 +33,19 @@ has_gptq_expert_operands(
 }
 
 static int
+has_dense_multi_projection_operands(
+    const struct opennpux_npu_functional_request *request)
+{
+    return find_operand(request, OPENNPUX_NPU_OPERAND_INPUT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_LINEAR_QKV_WEIGHT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_LINEAR_ALPHA_WEIGHT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_LINEAR_BETA_WEIGHT) != NULL;
+}
+
+static int
 operand_offset(const struct opennpux_npu_functional_operand *operand,
                uint32_t extmem_base, uint32_t extmem_size, uint32_t *offset)
 {
@@ -261,6 +274,72 @@ opennpux_npu_xgraph_lower_dense_matmul(
         parameters->input_features, parameters->output_features, extmem_base,
         extmem_size, first_command_id, commands, command_capacity,
         command_count);
+}
+
+int
+opennpux_npu_xgraph_lower_dense_multi_projection(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (command_count != NULL) {
+        *command_count = 0;
+    }
+    if (validate_request(request, parameters, extmem_size) != 0 ||
+        request->opcode != OPENNPUX_NPU_OP_MATMUL || commands == NULL ||
+        command_count == NULL || parameters->input_features == 0 ||
+        !has_dense_multi_projection_operands(request)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const struct opennpux_npu_functional_operand *input =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+    const uint32_t weight_roles[] = {
+        OPENNPUX_NPU_OPERAND_LINEAR_QKV_WEIGHT,
+        OPENNPUX_NPU_OPERAND_LINEAR_ALPHA_WEIGHT,
+        OPENNPUX_NPU_OPERAND_LINEAR_BETA_WEIGHT,
+    };
+    const uint32_t output_roles[] = {
+        OPENNPUX_NPU_OPERAND_OUTPUT,
+        OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
+        OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY,
+    };
+    const uint64_t weight_row_bytes =
+        (uint64_t)parameters->input_features * sizeof(float);
+    uint32_t emitted = 0;
+    for (uint32_t index = 0; index < 3; ++index) {
+        const struct opennpux_npu_functional_operand *weight =
+            find_operand(request, weight_roles[index]);
+        const struct opennpux_npu_functional_operand *output =
+            find_operand(request, output_roles[index]);
+        if (weight_row_bytes == 0 || weight_row_bytes > UINT32_MAX ||
+            weight->byte_size == 0 ||
+            weight->byte_size % weight_row_bytes != 0) {
+            errno = EINVAL;
+            return -1;
+        }
+        const uint64_t output_features64 =
+            weight->byte_size / weight_row_bytes;
+        if (output_features64 == 0 || output_features64 > UINT32_MAX) {
+            errno = EOVERFLOW;
+            return -1;
+        }
+        uint32_t produced = 0;
+        if (lower_dense_matmul_operands(
+                input, weight, output, request->rows,
+                parameters->input_features, (uint32_t)output_features64,
+                extmem_base, extmem_size, first_command_id + emitted,
+                commands + emitted, command_capacity - emitted,
+                &produced) != 0) {
+            return -1;
+        }
+        emitted += produced;
+    }
+    *command_count = emitted;
+    return 0;
 }
 
 int
@@ -1556,9 +1635,13 @@ opennpux_npu_xgraph_lower_batch(
         const int is_gptq_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             has_gptq_operands(&requests[index]);
+        const int is_dense_multi_projection =
+            requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
+            has_dense_multi_projection_operands(&requests[index]);
         const int is_dense_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
-            !has_gptq_operands(&requests[index]);
+            !has_gptq_operands(&requests[index]) &&
+            !is_dense_multi_projection;
         const int is_shared_expert =
             requests[index].opcode == OPENNPUX_NPU_OP_EXPERT &&
             find_operand(&requests[index],
@@ -1577,6 +1660,16 @@ opennpux_npu_xgraph_lower_batch(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, scratch_address, scratch_size, emitted,
                     commands + emitted, available, &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_dense_multi_projection) {
+            if (opennpux_npu_xgraph_lower_dense_multi_projection(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, emitted, commands + emitted, available,
+                    &produced) != 0) {
                 if (errno == ENOSPC && emitted != 0) {
                     break;
                 }

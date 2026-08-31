@@ -124,6 +124,18 @@ int opennpux_npu_xgraph_lower_dense_matmul(
     struct opennpux_xgraph_command *commands, uint32_t command_capacity,
     uint32_t *command_count);
 
+/*
+ * Lower three dense projections sharing one input. Output widths are derived
+ * from each explicit [N,K] weight operand, so the interface is independent of
+ * model names and does not require all projections to have the same N.
+ */
+int opennpux_npu_xgraph_lower_dense_multi_projection(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count);
+
 /* Lower a dense shared expert to tiled projections and elementwise ops. */
 int opennpux_npu_xgraph_lower_shared_expert(
     const struct opennpux_npu_functional_request *request,

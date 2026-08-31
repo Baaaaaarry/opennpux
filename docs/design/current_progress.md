@@ -1183,3 +1183,11 @@ Expert 生成 16 条 XOpenNPUX 命令。新增 lowering 与 coprocessor 回归�
 stride、K-tile accumulate、尾 tile 和完整 shared Expert 序列。下一次 GB10 审计预期消除
 `EXPERT/EINVAL` 的 40 个 shared Expert；保留的 40 个 `EXPERT/ENOTSUP` 是有意显式标记的
 动态 routed Expert，需由后续 device-side TopK route、expert paging 与聚合控制流解决。
+
+GB10 复验确认 shared Expert 的 40 个 `EINVAL` 已消失，同时暴露 40 个三路 dense projection
+MATMUL。每个 request 共享 `[rows,K]` 输入，但显式携带三组 `[N,K]` 权重和三个输出；真实
+shape 为 `18x2048 -> 8192/32/32`。generic lowering 现按每个 weight operand 的字节数除以
+`K*sizeof(float)` 推导各自 N，并依次复用 tiled dense TMMA，不读取模型名、层号或固定 Qwen
+shape。该真实 shape 分别生成 `27+3+3=33` 条命令，覆盖主投影以及两个窄投影的独立输出
+地址、stride 和尾 tile。下一轮审计预期达到 484 lowerable、约 3762 emitted；此后唯一保留
+的失败应为 40 个有意 Host-fused 的动态 routed Expert。

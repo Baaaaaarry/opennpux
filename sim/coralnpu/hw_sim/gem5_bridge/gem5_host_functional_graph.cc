@@ -253,8 +253,9 @@ bool Gem5HostFunctionalGraph::Execute(
     }
     if (parameters != nullptr) {
       Gem5HostXGraphExecutionStats xgraph = {};
-      const auto outcome = ExecuteGem5HostXGraphPrimitive(
-          *request, *parameters, &arena_, &xgraph);
+      const auto outcome = ExecuteGem5HostXGraphRequest(
+          *request, *parameters, regions.data(), regions.size(), &arena_,
+          &xgraph);
       if (outcome == Gem5HostXGraphExecutionOutcome::kError) return false;
       if (outcome == Gem5HostXGraphExecutionOutcome::kExecuted) {
         executed = true;
@@ -268,9 +269,15 @@ bool Gem5HostFunctionalGraph::Execute(
         stats_.xgraph_modeled_cycles += xgraph.modeled_cycles;
       } else {
         ++stats_.xgraph_fallback_requests;
+        if (request->opcode < 32) {
+          ++stats_.xgraph_fallback_opcodes[request->opcode];
+        }
       }
     } else {
       ++stats_.xgraph_fallback_requests;
+      if (request->opcode < 32) {
+        ++stats_.xgraph_fallback_opcodes[request->opcode];
+      }
     }
   }
   if (!executed &&

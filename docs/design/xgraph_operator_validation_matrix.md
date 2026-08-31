@@ -85,17 +85,21 @@ measurement column rather than overwriting the functional-model baseline.
 
 The generic Host functional graph now has an opt-in execution policy,
 `OPENNPUX_HOST_FUNCTIONAL_EXECUTION=xopennpux-primitives`. Eligible primitive
-requests are lowered and executed by `Gem5XOpenNpuFunctionalCoprocessor`, which
+requests and supported GPTQ MatMul sequences are lowered and executed by
+`Gem5XOpenNpuFunctionalCoprocessor`, which
 uses the same XOpenNPUX L2 instruction decoder and CSR snapshot contract as the
-Coral custom-instruction path. Unsupported composites and requests whose data
-is not wholly resident in the graph Tensor Arena remain on the strict Host C++
-reference backend.
+Coral custom-instruction path. External read-only weight operands are mirrored
+into one temporary EXTMEM image; output operands must remain in the graph
+Tensor Arena. Unsupported composites remain on the strict Host C++ reference
+backend.
 
 This is a functional NPU-coprocessor replacement milestone, not an RTL claim.
 Acceptance must show both unchanged strict token output and the independent
 `host_functional_xgraph_*` counters. A request counted in
 `host_functional_xgraph_fallback_requests` has not been replaced, even if its
 lowering audit previously passed.
+Per-opcode fallback counters identify the next replacement target without
+changing the logical request-completion totals.
 
 The accepted fourth batch appends one generic `TATTENTION` command after the
 eight-command GPTQ `EXPERT` decomposition. The fifth batch adds one gated

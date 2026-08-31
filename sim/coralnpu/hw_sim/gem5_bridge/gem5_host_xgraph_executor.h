@@ -3,9 +3,9 @@
 
 #include <cstdint>
 
+#include "opennpux/npu_xgraph_lowering.h"
+#include "hw_sim/gem5_bridge/gem5_generic_command_dispatch.h"
 #include "hw_sim/gem5_bridge/gem5_host_tensor_arena.h"
-#include "opennpux/npu_functional_request.h"
-#include "opennpux/npu_submission.h"
 
 enum class Gem5HostXGraphExecutionOutcome {
   kNotEligible,
@@ -21,11 +21,12 @@ struct Gem5HostXGraphExecutionStats {
   uint64_t bytes_written = 0;
 };
 
-// Lowers one generic request and executes its primitive XOpenNPUX instruction
+// Lowers one generic request and executes its XOpenNPUX instruction sequence
 // through the same L2 decoder and functional coprocessor used by Coral RTL.
-Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphPrimitive(
+Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
     const opennpux_npu_functional_request& request,
     const opennpux_npu_operator_parameters& parameters,
+    const Gem5FunctionalMemoryRegion* regions, size_t region_count,
     Gem5HostTensorArena* arena, Gem5HostXGraphExecutionStats* stats);
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_HOST_XGRAPH_EXECUTOR_H_

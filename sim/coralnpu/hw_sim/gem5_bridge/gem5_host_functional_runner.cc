@@ -796,6 +796,13 @@ int main(int argc, char** argv) {
     std::printf("host_functional_xgraph_fallback_requests=%llu\n",
                 static_cast<unsigned long long>(
                     graph.stats().xgraph_fallback_requests));
+    for (uint32_t opcode = 0; opcode < 32; ++opcode) {
+      if (graph.stats().xgraph_fallback_opcodes[opcode] != 0) {
+        std::printf("host_functional_xgraph_fallback_opcode_%u=%llu\n", opcode,
+                    static_cast<unsigned long long>(
+                        graph.stats().xgraph_fallback_opcodes[opcode]));
+      }
+    }
     std::printf("host_functional_run=PASS\n");
   }
   std::free(submission);

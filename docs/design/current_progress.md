@@ -1258,3 +1258,15 @@ CORAL_HOST_FUNCTIONAL_EXECUTION=xopennpux-primitives \
 验收要求除原有 `token_golden=PASS equivalence=strict` 外，还必须出现非零
 `host_functional_xgraph_requests/commands`；`fallback_requests` 作为下一阶段替换清单保留，
 不能把 `xgraph_audit_complete=PASS` 当作已经执行过硬件协处理器。
+
+GB10 首阶段结果为 4 个 generation step 累计 `xgraph_requests=160`、
+`xgraph_commands=160`、`xgraph_operations=860160`，并保持 strict token PASS；
+`fallback_requests=324`，即每步仍有 81 个复杂请求未替换。第二阶段已加入统一 EXTMEM
+执行镜像：本次请求引用的外部权重区按 64-byte 对齐映射到临时 NPU 地址空间，Tensor Arena
+保持原地址，后接 64 MiB lowering scratch。通用 lowerer可将普通 GPTQ MatMul 拆成
+`TDEQUANT/TMMA/TADD` 序列，执行器在任何写回前验证完整序列，再逐条经过相同 L2 decode、
+CSR snapshot 和 functional coprocessor，最终只将 Tensor Arena 区域发布回图状态。
+
+新增 `host_functional_xgraph_fallback_opcode_<n>` 统计用于区分尚未替换的 QKV 多投影、
+Expert 和其他复合请求。预计普通投影接入后，真实模型每步 81 个 MATMUL fallback 将先下降，
+但 GPTQ gated QKV 仍需独立的多输出 lowering；任何 strict token 偏差均阻止该阶段验收。

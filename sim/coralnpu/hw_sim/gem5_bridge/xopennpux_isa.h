@@ -13,11 +13,13 @@ constexpr uint32_t kTmmaFunct7 = 0;
 constexpr uint32_t kTensorTensorFunct3 = 1;
 constexpr uint32_t kTaddFunct7 = 1;
 constexpr uint32_t kTmulFunct7 = 2;
+constexpr uint32_t kRowScaleFunct7 = 3;
 constexpr uint32_t kUnaryReductionFunct3 = 2;
 constexpr uint32_t kRmsNormFunct7 = 0x31;
 constexpr uint32_t kSoftmaxFunct7 = 0x32;
 constexpr uint32_t kRopeFunct7 = 0x33;
 constexpr uint32_t kSiluFunct7 = 0x46;
+constexpr uint32_t kSigmoidFunct7 = 0x47;
 constexpr uint32_t kMoveFunct3 = 3;
 constexpr uint32_t kGatherFunct7 = 0x10;
 constexpr uint32_t kDequantFunct7 = 0x11;
@@ -209,6 +211,19 @@ constexpr bool IsTmul(uint32_t instruction) {
          ((instruction >> 25) & 0x7f) == kTmulFunct7;
 }
 
+constexpr uint32_t EncodeTrowScale(uint32_t rd, uint32_t rs1,
+                                   uint32_t rs2) {
+  return (kRowScaleFunct7 << 25) | ((rs2 & 0x1f) << 20) |
+         ((rs1 & 0x1f) << 15) | (kTensorTensorFunct3 << 12) |
+         ((rd & 0x1f) << 7) | kCustom3Opcode;
+}
+
+constexpr bool IsTrowScale(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kTensorTensorFunct3 &&
+         ((instruction >> 25) & 0x7f) == kRowScaleFunct7;
+}
+
 constexpr uint32_t EncodeTrmsnorm(uint32_t rd, uint32_t rs1, uint32_t rs2) {
   return (kRmsNormFunct7 << 25) | ((rs2 & 0x1f) << 20) |
          ((rs1 & 0x1f) << 15) | (kUnaryReductionFunct3 << 12) |
@@ -256,6 +271,19 @@ constexpr bool IsTsilu(uint32_t instruction) {
   return IsCustom3(instruction) &&
          ((instruction >> 12) & 0x7) == kUnaryReductionFunct3 &&
          ((instruction >> 25) & 0x7f) == kSiluFunct7 &&
+         ((instruction >> 20) & 0x1f) == 0;
+}
+
+constexpr uint32_t EncodeTsigmoid(uint32_t rd, uint32_t rs1) {
+  return (kSigmoidFunct7 << 25) | ((rs1 & 0x1f) << 15) |
+         (kUnaryReductionFunct3 << 12) | ((rd & 0x1f) << 7) |
+         kCustom3Opcode;
+}
+
+constexpr bool IsTsigmoid(uint32_t instruction) {
+  return IsCustom3(instruction) &&
+         ((instruction >> 12) & 0x7) == kUnaryReductionFunct3 &&
+         ((instruction >> 25) & 0x7f) == kSigmoidFunct7 &&
          ((instruction >> 20) & 0x1f) == 0;
 }
 
@@ -372,10 +400,12 @@ enum class Operation : uint8_t {
   kTmma,
   kTadd,
   kTmul,
+  kTrowScale,
   kTrmsnorm,
   kTsoftmax,
   kTrope,
   kTsilu,
+  kTsigmoid,
   kTgather,
   kTdequant,
   kTdma,
@@ -391,10 +421,12 @@ constexpr Operation DecodeOperation(uint32_t instruction) {
   return IsTmma(instruction) ? Operation::kTmma
          : IsTadd(instruction) ? Operation::kTadd
          : IsTmul(instruction) ? Operation::kTmul
+         : IsTrowScale(instruction) ? Operation::kTrowScale
          : IsTrmsnorm(instruction) ? Operation::kTrmsnorm
          : IsTsoftmax(instruction) ? Operation::kTsoftmax
          : IsTrope(instruction) ? Operation::kTrope
          : IsTsilu(instruction) ? Operation::kTsilu
+         : IsTsigmoid(instruction) ? Operation::kTsigmoid
          : IsTgather(instruction) ? Operation::kTgather
          : IsTdequant(instruction) ? Operation::kTdequant
          : IsTdma(instruction) ? Operation::kTdma
@@ -415,6 +447,8 @@ constexpr const char* OperationName(Operation operation) {
       return "tadd";
     case Operation::kTmul:
       return "tmul";
+    case Operation::kTrowScale:
+      return "trow_scale";
     case Operation::kTrmsnorm:
       return "trmsnorm";
     case Operation::kTsoftmax:
@@ -423,6 +457,8 @@ constexpr const char* OperationName(Operation operation) {
       return "trope";
     case Operation::kTsilu:
       return "tsilu";
+    case Operation::kTsigmoid:
+      return "tsigmoid";
     case Operation::kTgather:
       return "tgather";
     case Operation::kTdequant:

@@ -50,6 +50,8 @@ enum opennpux_xgraph_opcode {
     OPENNPUX_XGRAPH_OP_TATTENTION = 13,
     OPENNPUX_XGRAPH_OP_TRECURRENT = 14,
     OPENNPUX_XGRAPH_OP_TCONV = 15,
+    OPENNPUX_XGRAPH_OP_TSIGMOID = 16,
+    OPENNPUX_XGRAPH_OP_TROW_SCALE = 17,
 };
 
 #define OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL UINT32_C(1)
@@ -117,6 +119,10 @@ struct opennpux_xgraph_command {
  * TTOPK normally writes packed FP32 values followed by uint32 indices. With
  * OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT, destination is the values tensor and
  * reserved[0] is the independent indices tensor offset.
+ *
+ * TROW_SCALE multiplies each FP32 source0 row by the corresponding scalar in
+ * source1. dim0/dim1 are row and feature counts; destination has the same
+ * shape as source0 and source1 contains dim0 FP32 values.
  */
 
 struct opennpux_xgraph_header {

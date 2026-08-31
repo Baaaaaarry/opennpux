@@ -251,9 +251,13 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       break;
     }
     case OPENNPUX_XGRAPH_OP_TSILU:
+    case OPENNPUX_XGRAPH_OP_TSIGMOID:
     case OPENNPUX_XGRAPH_OP_TSOFTMAX:
     case OPENNPUX_XGRAPH_OP_TDMA:
       source1_elements = 0;
+      break;
+    case OPENNPUX_XGRAPH_OP_TROW_SCALE:
+      source1_elements = command.dim0;
       break;
     case OPENNPUX_XGRAPH_OP_TADD:
     case OPENNPUX_XGRAPH_OP_TMUL:
@@ -338,6 +342,18 @@ bool Execute(const volatile opennpux_xgraph_command& command,
       xopennpux_silu_fp32(destination, source0, command.dim0, command.dim1);
       *operations += elements * 3;
       *cycles += elements * 3;
+      return true;
+    case OPENNPUX_XGRAPH_OP_TSIGMOID:
+      xopennpux_sigmoid_fp32(destination, source0, command.dim0,
+                             command.dim1);
+      *operations += elements * 3;
+      *cycles += elements * 3;
+      return true;
+    case OPENNPUX_XGRAPH_OP_TROW_SCALE:
+      xopennpux_row_scale_fp32(destination, source0, source1, command.dim0,
+                               command.dim1);
+      *operations += elements;
+      *cycles += elements;
       return true;
     case OPENNPUX_XGRAPH_OP_TGATHER:
       xopennpux_gather_fp32(

@@ -1140,8 +1140,9 @@ attention、动态 routed expert 等剩余语义缺口，最终达到 `xgraph_au
 GB10 首次真实审计确认 524 个 numerical requests 全部被 observer 捕获，其中 362 个已可
 lowering，40 个为显式 Host-fused routed expert，已 lower 的请求产生 532 条物理命令。剩余
 失败按实际接口聚合为：71 个 `MATMUL/EINVAL`、10 个 `MATMUL/ENOSPC`、40 个
-`EXPERT/EINVAL`、40 个 `EXPERT/ENOTSUP` 和 1 个 `TOPK/EINVAL`。两个 Expert 组描述同一
-批 routed-expert 逻辑请求的通用 lowering 与 Host-fused 路径，不应重复计数。
+`EXPERT/EINVAL`、40 个 `EXPERT/ENOTSUP` 和 1 个 `TOPK/EINVAL`。后续带 operand 细节的
+审计已确认两个 Expert 组是不同请求：`ENOTSUP` 是 40 个动态 routed-expert 请求，
+`EINVAL` 是 40 个 dense shared-expert 请求，不能合并计数。
 
 审计同时暴露了一个通用分派错误：可执行文件允许在模型/command capability 中保留 GPTQ
 flag，但某个 materialized MATMUL 仍可能绑定 dense FP32 `WEIGHT`。Host C++ 数值后端已经
@@ -1154,3 +1155,17 @@ TDEQUANT。现已统一为 operand-driven dispatch：只有存在 `QWEIGHT/QZERO
 维度、TopK、参数 flags、输入/输出/中间维度、量化配置及完整 `operand-role@bytes` 签名。
 下一轮 GB10 审计将据此实现 linear-attention 三投影、gated Q/K/V GPTQ 复合 lowering、
 last-row indices-only TopK 和 device-routed Expert，不引入模型名或层号特例。
+
+GB10 第二轮审计在 operand-driven MATMUL 修复后达到 443 lowerable / 613 emitted，所有
+MATMUL 失败消失。last-row、indices-only TopK 随后补齐，第三轮达到 444 lowerable / 614
+emitted，剩余正好是 40 个 Host-fused routed Expert 与 40 个 shared Expert。Shared Expert
+真实语义为 gate/up/down/router 四次 dense projection，加 SiLU、elementwise multiply、
+sigmoid 和 row broadcast scale。XOpenNPUX 已新增模型无关 `TSIGMOID`、`TROW_SCALE`
+二级译码及 C++ functional execution profile，为该分解提供基础原语。
+
+该审计也暴露出 lowering acceptance 与可执行性不能混为一谈：当前 `mma_shape` 的 M/N/K
+物理编码各为 10 bit，而真实 dense projection 使用 2048/5120 等维度；Host C++ dense
+weight 还是 `[output_features,input_features]`，与当前 TMMA functional engine 的连续
+`[K,N]` RHS 假设不同。在 stride/transpose/accumulate CSR 和 dense tiled-TMMA pass 完成
+前，禁止仅用单条 TMMA 把 shared Expert 标记为 lowerable，否则 audit 会假 PASS、执行会
+发生 shape 截断或权重布局错误。

@@ -144,6 +144,17 @@ static inline void xopennpux_tmul_fp32(void* destination, const void* lhs,
                    : "memory");
 }
 
+static inline void xopennpux_trow_scale_fp32(void* destination,
+                                             const void* input,
+                                             const void* row_scales) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 1, 3, %0, %1, %2"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)input),
+                     "r"((uintptr_t)row_scales)
+                   : "memory");
+}
+
 static inline void xopennpux_trmsnorm_fp32(void* destination,
                                            const void* input,
                                            const void* weight) {
@@ -178,6 +189,15 @@ static inline void xopennpux_tsilu_fp32(void* destination,
                                         const void* input) {
   __asm__ volatile("fence rw, rw" : : : "memory");
   __asm__ volatile(".insn r 0x7b, 2, 0x46, %0, %1, x0"
+                   :
+                   : "r"((uintptr_t)destination), "r"((uintptr_t)input)
+                   : "memory");
+}
+
+static inline void xopennpux_tsigmoid_fp32(void* destination,
+                                           const void* input) {
+  __asm__ volatile("fence rw, rw" : : : "memory");
+  __asm__ volatile(".insn r 0x7b, 2, 0x47, %0, %1, x0"
                    :
                    : "r"((uintptr_t)destination), "r"((uintptr_t)input)
                    : "memory");

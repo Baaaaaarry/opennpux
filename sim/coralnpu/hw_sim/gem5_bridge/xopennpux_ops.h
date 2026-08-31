@@ -47,6 +47,16 @@ static inline void xopennpux_mul_fp32(void* destination, const void* lhs,
   xopennpux_tfence();
 }
 
+static inline void xopennpux_row_scale_fp32(void* destination,
+                                            const void* input,
+                                            const void* row_scales,
+                                            uint32_t rows,
+                                            uint32_t features) {
+  xopennpux_configure_tensor_fp32(rows, features);
+  xopennpux_trow_scale_fp32(destination, input, row_scales);
+  xopennpux_tfence();
+}
+
 
 static inline void xopennpux_rmsnorm_fp32(void* destination,
                                           const void* input,
@@ -85,6 +95,14 @@ static inline void xopennpux_silu_fp32(void* destination, const void* input,
                                        uint32_t rows, uint32_t features) {
   xopennpux_configure_tensor_fp32(rows, features);
   xopennpux_tsilu_fp32(destination, input);
+  xopennpux_tfence();
+}
+
+static inline void xopennpux_sigmoid_fp32(void* destination,
+                                          const void* input, uint32_t rows,
+                                          uint32_t features) {
+  xopennpux_configure_tensor_fp32(rows, features);
+  xopennpux_tsigmoid_fp32(destination, input);
   xopennpux_tfence();
 }
 

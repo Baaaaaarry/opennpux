@@ -335,10 +335,10 @@ bool Execute(const volatile opennpux_xgraph_command& command,
       *cycles += static_cast<uint64_t>(command.dim1) * command.dim2;
       return true;
     case OPENNPUX_XGRAPH_OP_TMMA:
-      xopennpux_matmul_fp32(destination, source0, source1, command.dim0,
-                           command.dim1, command.dim2, command.reserved[0],
-                           command.reserved[1], command.reserved[2],
-                           command.flags);
+      xopennpux_matmul_fp32_strided(
+          destination, source0, source1, command.dim0, command.dim1,
+          command.dim2, command.reserved[0], command.reserved[1],
+          command.reserved[2], command.flags);
       *operations += elements * command.dim2;
       *cycles += elements * command.dim2;
       return true;

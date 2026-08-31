@@ -22,13 +22,10 @@ static inline void xopennpux_configure_tensor_fp32(uint32_t rows,
 // Firmware/compiler-facing functional operator library. These helpers own CSR
 // materialization and synchronization; callers provide only tensor metadata
 // and addresses. The instruction encoding remains independent of model names.
-static inline void xopennpux_matmul_fp32(void* destination, const void* lhs,
-                                         const void* rhs, uint32_t m,
-                                         uint32_t n, uint32_t k,
-                                         uint32_t lhs_stride = 0,
-                                         uint32_t rhs_stride = 0,
-                                         uint32_t dst_stride = 0,
-                                         uint32_t flags = 0) {
+static inline void xopennpux_matmul_fp32_strided(
+    void* destination, const void* lhs, const void* rhs, uint32_t m,
+    uint32_t n, uint32_t k, uint32_t lhs_stride, uint32_t rhs_stride,
+    uint32_t dst_stride, uint32_t flags) {
   xopennpux_write_mma_shape((k << 20) | (n << 10) | m);
   xopennpux_write_mma_data_type((2u << 8) | (2u << 4) | 2u);
   xopennpux_write_mma_lhs_stride(lhs_stride);
@@ -37,6 +34,12 @@ static inline void xopennpux_matmul_fp32(void* destination, const void* lhs,
   xopennpux_write_mma_flags(flags);
   xopennpux_tmma_fp32(destination, lhs, rhs);
   xopennpux_tfence();
+}
+
+static inline void xopennpux_matmul_fp32(void* destination, const void* lhs,
+                                         const void* rhs, uint32_t m,
+                                         uint32_t n, uint32_t k) {
+  xopennpux_matmul_fp32_strided(destination, lhs, rhs, m, n, k, 0, 0, 0, 0);
 }
 
 static inline void xopennpux_add_fp32(void* destination, const void* lhs,

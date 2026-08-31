@@ -63,6 +63,10 @@ class XOpenNpuCsrState(p: Parameters) extends Bundle {
   val convPaddingBr = UInt(p.xlen.W)
   val convDilationHw = UInt(p.xlen.W)
   val convBiasAddress = UInt(p.xlen.W)
+  val mmaLhsStride = UInt(p.xlen.W)
+  val mmaRhsStride = UInt(p.xlen.W)
+  val mmaDstStride = UInt(p.xlen.W)
+  val mmaFlags = UInt(p.xlen.W)
   val epoch = UInt(32.W)
 }
 

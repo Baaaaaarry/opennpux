@@ -24,6 +24,15 @@ has_gptq_operands(const struct opennpux_npu_functional_request *request)
 }
 
 static int
+has_gptq_expert_operands(
+    const struct opennpux_npu_functional_request *request)
+{
+    return find_operand(request, OPENNPUX_NPU_OPERAND_GATE_QWEIGHT) != NULL ||
+        find_operand(request, OPENNPUX_NPU_OPERAND_UP_QWEIGHT) != NULL ||
+        find_operand(request, OPENNPUX_NPU_OPERAND_DOWN_QWEIGHT) != NULL;
+}
+
+static int
 operand_offset(const struct opennpux_npu_functional_operand *operand,
                uint32_t extmem_base, uint32_t extmem_size, uint32_t *offset)
 {
@@ -91,6 +100,18 @@ address_offset(uint32_t address, uint32_t bytes, uint32_t extmem_base,
     return operand_offset(&operand, extmem_base, extmem_size, offset);
 }
 
+static int
+address_offset64(uint64_t address, uint64_t bytes, uint32_t extmem_base,
+                 uint32_t extmem_size, uint32_t *offset)
+{
+    if (address > UINT32_MAX || bytes == 0 || bytes > UINT32_MAX) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    return address_offset((uint32_t)address, (uint32_t)bytes, extmem_base,
+                          extmem_size, offset);
+}
+
 static uint32_t
 xopennpux_scale_data_type(uint32_t data_type)
 {
@@ -104,6 +125,281 @@ xopennpux_scale_data_type(uint32_t data_type)
     default:
         return UINT32_MAX;
     }
+}
+
+#define OPENNPUX_TMMA_TILE_LIMIT UINT32_C(1023)
+
+static int
+lower_dense_matmul_operands(
+    const struct opennpux_npu_functional_operand *input,
+    const struct opennpux_npu_functional_operand *weight,
+    const struct opennpux_npu_functional_operand *output,
+    uint32_t rows, uint32_t input_features, uint32_t output_features,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (command_count != NULL) {
+        *command_count = 0;
+    }
+    const uint64_t input_bytes =
+        (uint64_t)rows * input_features * sizeof(float);
+    const uint64_t weight_bytes =
+        (uint64_t)output_features * input_features * sizeof(float);
+    const uint64_t output_bytes =
+        (uint64_t)rows * output_features * sizeof(float);
+    const uint64_t m_tiles =
+        (rows + OPENNPUX_TMMA_TILE_LIMIT - 1) / OPENNPUX_TMMA_TILE_LIMIT;
+    const uint64_t n_tiles =
+        (output_features + OPENNPUX_TMMA_TILE_LIMIT - 1) /
+        OPENNPUX_TMMA_TILE_LIMIT;
+    const uint64_t k_tiles =
+        (input_features + OPENNPUX_TMMA_TILE_LIMIT - 1) /
+        OPENNPUX_TMMA_TILE_LIMIT;
+    const uint64_t required_commands = m_tiles * n_tiles * k_tiles;
+    if (input == NULL || weight == NULL || output == NULL || commands == NULL ||
+        command_count == NULL || rows == 0 || input_features == 0 ||
+        output_features == 0 || input_bytes > UINT32_MAX ||
+        weight_bytes > UINT32_MAX || output_bytes > UINT32_MAX ||
+        input->byte_size < input_bytes || weight->byte_size < weight_bytes ||
+        output->byte_size < output_bytes || required_commands == 0 ||
+        required_commands > command_capacity ||
+        required_commands > UINT32_MAX - first_command_id) {
+        errno = required_commands > command_capacity ? ENOSPC : EINVAL;
+        return -1;
+    }
+
+    uint32_t emitted = 0;
+    for (uint32_t m_base = 0; m_base < rows;
+         m_base += OPENNPUX_TMMA_TILE_LIMIT) {
+        const uint32_t m = rows - m_base < OPENNPUX_TMMA_TILE_LIMIT
+                               ? rows - m_base
+                               : OPENNPUX_TMMA_TILE_LIMIT;
+        for (uint32_t n_base = 0; n_base < output_features;
+             n_base += OPENNPUX_TMMA_TILE_LIMIT) {
+            const uint32_t n =
+                output_features - n_base < OPENNPUX_TMMA_TILE_LIMIT
+                    ? output_features - n_base
+                    : OPENNPUX_TMMA_TILE_LIMIT;
+            for (uint32_t k_base = 0; k_base < input_features;
+                 k_base += OPENNPUX_TMMA_TILE_LIMIT) {
+                const uint32_t k =
+                    input_features - k_base < OPENNPUX_TMMA_TILE_LIMIT
+                        ? input_features - k_base
+                        : OPENNPUX_TMMA_TILE_LIMIT;
+                struct opennpux_xgraph_command *command = &commands[emitted];
+                memset(command, 0, sizeof(*command));
+                command->command_id = first_command_id + emitted;
+                command->opcode = OPENNPUX_XGRAPH_OP_TMMA;
+                command->flags = OPENNPUX_XGRAPH_TMMA_TRANSPOSE_RHS |
+                    (k_base == 0 ? 0 : OPENNPUX_XGRAPH_TMMA_ACCUMULATE);
+                command->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+                command->dim0 = m;
+                command->dim1 = n;
+                command->dim2 = k;
+                command->reserved[0] = input_features * sizeof(float);
+                command->reserved[1] = input_features * sizeof(float);
+                command->reserved[2] = output_features * sizeof(float);
+                const uint64_t input_address =
+                    (uint64_t)input->address +
+                    ((uint64_t)m_base * input_features + k_base) *
+                        sizeof(float);
+                const uint64_t weight_address =
+                    (uint64_t)weight->address +
+                    ((uint64_t)n_base * input_features + k_base) *
+                        sizeof(float);
+                const uint64_t output_address =
+                    (uint64_t)output->address +
+                    ((uint64_t)m_base * output_features + n_base) *
+                        sizeof(float);
+                if (address_offset64(
+                        input_address,
+                        (uint64_t)(m - 1) * command->reserved[0] +
+                            k * sizeof(float),
+                        extmem_base, extmem_size,
+                        &command->source0_offset) != 0 ||
+                    address_offset64(
+                        weight_address,
+                        (uint64_t)(n - 1) * command->reserved[1] +
+                            k * sizeof(float),
+                        extmem_base, extmem_size,
+                        &command->source1_offset) != 0 ||
+                    address_offset64(
+                        output_address,
+                        (uint64_t)(m - 1) * command->reserved[2] +
+                            n * sizeof(float),
+                        extmem_base, extmem_size,
+                        &command->destination_offset) != 0) {
+                    return -1;
+                }
+                ++emitted;
+            }
+        }
+    }
+    *command_count = emitted;
+    return 0;
+}
+
+int
+opennpux_npu_xgraph_lower_dense_matmul(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (validate_request(request, parameters, extmem_size) != 0 ||
+        request->opcode != OPENNPUX_NPU_OP_MATMUL ||
+        has_gptq_operands(request)) {
+        errno = EINVAL;
+        return -1;
+    }
+    return lower_dense_matmul_operands(
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT),
+        find_operand(request, OPENNPUX_NPU_OPERAND_WEIGHT),
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT), request->rows,
+        parameters->input_features, parameters->output_features, extmem_base,
+        extmem_size, first_command_id, commands, command_capacity,
+        command_count);
+}
+
+int
+opennpux_npu_xgraph_lower_shared_expert(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (command_count != NULL) {
+        *command_count = 0;
+    }
+    if (validate_request(request, parameters, extmem_size) != 0 ||
+        request->opcode != OPENNPUX_NPU_OP_EXPERT || commands == NULL ||
+        command_count == NULL || parameters->input_features == 0 ||
+        parameters->intermediate_features == 0 ||
+        parameters->output_features == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    const struct opennpux_npu_functional_operand *input =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+    const struct opennpux_npu_functional_operand *output =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+    const struct opennpux_npu_functional_operand *gate =
+        find_operand(request, OPENNPUX_NPU_OPERAND_SHARED_GATE_WEIGHT);
+    const struct opennpux_npu_functional_operand *up =
+        find_operand(request, OPENNPUX_NPU_OPERAND_SHARED_UP_WEIGHT);
+    const struct opennpux_npu_functional_operand *down =
+        find_operand(request, OPENNPUX_NPU_OPERAND_SHARED_DOWN_WEIGHT);
+    const struct opennpux_npu_functional_operand *router =
+        find_operand(request, OPENNPUX_NPU_OPERAND_SHARED_ROUTER_WEIGHT);
+    const uint64_t activation_bytes =
+        (uint64_t)request->rows * parameters->intermediate_features *
+        sizeof(float);
+    const uint64_t router_bytes = (uint64_t)request->rows * sizeof(float);
+    const uint64_t required_scratch = activation_bytes * 2 + router_bytes;
+    if (input == NULL || output == NULL || gate == NULL || up == NULL ||
+        down == NULL || router == NULL || activation_bytes > UINT32_MAX ||
+        required_scratch > scratch_size || required_scratch > UINT32_MAX ||
+        (uint64_t)scratch_address + required_scratch > UINT32_MAX) {
+        errno = required_scratch > scratch_size ? ENOSPC : EINVAL;
+        return -1;
+    }
+
+    const struct opennpux_npu_functional_operand gate_activation = {
+        OPENNPUX_NPU_OPERAND_OUTPUT, scratch_address,
+        (uint32_t)activation_bytes, 0};
+    const struct opennpux_npu_functional_operand up_activation = {
+        OPENNPUX_NPU_OPERAND_OUTPUT,
+        scratch_address + (uint32_t)activation_bytes,
+        (uint32_t)activation_bytes, 0};
+    const struct opennpux_npu_functional_operand router_activation = {
+        OPENNPUX_NPU_OPERAND_OUTPUT,
+        scratch_address + (uint32_t)(activation_bytes * 2),
+        (uint32_t)router_bytes, 0};
+    uint32_t emitted = 0;
+    uint32_t produced = 0;
+#define LOWER_DENSE(INPUT, WEIGHT, OUTPUT, K, N)                              \
+    do {                                                                       \
+        if (lower_dense_matmul_operands(                                       \
+                (INPUT), (WEIGHT), (OUTPUT), request->rows, (K), (N),          \
+                extmem_base, extmem_size, first_command_id + emitted,          \
+                commands + emitted, command_capacity - emitted, &produced) !=  \
+            0) {                                                               \
+            return -1;                                                         \
+        }                                                                      \
+        emitted += produced;                                                   \
+    } while (0)
+    LOWER_DENSE(input, gate, &gate_activation, parameters->input_features,
+                parameters->intermediate_features);
+    LOWER_DENSE(input, up, &up_activation, parameters->input_features,
+                parameters->intermediate_features);
+    if (command_capacity - emitted < 2) {
+        errno = ENOSPC;
+        return -1;
+    }
+    struct opennpux_xgraph_command *command = &commands[emitted++];
+    memset(command, 0, sizeof(*command));
+    command->command_id = first_command_id + emitted - 1;
+    command->opcode = OPENNPUX_XGRAPH_OP_TSILU;
+    command->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    command->dim0 = request->rows;
+    command->dim1 = parameters->intermediate_features;
+    command->dim2 = 1;
+    if (set_operands(command, &gate_activation, &gate_activation, NULL,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+    command = &commands[emitted++];
+    memset(command, 0, sizeof(*command));
+    command->command_id = first_command_id + emitted - 1;
+    command->opcode = OPENNPUX_XGRAPH_OP_TMUL;
+    command->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    command->dim0 = request->rows;
+    command->dim1 = parameters->intermediate_features;
+    command->dim2 = 1;
+    if (set_operands(command, &gate_activation, &gate_activation,
+                     &up_activation, extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+    LOWER_DENSE(&gate_activation, down, output,
+                parameters->intermediate_features,
+                parameters->output_features);
+    LOWER_DENSE(input, router, &router_activation, parameters->input_features,
+                1);
+    if (command_capacity - emitted < 2) {
+        errno = ENOSPC;
+        return -1;
+    }
+    command = &commands[emitted++];
+    memset(command, 0, sizeof(*command));
+    command->command_id = first_command_id + emitted - 1;
+    command->opcode = OPENNPUX_XGRAPH_OP_TSIGMOID;
+    command->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    command->dim0 = request->rows;
+    command->dim1 = 1;
+    command->dim2 = 1;
+    if (set_operands(command, &router_activation, &router_activation, NULL,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+    command = &commands[emitted++];
+    memset(command, 0, sizeof(*command));
+    command->command_id = first_command_id + emitted - 1;
+    command->opcode = OPENNPUX_XGRAPH_OP_TROW_SCALE;
+    command->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    command->dim0 = request->rows;
+    command->dim1 = parameters->output_features;
+    command->dim2 = 1;
+    if (set_operands(command, output, output, &router_activation, extmem_base,
+                     extmem_size) != 0) {
+        return -1;
+    }
+#undef LOWER_DENSE
+    *command_count = emitted;
+    return 0;
 }
 
 int
@@ -1260,9 +1556,17 @@ opennpux_npu_xgraph_lower_batch(
         const int is_gptq_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             has_gptq_operands(&requests[index]);
+        const int is_dense_matmul =
+            requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
+            !has_gptq_operands(&requests[index]);
+        const int is_shared_expert =
+            requests[index].opcode == OPENNPUX_NPU_OP_EXPERT &&
+            find_operand(&requests[index],
+                         OPENNPUX_NPU_OPERAND_SHARED_GATE_WEIGHT) != NULL;
         const int is_gptq_expert =
             requests[index].opcode == OPENNPUX_NPU_OP_EXPERT &&
-            (parameters[index].flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0;
+            !is_shared_expert &&
+            has_gptq_expert_operands(&requests[index]);
         const int is_dma = requests[index].opcode == OPENNPUX_NPU_OP_DMA;
         const int is_router = requests[index].opcode == OPENNPUX_NPU_OP_ROUTER;
         const int is_recurrent =
@@ -1270,6 +1574,26 @@ opennpux_npu_xgraph_lower_batch(
         uint32_t produced = 0;
         if (is_gptq_matmul) {
             if (opennpux_npu_xgraph_lower_gptq_matmul(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, scratch_address, scratch_size, emitted,
+                    commands + emitted, available, &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_dense_matmul) {
+            if (opennpux_npu_xgraph_lower_dense_matmul(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, emitted, commands + emitted, available,
+                    &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_shared_expert) {
+            if (opennpux_npu_xgraph_lower_shared_expert(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, scratch_address, scratch_size, emitted,
                     commands + emitted, available, &produced) != 0) {

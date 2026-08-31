@@ -58,6 +58,8 @@ enum opennpux_xgraph_opcode {
 #define OPENNPUX_XGRAPH_TCAUSALCONV_SILU UINT32_C(2)
 #define OPENNPUX_XGRAPH_TATTENTION_GATED UINT32_C(1)
 #define OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT UINT32_C(1)
+#define OPENNPUX_XGRAPH_TMMA_TRANSPOSE_RHS UINT32_C(1)
+#define OPENNPUX_XGRAPH_TMMA_ACCUMULATE UINT32_C(2)
 
 enum opennpux_xgraph_data_type {
     OPENNPUX_XGRAPH_DTYPE_FP32 = 2,
@@ -92,6 +94,11 @@ struct opennpux_xgraph_command {
  *   flags: global quant group count `[31:16]`, tile group base `[15:0]`
  *   reserved[0..4]: scales offset, optional g_idx offset, then qweight,
  *                   qzeros, and scales row strides in bytes.
+ *
+ * TMMA uses reserved[0..2] as lhs, rhs and destination row strides in bytes.
+ * Zero selects the contiguous stride implied by dim2/dim1. The transpose-RHS
+ * flag interprets source1 as row-major [N,K], and accumulate initializes each
+ * output accumulator from its current destination value.
  *
  * TCAUSALCONV uses dim0/dim1/dim2 as rows/features/kernel width. For a
  * stateful command, reserved[0] and reserved[1] contain previous-state and

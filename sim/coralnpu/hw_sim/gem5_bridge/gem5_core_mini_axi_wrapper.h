@@ -198,6 +198,10 @@ class Gem5CoreMiniAxiWrapper {
     packet.conv_padding_br = core_.io_xnpu_request_bits_csr_convPaddingBr;
     packet.conv_dilation_hw = core_.io_xnpu_request_bits_csr_convDilationHw;
     packet.conv_bias_address = core_.io_xnpu_request_bits_csr_convBiasAddress;
+    packet.mma_lhs_stride = core_.io_xnpu_request_bits_csr_mmaLhsStride;
+    packet.mma_rhs_stride = core_.io_xnpu_request_bits_csr_mmaRhsStride;
+    packet.mma_dst_stride = core_.io_xnpu_request_bits_csr_mmaDstStride;
+    packet.mma_flags = core_.io_xnpu_request_bits_csr_mmaFlags;
     packet.csr_epoch = core_.io_xnpu_request_bits_csr_epoch;
     packet.sequence_id = sequence_id;
 

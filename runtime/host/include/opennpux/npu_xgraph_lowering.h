@@ -112,6 +112,28 @@ int opennpux_npu_xgraph_lower_gptq_matmul(
     uint32_t *command_count);
 
 /*
+ * Lower a row-major FP32 dense projection. Generic model weights use [N,K]
+ * layout; the emitted TMMA tiles therefore select transpose-RHS and carry the
+ * original tensor row strides. M/N/K are tiled to the 10-bit hardware shape
+ * fields, and later K tiles accumulate into the same output tile.
+ */
+int opennpux_npu_xgraph_lower_dense_matmul(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count);
+
+/* Lower a dense shared expert to tiled projections and elementwise ops. */
+int opennpux_npu_xgraph_lower_shared_expert(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count);
+
+/*
  * Decompose one GPTQ gated expert into three tiled projections and the
  * intervening SiLU/multiply activation. Gate, up, and down projections reuse
  * the dequant scratch sequentially; their tensor outputs remain explicit

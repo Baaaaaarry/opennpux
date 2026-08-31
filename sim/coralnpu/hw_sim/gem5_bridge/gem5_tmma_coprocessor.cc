@@ -27,6 +27,18 @@ bool ByteRangeValid(uint32_t address, uint64_t bytes, uint32_t alignment,
   return bytes != 0 && offset <= memory_size && bytes <= memory_size - offset;
 }
 
+bool StridedMatrixRangeValid(uint32_t address, uint32_t rows,
+                             uint32_t row_bytes, uint32_t stride,
+                             uint32_t memory_base, size_t memory_size) {
+  if (rows == 0 || row_bytes == 0 || stride < row_bytes ||
+      (stride & (sizeof(float) - 1)) != 0) {
+    return false;
+  }
+  const uint64_t bytes = static_cast<uint64_t>(rows - 1) * stride + row_bytes;
+  return ByteRangeValid(address, bytes, sizeof(float), memory_base,
+                        memory_size);
+}
+
 float LoadFloat(const std::vector<uint8_t>& memory, size_t offset) {
   float value = 0.0f;
   std::memcpy(&value, memory.data() + offset, sizeof(value));
@@ -132,6 +144,10 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   conv_padding_br_ = 0;
   conv_dilation_hw_ = 0;
   conv_bias_address_ = 0;
+  mma_lhs_stride_ = 0;
+  mma_rhs_stride_ = 0;
+  mma_dst_stride_ = 0;
+  mma_flags_ = 0;
   csr_epoch_ = 0;
 }
 
@@ -233,6 +249,18 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrConvBiasAddress:
       conv_bias_address_ = value;
+      break;
+    case xopennpux::kCsrMmaLhsStride:
+      mma_lhs_stride_ = value;
+      break;
+    case xopennpux::kCsrMmaRhsStride:
+      mma_rhs_stride_ = value;
+      break;
+    case xopennpux::kCsrMmaDstStride:
+      mma_dst_stride_ = value;
+      break;
+    case xopennpux::kCsrMmaFlags:
+      mma_flags_ = value;
       break;
     default:
       return false;
@@ -343,6 +371,18 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
     case xopennpux::kCsrConvBiasAddress:
       *value = conv_bias_address_;
       return true;
+    case xopennpux::kCsrMmaLhsStride:
+      *value = mma_lhs_stride_;
+      return true;
+    case xopennpux::kCsrMmaRhsStride:
+      *value = mma_rhs_stride_;
+      return true;
+    case xopennpux::kCsrMmaDstStride:
+      *value = mma_dst_stride_;
+      return true;
+    case xopennpux::kCsrMmaFlags:
+      *value = mma_flags_;
+      return true;
     default:
       return false;
   }
@@ -407,6 +447,41 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
         data_types.src2 != xopennpux::DataType::kFp32 ||
         data_types.dst != xopennpux::DataType::kFp32))) {
     return Gem5TmmaSubmitResult::kInvalidCsrState;
+  }
+  if (operation == xopennpux::Operation::kTmma) {
+    const uint32_t flags =
+        packet.csr_epoch == 0 ? mma_flags_ : packet.mma_flags;
+    const bool transpose_rhs =
+        (flags & xopennpux::kMmaFlagTransposeRhs) != 0;
+    const uint32_t lhs_stride = packet.csr_epoch == 0
+                                    ? mma_lhs_stride_
+                                    : packet.mma_lhs_stride;
+    const uint32_t rhs_stride = packet.csr_epoch == 0
+                                    ? mma_rhs_stride_
+                                    : packet.mma_rhs_stride;
+    const uint32_t dst_stride = packet.csr_epoch == 0
+                                    ? mma_dst_stride_
+                                    : packet.mma_dst_stride;
+    const uint32_t effective_lhs_stride =
+        lhs_stride == 0 ? shape.k * sizeof(float) : lhs_stride;
+    const uint32_t effective_rhs_stride =
+        rhs_stride == 0
+            ? (transpose_rhs ? shape.k : shape.n) * sizeof(float)
+            : rhs_stride;
+    const uint32_t effective_dst_stride =
+        dst_stride == 0 ? shape.n * sizeof(float) : dst_stride;
+    const uint32_t minimum_rhs_stride =
+        (transpose_rhs ? shape.k : shape.n) * sizeof(float);
+    if ((flags & ~(xopennpux::kMmaFlagTransposeRhs |
+                   xopennpux::kMmaFlagAccumulate)) != 0 ||
+        effective_lhs_stride < shape.k * sizeof(float) ||
+        effective_rhs_stride < minimum_rhs_stride ||
+        effective_dst_stride < shape.n * sizeof(float) ||
+        ((effective_lhs_stride | effective_rhs_stride |
+          effective_dst_stride) &
+         (sizeof(float) - 1)) != 0) {
+      return Gem5TmmaSubmitResult::kInvalidCsrState;
+    }
   }
   if (operation == xopennpux::Operation::kTdequant) {
     const uint32_t config_value = packet.csr_epoch == 0
@@ -716,6 +791,14 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
       packet.csr_epoch == 0 ? conv_dilation_hw_ : packet.conv_dilation_hw;
   queue_[tail].conv_bias_address =
       packet.csr_epoch == 0 ? conv_bias_address_ : packet.conv_bias_address;
+  queue_[tail].mma_lhs_stride =
+      packet.csr_epoch == 0 ? mma_lhs_stride_ : packet.mma_lhs_stride;
+  queue_[tail].mma_rhs_stride =
+      packet.csr_epoch == 0 ? mma_rhs_stride_ : packet.mma_rhs_stride;
+  queue_[tail].mma_dst_stride =
+      packet.csr_epoch == 0 ? mma_dst_stride_ : packet.mma_dst_stride;
+  queue_[tail].mma_flags =
+      packet.csr_epoch == 0 ? mma_flags_ : packet.mma_flags;
   ++queue_size_;
   return Gem5TmmaSubmitResult::kAccepted;
 }
@@ -902,8 +985,51 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                     command.scalar_param0 *
                     (command.tensor_aux_destination_address == 0 ? 2 : 1)
           : tensor_elements;
-  const uint64_t dst_bytes = dst_elements * sizeof(float);
-  if (command.operation != xopennpux::Operation::kTdequant &&
+  uint64_t dst_bytes = dst_elements * sizeof(float);
+  if (command.operation == xopennpux::Operation::kTmma) {
+    const bool transpose_rhs =
+        (command.mma_flags & xopennpux::kMmaFlagTransposeRhs) != 0;
+    const uint32_t lhs_stride =
+        command.mma_lhs_stride == 0
+            ? command.shape.k * sizeof(float)
+            : command.mma_lhs_stride;
+    const uint32_t rhs_stride =
+        command.mma_rhs_stride == 0
+            ? (transpose_rhs ? command.shape.k : command.shape.n) *
+                  sizeof(float)
+            : command.mma_rhs_stride;
+    const uint32_t dst_stride =
+        command.mma_dst_stride == 0
+            ? command.shape.n * sizeof(float)
+            : command.mma_dst_stride;
+    const uint32_t rhs_rows =
+        transpose_rhs ? command.shape.n : command.shape.k;
+    const uint32_t rhs_row_bytes =
+        (transpose_rhs ? command.shape.k : command.shape.n) * sizeof(float);
+    if (!StridedMatrixRangeValid(command.dispatch.rs1_value, command.shape.m,
+                                 command.shape.k * sizeof(float), lhs_stride,
+                                 memory_base, memory->size())) {
+      completion->error = Gem5TmmaExecutionError::kAddress;
+      completion->faulting_address = command.dispatch.rs1_value;
+      return true;
+    }
+    if (!StridedMatrixRangeValid(command.dispatch.rs2_value, rhs_rows,
+                                 rhs_row_bytes, rhs_stride, memory_base,
+                                 memory->size())) {
+      completion->error = Gem5TmmaExecutionError::kAddress;
+      completion->faulting_address = command.dispatch.rs2_value;
+      return true;
+    }
+    if (!StridedMatrixRangeValid(command.dispatch.rd_value, command.shape.m,
+                                 command.shape.n * sizeof(float), dst_stride,
+                                 memory_base, memory->size())) {
+      completion->error = Gem5TmmaExecutionError::kAddress;
+      completion->faulting_address = command.dispatch.rd_value;
+      return true;
+    }
+    dst_bytes = static_cast<uint64_t>(command.shape.m - 1) * dst_stride +
+                command.shape.n * sizeof(float);
+  } else if (command.operation != xopennpux::Operation::kTdequant &&
       !MatrixRangeValid(command.dispatch.rs1_value, lhs_elements, memory_base,
                         memory->size())) {
     completion->error = Gem5TmmaExecutionError::kAddress;
@@ -918,14 +1044,16 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
     completion->faulting_address = command.tensor_aux_source_address;
     return true;
   }
-  if (rhs_elements != 0 &&
+  if (command.operation != xopennpux::Operation::kTmma &&
+      rhs_elements != 0 &&
       !MatrixRangeValid(command.dispatch.rs2_value, rhs_elements, memory_base,
                         memory->size())) {
     completion->error = Gem5TmmaExecutionError::kAddress;
     completion->faulting_address = command.dispatch.rs2_value;
     return true;
   }
-  if (!MatrixRangeValid(command.dispatch.rd_value, dst_elements, memory_base,
+  if (command.operation != xopennpux::Operation::kTmma &&
+      !MatrixRangeValid(command.dispatch.rd_value, dst_elements, memory_base,
                         memory->size())) {
     completion->error = Gem5TmmaExecutionError::kAddress;
     completion->faulting_address = command.dispatch.rd_value;
@@ -1072,19 +1200,45 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
       }
     }
   } else if (command.operation == xopennpux::Operation::kTmma) {
+    const bool transpose_rhs =
+        (command.mma_flags & xopennpux::kMmaFlagTransposeRhs) != 0;
+    const bool accumulate =
+        (command.mma_flags & xopennpux::kMmaFlagAccumulate) != 0;
+    const uint32_t lhs_stride =
+        command.mma_lhs_stride == 0
+            ? command.shape.k * sizeof(float)
+            : command.mma_lhs_stride;
+    const uint32_t rhs_stride =
+        command.mma_rhs_stride == 0
+            ? (transpose_rhs ? command.shape.k : command.shape.n) *
+                  sizeof(float)
+            : command.mma_rhs_stride;
+    const uint32_t dst_stride =
+        command.mma_dst_stride == 0
+            ? command.shape.n * sizeof(float)
+            : command.mma_dst_stride;
     for (uint32_t row = 0; row < command.shape.m; ++row) {
       for (uint32_t column = 0; column < command.shape.n; ++column) {
-        float accumulator = 0.0f;
+        const size_t dst_offset =
+            dst_base + static_cast<size_t>(row) * dst_stride +
+            column * sizeof(float);
+        float accumulator = accumulate ? LoadFloat(*memory, dst_offset) : 0.0f;
         for (uint32_t inner = 0; inner < command.shape.k; ++inner) {
           const size_t lhs_offset =
-              lhs_base + (row * command.shape.k + inner) * sizeof(float);
-          const size_t rhs_offset =
-              rhs_base + (inner * command.shape.n + column) * sizeof(float);
+              lhs_base + static_cast<size_t>(row) * lhs_stride +
+              inner * sizeof(float);
+          const size_t rhs_offset = transpose_rhs
+                                        ? rhs_base +
+                                              static_cast<size_t>(column) *
+                                                  rhs_stride +
+                                              inner * sizeof(float)
+                                        : rhs_base +
+                                              static_cast<size_t>(inner) *
+                                                  rhs_stride +
+                                              column * sizeof(float);
           accumulator += LoadFloat(*memory, lhs_offset) *
                          LoadFloat(*memory, rhs_offset);
         }
-        const size_t dst_offset =
-            dst_base + (row * command.shape.n + column) * sizeof(float);
         StoreFloat(memory, dst_offset, accumulator);
       }
     }

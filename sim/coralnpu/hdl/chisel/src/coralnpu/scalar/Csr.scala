@@ -109,6 +109,10 @@ object CsrAddress extends ChiselEnum {
   val CONV_PADDING_BR = Value(0x828.U(12.W))
   val CONV_DILATION_HW = Value(0x829.U(12.W))
   val CONV_BIAS_ADDRESS = Value(0x82A.U(12.W))
+  val MMA_LHS_STRIDE = Value(0x82B.U(12.W))
+  val MMA_RHS_STRIDE = Value(0x82C.U(12.W))
+  val MMA_DST_STRIDE = Value(0x82D.U(12.W))
+  val MMA_FLAGS = Value(0x82E.U(12.W))
   val MCYCLE    = Value(0xB00.U(12.W))
   val MINSTRET  = Value(0xB02.U(12.W))
   val MCYCLEH   = Value(0xB80.U(12.W))
@@ -332,6 +336,10 @@ class Csr(p: Parameters) extends Module {
   val convPaddingBr = RegInit(0.U(p.xlen.W))
   val convDilationHw = RegInit(0.U(p.xlen.W))
   val convBiasAddress = RegInit(0.U(p.xlen.W))
+  val mmaLhsStride = RegInit(0.U(p.xlen.W))
+  val mmaRhsStride = RegInit(0.U(p.xlen.W))
+  val mmaDstStride = RegInit(0.U(p.xlen.W))
+  val mmaFlags = RegInit(0.U(p.xlen.W))
   val xnpuCsrEpoch = RegInit(0.U(32.W))
   io.xnpu.mmaShape := mmaShape
   io.xnpu.mmaDataType := mmaDataType
@@ -365,6 +373,10 @@ class Csr(p: Parameters) extends Module {
   io.xnpu.convPaddingBr := convPaddingBr
   io.xnpu.convDilationHw := convDilationHw
   io.xnpu.convBiasAddress := convBiasAddress
+  io.xnpu.mmaLhsStride := mmaLhsStride
+  io.xnpu.mmaRhsStride := mmaRhsStride
+  io.xnpu.mmaDstStride := mmaDstStride
+  io.xnpu.mmaFlags := mmaFlags
   io.xnpu.epoch := xnpuCsrEpoch
 
   // Debug mode CSRs
@@ -510,6 +522,10 @@ class Csr(p: Parameters) extends Module {
   val convPaddingBrEn = csr_address === CsrAddress.CONV_PADDING_BR
   val convDilationHwEn = csr_address === CsrAddress.CONV_DILATION_HW
   val convBiasAddressEn = csr_address === CsrAddress.CONV_BIAS_ADDRESS
+  val mmaLhsStrideEn = csr_address === CsrAddress.MMA_LHS_STRIDE
+  val mmaRhsStrideEn = csr_address === CsrAddress.MMA_RHS_STRIDE
+  val mmaDstStrideEn = csr_address === CsrAddress.MMA_DST_STRIDE
+  val mmaFlagsEn = csr_address === CsrAddress.MMA_FLAGS
   val kscm0En     = csr_address === CsrAddress.KSCM0
   val kscm1En     = csr_address === CsrAddress.KSCM1
   val kscm2En     = csr_address === CsrAddress.KSCM2
@@ -604,6 +620,10 @@ class Csr(p: Parameters) extends Module {
       convPaddingBrEn -> convPaddingBr,
       convDilationHwEn -> convDilationHw,
       convBiasAddressEn -> convBiasAddress,
+      mmaLhsStrideEn -> mmaLhsStride,
+      mmaRhsStrideEn -> mmaRhsStride,
+      mmaDstStrideEn -> mmaDstStride,
+      mmaFlagsEn -> mmaFlags,
       kscm0En     -> kscm(31,0),
       kscm1En     -> kscm(63,32),
       kscm2En     -> kscm(95,64),
@@ -694,6 +714,10 @@ class Csr(p: Parameters) extends Module {
     when (convPaddingBrEn) { convPaddingBr := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (convDilationHwEn) { convDilationHw := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (convBiasAddressEn) { convBiasAddress := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (mmaLhsStrideEn) { mmaLhsStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (mmaRhsStrideEn) { mmaRhsStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (mmaDstStrideEn) { mmaDstStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (mmaFlagsEn) { mmaFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (dscratch0En)  { dscratch0 := wdata }
     when (dscratch1En)  { dscratch1 := wdata }
     when (tdata1En)     { tdata1 := LegalizeTdata1(wdata) }

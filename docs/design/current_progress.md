@@ -1169,3 +1169,17 @@ weight 还是 `[output_features,input_features]`，与当前 TMMA functional eng
 `[K,N]` RHS 假设不同。在 stride/transpose/accumulate CSR 和 dense tiled-TMMA pass 完成
 前，禁止仅用单条 TMMA 把 shared Expert 标记为 lowerable，否则 audit 会假 PASS、执行会
 发生 shape 截断或权重布局错误。
+
+上述执行缺口现已按通用硬件语义补齐。TMMA 新增 lhs/rhs/destination row-stride CSR、
+transpose-RHS 和 accumulate flag；functional coprocessor 使用 stride 做边界检查和寻址，并
+允许后续 K tile 从 destination 继续累加。dense lowering 将通用 `[N,K]` 权重按 10-bit
+shape 上限在 M/N/K 三维切片，每条命令携带原 tensor stride，非整除尾 tile 不需要重新布局。
+`18x2048` 乘 `[512,2048]` 的真实投影因此生成 `K=1023+1023+2` 三条 TMMA。
+
+shared Expert 的分派也改为 operand-driven：出现 roles 48/49/50/51 时，不再被模型级 GPTQ
+flag 误送入 routed GPTQ expert 路径，而是展开 gate/up/down/router 四个 tiled dense
+projection 与 `TSILU/TMUL/TSIGMOID/TROW_SCALE`。Qwen3.5-35B 当前维度下每个 shared
+Expert 生成 16 条 XOpenNPUX 命令。新增 lowering 与 coprocessor 回归覆盖 transpose、非默认
+stride、K-tile accumulate、尾 tile 和完整 shared Expert 序列。下一次 GB10 审计预期消除
+`EXPERT/EINVAL` 的 40 个 shared Expert；保留的 40 个 `EXPERT/ENOTSUP` 是有意显式标记的
+动态 routed Expert，需由后续 device-side TopK route、expert paging 与聚合控制流解决。

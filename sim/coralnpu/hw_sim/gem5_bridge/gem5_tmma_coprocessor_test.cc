@@ -1088,6 +1088,53 @@ void TestInvalidTypeAndAddressFault() {
   assert(completion.faulting_address == kMemoryBase - 4);
 }
 
+void TestStridedTransposedAccumulatingTmma() {
+  Gem5TmmaCoprocessor coprocessor;
+  ConfigureFp32(&coprocessor, 2, 2, 2);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrMmaLhsStride, 12));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrMmaRhsStride, 12));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrMmaDstStride, 12));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrMmaFlags,
+                              xopennpux::kMmaFlagTransposeRhs));
+  assert(coprocessor.Submit(Packet(50)) ==
+         Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  const float lhs[] = {1, 2, 0, 3, 4};
+  const float rhs[] = {5, 6, 0, 7, 8};
+  for (size_t index = 0; index < 5; ++index) {
+    WriteFloat(&memory, index * 4, lhs[index]);
+    WriteFloat(&memory, 0x100 + index * 4, rhs[index]);
+  }
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(ReadFloat(memory, 0x200) == 17.0f);
+  assert(ReadFloat(memory, 0x204) == 23.0f);
+  assert(ReadFloat(memory, 0x20c) == 39.0f);
+  assert(ReadFloat(memory, 0x210) == 53.0f);
+
+  ConfigureFp32(&coprocessor, 2, 2, 1);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrMmaFlags,
+                              xopennpux::kMmaFlagTransposeRhs |
+                                  xopennpux::kMmaFlagAccumulate));
+  Gem5TmmaDispatchPacket accumulate = Packet(51);
+  accumulate.rs1_value += 8;
+  accumulate.rs2_value += 8;
+  WriteFloat(&memory, 0x008, 2.0f);
+  WriteFloat(&memory, 0x014, 3.0f);
+  WriteFloat(&memory, 0x108, 4.0f);
+  WriteFloat(&memory, 0x114, 5.0f);
+  assert(coprocessor.Submit(accumulate) ==
+         Gem5TmmaSubmitResult::kAccepted);
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(ReadFloat(memory, 0x200) == 25.0f);
+  assert(ReadFloat(memory, 0x204) == 33.0f);
+  assert(ReadFloat(memory, 0x20c) == 51.0f);
+  assert(ReadFloat(memory, 0x210) == 68.0f);
+}
+
 }  // namespace
 
 int main() {
@@ -1121,5 +1168,6 @@ int main() {
   TestRejectAndBackpressure();
   TestPacketCsrSnapshotAndFence();
   TestInvalidTypeAndAddressFault();
+  TestStridedTransposedAccumulatingTmma();
   return 0;
 }

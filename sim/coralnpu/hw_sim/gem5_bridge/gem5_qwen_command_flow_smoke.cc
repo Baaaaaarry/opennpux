@@ -108,9 +108,48 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
                             sizeof(float));
     }
     case OPENNPUX_XGRAPH_OP_TMMA:
-      source0_elements = static_cast<uint64_t>(command.dim0) * command.dim2;
-      source1_elements = static_cast<uint64_t>(command.dim2) * command.dim1;
-      break;
+      if ((command.flags & ~(OPENNPUX_XGRAPH_TMMA_TRANSPOSE_RHS |
+                             OPENNPUX_XGRAPH_TMMA_ACCUMULATE)) != 0 ||
+          command.dim0 > 1023 || command.dim1 > 1023 ||
+          command.dim2 > 1023) {
+        return false;
+      }
+      {
+        const bool transpose_rhs =
+            (command.flags & OPENNPUX_XGRAPH_TMMA_TRANSPOSE_RHS) != 0;
+        const uint32_t lhs_stride =
+            command.reserved[0] == 0 ? command.dim2 * sizeof(float)
+                                     : command.reserved[0];
+        const uint32_t rhs_stride =
+            command.reserved[1] == 0
+                ? (transpose_rhs ? command.dim2 : command.dim1) *
+                      sizeof(float)
+                : command.reserved[1];
+        const uint32_t dst_stride =
+            command.reserved[2] == 0 ? command.dim1 * sizeof(float)
+                                     : command.reserved[2];
+        const uint32_t rhs_rows = transpose_rhs ? command.dim1 : command.dim2;
+        const uint32_t rhs_row_bytes =
+            (transpose_rhs ? command.dim2 : command.dim1) * sizeof(float);
+        if (lhs_stride < command.dim2 * sizeof(float) ||
+            rhs_stride < rhs_row_bytes ||
+            dst_stride < command.dim1 * sizeof(float) ||
+            ((lhs_stride | rhs_stride | dst_stride) &
+             (sizeof(float) - 1)) != 0) {
+          return false;
+        }
+        return RangeValid(command.source0_offset,
+                          static_cast<uint64_t>(command.dim0 - 1) *
+                                  lhs_stride +
+                              command.dim2 * sizeof(float)) &&
+               RangeValid(command.source1_offset,
+                          static_cast<uint64_t>(rhs_rows - 1) * rhs_stride +
+                              rhs_row_bytes) &&
+               RangeValid(command.destination_offset,
+                          static_cast<uint64_t>(command.dim0 - 1) *
+                                  dst_stride +
+                              command.dim1 * sizeof(float));
+      }
     case OPENNPUX_XGRAPH_OP_TRMSNORM:
       source1_elements = command.dim1;
       break;
@@ -297,7 +336,9 @@ bool Execute(const volatile opennpux_xgraph_command& command,
       return true;
     case OPENNPUX_XGRAPH_OP_TMMA:
       xopennpux_matmul_fp32(destination, source0, source1, command.dim0,
-                           command.dim1, command.dim2);
+                           command.dim1, command.dim2, command.reserved[0],
+                           command.reserved[1], command.reserved[2],
+                           command.flags);
       *operations += elements * command.dim2;
       *cycles += elements * command.dim2;
       return true;

@@ -981,6 +981,72 @@ test_gptq_expert_lowering(void)
     assert(errno == ENOSPC);
 }
 
+static void
+test_tiled_dense_and_shared_expert_lowering(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command commands[32];
+    uint32_t command_count = 0;
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_MATMUL);
+    request.rows = 18;
+    request.features = 2048;
+    parameters.input_features = 2048;
+    parameters.output_features = 512;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x10000,
+                18 * 2048 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_WEIGHT, 0x100000,
+                512 * 2048 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x600000,
+                18 * 512 * sizeof(float));
+    assert(opennpux_npu_xgraph_lower_dense_matmul(
+               &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE, 7, commands,
+               32, &command_count) == 0);
+    assert(command_count == 3);
+    assert(commands[0].dim0 == 18 && commands[0].dim1 == 512 &&
+           commands[0].dim2 == 1023);
+    assert(commands[1].dim2 == 1023 && commands[2].dim2 == 2);
+    assert(commands[0].flags == OPENNPUX_XGRAPH_TMMA_TRANSPOSE_RHS);
+    assert(commands[1].flags ==
+           (OPENNPUX_XGRAPH_TMMA_TRANSPOSE_RHS |
+            OPENNPUX_XGRAPH_TMMA_ACCUMULATE));
+    assert(commands[0].reserved[0] == 2048 * sizeof(float));
+    assert(commands[0].reserved[1] == 2048 * sizeof(float));
+    assert(commands[0].reserved[2] == 512 * sizeof(float));
+    assert(commands[2].source0_offset == 0x10000 + 2046 * sizeof(float));
+    assert(commands[2].source1_offset == 0x100000 + 2046 * sizeof(float));
+
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_EXPERT);
+    request.rows = 18;
+    request.features = 2048;
+    parameters.flags = OPENNPUX_NPU_PARAMETER_GPTQ;
+    parameters.input_features = 2048;
+    parameters.intermediate_features = 512;
+    parameters.output_features = 2048;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x10000,
+                18 * 2048 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x50000,
+                18 * 2048 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SHARED_GATE_WEIGHT, 0x100000,
+                512 * 2048 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SHARED_UP_WEIGHT, 0x500000,
+                512 * 2048 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SHARED_DOWN_WEIGHT, 0x900000,
+                2048 * 512 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SHARED_ROUTER_WEIGHT, 0xd00000,
+                2048 * sizeof(float));
+    assert(opennpux_npu_xgraph_lower_shared_expert(
+               &request, &parameters, EXTMEM_BASE, 0x02000000,
+               EXTMEM_BASE + 0xe00000, 0x20000, 0, commands, 32,
+               &command_count) == 0);
+    assert(command_count == 16);
+    assert(commands[0].opcode == OPENNPUX_XGRAPH_OP_TMMA);
+    assert(commands[6].opcode == OPENNPUX_XGRAPH_OP_TSILU);
+    assert(commands[7].opcode == OPENNPUX_XGRAPH_OP_TMUL);
+    assert(commands[14].opcode == OPENNPUX_XGRAPH_OP_TSIGMOID);
+    assert(commands[15].opcode == OPENNPUX_XGRAPH_OP_TROW_SCALE);
+}
+
 int
 main(void)
 {
@@ -1000,6 +1066,7 @@ main(void)
     test_router_lowering();
     test_recurrent_update_lowering();
     test_gptq_expert_lowering();
+    test_tiled_dense_and_shared_expert_lowering();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

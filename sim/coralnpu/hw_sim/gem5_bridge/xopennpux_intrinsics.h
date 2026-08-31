@@ -111,6 +111,19 @@ XOPENNPUX_CONV_CSR_WRITER(dilation_hw, 0x829)
 XOPENNPUX_CONV_CSR_WRITER(bias_address, 0x82a)
 #undef XOPENNPUX_CONV_CSR_WRITER
 
+static inline void xopennpux_write_mma_lhs_stride(uint32_t value) {
+  __asm__ volatile("csrw 0x82b, %0" : : "r"(value) : "memory");
+}
+static inline void xopennpux_write_mma_rhs_stride(uint32_t value) {
+  __asm__ volatile("csrw 0x82c, %0" : : "r"(value) : "memory");
+}
+static inline void xopennpux_write_mma_dst_stride(uint32_t value) {
+  __asm__ volatile("csrw 0x82d, %0" : : "r"(value) : "memory");
+}
+static inline void xopennpux_write_mma_flags(uint32_t value) {
+  __asm__ volatile("csrw 0x82e, %0" : : "r"(value) : "memory");
+}
+
 static inline void xopennpux_tmma_fp32(void* destination, const void* lhs,
                                        const void* rhs) {
   // Publish scalar/AXI stores before the coprocessor reads its operands.

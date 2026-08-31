@@ -90,9 +90,6 @@ void Gem5XGraphLoweringAudit::Observe(
   ++stats_.observed_requests;
   if (path == Gem5HostFunctionalExecutionPath::kHostFusedRoutedExpert) {
     ++stats_.host_fused_requests;
-    RecordFailure(request.opcode, ENOTSUP, request.command_id, &request,
-                  nullptr);
-    return;
   }
   const auto* parameters = static_cast<const opennpux_npu_operator_parameters*>(
       Translate(regions, region_count, request.parameter_address,

@@ -52,6 +52,7 @@ enum opennpux_xgraph_opcode {
     OPENNPUX_XGRAPH_OP_TCONV = 15,
     OPENNPUX_XGRAPH_OP_TSIGMOID = 16,
     OPENNPUX_XGRAPH_OP_TROW_SCALE = 17,
+    OPENNPUX_XGRAPH_OP_TROUTED_EXPERT = 18,
 };
 
 #define OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL UINT32_C(1)
@@ -62,6 +63,7 @@ enum opennpux_xgraph_opcode {
 #define OPENNPUX_XGRAPH_TMMA_ACCUMULATE UINT32_C(2)
 #define OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET UINT32_C(1)
 #define OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_INPUT UINT32_C(2)
+#define OPENNPUX_XGRAPH_TROUTED_EXPERT_WEIGHT_PLAN UINT32_C(1)
 
 enum opennpux_xgraph_data_type {
     OPENNPUX_XGRAPH_DTYPE_FP32 = 2,
@@ -132,6 +134,15 @@ struct opennpux_xgraph_command {
  * TROW_SCALE multiplies each FP32 source0 row by the corresponding scalar in
  * source1. dim0/dim1 are row and feature counts; destination has the same
  * shape as source0 and source1 contains dim0 FP32 values.
+ *
+ * TROUTED_EXPERT is a device-control command, not a model-specific fused
+ * kernel. destination/source0/source1 are output/input/uint32 expert IDs;
+ * dim0/dim1/dim2 are rows/input features/intermediate features; scalar0 is
+ * active experts per row. reserved[0] is the FP32 route-weight offset,
+ * reserved[1] is the executable weight-plan command ID, reserved[2] is output
+ * features, reserved[3] packs quantization bits [7:0] and group size [31:8],
+ * and reserved[4] is the scale data type. The NPU controller resolves selected
+ * experts from the weight plan and schedules gate/up/down projections.
  */
 
 struct opennpux_xgraph_header {

@@ -27,6 +27,7 @@ NPU L2 decode.
 | CAUSAL_CONVOLUTION | `TCAUSALCONV` | rows=2, features=2, kernel=3, stateful | 1 | 24 | PASS |
 | RECURRENT_UPDATE | `TDMA(full output) + TDMA(final row state)` | rows=2, features=2, basic persistent state | 2 | 6 | PASS |
 | EXPERT | `gate(TDEQUANT+TMMA) + up(TDEQUANT+TMMA) + TSILU + TMUL + down(TDEQUANT+TMMA)` | rows=1, input=2, intermediate=2, output=2, GPTQ INT4 | 8 | 32 | PASS |
+| EXPERT, dynamic routed | `TROUTED_EXPERT` device-control command | Runtime expert IDs/weights, weight-plan indexed GPTQ gate/up/down | 1 | kernel-derived | C++ NPU functional engine PASS; GB10 audit pending |
 | ATTENTION, sigmoid gated | `TATTENTION` + gate CSR | rows=1, heads=1, head dim=1, KV length=1 | 1 | 8 | PASS |
 | RECURRENT_UPDATE, gated delta | `TRECURRENT` | rows=1, key/value heads=1, key/value dim=1 | 1 | 21 | PASS |
 | CONVOLUTION | `TCONV` | FP32 NHWC input/output, OHWI weights, groups=1, input=1x3x3x1, kernel=2x2, output=1x2x2x1, bias | 1 | 16 | PASS (`0x40a9cead`) |

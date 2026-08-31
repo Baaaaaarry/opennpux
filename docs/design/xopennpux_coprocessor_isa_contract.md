@@ -746,7 +746,7 @@ The first mandatory implementation subset is:
 - tensor memory read/write;
 - `tfence`;
 - generic operation classification for TMMA, TADD, TMUL, TRMSNORM, TSOFTMAX,
-  TROPE, TSILU, TGATHER, TTOPK, TDEQUANT, and TDMA;
+  TROPE, TSILU, TGATHER, TTOPK, TDEQUANT, TDMA, and TROUTED_EXPERT;
 - FP32 matrix, elementwise, normalization, activation, rotation, gather, and
   selection execution with per-operation statistics;
 - `xopennpux_ops.h` as the firmware/compiler-facing operator-library boundary;
@@ -814,6 +814,25 @@ every asynchronous operation was followed by an accepted `tfence` with
 | TGATHER | 1 | `0x269eb168` |
 | TROPE | 1 | `0xe4adc6cb` |
 | TTOPK | 1 | `0xbb900cd1` |
+
+### Dynamic routed expert control
+
+`TROUTED_EXPERT` is a model-independent NPU-controller command rather than a
+Qwen-specific numerical kernel. It carries explicit input, expert-ID,
+route-weight and output tensor offsets; rows, hidden and intermediate sizes;
+active experts per row; GPTQ format; and a logical executable weight-plan
+command ID. It never carries a host pointer or tensor name. The device resolves
+the selected expert's gate/up/down pages at runtime, schedules projection and
+combine work, and publishes one completion only after all selected experts for
+the command have retired.
+
+The current implementation has completed command ABI, generic lowering and a
+C++ NPU functional command engine. The graph executor now lowers first and
+passes the resulting command to that engine; it no longer performs routed-MoE
+control as a Host-fused graph branch. The engine still uses the Host weight
+provider as the functional implementation of the future device pager.
+Device-side page queues, concurrent expert issue and RTL completion aggregation
+remain mandatory before this opcode can be claimed as cycle-accurate RTL.
 
 ## Generic Grouped Conv2D Profile
 

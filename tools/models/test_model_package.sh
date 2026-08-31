@@ -461,7 +461,8 @@ PY
     "${WORK_DIR}/npu_tensor_plan.o" \
     -o "${WORK_DIR}/gem5_host_tensor_arena_test"
 "${WORK_DIR}/gem5_host_tensor_arena_test" "${MODEL_DIR}/model.npxtb"
-for source in npu_submission npu_executable npu_functional_materializer; do
+for source in npu_submission npu_executable npu_functional_materializer \
+              npu_gptq_tile_plan npu_xgraph_lowering; do
     "${CC}" -O2 -Wall -Wextra -Werror -std=c11 \
         -I"${ROOT_DIR}/runtime/host/include" \
         -c "${ROOT_DIR}/runtime/host/src/${source}.c" \
@@ -486,6 +487,8 @@ done
     "${WORK_DIR}/npu_tensor_plan.o" \
     "${WORK_DIR}/model_package.o" \
     "${WORK_DIR}/npu_weight_ranges.o" \
+    "${WORK_DIR}/npu_gptq_tile_plan.o" \
+    "${WORK_DIR}/npu_xgraph_lowering.o" \
     -o "${WORK_DIR}/gem5_host_functional_graph_test"
 "${WORK_DIR}/gem5_host_functional_graph_test" \
     "${MODEL_DIR}/model.npxc" "${MODEL_DIR}/model.npxtb" \

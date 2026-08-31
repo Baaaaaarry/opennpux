@@ -1202,3 +1202,19 @@ GB10 下一轮审计达到 474 lowerable / 3432 emitted，验证上述三路 pro
 BF16-input flags；Coral CSR `0x82f tensor_flags`、L1 snapshot、bridge packet 和 NPU functional
 coprocessor 已端到端实现这两个语义。下一轮审计预期 484 lowerable、约 7692 emitted，只剩
 40 个动态 routed Expert。
+
+GB10 复验达到 484 lowerable / 7692 emitted，证明除动态 MoE 外的 484 个真实 materialized
+request 均已具备 XOpenNPUX 指令表达。最后 40 个 routed Expert 只有 input、runtime expert
+IDs、route weights 和 output，不携带被选 expert 的静态权重 operand；它们不能伪装成普通
+GPTQ Expert 展开。现新增模型无关 `TROUTED_EXPERT` 控制命令，显式携带上述四个 tensor、
+rows/hidden/intermediate/active-experts、量化配置和 executable weight-plan command ID。审计会
+继续单独输出 `host_fused_requests=40`：预计 lowering 结果为 524/524 和 7732 emitted，但这只
+表示命令 ABI 已覆盖完整执行图。
+
+随后 routed Expert 数值入口也已从 Host graph fused branch 迁到 C++ NPU functional command
+engine：`Gem5HostFunctionalGraph` 只 materialize 请求并生成 `TROUTED_EXPERT`，engine 按
+EXTMEM-relative offset 校验 input/IDs/route weights/output 和量化配置，再通过 weight-plan
+command ID 调用当前功能分页 provider。该实现仍是 functional modeling，不是 RTL，但已建立
+后续替换接口边界。下一轮 GB10 审计预期 `observed=524`、`lowerable=524`、`host_fused=0`、
+`emitted=7732`、`complete=PASS`；token 严格正确性必须保持不变。设备侧 page queue、并发
+expert issue 和 RTL completion aggregation 仍是下一阶段工作。

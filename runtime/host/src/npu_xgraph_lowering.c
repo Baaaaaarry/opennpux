@@ -1455,6 +1455,86 @@ opennpux_npu_xgraph_lower_gptq_expert(
 }
 
 int
+opennpux_npu_xgraph_lower_routed_expert(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (command_count != NULL) {
+        *command_count = 0;
+    }
+    if (validate_request(request, parameters, extmem_size) != 0 ||
+        request->opcode != OPENNPUX_NPU_OP_EXPERT || commands == NULL ||
+        command_count == NULL || command_capacity == 0 ||
+        parameters->input_features == 0 ||
+        parameters->output_features == 0 ||
+        parameters->intermediate_features == 0 ||
+        parameters->quantization_bits == 0 ||
+        parameters->quantization_bits > UINT8_MAX ||
+        parameters->quantization_group_size == 0 ||
+        parameters->quantization_group_size > UINT32_C(0x00ffffff)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const struct opennpux_npu_functional_operand *input =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+    const struct opennpux_npu_functional_operand *expert_ids =
+        find_operand(request, OPENNPUX_NPU_OPERAND_SECONDARY);
+    const struct opennpux_npu_functional_operand *route_weights =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY);
+    const struct opennpux_npu_functional_operand *output =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+    const uint64_t input_bytes = (uint64_t)request->rows *
+        parameters->input_features * sizeof(float);
+    const uint64_t output_bytes = (uint64_t)request->rows *
+        parameters->output_features * sizeof(float);
+    if (input == NULL || expert_ids == NULL || route_weights == NULL ||
+        output == NULL || input_bytes > input->byte_size ||
+        output_bytes > output->byte_size ||
+        expert_ids->byte_size == 0 ||
+        expert_ids->byte_size % (request->rows * sizeof(uint32_t)) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    const uint32_t active_experts =
+        expert_ids->byte_size / (request->rows * sizeof(uint32_t));
+    const uint64_t route_bytes = (uint64_t)request->rows * active_experts *
+        sizeof(float);
+    if (active_experts == 0 || route_bytes > route_weights->byte_size) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    struct opennpux_xgraph_command command;
+    memset(&command, 0, sizeof(command));
+    command.opcode = OPENNPUX_XGRAPH_OP_TROUTED_EXPERT;
+    command.flags = OPENNPUX_XGRAPH_TROUTED_EXPERT_WEIGHT_PLAN;
+    command.dim0 = request->rows;
+    command.dim1 = parameters->input_features;
+    command.dim2 = parameters->intermediate_features;
+    command.scalar0 = active_experts;
+    command.data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    command.command_id = first_command_id;
+    if (set_operands(&command, output, input, expert_ids, extmem_base,
+                     extmem_size) != 0 ||
+        operand_offset(route_weights, extmem_base, extmem_size,
+                       &command.reserved[0]) != 0) {
+        return -1;
+    }
+    command.reserved[1] = request->command_id;
+    command.reserved[2] = parameters->output_features;
+    command.reserved[3] = parameters->quantization_bits |
+        (parameters->quantization_group_size << 8);
+    command.reserved[4] = parameters->scale_data_type;
+    commands[0] = command;
+    *command_count = 1;
+    return 0;
+}
+
+int
 opennpux_npu_xgraph_lower_dma(
     const struct opennpux_npu_functional_request *request,
     const struct opennpux_npu_operator_parameters *parameters,
@@ -1885,6 +1965,13 @@ opennpux_npu_xgraph_lower_batch(
             requests[index].opcode == OPENNPUX_NPU_OP_EXPERT &&
             !is_shared_expert &&
             has_gptq_expert_operands(&requests[index]);
+        const int is_routed_expert =
+            requests[index].opcode == OPENNPUX_NPU_OP_EXPERT &&
+            !is_shared_expert && !is_gptq_expert &&
+            find_operand(&requests[index], OPENNPUX_NPU_OPERAND_SECONDARY) !=
+                NULL &&
+            find_operand(&requests[index],
+                         OPENNPUX_NPU_OPERAND_INPUT_TERTIARY) != NULL;
         const int is_dma = requests[index].opcode == OPENNPUX_NPU_OP_DMA;
         const int is_router = requests[index].opcode == OPENNPUX_NPU_OP_ROUTER;
         const int is_recurrent =
@@ -1945,6 +2032,16 @@ opennpux_npu_xgraph_lower_batch(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, scratch_address, scratch_size, emitted,
                     commands + emitted, available, &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_routed_expert) {
+            if (opennpux_npu_xgraph_lower_routed_expert(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, emitted, commands + emitted, available,
+                    &produced) != 0) {
                 if (errno == ENOSPC && emitted != 0) {
                     break;
                 }

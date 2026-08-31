@@ -207,7 +207,13 @@ int main(int argc, char** argv) {
     expert_route_data[index] =
         index % graph.arena().runtime().active_experts == 0 ? 1.0f : 0.0f;
   }
+  observer.count = 0;
+  graph.SetRequestObserver(&observer);
   assert(graph.ExecuteRoutedExpert(expert_index, &weights));
+  graph.SetRequestObserver(nullptr);
+  assert(observer.count == 1 && observer.command_id == expert_index &&
+         observer.regions == 2 &&
+         observer.path == Gem5HostFunctionalExecutionPath::kGenericRequest);
   for (size_t index = 0; index < expert_output->byte_size / sizeof(float);
        ++index) {
     assert(std::isfinite(expert_output_data[index]));

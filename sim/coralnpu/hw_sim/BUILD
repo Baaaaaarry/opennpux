@@ -205,6 +205,7 @@ cc_library(
         ":gem5_host_routed_expert",
         ":gem5_host_tensor_arena",
         ":gem5_transformer_kernel_headers",
+        ":gem5_xgraph_lowering_runtime",
     ],
 )
 

@@ -172,6 +172,18 @@ int opennpux_npu_xgraph_lower_gptq_expert(
     uint32_t *command_count);
 
 /*
+ * Lower dynamic routed MoE control to one device-side orchestration command.
+ * Expert IDs and route weights remain runtime tensors; selected GPTQ weights
+ * are resolved through the executable weight-plan command ID on the device.
+ */
+int opennpux_npu_xgraph_lower_routed_expert(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count);
+
+/*
  * Lower one KV-cache update into two contiguous TDMA records. The generic
  * request supplies key/value inputs and a [2, kv_length, kv_heads, head_dim]
  * destination state. Each record updates the visible tail of one state plane.

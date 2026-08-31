@@ -7,6 +7,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
 #include "hw_sim/gem5_bridge/gem5_host_routed_expert.h"
 #include "hw_sim/gem5_bridge/gem5_transformer_kernels.h"
+#include "opennpux/npu_xgraph_lowering.h"
 
 namespace {
 
@@ -434,44 +435,45 @@ bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
       request.parameter_address < submission_base_ ||
       request.parameter_size > submission_.size() ||
       request.parameter_address - submission_base_ >
-          submission_.size() - request.parameter_size) {
+          submission_.size() - request.parameter_size ||
+      arena_.size() > UINT32_MAX) {
     return false;
   }
-  auto* input_data = reinterpret_cast<const float*>(
-      arena_.Translate(input->address, input->byte_size));
-  auto* id_data = reinterpret_cast<const uint32_t*>(
-      arena_.Translate(ids->address, ids->byte_size));
-  auto* route_data = reinterpret_cast<const float*>(
-      arena_.Translate(route_weights->address, route_weights->byte_size));
-  auto* output_data = reinterpret_cast<float*>(
-      arena_.Translate(output->address, output->byte_size));
   const uint64_t route_count =
       static_cast<uint64_t>(request.rows) * arena_.runtime().active_experts;
-  if (input_data == nullptr || id_data == nullptr || route_data == nullptr ||
-      output_data == nullptr || route_count > ids->byte_size / sizeof(uint32_t) ||
+  if (route_count > ids->byte_size / sizeof(uint32_t) ||
       route_count > route_weights->byte_size / sizeof(float)) {
     return false;
   }
-  const void* parameters = submission_.data() +
-      (request.parameter_address - submission_base_);
+  const auto* parameters = reinterpret_cast<
+      const opennpux_npu_operator_parameters*>(submission_.data() +
+      (request.parameter_address - submission_base_));
+  opennpux_xgraph_command command = {};
+  uint32_t command_count = 0;
+  if (opennpux_npu_xgraph_lower_routed_expert(
+          &request, parameters, arena_.base(),
+          static_cast<uint32_t>(arena_.size()), 0, &command, 1,
+          &command_count) != 0 ||
+      command_count != 1 || command.reserved[1] != command_index) {
+    return false;
+  }
   Gem5HostRoutedExpertStats routed_stats = {};
   if (observer_ != nullptr) {
     const Gem5FunctionalMemoryRegion regions[] = {
         {submission_base_, submission_.data(), submission_.size()},
         {arena_.base(), arena_.data(), arena_.size()},
     };
-    observer_->Observe(Gem5HostFunctionalExecutionPath::kHostFusedRoutedExpert,
+    observer_->Observe(Gem5HostFunctionalExecutionPath::kGenericRequest,
                        request, regions, 2);
   }
-  if (!RunGem5HostRoutedExpert(
-          parameters, request.rows, input_data, input->byte_size, id_data,
-          route_data, arena_.runtime().active_experts, output_data,
-          output->byte_size, weights, &routed_stats)) {
+  if (!RunGem5XGraphRoutedExpert(command, parameters, arena_.base(),
+                                 arena_.data(), arena_.size(), weights,
+                                 &routed_stats)) {
     return false;
   }
-  // Routed expert execution models the fused expert/combine domain. Its FP32
-  // result is consumed by the following residual command, which establishes
-  // the externally visible BF16 boundary.
+  // The NPU functional command models the routed expert/combine domain. Its
+  // FP32 result is consumed by the following residual command, which
+  // establishes the externally visible BF16 boundary.
   ++stats_.completed_commands;
   stats_.operations += routed_stats.operations;
   stats_.modeled_cycles += routed_stats.modeled_cycles;

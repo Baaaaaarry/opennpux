@@ -1183,6 +1183,62 @@ test_attention_projection_lowering(void)
     }
 }
 
+static void
+test_routed_expert_lowering(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command command;
+    uint32_t command_count = 0;
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_EXPERT);
+    request.command_id = 10;
+    request.rows = 18;
+    request.features = 2048;
+    parameters.flags = OPENNPUX_NPU_PARAMETER_GPTQ;
+    parameters.input_features = 2048;
+    parameters.output_features = 2048;
+    parameters.intermediate_features = 512;
+    parameters.quantization_bits = 4;
+    parameters.quantization_group_size = 128;
+    parameters.scale_data_type = OPENNPUX_NPU_DTYPE_FLOAT16;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x10000,
+                18 * 2048 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_SECONDARY, 0x40000,
+                18 * 8 * sizeof(uint32_t));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT_TERTIARY, 0x41000,
+                18 * 8 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x50000,
+                18 * 2048 * sizeof(float));
+
+    assert(opennpux_npu_xgraph_lower_routed_expert(
+               &request, &parameters, EXTMEM_BASE, EXTMEM_SIZE, 7, &command,
+               1, &command_count) == 0);
+    assert(command_count == 1);
+    assert(command.opcode == OPENNPUX_XGRAPH_OP_TROUTED_EXPERT);
+    assert(command.flags == OPENNPUX_XGRAPH_TROUTED_EXPERT_WEIGHT_PLAN);
+    assert(command.destination_offset == 0x50000);
+    assert(command.source0_offset == 0x10000);
+    assert(command.source1_offset == 0x40000);
+    assert(command.dim0 == 18 && command.dim1 == 2048 && command.dim2 == 512);
+    assert(command.scalar0 == 8);
+    assert(command.command_id == 7);
+    assert(command.reserved[0] == 0x41000);
+    assert(command.reserved[1] == 10);
+    assert(command.reserved[2] == 2048);
+    assert(command.reserved[3] == (4 | (128 << 8)));
+    assert(command.reserved[4] == OPENNPUX_NPU_DTYPE_FLOAT16);
+
+    uint32_t origin = UINT32_MAX;
+    uint32_t consumed = 0;
+    uint32_t emitted = 0;
+    struct opennpux_npu_xgraph_lowering_failure failure;
+    assert(opennpux_npu_xgraph_lower_batch(
+               &request, &parameters, NULL, 1, EXTMEM_BASE, EXTMEM_SIZE,
+               EXTMEM_BASE + 0x700000, 0x10000, &command, 1, &origin,
+               &consumed, &emitted, &failure) == 0);
+    assert(consumed == 1 && emitted == 1 && origin == 10);
+}
+
 int
 main(void)
 {
@@ -1205,6 +1261,7 @@ main(void)
     test_tiled_dense_and_shared_expert_lowering();
     test_dense_multi_projection_lowering();
     test_attention_projection_lowering();
+    test_routed_expert_lowering();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

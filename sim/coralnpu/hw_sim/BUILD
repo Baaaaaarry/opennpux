@@ -273,6 +273,7 @@ cc_library(
     deps = [
         ":gem5_generic_gptq_executor_headers",
         ":gem5_host_weight_provider",
+        ":gem5_xgraph_lowering_runtime",
     ],
 )
 

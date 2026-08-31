@@ -13,6 +13,9 @@ struct Gem5XGraphLoweringAuditFailure {
   int error_code = 0;
   uint32_t count = 0;
   uint32_t first_command = UINT32_MAX;
+  opennpux_npu_functional_request first_request = {};
+  opennpux_npu_operator_parameters first_parameters = {};
+  bool has_parameters = false;
 };
 
 struct Gem5XGraphLoweringAuditStats {
@@ -38,7 +41,9 @@ class Gem5XGraphLoweringAudit final
   void Print(FILE* stream) const;
 
  private:
-  void RecordFailure(uint32_t opcode, int error_code, uint32_t command_id);
+  void RecordFailure(uint32_t opcode, int error_code, uint32_t command_id,
+                     const opennpux_npu_functional_request* request,
+                     const opennpux_npu_operator_parameters* parameters);
 
   Gem5XGraphLoweringAuditStats stats_ = {};
 };

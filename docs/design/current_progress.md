@@ -1136,3 +1136,21 @@ opcode/errno 聚合的首个失败 command。设置
 `CORAL_HOST_FUNCTIONAL_XGRAPH_AUDIT=1` 后，35B Host preflight 会输出该报告但不改变数值
 执行或 token 选择。目标验收为 `observed_requests=524`，随后按报告逐项消除 QKV、linear
 attention、动态 routed expert 等剩余语义缺口，最终达到 `xgraph_audit_complete=PASS`。
+
+GB10 首次真实审计确认 524 个 numerical requests 全部被 observer 捕获，其中 362 个已可
+lowering，40 个为显式 Host-fused routed expert，已 lower 的请求产生 532 条物理命令。剩余
+失败按实际接口聚合为：71 个 `MATMUL/EINVAL`、10 个 `MATMUL/ENOSPC`、40 个
+`EXPERT/EINVAL`、40 个 `EXPERT/ENOTSUP` 和 1 个 `TOPK/EINVAL`。两个 Expert 组描述同一
+批 routed-expert 逻辑请求的通用 lowering 与 Host-fused 路径，不应重复计数。
+
+审计同时暴露了一个通用分派错误：可执行文件允许在模型/command capability 中保留 GPTQ
+flag，但某个 materialized MATMUL 仍可能绑定 dense FP32 `WEIGHT`。Host C++ 数值后端已经
+按实际 operand 类型选择 kernel，XGraph lowering 此前却只看 flag，错误强制进入
+TDEQUANT。现已统一为 operand-driven dispatch：只有存在 `QWEIGHT/QZEROS/SCALES` 时才
+选择 GPTQ tile decomposition；存在普通 `WEIGHT` 时即使 capability 含 GPTQ 也 lowering
+为 dense `TMMA`。新增回归测试覆盖该混合能力场景。
+
+为避免继续依据 errno 猜测复合语义，审计报告新增每个失败组首个请求的 shape、attention
+维度、TopK、参数 flags、输入/输出/中间维度、量化配置及完整 `operand-role@bytes` 签名。
+下一轮 GB10 审计将据此实现 linear-attention 三投影、gated Q/K/V GPTQ 复合 lowering、
+last-row indices-only TopK 和 device-routed Expert，不引入模型名或层号特例。

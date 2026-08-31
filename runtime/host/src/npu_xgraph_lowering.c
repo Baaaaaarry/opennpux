@@ -16,6 +16,14 @@ find_operand(const struct opennpux_npu_functional_request *request,
 }
 
 static int
+has_gptq_operands(const struct opennpux_npu_functional_request *request)
+{
+    return find_operand(request, OPENNPUX_NPU_OPERAND_QWEIGHT) != NULL ||
+        find_operand(request, OPENNPUX_NPU_OPERAND_QZEROS) != NULL ||
+        find_operand(request, OPENNPUX_NPU_OPERAND_SCALES) != NULL;
+}
+
+static int
 operand_offset(const struct opennpux_npu_functional_operand *operand,
                uint32_t extmem_base, uint32_t extmem_size, uint32_t *offset)
 {
@@ -143,7 +151,7 @@ opennpux_npu_xgraph_lower_primitive(
         return set_operands(command, output, weight, indices,
                             extmem_base, extmem_size);
     case OPENNPUX_NPU_OP_MATMUL:
-        if ((parameters->flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0) {
+        if (has_gptq_operands(request)) {
             errno = ENOTSUP;
             return -1;
         }
@@ -1205,7 +1213,7 @@ opennpux_npu_xgraph_lower_batch(
         const uint32_t available = command_capacity - emitted;
         const int is_gptq_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
-            (parameters[index].flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0;
+            has_gptq_operands(&requests[index]);
         const int is_gptq_expert =
             requests[index].opcode == OPENNPUX_NPU_OP_EXPERT &&
             (parameters[index].flags & OPENNPUX_NPU_PARAMETER_GPTQ) != 0;

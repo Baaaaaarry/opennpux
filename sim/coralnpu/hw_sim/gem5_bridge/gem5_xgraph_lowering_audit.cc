@@ -54,7 +54,11 @@ const char* OpcodeName(uint32_t opcode) {
 }  // namespace
 
 void Gem5XGraphLoweringAudit::RecordFailure(uint32_t opcode, int error_code,
-                                             uint32_t command_id) {
+                                             uint32_t command_id,
+                                             const opennpux_npu_functional_request*
+                                                 request,
+                                             const opennpux_npu_operator_parameters*
+                                                 parameters) {
   for (uint32_t index = 0; index < stats_.failure_count; ++index) {
     auto& failure = stats_.failures[index];
     if (failure.opcode == opcode && failure.error_code == error_code) {
@@ -70,6 +74,13 @@ void Gem5XGraphLoweringAudit::RecordFailure(uint32_t opcode, int error_code,
   failure.error_code = error_code;
   failure.count = 1;
   failure.first_command = command_id;
+  if (request != nullptr) {
+    failure.first_request = *request;
+  }
+  if (parameters != nullptr) {
+    failure.first_parameters = *parameters;
+    failure.has_parameters = true;
+  }
 }
 
 void Gem5XGraphLoweringAudit::Observe(
@@ -79,14 +90,16 @@ void Gem5XGraphLoweringAudit::Observe(
   ++stats_.observed_requests;
   if (path == Gem5HostFunctionalExecutionPath::kHostFusedRoutedExpert) {
     ++stats_.host_fused_requests;
-    RecordFailure(request.opcode, ENOTSUP, request.command_id);
+    RecordFailure(request.opcode, ENOTSUP, request.command_id, &request,
+                  nullptr);
     return;
   }
   const auto* parameters = static_cast<const opennpux_npu_operator_parameters*>(
       Translate(regions, region_count, request.parameter_address,
                 sizeof(opennpux_npu_operator_parameters)));
   if (parameters == nullptr || request.parameter_size != sizeof(*parameters)) {
-    RecordFailure(request.opcode, EINVAL, request.command_id);
+    RecordFailure(request.opcode, EINVAL, request.command_id, &request,
+                  nullptr);
     return;
   }
 
@@ -109,7 +122,8 @@ void Gem5XGraphLoweringAudit::Observe(
     const int error_code = failure.error_code != 0
                                ? failure.error_code
                                : (errno != 0 ? errno : EIO);
-    RecordFailure(request.opcode, error_code, request.command_id);
+    RecordFailure(request.opcode, error_code, request.command_id, &request,
+                  parameters);
     return;
   }
   ++stats_.lowerable_requests;
@@ -135,6 +149,31 @@ void Gem5XGraphLoweringAudit::Print(FILE* stream) const {
                  "first_command:%u\n",
                  index, OpcodeName(failure.opcode), failure.opcode,
                  failure.error_code, failure.count, failure.first_command);
+    const auto& request = failure.first_request;
+    const auto& parameters = failure.first_parameters;
+    std::fprintf(stream,
+                 "xgraph_audit_failure_detail_%u=rows:%u,features:%u,heads:%u,"
+                 "kv_heads:%u,head_dim:%u,kv_length:%u,top_k:%u,flags:0x%08x,"
+                 "input:%u,output:%u,intermediate:%u,qbits:%u,qgroup:%u,"
+                 "scale_dtype:%u,operands:",
+                 index, request.rows, request.features, request.heads,
+                 request.kv_heads, request.head_dim, request.kv_length,
+                 request.top_k,
+                 failure.has_parameters ? parameters.flags : 0,
+                 failure.has_parameters ? parameters.input_features : 0,
+                 failure.has_parameters ? parameters.output_features : 0,
+                 failure.has_parameters ? parameters.intermediate_features
+                                        : 0,
+                 failure.has_parameters ? parameters.quantization_bits : 0,
+                 failure.has_parameters ? parameters.quantization_group_size
+                                        : 0,
+                 failure.has_parameters ? parameters.scale_data_type : 0);
+    for (uint32_t operand = 0; operand < request.operand_count; ++operand) {
+      std::fprintf(stream, "%s%u@%u", operand == 0 ? "" : "/",
+                   request.operands[operand].role,
+                   request.operands[operand].byte_size);
+    }
+    std::fputc('\n', stream);
   }
   std::fprintf(stream, "xgraph_audit_complete=%s\n",
                stats_.observed_requests != 0 &&

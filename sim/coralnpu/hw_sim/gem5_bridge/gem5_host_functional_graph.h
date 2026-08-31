@@ -37,6 +37,9 @@ struct Gem5HostFunctionalGraphStats {
   uint64_t modeled_cycles;
   uint64_t bytes_read;
   uint64_t bytes_written;
+  uint64_t routed_expert_commands;
+  uint64_t routed_expert_routes_issued;
+  uint64_t routed_expert_routes_completed;
 };
 
 void ApplyGem5HostBfloat16OutputBoundaries(

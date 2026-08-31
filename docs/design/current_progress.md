@@ -1218,3 +1218,10 @@ command ID 调用当前功能分页 provider。该实现仍是 functional modeli
 后续替换接口边界。下一轮 GB10 审计预期 `observed=524`、`lowerable=524`、`host_fused=0`、
 `emitted=7732`、`complete=PASS`；token 严格正确性必须保持不变。设备侧 page queue、并发
 expert issue 和 RTL completion aggregation 仍是下一阶段工作。
+
+GB10 已确认完整 lowering 审计达到 `observed=524`、`lowerable=524`、`host_fused=0`、
+`emitted=7732`、`complete=PASS`。这组数据成为真实 Qwen3.5-35B prefill 图的正式命令覆盖
+基线。为继续推进设备控制语义，functional graph stats 新增 routed-expert command、route
+issued 和 route completed 三组计数；成功命令要求每个 `rows * active_experts` route 都完成后
+才允许聚合 command completion。后续 page queue 和并发 expert scheduler 必须保持 issued 与
+completed 相等，且 token 严格正确性不变。

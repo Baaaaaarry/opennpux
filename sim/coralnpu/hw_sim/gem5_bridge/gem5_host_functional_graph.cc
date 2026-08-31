@@ -479,6 +479,9 @@ bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
   stats_.modeled_cycles += routed_stats.modeled_cycles;
   stats_.bytes_read += routed_stats.bytes_read;
   stats_.bytes_written += routed_stats.bytes_written;
+  ++stats_.routed_expert_commands;
+  stats_.routed_expert_routes_issued += routed_stats.routes_issued;
+  stats_.routed_expert_routes_completed += routed_stats.routes_completed;
   return true;
 }
 

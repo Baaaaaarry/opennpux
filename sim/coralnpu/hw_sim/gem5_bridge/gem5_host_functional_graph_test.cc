@@ -214,6 +214,13 @@ int main(int argc, char** argv) {
   assert(observer.count == 1 && observer.command_id == expert_index &&
          observer.regions == 2 &&
          observer.path == Gem5HostFunctionalExecutionPath::kGenericRequest);
+  assert(graph.stats().routed_expert_commands == 1);
+  assert(graph.stats().routed_expert_routes_issued ==
+         graph.arena().runtime().batch_size *
+             graph.arena().runtime().sequence_length *
+             graph.arena().runtime().active_experts);
+  assert(graph.stats().routed_expert_routes_completed ==
+         graph.stats().routed_expert_routes_issued);
   for (size_t index = 0; index < expert_output->byte_size / sizeof(float);
        ++index) {
     assert(std::isfinite(expert_output_data[index]));

@@ -13,6 +13,8 @@ struct Gem5HostRoutedExpertStats {
   uint64_t bytes_read;
   uint64_t bytes_written;
   uint64_t modeled_cycles;
+  uint64_t routes_issued;
+  uint64_t routes_completed;
 };
 
 bool RunGem5HostRoutedExpert(

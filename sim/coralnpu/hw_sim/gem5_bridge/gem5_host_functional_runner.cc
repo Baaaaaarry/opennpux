@@ -775,7 +775,16 @@ int main(int argc, char** argv) {
     for (size_t index = 0; index < generated.size(); ++index) {
       std::printf("%s%u", index == 0 ? "" : ",", generated[index]);
     }
-    std::printf("\nhost_functional_run=PASS\n");
+    std::printf("\nhost_functional_routed_expert_commands=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().routed_expert_commands));
+    std::printf("host_functional_routed_expert_routes_issued=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().routed_expert_routes_issued));
+    std::printf("host_functional_routed_expert_routes_completed=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().routed_expert_routes_completed));
+    std::printf("host_functional_run=PASS\n");
   }
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

@@ -39,7 +39,8 @@ bool RunGem5HostRoutedExpert(
     return false;
   }
   *stats = {kernel_stats.operations, kernel_stats.bytes_read,
-            kernel_stats.bytes_written, kernel_stats.modeled_cycles};
+            kernel_stats.bytes_written, kernel_stats.modeled_cycles,
+            route_count, route_count};
   return true;
 }
 

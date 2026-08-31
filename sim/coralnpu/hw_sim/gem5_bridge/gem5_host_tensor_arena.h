@@ -41,6 +41,9 @@ class Gem5HostTensorArena {
   uint32_t base() const { return arena_base_; }
   uint8_t* data() { return storage_.data(); }
   const uint8_t* data() const { return storage_.data(); }
+  // The functional coprocessor models NPU-addressed accesses directly against
+  // the arena. Keep mutable vector access restricted to that execution path.
+  std::vector<uint8_t>* mutable_storage_for_coprocessor() { return &storage_; }
   size_t size() const { return storage_.size(); }
   const opennpux_npu_tensor_plan& plan() const { return plan_; }
   const opennpux_npu_tensor_plan_memory& memory() const { return memory_; }

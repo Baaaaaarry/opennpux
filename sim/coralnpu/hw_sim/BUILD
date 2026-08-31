@@ -198,6 +198,26 @@ cc_library(
 )
 
 cc_library(
+    name = "gem5_xopennpux_functional_coprocessor",
+    srcs = ["gem5_bridge/gem5_tmma_coprocessor.cc"],
+    hdrs = [
+        "gem5_bridge/gem5_tmma_coprocessor.h",
+        "gem5_bridge/xopennpux_isa.h",
+    ],
+)
+
+cc_library(
+    name = "gem5_host_xgraph_executor",
+    srcs = ["gem5_bridge/gem5_host_xgraph_executor.cc"],
+    hdrs = ["gem5_bridge/gem5_host_xgraph_executor.h"],
+    deps = [
+        ":gem5_host_tensor_arena",
+        ":gem5_xgraph_lowering_runtime",
+        ":gem5_xopennpux_functional_coprocessor",
+    ],
+)
+
+cc_library(
     name = "gem5_host_functional_graph",
     srcs = ["gem5_bridge/gem5_host_functional_graph.cc"],
     hdrs = ["gem5_bridge/gem5_host_functional_graph.h"],
@@ -206,6 +226,7 @@ cc_library(
         ":gem5_generic_command_dispatch_headers",
         ":gem5_host_routed_expert",
         ":gem5_host_tensor_arena",
+        ":gem5_host_xgraph_executor",
         ":gem5_transformer_kernel_headers",
         ":gem5_xgraph_lowering_runtime",
     ],
@@ -311,9 +332,6 @@ cc_binary(
         "gem5_bridge/gem5_sim_host_functional.h",
         "gem5_bridge/gem5_sim_host_numerical.cc",
         "gem5_bridge/gem5_sim_host_numerical.h",
-        "gem5_bridge/gem5_tmma_coprocessor.cc",
-        "gem5_bridge/gem5_tmma_coprocessor.h",
-        "gem5_bridge/xopennpux_isa.h",
         "gem5_bridge/gem5_transformer_kernels.cc",
         "gem5_bridge/gem5_transformer_kernels.h",
         "gem5_bridge/qwen_device_inference.h",
@@ -326,6 +344,7 @@ cc_binary(
         ":gem5_host_tensor_arena",
         ":gem5_host_weight_provider",
         ":gem5_npu_submission_headers",
+        ":gem5_xopennpux_functional_coprocessor",
         ":hw_primitives",
         "//hdl/chisel/src/coralnpu:core_mini_axi_cc_library_cc",
         "//hdl/verilog/opennpux:custom_mac_cc",
@@ -367,9 +386,6 @@ cc_binary(
         "gem5_bridge/gem5_sim_host_functional.h",
         "gem5_bridge/gem5_sim_host_numerical.cc",
         "gem5_bridge/gem5_sim_host_numerical.h",
-        "gem5_bridge/gem5_tmma_coprocessor.cc",
-        "gem5_bridge/gem5_tmma_coprocessor.h",
-        "gem5_bridge/xopennpux_isa.h",
         "gem5_bridge/gem5_transformer_kernels.cc",
         "gem5_bridge/gem5_transformer_kernels.h",
         "gem5_bridge/qwen_device_inference.h",
@@ -383,6 +399,7 @@ cc_binary(
         ":gem5_host_tensor_arena",
         ":gem5_host_weight_provider",
         ":gem5_npu_submission_headers",
+        ":gem5_xopennpux_functional_coprocessor",
         ":hw_primitives",
         "//hdl/chisel/src/coralnpu:rvv_core_mini_highmem_axi_cc_library_cc",
         "//hdl/verilog/opennpux:custom_mac_cc",
@@ -402,12 +419,8 @@ cc_test(
 
 cc_test(
     name = "gem5_tmma_coprocessor_test",
-    srcs = [
-        "gem5_bridge/gem5_tmma_coprocessor.cc",
-        "gem5_bridge/gem5_tmma_coprocessor.h",
-        "gem5_bridge/gem5_tmma_coprocessor_test.cc",
-        "gem5_bridge/xopennpux_isa.h",
-    ],
+    srcs = ["gem5_bridge/gem5_tmma_coprocessor_test.cc"],
+    deps = [":gem5_xopennpux_functional_coprocessor"],
 )
 
 cc_test(

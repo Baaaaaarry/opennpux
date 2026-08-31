@@ -81,6 +81,22 @@ Do not present these functional cycles as cycle-accurate RTL performance. When
 an operator is replaced by an RTL execution unit, add a separate RTL row or
 measurement column rather than overwriting the functional-model baseline.
 
+## Host graph replacement status
+
+The generic Host functional graph now has an opt-in execution policy,
+`OPENNPUX_HOST_FUNCTIONAL_EXECUTION=xopennpux-primitives`. Eligible primitive
+requests are lowered and executed by `Gem5XOpenNpuFunctionalCoprocessor`, which
+uses the same XOpenNPUX L2 instruction decoder and CSR snapshot contract as the
+Coral custom-instruction path. Unsupported composites and requests whose data
+is not wholly resident in the graph Tensor Arena remain on the strict Host C++
+reference backend.
+
+This is a functional NPU-coprocessor replacement milestone, not an RTL claim.
+Acceptance must show both unchanged strict token output and the independent
+`host_functional_xgraph_*` counters. A request counted in
+`host_functional_xgraph_fallback_requests` has not been replaced, even if its
+lowering audit previously passed.
+
 The accepted fourth batch appends one generic `TATTENTION` command after the
 eight-command GPTQ `EXPERT` decomposition. The fifth batch adds one gated
 `TATTENTION`, one `TRECURRENT` and one `TCONV`. The measured totals are 5

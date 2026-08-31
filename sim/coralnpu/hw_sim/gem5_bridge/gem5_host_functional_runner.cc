@@ -784,6 +784,18 @@ int main(int argc, char** argv) {
     std::printf("host_functional_routed_expert_routes_completed=%llu\n",
                 static_cast<unsigned long long>(
                     graph.stats().routed_expert_routes_completed));
+    std::printf("host_functional_xgraph_requests=%llu\n",
+                static_cast<unsigned long long>(graph.stats().xgraph_requests));
+    std::printf("host_functional_xgraph_commands=%llu\n",
+                static_cast<unsigned long long>(graph.stats().xgraph_commands));
+    std::printf("host_functional_xgraph_operations=%llu\n",
+                static_cast<unsigned long long>(graph.stats().xgraph_operations));
+    std::printf("host_functional_xgraph_modeled_cycles=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().xgraph_modeled_cycles));
+    std::printf("host_functional_xgraph_fallback_requests=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().xgraph_fallback_requests));
     std::printf("host_functional_run=PASS\n");
   }
   std::free(submission);

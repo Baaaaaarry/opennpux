@@ -1225,3 +1225,36 @@ GB10 已确认完整 lowering 审计达到 `observed=524`、`lowerable=524`、`h
 issued 和 route completed 三组计数；成功命令要求每个 `rows * active_experts` route 都完成后
 才允许聚合 command completion。后续 page queue 和并发 expert scheduler 必须保持 issued 与
 completed 相等，且 token 严格正确性不变。
+
+## 2026-08-31 XOpenNPUX Primitive Execution Replacement
+
+完整 lowering 覆盖并不代表数值计算已经经过 NPU 协处理器。为开始替换 Host C++ kernel，
+新增 `Gem5HostXGraphExecutor`：它把真实 materialized generic request 交给统一 XGraph
+lowering，再将 64-byte XGraph command 转换为 32-bit XOpenNPUX 指令和 custom CSR 快照，
+最终由 `Gem5XOpenNpuFunctionalCoprocessor` 的 L2 decode 与执行语义完成读、算、写回。该路径
+不复制算子算法，也不使用 legacy `NPU_LAUNCH` shortcut。
+
+首阶段通过 `OPENNPUX_HOST_FUNCTIONAL_EXECUTION=xopennpux-primitives` 显式启用，替换
+`TADD/TMUL/TRMSNORM/TSOFTMAX/TROPE/TSILU/TSIGMOID/TGATHER/TTOPK/TDMA/`
+`TROW_SCALE`。只有 lowering 成功、opcode 属于该集合且所有输入/输出/辅助地址完整落在
+Tensor Arena 时才执行；GPTQ、dense TMMA、attention 和 routed expert 等涉及外部权重页或
+复合 scratch 的请求继续走严格正确性 Host backend。开始协处理器执行后发生的 decode、CSR
+或地址错误属于硬错误，禁止静默 fallback。
+
+逻辑图统计继续以 generic request 为单位，保证现有 `524 commands/step` 验收口径不变；新增
+`host_functional_xgraph_requests/commands/operations/modeled_cycles/fallback_requests`
+单独报告物理替换覆盖率。默认不开启该策略，因此现有 Host C++/vLLM strict token 基线不受
+影响。下一阶段按相同接口加入 tiled FP32 TMMA，再加入 TDEQUANT+TMMA GPTQ 序列和 device
+routed expert，逐步把 fallback 降到零。
+
+GB10 端到端复验命令：
+
+```bash
+CORAL_HOST_FUNCTIONAL_EXECUTION=xopennpux-primitives \
+./tools/coralnpu/run_qwen35b_real_weights_test.sh \
+  --prompt "OpenNPUX heterogeneous inference" --max-new-tokens 4
+```
+
+验收要求除原有 `token_golden=PASS equivalence=strict` 外，还必须出现非零
+`host_functional_xgraph_requests/commands`；`fallback_requests` 作为下一阶段替换清单保留，
+不能把 `xgraph_audit_complete=PASS` 当作已经执行过硬件协处理器。

@@ -26,6 +26,9 @@ Inference options:
 Command-line options override the corresponding CORAL_QWEN_* environment
 variables. The external numerical runner is a correctness reference; it is not
 the Host C++ functional-kernel result source.
+
+Set CORAL_HOST_FUNCTIONAL_EXECUTION=xopennpux-primitives to replace eligible
+Host C++ primitive kernels with the XOpenNPUX functional coprocessor.
 EOF
 }
 
@@ -723,6 +726,7 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
         OPENNPUX_HOST_FUNCTIONAL_TEACHER_FORCE="$LAYER_TRACE" \
         OPENNPUX_HOST_FUNCTIONAL_LOGITS_TRACE="${CORAL_HOST_FUNCTIONAL_LOGITS_TRACE:-0}" \
         OPENNPUX_HOST_FUNCTIONAL_XGRAPH_AUDIT="${CORAL_HOST_FUNCTIONAL_XGRAPH_AUDIT:-0}" \
+        OPENNPUX_HOST_FUNCTIONAL_EXECUTION="${CORAL_HOST_FUNCTIONAL_EXECUTION:-host-cpp}" \
         OPENNPUX_GPTQ_ACCUMULATION="$GPTQ_ACCUMULATION" \
         OPENNPUX_GPTQ_EXPERT_ACCUMULATION="$GPTQ_EXPERT_ACCUMULATION" \
         OPENNPUX_LINEAR_ATTENTION_PREFILL="$LINEAR_ATTENTION_PREFILL" \

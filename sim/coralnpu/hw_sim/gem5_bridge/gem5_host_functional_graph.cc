@@ -6,6 +6,7 @@
 
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
 #include "hw_sim/gem5_bridge/gem5_host_routed_expert.h"
+#include "hw_sim/gem5_bridge/gem5_host_xgraph_executor.h"
 #include "hw_sim/gem5_bridge/gem5_transformer_kernels.h"
 #include "opennpux/npu_xgraph_lowering.h"
 
@@ -58,6 +59,12 @@ bool UseBfloat16Boundaries() {
   const char* precision =
       std::getenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION");
   return precision != nullptr && std::strcmp(precision, "bf16") == 0;
+}
+
+bool UseXOpenNpuPrimitiveExecution() {
+  const char* mode = std::getenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION");
+  return mode != nullptr &&
+         std::strcmp(mode, "xopennpux-primitives") == 0;
 }
 
 bool IsFloatingOutputRole(uint32_t role) {
@@ -235,8 +242,40 @@ bool Gem5HostFunctionalGraph::Execute(
     observer_->Observe(Gem5HostFunctionalExecutionPath::kGenericRequest,
                        *request, regions.data(), regions.size());
   }
-  if (!ExecuteGem5FunctionalRequestInRegions(request, regions.data(),
-                                              regions.size())) {
+  bool executed = false;
+  if (UseXOpenNpuPrimitiveExecution()) {
+    const opennpux_npu_operator_parameters* parameters = nullptr;
+    if (request->parameter_size ==
+        sizeof(opennpux_npu_operator_parameters)) {
+      parameters = reinterpret_cast<const opennpux_npu_operator_parameters*>(
+          TranslateRegion(regions, request->parameter_address,
+                          request->parameter_size));
+    }
+    if (parameters != nullptr) {
+      Gem5HostXGraphExecutionStats xgraph = {};
+      const auto outcome = ExecuteGem5HostXGraphPrimitive(
+          *request, *parameters, &arena_, &xgraph);
+      if (outcome == Gem5HostXGraphExecutionOutcome::kError) return false;
+      if (outcome == Gem5HostXGraphExecutionOutcome::kExecuted) {
+        executed = true;
+        request->operation_count = xgraph.operations;
+        request->modeled_cycles = xgraph.modeled_cycles;
+        request->bytes_read = xgraph.bytes_read;
+        request->bytes_written = xgraph.bytes_written;
+        ++stats_.xgraph_requests;
+        stats_.xgraph_commands += xgraph.commands;
+        stats_.xgraph_operations += xgraph.operations;
+        stats_.xgraph_modeled_cycles += xgraph.modeled_cycles;
+      } else {
+        ++stats_.xgraph_fallback_requests;
+      }
+    } else {
+      ++stats_.xgraph_fallback_requests;
+    }
+  }
+  if (!executed &&
+      !ExecuteGem5FunctionalRequestInRegions(request, regions.data(),
+                                             regions.size())) {
     return false;
   }
   if (UseBfloat16Boundaries()) {

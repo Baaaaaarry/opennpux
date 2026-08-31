@@ -107,6 +107,8 @@ int main(int argc, char** argv) {
   lhs_data[0] = 1.001f;
   rhs_data[0] = 0.0f;
   assert(setenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION", "bf16", 1) == 0);
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION",
+                "xopennpux-primitives", 1) == 0);
   CapturingObserver observer;
   graph.SetRequestObserver(&observer);
   assert(graph.Execute(&request));
@@ -115,6 +117,7 @@ int main(int argc, char** argv) {
          observer.regions == 2 &&
          observer.path == Gem5HostFunctionalExecutionPath::kGenericRequest);
   assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_PRECISION") == 0);
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
   assert(output_data[0] == 1.0f);
   for (size_t index = 1; index < count; ++index) {
     assert(output_data[index] == static_cast<float>((index + 1) * 3));
@@ -138,7 +141,13 @@ int main(int argc, char** argv) {
   assert(recurrent_values[0] == 1.0f);
   assert(recurrent_values[1] == 1.001f);
   assert(graph.stats().completed_commands == 1 &&
-         graph.stats().operations == count);
+         graph.stats().operations == count &&
+         graph.stats().xgraph_requests == 1 &&
+         graph.stats().xgraph_commands == 1 &&
+         graph.stats().xgraph_operations == count &&
+         graph.stats().xgraph_modeled_cycles == count &&
+         graph.stats().xgraph_fallback_requests == 0);
+  std::printf("functional_graph_xopennpux_add=PASS\n");
   uint32_t matmul_index = UINT32_MAX;
   for (uint32_t index = 0; index < graph.command_count(); ++index) {
     if (graph.command(index)->opcode == OPENNPUX_NPU_OP_MATMUL) {

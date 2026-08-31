@@ -40,6 +40,11 @@ struct Gem5HostFunctionalGraphStats {
   uint64_t routed_expert_commands;
   uint64_t routed_expert_routes_issued;
   uint64_t routed_expert_routes_completed;
+  uint64_t xgraph_requests;
+  uint64_t xgraph_commands;
+  uint64_t xgraph_operations;
+  uint64_t xgraph_modeled_cycles;
+  uint64_t xgraph_fallback_requests;
 };
 
 void ApplyGem5HostBfloat16OutputBoundaries(

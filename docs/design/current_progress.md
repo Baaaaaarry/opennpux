@@ -1299,4 +1299,16 @@ cycles。
 Tensor Arena 发布 token indices。独立回归验证 1 条命令的 embedding 行选择、逐行 Top-1
 index、地址边界和 functional cycles。合并三项后，下一轮 GB10 预期达到
 `xgraph_requests=364`、`xgraph_commands=1602`、`fallback_requests=120`，opcode 1、8、
-14 全部消失；这些数值在 GB10 复验前仅为验收预期。
+14 全部消失。
+
+GB10 已确认该验收目标：累计 `xgraph_requests=364`、`xgraph_commands=1602`、
+`xgraph_operations=904558592`、`xgraph_modeled_cycles=904558592`、
+`fallback_requests=120`，strict token equivalence PASS。fallback histogram 仅剩
+QKV MATMUL opcode 2、ROUTER opcode 12、EXPERT opcode 13 各 40。
+
+下一增量将 GPTQ ROUTER 接入 XOpenNPUX executor。lowering 将 scratch 分为 logits、
+TopK packed values/indices 和 GPTQ dequant tile 三个不重叠区间，先执行通用 tiled
+`TDEQUANT/TMMA/TADD` 投影，再原子执行 `TTOPK + TSOFTMAX + 2xTDMA`。模型包回归已验证
+route 权重逐行归一化、expert IDs、物理命令计数增加且不产生 fallback。GB10 验收预期为
+`xgraph_requests=404`、`fallback_requests=80`、opcode 12 消失并保持 strict token PASS；
+真实 commands/operations/cycles 由 35B tile plan 实测记录，不在本地小模型上外推。

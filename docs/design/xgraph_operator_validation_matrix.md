@@ -118,7 +118,18 @@ internal values scratch plane while publishing only token indices through
 Top-1 indices, command counts and modeled cycles. The next GB10 acceptance
 target is 364 logical XGraph requests, 1602 physical commands and 120 fallback
 requests with opcodes 1, 8 and 14 absent and strict token equivalence unchanged.
-These are projected acceptance values until the full-model run is reported.
+GB10 full-model acceptance matched these values exactly and reported 904558592
+modeled operations/cycles. Strict token equivalence remained PASS. The accepted
+fallback histogram now contains only QKV MATMUL opcode 2, ROUTER opcode 12 and
+EXPERT opcode 13, with 40 requests each.
+
+GPTQ ROUTER Host-executor integration is locally validated. Its atomic sequence
+uses disjoint logits, packed TopK and dequant-tile scratch ranges and executes a
+tiled GPTQ projection followed by `TTOPK + TSOFTMAX + 2xTDMA`. The fixture
+checks normalized route weights, valid expert IDs and zero XGraph fallback. The
+next GB10 target is 404 XGraph requests and 80 fallback requests with opcode 12
+absent; command, operation and cycle totals must be recorded from the real tile
+plan rather than extrapolated from the fixture.
 
 The accepted fourth batch appends one generic `TATTENTION` command after the
 eight-command GPTQ `EXPERT` decomposition. The fifth batch adds one gated

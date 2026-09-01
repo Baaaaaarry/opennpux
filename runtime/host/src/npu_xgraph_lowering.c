@@ -1815,14 +1815,16 @@ opennpux_npu_xgraph_lower_router(
     const uint64_t logits_bytes = logit_elements * sizeof(float);
     const uint64_t selected_bytes = selected_elements * sizeof(float);
     const uint64_t required_scratch = logits_bytes + selected_bytes * 2;
-    if (input == NULL || weight == NULL || indices == NULL || weights == NULL ||
+    const int gptq = has_gptq_operands(request);
+    if (input == NULL || (!gptq && weight == NULL) || indices == NULL ||
+        weights == NULL ||
         input_elements > UINT32_MAX || weight_elements > UINT32_MAX ||
         logit_elements > UINT32_MAX || selected_elements > UINT32_MAX ||
         logits_bytes > UINT32_MAX || selected_bytes > UINT32_MAX ||
         required_scratch > scratch_size ||
         (uint64_t)scratch_address + required_scratch > UINT32_MAX ||
         input->byte_size < input_elements * sizeof(float) ||
-        weight->byte_size < weight_elements * sizeof(float) ||
+        (!gptq && weight->byte_size < weight_elements * sizeof(float)) ||
         indices->byte_size < selected_bytes || weights->byte_size < selected_bytes) {
         errno = EINVAL;
         return -1;
@@ -1838,61 +1840,105 @@ opennpux_npu_xgraph_lower_router(
         OPENNPUX_NPU_OPERAND_INPUT, packed_address + (uint32_t)selected_bytes,
         (uint32_t)selected_bytes, 0};
 
-    memset(commands, 0, 5 * sizeof(*commands));
-    commands[0].opcode = OPENNPUX_XGRAPH_OP_TMMA;
-    commands[0].dim0 = request->rows;
-    commands[0].dim1 = parameters->output_features;
-    commands[0].dim2 = parameters->input_features;
-    commands[0].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
-    if (set_operands(&commands[0], &logits, input, weight,
+    uint32_t projection_commands = 1;
+    if (gptq) {
+        const uint64_t projection_scratch64 =
+            ((uint64_t)scratch_address + required_scratch + 63u) & ~UINT64_C(63);
+        const uint64_t scratch_end = (uint64_t)scratch_address + scratch_size;
+        if (projection_scratch64 >= scratch_end ||
+            projection_scratch64 > UINT32_MAX) {
+            errno = ENOSPC;
+            return -1;
+        }
+        struct opennpux_npu_functional_request projection = *request;
+        projection.opcode = OPENNPUX_NPU_OP_MATMUL;
+        int output_replaced = 0;
+        for (uint32_t index = 0; index < projection.operand_count; ++index) {
+            if (projection.operands[index].role ==
+                OPENNPUX_NPU_OPERAND_OUTPUT) {
+                projection.operands[index] = logits;
+                output_replaced = 1;
+                break;
+            }
+        }
+        struct opennpux_npu_operator_parameters projection_parameters =
+            *parameters;
+        projection_parameters.opcode = OPENNPUX_NPU_OP_MATMUL;
+        if (!output_replaced ||
+            opennpux_npu_xgraph_lower_gptq_matmul(
+                &projection, &projection_parameters, extmem_base,
+                extmem_size, (uint32_t)projection_scratch64,
+                (uint32_t)(scratch_end - projection_scratch64),
+                first_command_id, commands, command_capacity - 4,
+                &projection_commands) != 0 || projection_commands == 0) {
+            return -1;
+        }
+    } else {
+        memset(commands, 0, 5 * sizeof(*commands));
+        commands[0].opcode = OPENNPUX_XGRAPH_OP_TMMA;
+        commands[0].dim0 = request->rows;
+        commands[0].dim1 = parameters->output_features;
+        commands[0].dim2 = parameters->input_features;
+        commands[0].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+        if (set_operands(&commands[0], &logits, input, weight,
+                         extmem_base, extmem_size) != 0) {
+            return -1;
+        }
+        commands[0].command_id = first_command_id;
+    }
+
+    if (projection_commands > command_capacity - 4 ||
+        first_command_id > UINT32_MAX - projection_commands - 3) {
+        errno = ENOSPC;
+        return -1;
+    }
+    struct opennpux_xgraph_command *tail = commands + projection_commands;
+    memset(tail, 0, 4 * sizeof(*tail));
+
+    tail[0].opcode = OPENNPUX_XGRAPH_OP_TTOPK;
+    tail[0].dim0 = request->rows;
+    tail[0].dim1 = parameters->output_features;
+    tail[0].dim2 = 1;
+    tail[0].scalar0 = request->top_k;
+    tail[0].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    if (set_operands(&tail[0], &packed, &logits, NULL,
                      extmem_base, extmem_size) != 0) {
         return -1;
     }
 
-    commands[1].opcode = OPENNPUX_XGRAPH_OP_TTOPK;
-    commands[1].dim0 = request->rows;
-    commands[1].dim1 = parameters->output_features;
-    commands[1].dim2 = 1;
-    commands[1].scalar0 = request->top_k;
-    commands[1].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
-    if (set_operands(&commands[1], &packed, &logits, NULL,
+    tail[1].opcode = OPENNPUX_XGRAPH_OP_TSOFTMAX;
+    tail[1].dim0 = request->rows;
+    tail[1].dim1 = request->top_k;
+    tail[1].dim2 = 1;
+    tail[1].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    if (set_operands(&tail[1], &packed, &packed, NULL,
                      extmem_base, extmem_size) != 0) {
         return -1;
     }
 
-    commands[2].opcode = OPENNPUX_XGRAPH_OP_TSOFTMAX;
-    commands[2].dim0 = request->rows;
-    commands[2].dim1 = request->top_k;
-    commands[2].dim2 = 1;
-    commands[2].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
-    if (set_operands(&commands[2], &packed, &packed, NULL,
+    tail[2].opcode = OPENNPUX_XGRAPH_OP_TDMA;
+    tail[2].dim0 = request->rows;
+    tail[2].dim1 = request->top_k;
+    tail[2].dim2 = 1;
+    tail[2].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    if (set_operands(&tail[2], weights, &packed, NULL,
                      extmem_base, extmem_size) != 0) {
         return -1;
     }
 
-    commands[3].opcode = OPENNPUX_XGRAPH_OP_TDMA;
-    commands[3].dim0 = request->rows;
-    commands[3].dim1 = request->top_k;
-    commands[3].dim2 = 1;
-    commands[3].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
-    if (set_operands(&commands[3], weights, &packed, NULL,
+    tail[3].opcode = OPENNPUX_XGRAPH_OP_TDMA;
+    tail[3].dim0 = request->rows;
+    tail[3].dim1 = request->top_k;
+    tail[3].dim2 = 1;
+    tail[3].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    if (set_operands(&tail[3], indices, &packed_indices, NULL,
                      extmem_base, extmem_size) != 0) {
         return -1;
     }
-
-    commands[4].opcode = OPENNPUX_XGRAPH_OP_TDMA;
-    commands[4].dim0 = request->rows;
-    commands[4].dim1 = request->top_k;
-    commands[4].dim2 = 1;
-    commands[4].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
-    if (set_operands(&commands[4], indices, &packed_indices, NULL,
-                     extmem_base, extmem_size) != 0) {
-        return -1;
+    for (uint32_t index = 0; index < 4; ++index) {
+        tail[index].command_id = first_command_id + projection_commands + index;
     }
-    for (uint32_t index = 0; index < 5; ++index) {
-        commands[index].command_id = first_command_id + index;
-    }
-    *command_count = 5;
+    *command_count = projection_commands + 4;
     return 0;
 }
 

@@ -643,7 +643,19 @@ int main(int argc, char** argv) {
   }
   Gem5HostWeightProvider weights;
   assert(weights.Load(argv[3], argv[4], 4096));
+  const auto matmul_stats_before = graph.stats();
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION",
+                "xopennpux-primitives", 1) == 0);
   assert(graph.ExecuteGptqQkv(matmul_index, &weights));
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
+  assert(graph.stats().xgraph_requests ==
+             matmul_stats_before.xgraph_requests &&
+         graph.stats().xgraph_fallback_requests ==
+             matmul_stats_before.xgraph_fallback_requests + 1 &&
+         graph.stats().xgraph_fallback_opcodes[OPENNPUX_NPU_OP_MATMUL] ==
+             matmul_stats_before
+                     .xgraph_fallback_opcodes[OPENNPUX_NPU_OP_MATMUL] +
+                 1);
   for (size_t index = 0; index < matmul_output->byte_size / sizeof(float);
        ++index) {
     assert(std::isfinite(matmul_output_data[index]));

@@ -102,9 +102,16 @@ bool HasOperandRole(const opennpux_npu_functional_request& request,
 bool IsComplexCandidate(const opennpux_npu_functional_request& request) {
   if (request.opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE ||
       request.opcode == OPENNPUX_NPU_OP_DMA ||
-      request.opcode == OPENNPUX_NPU_OP_TOPK ||
-      request.opcode == OPENNPUX_NPU_OP_ROUTER) {
+      request.opcode == OPENNPUX_NPU_OP_TOPK) {
     return true;
+  }
+  // The dense FP32 router path is reference-checked below. GPTQ routers remain
+  // on the Host C++ kernel until their dequantized projection is validated
+  // against the generic GPTQ backend with production-scale weights.
+  if (request.opcode == OPENNPUX_NPU_OP_ROUTER) {
+    return !HasOperandRole(request, OPENNPUX_NPU_OPERAND_QWEIGHT) &&
+           !HasOperandRole(request, OPENNPUX_NPU_OPERAND_QZEROS) &&
+           !HasOperandRole(request, OPENNPUX_NPU_OPERAND_SCALES);
   }
   if (request.opcode != OPENNPUX_NPU_OP_MATMUL) return false;
   return HasOperandRole(request, OPENNPUX_NPU_OPERAND_WEIGHT) ||

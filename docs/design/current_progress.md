@@ -1312,3 +1312,7 @@ TopK packed values/indices 和 GPTQ dequant tile 三个不重叠区间，先执�
 route 权重逐行归一化、expert IDs、物理命令计数增加且不产生 fallback。GB10 验收预期为
 `xgraph_requests=404`、`fallback_requests=80`、opcode 12 消失并保持 strict token PASS；
 真实 commands/operations/cycles 由 35B tile plan 实测记录，不在本地小模型上外推。
+
+首次 GB10 preflight 进一步表明真实 Router 使用 FP32 `[2048,256]` 权重，而不是 GPTQ，
+单条 TMMA 无法编码 `K=2048`。浮点分支已改为复用通用 tiled dense MatMul lowerer；新增
+`rows=2/K=2048/N=4/top_k=2` 回归验证多条 TMMA、合法 expert IDs 和逐行归一化权重。

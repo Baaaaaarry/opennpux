@@ -277,6 +277,77 @@ int main(int argc, char** argv) {
          topk_stats.modeled_cycles == 6);
   std::puts("functional_graph_xopennpux_indices_only_topk=PASS");
 
+  constexpr uint32_t router_rows = 2;
+  constexpr uint32_t router_input_features = 2048;
+  constexpr uint32_t router_experts = 4;
+  constexpr uint32_t router_top_k = 2;
+  std::vector<float> large_router_input(
+      router_rows * router_input_features, 1.0f);
+  std::vector<float> large_router_weights(
+      router_input_features * router_experts);
+  for (uint32_t feature = 0; feature < router_input_features; ++feature) {
+    for (uint32_t expert = 0; expert < router_experts; ++expert) {
+      large_router_weights[feature * router_experts + expert] =
+          static_cast<float>(expert + 1) / router_input_features;
+    }
+  }
+  std::fill(output_data, output_data + router_rows * router_top_k, 0.0f);
+  auto* large_router_ids = reinterpret_cast<uint32_t*>(rhs_data);
+  std::fill(large_router_ids,
+            large_router_ids + router_rows * router_top_k, UINT32_MAX);
+  opennpux_npu_functional_request large_router = {};
+  large_router.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  large_router.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  large_router.struct_size = sizeof(large_router);
+  large_router.opcode = OPENNPUX_NPU_OP_ROUTER;
+  large_router.rows = router_rows;
+  large_router.features = router_top_k;
+  large_router.top_k = router_top_k;
+  large_router.operand_count = 4;
+  large_router.operands[0] = {
+      OPENNPUX_NPU_OPERAND_INPUT, UINT32_C(0x60500000),
+      router_rows * router_input_features * sizeof(float), 0};
+  large_router.operands[1] = {
+      OPENNPUX_NPU_OPERAND_OUTPUT, output->address,
+      router_rows * router_top_k * sizeof(float), 0};
+  large_router.operands[2] = {
+      OPENNPUX_NPU_OPERAND_OUTPUT_INDICES, rhs->address,
+      router_rows * router_top_k * sizeof(uint32_t), 0};
+  large_router.operands[3] = {
+      OPENNPUX_NPU_OPERAND_WEIGHT, UINT32_C(0x60600000),
+      static_cast<uint32_t>(large_router_weights.size() * sizeof(float)), 0};
+  const Gem5FunctionalMemoryRegion large_router_regions[] = {
+      {UINT32_C(0x60500000),
+       reinterpret_cast<uint8_t*>(large_router_input.data()),
+       large_router_input.size() * sizeof(float)},
+      {UINT32_C(0x60600000),
+       reinterpret_cast<uint8_t*>(large_router_weights.data()),
+       large_router_weights.size() * sizeof(float)}};
+  opennpux_npu_operator_parameters large_router_parameters = {};
+  large_router_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  large_router_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  large_router_parameters.struct_size = sizeof(large_router_parameters);
+  large_router_parameters.opcode = OPENNPUX_NPU_OP_ROUTER;
+  large_router_parameters.input_features = router_input_features;
+  large_router_parameters.output_features = router_experts;
+  Gem5HostXGraphExecutionStats large_router_stats = {};
+  assert(ExecuteGem5HostXGraphRequest(
+             large_router, large_router_parameters, large_router_regions, 2,
+             &graph.arena(), &large_router_stats) ==
+         Gem5HostXGraphExecutionOutcome::kExecuted);
+  assert(large_router_stats.commands > 5);
+  for (uint32_t row = 0; row < router_rows; ++row) {
+    float sum = 0.0f;
+    for (uint32_t route = 0; route < router_top_k; ++route) {
+      const uint32_t index = row * router_top_k + route;
+      assert(large_router_ids[index] < router_experts);
+      assert(std::isfinite(output_data[index]) && output_data[index] >= 0.0f);
+      sum += output_data[index];
+    }
+    assert(std::fabs(sum - 1.0f) < 1.0e-5f);
+  }
+  std::puts("functional_graph_xopennpux_tiled_float_router=PASS");
+
   assert(count % 2 == 0);
   const uint32_t conv_rows = 2;
   const uint32_t conv_features = static_cast<uint32_t>(count / conv_rows);

@@ -1874,17 +1874,14 @@ opennpux_npu_xgraph_lower_router(
             return -1;
         }
     } else {
-        memset(commands, 0, 5 * sizeof(*commands));
-        commands[0].opcode = OPENNPUX_XGRAPH_OP_TMMA;
-        commands[0].dim0 = request->rows;
-        commands[0].dim1 = parameters->output_features;
-        commands[0].dim2 = parameters->input_features;
-        commands[0].data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
-        if (set_operands(&commands[0], &logits, input, weight,
-                         extmem_base, extmem_size) != 0) {
+        if (lower_dense_matmul_operands(
+                input, weight, &logits, request->rows,
+                parameters->input_features, parameters->output_features,
+                extmem_base, extmem_size, first_command_id, commands,
+                command_capacity - 4, &projection_commands) != 0 ||
+            projection_commands == 0) {
             return -1;
         }
-        commands[0].command_id = first_command_id;
     }
 
     if (projection_commands > command_capacity - 4 ||

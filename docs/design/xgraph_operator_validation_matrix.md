@@ -131,6 +131,12 @@ next GB10 target is 404 XGraph requests and 80 fallback requests with opcode 12
 absent; command, operation and cycle totals must be recorded from the real tile
 plan rather than extrapolated from the fixture.
 
+The real 35B Router uses an FP32 2048x256 projection. Its first preflight exposed
+that a single TMMA cannot encode K=2048. The float Router path now reuses the
+generic tiled dense-MatMul lowerer before the same TopK/Softmax/publication tail.
+A dedicated K=2048 regression verifies multiple TMMA commands, valid expert IDs
+and row-normalized route weights.
+
 The accepted fourth batch appends one generic `TATTENTION` command after the
 eight-command GPTQ `EXPERT` decomposition. The fifth batch adds one gated
 `TATTENTION`, one `TRECURRENT` and one `TCONV`. The measured totals are 5

@@ -19,6 +19,18 @@ constexpr uint32_t kRd = 10;
 constexpr uint32_t kRs1 = 11;
 constexpr uint32_t kRs2 = 12;
 constexpr uint32_t kComplexScratchBytes = UINT32_C(64) * 1024 * 1024;
+constexpr uint32_t kFunctionalOpcodeCount = 32;
+
+bool ClaimFallbackDiagnostic(uint32_t opcode) {
+  const char* value = std::getenv("OPENNPUX_HOST_XGRAPH_DEBUG");
+  if (value == nullptr || value[0] == '\0' || std::strcmp(value, "0") == 0) {
+    return false;
+  }
+  static bool reported[kFunctionalOpcodeCount] = {};
+  if (opcode >= kFunctionalOpcodeCount || reported[opcode]) return false;
+  reported[opcode] = true;
+  return true;
+}
 
 bool Multiply(uint64_t lhs, uint64_t rhs, uint64_t* result) {
   if (result == nullptr ||
@@ -687,6 +699,13 @@ Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
   if (!StageExternalOperands(request, regions, region_count, arena->base(),
                              resident_bytes, &memory, &staged) ||
       !AlignMemory(&memory, 64)) {
+    if (ClaimFallbackDiagnostic(request.opcode)) {
+      std::fprintf(stderr,
+                   "host_xgraph_fallback stage=external-staging opcode=%u "
+                   "rows=%u features=%u operands=%u resident=%zu\n",
+                   request.opcode, request.rows, request.features,
+                   request.operand_count, resident_bytes);
+    }
     return Gem5HostXGraphExecutionOutcome::kNotEligible;
   }
 
@@ -708,17 +727,17 @@ Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
                 memory.data(), resident_bytes);
     return Gem5HostXGraphExecutionOutcome::kExecuted;
   }
-  if (std::getenv("OPENNPUX_HOST_XGRAPH_DEBUG") != nullptr) {
-    std::fprintf(stderr,
-                 "host_xgraph_staged_primitive_failed opcode=%u result=%d "
-                 "errno=%d lowered_opcode=%u supported=%u ranges=%u "
-                 "resident=%zu staged=%zu\n",
-                 staged.opcode, staged_primitive_result, errno,
-                 command.opcode, staged_primitive_supported ? 1 : 0,
-                 staged_primitive_ranges ? 1 : 0, resident_bytes,
-                 memory.size());
-  }
   if (!IsComplexCandidate(request)) {
+    if (ClaimFallbackDiagnostic(request.opcode)) {
+      std::fprintf(stderr,
+                   "host_xgraph_fallback stage=primitive-lowering opcode=%u "
+                   "result=%d errno=%d lowered_opcode=%u supported=%u "
+                   "ranges=%u resident=%zu staged=%zu\n",
+                   staged.opcode, staged_primitive_result, errno,
+                   command.opcode, staged_primitive_supported ? 1 : 0,
+                   staged_primitive_ranges ? 1 : 0, resident_bytes,
+                   memory.size());
+    }
     return Gem5HostXGraphExecutionOutcome::kNotEligible;
   }
 
@@ -751,9 +770,10 @@ Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
       static_cast<uint32_t>(commands.size()), origins.data(),
       &requests_consumed, &commands_emitted, &failure);
   if (result != 0 || requests_consumed != 1 || commands_emitted == 0) {
-    if (std::getenv("OPENNPUX_HOST_XGRAPH_DEBUG") != nullptr) {
+    if (ClaimFallbackDiagnostic(staged.opcode)) {
       std::fprintf(stderr,
-                   "host_xgraph_lower_failed opcode=%u result=%d errno=%d "
+                   "host_xgraph_fallback stage=complex-lowering opcode=%u "
+                   "result=%d errno=%d "
                    "consumed=%u emitted=%u failure_opcode=%u "
                    "failure_error=%d memory=%zu scratch=%zu\n",
                    staged.opcode, result, errno, requests_consumed,
@@ -781,9 +801,10 @@ Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
   }
   for (uint32_t index = 0; index < commands_emitted; ++index) {
     if (!IsSupportedCommand(commands[index].opcode)) {
-      if (std::getenv("OPENNPUX_HOST_XGRAPH_DEBUG") != nullptr) {
+      if (ClaimFallbackDiagnostic(staged.opcode)) {
         std::fprintf(stderr,
-                     "host_xgraph_unsupported request_opcode=%u "
+                     "host_xgraph_fallback stage=unsupported-command "
+                     "request_opcode=%u "
                      "command=%u command_opcode=%u\n",
                      staged.opcode, index, commands[index].opcode);
       }

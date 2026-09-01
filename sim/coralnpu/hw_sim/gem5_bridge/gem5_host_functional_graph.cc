@@ -232,7 +232,7 @@ bool Gem5HostFunctionalGraph::Materialize(
 bool Gem5HostFunctionalGraph::Execute(
     opennpux_npu_functional_request* request,
     const Gem5FunctionalMemoryRegion* extra_regions,
-    size_t extra_region_count) {
+    size_t extra_region_count, bool allow_xgraph, uint32_t fallback_opcode) {
   if (!configured_ || request == nullptr ||
       (extra_region_count != 0 && extra_regions == nullptr)) {
     return false;
@@ -255,7 +255,7 @@ bool Gem5HostFunctionalGraph::Execute(
                        *request, regions.data(), regions.size());
   }
   bool executed = false;
-  if (UseXOpenNpuPrimitiveExecution()) {
+  if (UseXOpenNpuPrimitiveExecution() && allow_xgraph) {
     const opennpux_npu_operator_parameters* parameters = nullptr;
     if (request->parameter_size ==
         sizeof(opennpux_npu_operator_parameters)) {
@@ -301,6 +301,13 @@ bool Gem5HostFunctionalGraph::Execute(
         ++stats_.xgraph_fallback_opcodes[request->opcode];
       }
     }
+  } else if (UseXOpenNpuPrimitiveExecution()) {
+    ++stats_.xgraph_fallback_requests;
+    const uint32_t opcode =
+        fallback_opcode == UINT32_MAX ? request->opcode : fallback_opcode;
+    if (opcode < 32) {
+      ++stats_.xgraph_fallback_opcodes[opcode];
+    }
   }
   if (!executed &&
       !ExecuteGem5FunctionalRequestInRegions(request, regions.data(),
@@ -320,7 +327,8 @@ bool Gem5HostFunctionalGraph::Execute(
 
 bool Gem5HostFunctionalGraph::ExecuteGptqProjection(
     uint32_t command_index, Gem5HostWeightProvider* weights,
-    uint32_t role_id, uint64_t expert_id, uint32_t slot_id) {
+    uint32_t role_id, uint64_t expert_id, uint32_t slot_id,
+    bool allow_xgraph, uint32_t fallback_opcode) {
   if (!configured_ || weights == nullptr) {
     return false;
   }
@@ -359,7 +367,7 @@ bool Gem5HostFunctionalGraph::ExecuteGptqProjection(
   }
   opennpux_npu_functional_request request = {};
   return count >= 3 && Materialize(command_index, operands, count, &request) &&
-         Execute(&request, regions, count);
+         Execute(&request, regions, count, allow_xgraph, fallback_opcode);
 }
 
 bool Gem5HostFunctionalGraph::ExecuteGptqQkv(
@@ -474,13 +482,15 @@ bool Gem5HostFunctionalGraph::ExecuteGptqRouter(
   if (ExecuteGptqProjection(command_index, weights,
                             OPENNPUX_NPU_WEIGHT_ROLE_ROUTER,
                             OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
-                            OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT)) {
+                            OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT, false,
+                            OPENNPUX_NPU_OP_ROUTER)) {
     return true;
   }
   const Gem5HostWeightBinding binding = {
       OPENNPUX_NPU_WEIGHT_ROLE_ROUTER, OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
       OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT};
-  return ExecuteFloatWeight(command_index, weights, binding);
+  return ExecuteFloatWeight(command_index, weights, binding, false,
+                            OPENNPUX_NPU_OP_ROUTER);
 }
 
 bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
@@ -661,7 +671,8 @@ bool Gem5HostFunctionalGraph::ExecuteGptqExpert(
 
 bool Gem5HostFunctionalGraph::ExecuteFloatWeight(
     uint32_t command_index, Gem5HostWeightProvider* weights,
-    const Gem5HostWeightBinding& binding) {
+    const Gem5HostWeightBinding& binding, bool allow_xgraph,
+    uint32_t fallback_opcode) {
   if (!configured_ || weights == nullptr) {
     return false;
   }
@@ -711,7 +722,7 @@ bool Gem5HostFunctionalGraph::ExecuteFloatWeight(
       weight.size() * sizeof(float)};
   opennpux_npu_functional_request request = {};
   return Materialize(command_index, &operand, 1, &request) &&
-         Execute(&request, &region, 1);
+         Execute(&request, &region, 1, allow_xgraph, fallback_opcode);
 }
 
 bool Gem5HostFunctionalGraph::ExecuteLinearAttentionProjection(

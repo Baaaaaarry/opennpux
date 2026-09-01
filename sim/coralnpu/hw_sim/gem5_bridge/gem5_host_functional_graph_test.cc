@@ -737,7 +737,19 @@ int main(int argc, char** argv) {
        ++index) {
     router_input_data[index] = static_cast<float>(index % 7) / 7.0f;
   }
+  const auto router_stats_before = graph.stats();
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION",
+                "xopennpux-primitives", 1) == 0);
   assert(graph.ExecuteGptqRouter(router_index, &weights));
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
+  assert(graph.stats().xgraph_requests ==
+             router_stats_before.xgraph_requests &&
+         graph.stats().xgraph_fallback_requests ==
+             router_stats_before.xgraph_fallback_requests + 1 &&
+         graph.stats().xgraph_fallback_opcodes[OPENNPUX_NPU_OP_ROUTER] ==
+             router_stats_before
+                     .xgraph_fallback_opcodes[OPENNPUX_NPU_OP_ROUTER] +
+                 1);
   const size_t route_count =
       static_cast<size_t>(router.rows) * router.top_k;
   for (size_t row = 0; row < router.rows; ++row) {

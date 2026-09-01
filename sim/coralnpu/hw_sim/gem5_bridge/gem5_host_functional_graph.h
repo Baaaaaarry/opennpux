@@ -77,11 +77,13 @@ class Gem5HostFunctionalGraph {
   bool Execute(
       opennpux_npu_functional_request* request,
       const Gem5FunctionalMemoryRegion* extra_regions = nullptr,
-      size_t extra_region_count = 0);
+      size_t extra_region_count = 0, bool allow_xgraph = true,
+      uint32_t fallback_opcode = UINT32_MAX);
   bool ExecuteGptqProjection(uint32_t command_index,
                              Gem5HostWeightProvider* weights,
                              uint32_t role_id, uint64_t expert_id,
-                             uint32_t slot_id);
+                             uint32_t slot_id, bool allow_xgraph = true,
+                             uint32_t fallback_opcode = UINT32_MAX);
   bool ExecuteGptqQkv(uint32_t command_index,
                       Gem5HostWeightProvider* weights);
   bool ExecuteGptqRouter(uint32_t command_index,
@@ -116,7 +118,9 @@ class Gem5HostFunctionalGraph {
  private:
   bool ExecuteFloatWeight(uint32_t command_index,
                           Gem5HostWeightProvider* weights,
-                          const Gem5HostWeightBinding& binding);
+                          const Gem5HostWeightBinding& binding,
+                          bool allow_xgraph = true,
+                          uint32_t fallback_opcode = UINT32_MAX);
   bool ExecuteLinearAttentionProjection(
       uint32_t command_index, Gem5HostWeightProvider* weights,
       const std::vector<Gem5HostWeightBinding>& bindings);

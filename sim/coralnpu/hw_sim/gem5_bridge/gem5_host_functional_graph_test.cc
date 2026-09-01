@@ -390,6 +390,49 @@ int main(int argc, char** argv) {
          attention_stats.modeled_cycles == attention_operations);
   std::puts("functional_graph_xopennpux_attention=PASS");
 
+  constexpr uint32_t dma_rows = 2;
+  constexpr uint32_t dma_kv_heads = 1;
+  constexpr uint32_t dma_head_dim = 2;
+  constexpr uint32_t dma_kv_length = 4;
+  const float dma_key[] = {1.0f, 2.0f, 3.0f, 4.0f};
+  const float dma_value[] = {5.0f, 6.0f, 7.0f, 8.0f};
+  std::copy(dma_key, dma_key + 4, lhs_data);
+  std::copy(dma_value, dma_value + 4, lhs_data + 4);
+  std::fill(output_data, output_data + 16, 0.0f);
+  opennpux_npu_functional_request dma = {};
+  dma.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  dma.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  dma.struct_size = sizeof(dma);
+  dma.opcode = OPENNPUX_NPU_OP_DMA;
+  dma.rows = dma_rows;
+  dma.features = dma_kv_heads * dma_head_dim;
+  dma.kv_heads = dma_kv_heads;
+  dma.head_dim = dma_head_dim;
+  dma.kv_length = dma_kv_length;
+  dma.operand_count = 3;
+  dma.operands[0] = {OPENNPUX_NPU_OPERAND_INPUT, lhs->address,
+                     UINT32_C(16), 0};
+  dma.operands[1] = {OPENNPUX_NPU_OPERAND_SECONDARY,
+                     lhs->address + UINT32_C(16), UINT32_C(16), 0};
+  dma.operands[2] = {OPENNPUX_NPU_OPERAND_OUTPUT, output->address,
+                     UINT32_C(64), 0};
+  opennpux_npu_operator_parameters dma_parameters = {};
+  dma_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  dma_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  dma_parameters.struct_size = sizeof(dma_parameters);
+  dma_parameters.opcode = OPENNPUX_NPU_OP_DMA;
+  Gem5HostXGraphExecutionStats dma_stats = {};
+  assert(ExecuteGem5HostXGraphRequest(
+             dma, dma_parameters, &arena_region, 1, &graph.arena(),
+             &dma_stats) == Gem5HostXGraphExecutionOutcome::kExecuted);
+  for (uint32_t index = 0; index < 4; ++index) {
+    assert(output_data[4 + index] == dma_key[index]);
+    assert(output_data[12 + index] == dma_value[index]);
+  }
+  assert(dma_stats.commands == 2 && dma_stats.operations == 8 &&
+         dma_stats.modeled_cycles == 8);
+  std::puts("functional_graph_xopennpux_kv_dma=PASS");
+
   uint32_t matmul_index = UINT32_MAX;
   for (uint32_t index = 0; index < graph.command_count(); ++index) {
     if (graph.command(index)->opcode == OPENNPUX_NPU_OP_MATMUL) {

@@ -88,7 +88,10 @@ bool HasOperandRole(const opennpux_npu_functional_request& request,
 }
 
 bool IsComplexCandidate(const opennpux_npu_functional_request& request) {
-  if (request.opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE) return true;
+  if (request.opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE ||
+      request.opcode == OPENNPUX_NPU_OP_DMA) {
+    return true;
+  }
   if (request.opcode != OPENNPUX_NPU_OP_MATMUL) return false;
   return HasOperandRole(request, OPENNPUX_NPU_OPERAND_WEIGHT) ||
          HasOperandRole(request, OPENNPUX_NPU_OPERAND_QWEIGHT) ||

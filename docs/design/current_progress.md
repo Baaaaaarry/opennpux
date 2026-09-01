@@ -1282,3 +1282,15 @@ EMBED 1、QKV MATMUL 40、TOPK 1、CAUSAL_CONVOLUTION 30、RECURRENT_UPDATE 30�
 `TATTENTION`。三条路径均补齐范围校验、custom instruction 编码、扩展 CSR packet、流量/
 cycle 统计和 tensor/state 回写回归。GB10 预期再消除 opcode 10/11/15 共 70 个 fallback；
 验收仍要求 strict token 完全一致。
+
+GB10 已完成上述三条 stateful 路径验收：累计 `xgraph_requests=352`、
+`xgraph_commands=1580`、`xgraph_operations=904494592`、
+`fallback_requests=132`，opcode 10/11/15 已从 fallback histogram 消失且 strict token
+继续 PASS。剩余 fallback 为 EMBED 1、gated QKV MATMUL 40、TOPK 1、ROUTER 40、
+EXPERT 40 和 KV DMA 10。
+
+Host executor 随后接入通用 KV-cache DMA lowering。一个 generic DMA request 原子展开为
+`TDMA(K) + TDMA(V)`，按照 `rows/kv_heads/head_dim/kv_length` 计算两个 state plane 的
+尾部写入范围；本地回归独立验证 K/V 数据、地址边界、2 条物理命令和 8 个 functional
+cycles。下一轮 GB10 预期达到 `xgraph_requests=362`、`xgraph_commands=1600`、
+`fallback_requests=122`，且 opcode 14 消失；这些数值在 GB10 复验前仅为验收预期。

@@ -101,13 +101,20 @@ lowering audit previously passed.
 Per-opcode fallback counters identify the next replacement target without
 changing the logical request-completion totals.
 
-The current GB10 replacement baseline is 282 logical XGraph requests, 1510
-physical commands and 202 fallback requests with strict token equivalence.
-All 81 weighted NORMALIZE requests now stage their external read-only weight
-and execute as `TRMSNORM`. Host-executor integration for `TCAUSALCONV`,
-`TRECURRENT` and `TATTENTION` is locally validated and awaits the next GB10
-full-model acceptance; these paths must not be marked as full-model accepted
-until opcode 10, 11 and 15 disappear from the fallback histogram.
+The current GB10 replacement baseline is 352 logical XGraph requests, 1580
+physical commands, 904494592 modeled operations/cycles and 132 fallback
+requests with strict token equivalence. All 81 weighted NORMALIZE requests and
+all 70 stateful CAUSAL_CONVOLUTION, RECURRENT_UPDATE and ATTENTION requests now
+execute through XOpenNPUX. Opcodes 10, 11 and 15 are absent from the accepted
+fallback histogram. The remaining fallback distribution is EMBED 1, gated QKV
+MATMUL 40, TOPK 1, ROUTER 40, EXPERT 40 and DMA 10.
+
+Host-executor integration for generic KV-cache DMA is locally validated. Each
+logical request atomically emits `TDMA(K) + TDMA(V)` and writes the visible tail
+of the two persistent state planes. The next GB10 acceptance target is 362
+logical XGraph requests, 1600 physical commands and 122 fallback requests with
+opcode 14 absent and strict token equivalence unchanged. These are projected
+acceptance values until the full-model run is reported.
 
 The accepted fourth batch appends one generic `TATTENTION` command after the
 eight-command GPTQ `EXPERT` decomposition. The fifth batch adds one gated

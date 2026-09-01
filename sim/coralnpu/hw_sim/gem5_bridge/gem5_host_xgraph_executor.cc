@@ -91,7 +91,8 @@ bool IsComplexCandidate(const opennpux_npu_functional_request& request) {
   if (request.opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE ||
       request.opcode == OPENNPUX_NPU_OP_DMA ||
       request.opcode == OPENNPUX_NPU_OP_TOPK ||
-      request.opcode == OPENNPUX_NPU_OP_ROUTER) {
+      request.opcode == OPENNPUX_NPU_OP_ROUTER ||
+      request.opcode == OPENNPUX_NPU_OP_EXPERT) {
     return true;
   }
   if (request.opcode != OPENNPUX_NPU_OP_MATMUL) return false;

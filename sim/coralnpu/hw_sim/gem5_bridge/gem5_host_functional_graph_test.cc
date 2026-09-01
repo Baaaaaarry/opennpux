@@ -1,4 +1,5 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
+#include "hw_sim/gem5_bridge/gem5_host_xgraph_executor.h"
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
 
 #include <algorithm>
@@ -6,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 #include "opennpux/npu_executable.h"
 
@@ -148,6 +150,57 @@ int main(int argc, char** argv) {
          graph.stats().xgraph_modeled_cycles == count &&
          graph.stats().xgraph_fallback_requests == 0);
   std::printf("functional_graph_xopennpux_add=PASS\n");
+
+  std::vector<float> norm_weights(count, 1.0f);
+  for (size_t index = 0; index < count; ++index) {
+    lhs_data[index] = static_cast<float>(index + 1);
+    output_data[index] = 0.0f;
+  }
+  opennpux_npu_functional_request normalize = {};
+  normalize.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  normalize.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  normalize.struct_size = sizeof(normalize);
+  normalize.opcode = OPENNPUX_NPU_OP_NORMALIZE;
+  normalize.rows = 1;
+  normalize.features = static_cast<uint32_t>(count);
+  normalize.epsilon = 1.0e-6f;
+  normalize.operand_count = 3;
+  normalize.operands[0] = {OPENNPUX_NPU_OPERAND_INPUT, lhs->address,
+                           lhs->byte_size, 0};
+  normalize.operands[1] = {OPENNPUX_NPU_OPERAND_OUTPUT, output->address,
+                           output->byte_size, 0};
+  normalize.operands[2] = {
+      OPENNPUX_NPU_OPERAND_WEIGHT, UINT32_C(0x60000000),
+      static_cast<uint32_t>(norm_weights.size() * sizeof(float)), 0};
+  const Gem5FunctionalMemoryRegion norm_region = {
+      UINT32_C(0x60000000),
+      reinterpret_cast<uint8_t*>(norm_weights.data()),
+      norm_weights.size() * sizeof(float)};
+  opennpux_npu_operator_parameters norm_parameters = {};
+  norm_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  norm_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  norm_parameters.struct_size = sizeof(norm_parameters);
+  norm_parameters.opcode = OPENNPUX_NPU_OP_NORMALIZE;
+  norm_parameters.input_features = static_cast<uint32_t>(count);
+  norm_parameters.output_features = static_cast<uint32_t>(count);
+  Gem5HostXGraphExecutionStats norm_stats = {};
+  assert(ExecuteGem5HostXGraphRequest(
+             normalize, norm_parameters, &norm_region, 1, &graph.arena(),
+             &norm_stats) == Gem5HostXGraphExecutionOutcome::kExecuted);
+  double square_sum = 0.0;
+  for (size_t index = 0; index < count; ++index) {
+    square_sum += static_cast<double>(index + 1) * (index + 1);
+  }
+  const double inverse_rms =
+      1.0 / std::sqrt(square_sum / count + normalize.epsilon);
+  for (size_t index = 0; index < count; ++index) {
+    const float expected = static_cast<float>((index + 1) * inverse_rms);
+    assert(std::fabs(output_data[index] - expected) < 1.0e-5f);
+  }
+  assert(norm_stats.commands == 1 && norm_stats.operations == count * 4 &&
+         norm_stats.modeled_cycles == count * 4);
+  std::puts("functional_graph_xopennpux_external_norm=PASS");
+
   uint32_t matmul_index = UINT32_MAX;
   for (uint32_t index = 0; index < graph.command_count(); ++index) {
     if (graph.command(index)->opcode == OPENNPUX_NPU_OP_MATMUL) {

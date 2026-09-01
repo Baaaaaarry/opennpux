@@ -37,13 +37,11 @@ bool DeviceAddress(uint32_t memory_base, uint32_t offset,
   return true;
 }
 
-bool RangeInArena(const Gem5HostTensorArena& arena, uint32_t offset,
-                  uint64_t elements, uint32_t element_bytes = sizeof(float)) {
+bool RangeInMemory(size_t memory_size, uint32_t offset, uint64_t elements,
+                   uint32_t element_bytes = sizeof(float)) {
   uint64_t bytes = 0;
-  uint32_t address = 0;
-  return Multiply(elements, element_bytes, &bytes) &&
-         DeviceAddress(arena.base(), offset, &address) &&
-         arena.Translate(address, bytes) != nullptr;
+  return Multiply(elements, element_bytes, &bytes) && offset <= memory_size &&
+         bytes <= memory_size - offset;
 }
 
 bool IsSupportedPrimitive(uint32_t opcode) {
@@ -92,6 +90,13 @@ bool IsComplexCandidate(const opennpux_npu_functional_request& request) {
          HasOperandRole(request, OPENNPUX_NPU_OPERAND_QWEIGHT) ||
          HasOperandRole(request, OPENNPUX_NPU_OPERAND_QZEROS) ||
          HasOperandRole(request, OPENNPUX_NPU_OPERAND_SCALES);
+}
+
+bool IsStagedPrimitiveCandidate(
+    const opennpux_npu_functional_request& request) {
+  // These operators commonly consume read-only weights supplied by the host
+  // weight provider rather than resident tensor-arena storage.
+  return request.opcode == OPENNPUX_NPU_OP_NORMALIZE;
 }
 
 const uint8_t* TranslateRegions(const Gem5FunctionalMemoryRegion* regions,
@@ -160,7 +165,7 @@ bool StageExternalOperands(
 }
 
 bool ValidateRanges(const opennpux_xgraph_command& command,
-                    const Gem5HostTensorArena& arena) {
+                    size_t memory_size) {
   uint64_t elements = 0;
   if (!Multiply(command.dim0, command.dim1, &elements)) return false;
   uint64_t source0_elements = elements;
@@ -185,8 +190,8 @@ bool ValidateRanges(const opennpux_xgraph_command& command,
         return false;
       }
       if ((command.flags & OPENNPUX_XGRAPH_TTOPK_SPLIT_OUTPUT) != 0) {
-        if (!RangeInArena(arena, command.reserved[0], destination_elements,
-                          sizeof(uint32_t))) {
+        if (!RangeInMemory(memory_size, command.reserved[0],
+                           destination_elements, sizeof(uint32_t))) {
           return false;
         }
       } else if (!Multiply(destination_elements, 2,
@@ -209,11 +214,13 @@ bool ValidateRanges(const opennpux_xgraph_command& command,
     default:
       return false;
   }
-  return RangeInArena(arena, command.source0_offset, source0_elements) &&
+  return RangeInMemory(memory_size, command.source0_offset,
+                       source0_elements) &&
          (source1_elements == 0 ||
-          RangeInArena(arena, command.source1_offset, source1_elements)) &&
-         RangeInArena(arena, command.destination_offset,
-                      destination_elements);
+          RangeInMemory(memory_size, command.source1_offset,
+                        source1_elements)) &&
+         RangeInMemory(memory_size, command.destination_offset,
+                       destination_elements);
 }
 
 bool CalculateTraffic(const opennpux_xgraph_command& command,
@@ -453,7 +460,7 @@ Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
           &request, &parameters, &options, arena->base(),
           static_cast<uint32_t>(arena->size()), &command) == 0 &&
       IsSupportedPrimitive(command.opcode) &&
-      ValidateRanges(command, *arena)) {
+      ValidateRanges(command, arena->size())) {
     const std::vector<opennpux_xgraph_command> commands = {command};
     if (!ExecuteCommands(commands, 1, arena->base(),
                          arena->mutable_storage_for_coprocessor(), stats)) {
@@ -461,7 +468,7 @@ Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
     }
     return Gem5HostXGraphExecutionOutcome::kExecuted;
   }
-  if (!IsComplexCandidate(request)) {
+  if (!IsComplexCandidate(request) && !IsStagedPrimitiveCandidate(request)) {
     return Gem5HostXGraphExecutionOutcome::kNotEligible;
   }
 
@@ -478,6 +485,39 @@ Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
       !AlignMemory(&memory, 64)) {
     return Gem5HostXGraphExecutionOutcome::kNotEligible;
   }
+
+  command = {};
+  errno = 0;
+  const int staged_primitive_result = opennpux_npu_xgraph_lower_primitive(
+      &staged, &parameters, &options, arena->base(),
+      static_cast<uint32_t>(memory.size()), &command);
+  const bool staged_primitive_supported =
+      staged_primitive_result == 0 && IsSupportedPrimitive(command.opcode);
+  const bool staged_primitive_ranges =
+      staged_primitive_supported && ValidateRanges(command, memory.size());
+  if (staged_primitive_ranges) {
+    const std::vector<opennpux_xgraph_command> commands = {command};
+    if (!ExecuteCommands(commands, 1, arena->base(), &memory, stats)) {
+      return Gem5HostXGraphExecutionOutcome::kError;
+    }
+    std::memcpy(arena->mutable_storage_for_coprocessor()->data(),
+                memory.data(), resident_bytes);
+    return Gem5HostXGraphExecutionOutcome::kExecuted;
+  }
+  if (std::getenv("OPENNPUX_HOST_XGRAPH_DEBUG") != nullptr) {
+    std::fprintf(stderr,
+                 "host_xgraph_staged_primitive_failed opcode=%u result=%d "
+                 "errno=%d lowered_opcode=%u supported=%u ranges=%u "
+                 "resident=%zu staged=%zu\n",
+                 staged.opcode, staged_primitive_result, errno,
+                 command.opcode, staged_primitive_supported ? 1 : 0,
+                 staged_primitive_ranges ? 1 : 0, resident_bytes,
+                 memory.size());
+  }
+  if (!IsComplexCandidate(request)) {
+    return Gem5HostXGraphExecutionOutcome::kNotEligible;
+  }
+
   const size_t scratch_offset = memory.size();
   if (scratch_offset > UINT32_MAX ||
       kComplexScratchBytes > UINT32_MAX - scratch_offset ||

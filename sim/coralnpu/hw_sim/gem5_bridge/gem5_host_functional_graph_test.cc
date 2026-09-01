@@ -150,6 +150,7 @@ int main(int argc, char** argv) {
          graph.stats().xgraph_commands == 1 &&
          graph.stats().xgraph_operations == count &&
          graph.stats().xgraph_modeled_cycles == count &&
+         graph.stats().xgraph_opcodes[OPENNPUX_NPU_OP_ADD] == 1 &&
          graph.stats().xgraph_fallback_requests == 0);
   std::printf("functional_graph_xopennpux_add=PASS\n");
 

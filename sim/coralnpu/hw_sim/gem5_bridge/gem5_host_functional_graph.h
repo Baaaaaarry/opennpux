@@ -44,6 +44,7 @@ struct Gem5HostFunctionalGraphStats {
   uint64_t xgraph_commands;
   uint64_t xgraph_operations;
   uint64_t xgraph_modeled_cycles;
+  uint64_t xgraph_opcodes[32];
   uint64_t xgraph_fallback_requests;
   uint64_t xgraph_fallback_opcodes[32];
 };

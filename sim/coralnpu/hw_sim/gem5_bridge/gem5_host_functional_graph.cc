@@ -68,6 +68,15 @@ bool UseXOpenNpuPrimitiveExecution() {
          std::strcmp(mode, "xopennpux-primitives") == 0;
 }
 
+bool XGraphOpcodeEnabled(uint32_t opcode) {
+  if (opcode >= 32) return false;
+  const char* value = std::getenv("OPENNPUX_HOST_XGRAPH_OPCODE_MASK");
+  if (value == nullptr || value[0] == '\0') return true;
+  char* end = nullptr;
+  const unsigned long long mask = std::strtoull(value, &end, 0);
+  return end != value && *end == '\0' && (mask & (UINT64_C(1) << opcode)) != 0;
+}
+
 bool ClaimGraphFallbackDiagnostic(uint32_t opcode) {
   const char* value = std::getenv("OPENNPUX_HOST_XGRAPH_DEBUG");
   if (value == nullptr || value[0] == '\0' || std::strcmp(value, "0") == 0) {
@@ -255,7 +264,8 @@ bool Gem5HostFunctionalGraph::Execute(
                        *request, regions.data(), regions.size());
   }
   bool executed = false;
-  if (UseXOpenNpuPrimitiveExecution() && allow_xgraph) {
+  if (UseXOpenNpuPrimitiveExecution() && allow_xgraph &&
+      XGraphOpcodeEnabled(request->opcode)) {
     const opennpux_npu_operator_parameters* parameters = nullptr;
     if (request->parameter_size ==
         sizeof(opennpux_npu_operator_parameters)) {
@@ -279,6 +289,9 @@ bool Gem5HostFunctionalGraph::Execute(
         stats_.xgraph_commands += xgraph.commands;
         stats_.xgraph_operations += xgraph.operations;
         stats_.xgraph_modeled_cycles += xgraph.modeled_cycles;
+        if (request->opcode < 32) {
+          ++stats_.xgraph_opcodes[request->opcode];
+        }
       } else {
         ++stats_.xgraph_fallback_requests;
         if (request->opcode < 32) {

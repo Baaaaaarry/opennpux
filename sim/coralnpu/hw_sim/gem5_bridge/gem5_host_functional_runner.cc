@@ -793,6 +793,13 @@ int main(int argc, char** argv) {
     std::printf("host_functional_xgraph_modeled_cycles=%llu\n",
                 static_cast<unsigned long long>(
                     graph.stats().xgraph_modeled_cycles));
+    for (uint32_t opcode = 0; opcode < 32; ++opcode) {
+      if (graph.stats().xgraph_opcodes[opcode] != 0) {
+        std::printf("host_functional_xgraph_opcode_%u=%llu\n", opcode,
+                    static_cast<unsigned long long>(
+                        graph.stats().xgraph_opcodes[opcode]));
+      }
+    }
     std::printf("host_functional_xgraph_fallback_requests=%llu\n",
                 static_cast<unsigned long long>(
                     graph.stats().xgraph_fallback_requests));

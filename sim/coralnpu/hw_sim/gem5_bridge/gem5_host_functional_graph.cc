@@ -77,6 +77,24 @@ bool XGraphOpcodeEnabled(uint32_t opcode) {
   return end != value && *end == '\0' && (mask & (UINT64_C(1) << opcode)) != 0;
 }
 
+bool GptqProjectionXGraphEnabled(uint32_t role_id) {
+  if (role_id != OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_O_PROJ &&
+      role_id != OPENNPUX_NPU_WEIGHT_ROLE_LM_HEAD) {
+    return true;
+  }
+  const char* scope =
+      std::getenv("OPENNPUX_HOST_XGRAPH_GPTQ_MATMUL_SCOPE");
+  if (scope == nullptr || scope[0] == '\0' ||
+      std::strcmp(scope, "none") == 0) {
+    return false;
+  }
+  return std::strcmp(scope, "all") == 0 ||
+         (role_id == OPENNPUX_NPU_WEIGHT_ROLE_ATTENTION_O_PROJ &&
+          std::strcmp(scope, "attention-output") == 0) ||
+         (role_id == OPENNPUX_NPU_WEIGHT_ROLE_LM_HEAD &&
+          std::strcmp(scope, "lm-head") == 0);
+}
+
 bool ClaimGraphFallbackDiagnostic(uint32_t opcode) {
   const char* value = std::getenv("OPENNPUX_HOST_XGRAPH_DEBUG");
   if (value == nullptr || value[0] == '\0' || std::strcmp(value, "0") == 0) {
@@ -1108,8 +1126,11 @@ bool Gem5HostFunctionalGraph::ExecuteCommand(
       return ExecuteGptqQkv(command_index, weights);
     }
     if (gptq.size() == 1) {
+      const bool allow_xgraph =
+          GptqProjectionXGraphEnabled(gptq[0].role_id);
       return ExecuteGptqProjection(command_index, weights, gptq[0].role_id,
-                                   gptq[0].expert_id, gptq[0].slot_id);
+                                   gptq[0].expert_id, gptq[0].slot_id,
+                                   allow_xgraph, OPENNPUX_NPU_OP_MATMUL);
     }
     return false;
   }

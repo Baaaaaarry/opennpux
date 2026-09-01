@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -65,6 +66,17 @@ bool UseXOpenNpuPrimitiveExecution() {
   const char* mode = std::getenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION");
   return mode != nullptr &&
          std::strcmp(mode, "xopennpux-primitives") == 0;
+}
+
+bool ClaimGraphFallbackDiagnostic(uint32_t opcode) {
+  const char* value = std::getenv("OPENNPUX_HOST_XGRAPH_DEBUG");
+  if (value == nullptr || value[0] == '\0' || std::strcmp(value, "0") == 0) {
+    return false;
+  }
+  static bool reported[32] = {};
+  if (opcode >= 32 || reported[opcode]) return false;
+  reported[opcode] = true;
+  return true;
 }
 
 bool IsFloatingOutputRole(uint32_t role) {
@@ -274,6 +286,16 @@ bool Gem5HostFunctionalGraph::Execute(
         }
       }
     } else {
+      if (ClaimGraphFallbackDiagnostic(request->opcode)) {
+        std::fprintf(
+            stderr,
+            "host_xgraph_fallback stage=parameter-resolution opcode=%u "
+            "parameter_address=%#x parameter_size=%u expected_size=%zu "
+            "submission_base=%#x submission_size=%zu\n",
+            request->opcode, request->parameter_address,
+            request->parameter_size, sizeof(opennpux_npu_operator_parameters),
+            submission_base_, submission_.size());
+      }
       ++stats_.xgraph_fallback_requests;
       if (request->opcode < 32) {
         ++stats_.xgraph_fallback_opcodes[request->opcode];

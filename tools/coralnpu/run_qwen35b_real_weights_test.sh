@@ -866,6 +866,14 @@ mkdir -p /proc /sys /dev /tmp /mnt/opennpux-model
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+# Keep the injected tool and inference log off the checkpointed virtio-blk
+# image. Large synchronous /tmp traffic can corrupt the restored legacy
+# virtqueue before token validation has completed.
+if ! mount -t tmpfs -o size=128m tmpfs /tmp 2>/dev/null; then
+    echo '[coral-qwen35b-real-weights-test] FAIL: tmpfs /tmp mount failed'
+    m5 --inst exit
+    exit 1
+fi
 decode_base64()
 {
     if command -v base64 >/dev/null 2>&1; then
@@ -944,8 +952,17 @@ if [ '$TOKEN_REFERENCE' != 0 ]; then
         m5 --inst exit
         exit 1
     fi
-    actual_token_ids=\$(sed -n 's/^inference_token_ids=//p' \
-        /tmp/opennpux-inference.log | tail -n 1)
+    if ! actual_token_ids=\$(sed -n 's/^inference_token_ids=//p' \
+        /tmp/opennpux-inference.log | tail -n 1); then
+        echo '[coral-qwen35b-real-weights-test] FAIL: token result parsing failed'
+        m5 --inst exit
+        exit 1
+    fi
+    if [ -z "\$actual_token_ids" ]; then
+        echo '[coral-qwen35b-real-weights-test] FAIL: token result missing'
+        m5 --inst exit
+        exit 1
+    fi
     token_equivalence=strict
     token_validation=PASS
     if [ "\$actual_token_ids" != '$EXPECTED_TOKEN_IDS' ]; then

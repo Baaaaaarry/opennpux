@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
 #include "hw_sim/gem5_bridge/gem5_host_xgraph_executor.h"
 #include "hw_sim/gem5_bridge/gem5_host_weight_provider.h"
+#include "hw_sim/gem5_bridge/gem5_transformer_kernels.h"
 
 #include <algorithm>
 #include <cassert>
@@ -279,16 +280,52 @@ int main(int argc, char** argv) {
 
   constexpr uint32_t router_rows = 2;
   constexpr uint32_t router_input_features = 2048;
-  constexpr uint32_t router_experts = 4;
-  constexpr uint32_t router_top_k = 2;
-  std::vector<float> large_router_input(
-      router_rows * router_input_features, 1.0f);
+  constexpr uint32_t router_experts = 256;
+  constexpr uint32_t router_top_k = 8;
+  std::vector<float> large_router_input(router_rows * router_input_features);
   std::vector<float> large_router_weights(
       router_input_features * router_experts);
-  for (uint32_t feature = 0; feature < router_input_features; ++feature) {
-    for (uint32_t expert = 0; expert < router_experts; ++expert) {
-      large_router_weights[feature * router_experts + expert] =
-          static_cast<float>(expert + 1) / router_input_features;
+  uint32_t random_state = UINT32_C(0x4f50454e);
+  for (float& value : large_router_input) {
+    random_state = random_state * UINT32_C(1664525) + UINT32_C(1013904223);
+    value = static_cast<float>(static_cast<int32_t>(random_state >> 16) -
+                               INT32_C(32768)) /
+            32768.0f;
+  }
+  // Router weights use the same [output_features, input_features] layout as
+  // RunGem5MatMulF32 and the generic functional-request ABI.
+  for (uint32_t expert = 0; expert < router_experts; ++expert) {
+    for (uint32_t feature = 0; feature < router_input_features; ++feature) {
+      random_state = random_state * UINT32_C(1664525) + UINT32_C(1013904223);
+      large_router_weights[expert * router_input_features + feature] =
+          static_cast<float>(static_cast<int32_t>(random_state >> 16) -
+                             INT32_C(32768)) /
+          65536.0f;
+    }
+  }
+  std::vector<float> reference_logits(router_rows * router_experts);
+  std::vector<float> reference_weights(router_rows * router_top_k);
+  std::vector<uint32_t> reference_ids(router_rows * router_top_k);
+  Gem5TransformerKernelStats reference_matmul_stats = {};
+  assert(RunGem5MatMulF32(
+      large_router_input.data(), large_router_weights.data(), router_rows,
+      router_input_features, router_experts, reference_logits.data(),
+      &reference_matmul_stats));
+  for (uint32_t row = 0; row < router_rows; ++row) {
+    Gem5TransformerKernelStats reference_topk_stats = {};
+    float* row_weights = reference_weights.data() + row * router_top_k;
+    assert(RunGem5TopKF32(
+        reference_logits.data() + row * router_experts, router_experts,
+        router_top_k, row_weights,
+        reference_ids.data() + row * router_top_k, &reference_topk_stats));
+    const float maximum = row_weights[0];
+    double sum = 0.0;
+    for (uint32_t route = 0; route < router_top_k; ++route) {
+      row_weights[route] = std::exp(row_weights[route] - maximum);
+      sum += row_weights[route];
+    }
+    for (uint32_t route = 0; route < router_top_k; ++route) {
+      row_weights[route] /= static_cast<float>(sum);
     }
   }
   std::fill(output_data, output_data + router_rows * router_top_k, 0.0f);
@@ -340,8 +377,9 @@ int main(int argc, char** argv) {
     float sum = 0.0f;
     for (uint32_t route = 0; route < router_top_k; ++route) {
       const uint32_t index = row * router_top_k + route;
-      assert(large_router_ids[index] < router_experts);
-      assert(std::isfinite(output_data[index]) && output_data[index] >= 0.0f);
+      assert(large_router_ids[index] == reference_ids[index]);
+      assert(std::fabs(output_data[index] - reference_weights[index]) <
+             1.0e-5f);
       sum += output_data[index];
     }
     assert(std::fabs(sum - 1.0f) < 1.0e-5f);

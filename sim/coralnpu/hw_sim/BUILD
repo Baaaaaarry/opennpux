@@ -211,6 +211,7 @@ cc_library(
     srcs = ["gem5_bridge/gem5_host_xgraph_executor.cc"],
     hdrs = ["gem5_bridge/gem5_host_xgraph_executor.h"],
     deps = [
+        ":gem5_generic_command_dispatch_headers",
         ":gem5_host_tensor_arena",
         ":gem5_xgraph_lowering_runtime",
         ":gem5_xopennpux_functional_coprocessor",

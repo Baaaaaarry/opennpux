@@ -201,6 +201,195 @@ int main(int argc, char** argv) {
          norm_stats.modeled_cycles == count * 4);
   std::puts("functional_graph_xopennpux_external_norm=PASS");
 
+  assert(count % 2 == 0);
+  const uint32_t conv_rows = 2;
+  const uint32_t conv_features = static_cast<uint32_t>(count / conv_rows);
+  const uint32_t conv_kernel = 3;
+  std::vector<float> conv_weights(conv_features * conv_kernel, 1.0f);
+  std::fill(lhs_data, lhs_data + count, 1.0f);
+  std::fill(rhs_data, rhs_data + count, 0.0f);
+  std::fill(output_data, output_data + count, 0.0f);
+  opennpux_npu_functional_request convolution = {};
+  convolution.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  convolution.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  convolution.struct_size = sizeof(convolution);
+  convolution.opcode = OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION;
+  convolution.rows = conv_rows;
+  convolution.features = conv_features;
+  convolution.operand_count = 5;
+  convolution.operands[0] = {OPENNPUX_NPU_OPERAND_INPUT, lhs->address,
+                             lhs->byte_size, 0};
+  convolution.operands[1] = {OPENNPUX_NPU_OPERAND_SECONDARY, rhs->address,
+                             rhs->byte_size, 0};
+  convolution.operands[2] = {OPENNPUX_NPU_OPERAND_OUTPUT, output->address,
+                             output->byte_size, 0};
+  convolution.operands[3] = {OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
+                             rhs->address, rhs->byte_size, 0};
+  convolution.operands[4] = {
+      OPENNPUX_NPU_OPERAND_WEIGHT, UINT32_C(0x61000000),
+      static_cast<uint32_t>(conv_weights.size() * sizeof(float)), 0};
+  const Gem5FunctionalMemoryRegion conv_region = {
+      UINT32_C(0x61000000),
+      reinterpret_cast<uint8_t*>(conv_weights.data()),
+      conv_weights.size() * sizeof(float)};
+  opennpux_npu_operator_parameters conv_parameters = {};
+  conv_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  conv_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  conv_parameters.struct_size = sizeof(conv_parameters);
+  conv_parameters.opcode = OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION;
+  conv_parameters.intermediate_features = conv_kernel;
+  Gem5HostXGraphExecutionStats conv_stats = {};
+  assert(ExecuteGem5HostXGraphRequest(
+             convolution, conv_parameters, &conv_region, 1, &graph.arena(),
+             &conv_stats) == Gem5HostXGraphExecutionOutcome::kExecuted);
+  for (uint32_t feature = 0; feature < conv_features; ++feature) {
+    assert(output_data[feature] == 1.0f);
+    assert(output_data[conv_features + feature] == 2.0f);
+    assert(rhs_data[feature] == 1.0f);
+    assert(rhs_data[conv_features + feature] == 1.0f);
+  }
+  const uint64_t conv_operations =
+      static_cast<uint64_t>(count) * conv_kernel * 2;
+  assert(conv_stats.commands == 1 &&
+         conv_stats.operations == conv_operations &&
+         conv_stats.modeled_cycles == conv_operations);
+  std::puts("functional_graph_xopennpux_external_causal_conv=PASS");
+
+  constexpr uint32_t recurrent_rows = 2;
+  constexpr uint32_t recurrent_key_heads = 1;
+  constexpr uint32_t recurrent_value_heads = 1;
+  constexpr uint32_t recurrent_key_dim = 2;
+  constexpr uint32_t recurrent_value_dim = 2;
+  constexpr uint32_t recurrent_qkv_features = 6;
+  const float recurrent_qkv[recurrent_rows * recurrent_qkv_features] = {
+      0.1f, 0.2f, 0.3f, 0.4f, 1.0f, 2.0f,
+      0.2f, 0.1f, 0.4f, 0.3f, 2.0f, 1.0f};
+  std::copy(recurrent_qkv, recurrent_qkv + 12, lhs_data);
+  lhs_data[12] = 0.5f;
+  lhs_data[13] = 0.5f;
+  lhs_data[14] = 0.5f;
+  lhs_data[15] = 0.5f;
+  std::fill(rhs_data, rhs_data + 4, 0.0f);
+  std::fill(output_data, output_data + 4, 0.0f);
+  float recurrent_a_log[] = {-1.0f};
+  float recurrent_dt_bias[] = {0.0f};
+  opennpux_npu_functional_request recurrent = {};
+  recurrent.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  recurrent.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  recurrent.struct_size = sizeof(recurrent);
+  recurrent.opcode = OPENNPUX_NPU_OP_RECURRENT_UPDATE;
+  recurrent.rows = recurrent_rows;
+  recurrent.features = recurrent_qkv_features;
+  recurrent.heads = recurrent_key_heads;
+  recurrent.kv_heads = recurrent_value_heads;
+  recurrent.head_dim = recurrent_key_dim;
+  recurrent.operand_count = 7;
+  recurrent.operands[0] = {
+      OPENNPUX_NPU_OPERAND_INPUT, lhs->address,
+      recurrent_rows * recurrent_qkv_features * sizeof(float), 0};
+  recurrent.operands[1] = {OPENNPUX_NPU_OPERAND_SECONDARY,
+                           lhs->address + UINT32_C(48),
+                           recurrent_rows * sizeof(float), 0};
+  recurrent.operands[2] = {OPENNPUX_NPU_OPERAND_INPUT_TERTIARY,
+                           lhs->address + UINT32_C(56),
+                           recurrent_rows * sizeof(float), 0};
+  recurrent.operands[3] = {OPENNPUX_NPU_OPERAND_OUTPUT, output->address,
+                           recurrent_rows * recurrent_value_dim *
+                               sizeof(float),
+                           0};
+  recurrent.operands[4] = {OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
+                           rhs->address,
+                           recurrent_key_dim * recurrent_value_dim *
+                               sizeof(float),
+                           0};
+  recurrent.operands[5] = {OPENNPUX_NPU_OPERAND_LINEAR_A_LOG_WEIGHT,
+                           UINT32_C(0x62000000), sizeof(recurrent_a_log), 0};
+  recurrent.operands[6] = {OPENNPUX_NPU_OPERAND_LINEAR_DT_BIAS_WEIGHT,
+                           UINT32_C(0x62000100), sizeof(recurrent_dt_bias), 0};
+  const Gem5FunctionalMemoryRegion recurrent_weight_regions[] = {
+      {UINT32_C(0x62000000),
+       reinterpret_cast<uint8_t*>(recurrent_a_log), sizeof(recurrent_a_log)},
+      {UINT32_C(0x62000100),
+       reinterpret_cast<uint8_t*>(recurrent_dt_bias),
+       sizeof(recurrent_dt_bias)}};
+  opennpux_npu_operator_parameters recurrent_parameters = {};
+  recurrent_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  recurrent_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  recurrent_parameters.struct_size = sizeof(recurrent_parameters);
+  recurrent_parameters.opcode = OPENNPUX_NPU_OP_RECURRENT_UPDATE;
+  recurrent_parameters.flags = OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET;
+  recurrent_parameters.output_features =
+      recurrent_value_heads * recurrent_value_dim;
+  Gem5HostXGraphExecutionStats recurrent_stats = {};
+  assert(ExecuteGem5HostXGraphRequest(
+             recurrent, recurrent_parameters, recurrent_weight_regions, 2,
+             &graph.arena(), &recurrent_stats) ==
+         Gem5HostXGraphExecutionOutcome::kExecuted);
+  for (uint32_t index = 0; index < 4; ++index) {
+    assert(std::isfinite(output_data[index]));
+    assert(std::isfinite(rhs_data[index]));
+  }
+  const uint64_t recurrent_operations =
+      recurrent_rows * recurrent_value_heads *
+      (recurrent_key_dim * 4 +
+       recurrent_value_dim * recurrent_key_dim * 6 +
+       recurrent_value_dim * 3 + 8);
+  assert(recurrent_stats.commands == 1 &&
+         recurrent_stats.operations == recurrent_operations &&
+         recurrent_stats.modeled_cycles == recurrent_operations);
+  std::puts("functional_graph_xopennpux_external_recurrent=PASS");
+
+  constexpr uint32_t attention_rows = 2;
+  constexpr uint32_t attention_heads = 2;
+  constexpr uint32_t attention_kv_heads = 1;
+  constexpr uint32_t attention_head_dim = 2;
+  constexpr uint32_t attention_kv_length = 2;
+  std::fill(lhs_data, lhs_data + 8, 0.25f);
+  std::fill(rhs_data, rhs_data + 8, 0.5f);
+  std::fill(output_data, output_data + 8, 0.0f);
+  opennpux_npu_functional_request attention = {};
+  attention.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  attention.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  attention.struct_size = sizeof(attention);
+  attention.opcode = OPENNPUX_NPU_OP_ATTENTION;
+  attention.rows = attention_rows;
+  attention.features = attention_heads * attention_head_dim;
+  attention.heads = attention_heads;
+  attention.kv_heads = attention_kv_heads;
+  attention.head_dim = attention_head_dim;
+  attention.kv_length = attention_kv_length;
+  attention.operand_count = 3;
+  attention.operands[0] = {OPENNPUX_NPU_OPERAND_INPUT, lhs->address,
+                           UINT32_C(32), 0};
+  attention.operands[1] = {OPENNPUX_NPU_OPERAND_SECONDARY, rhs->address,
+                           UINT32_C(32), 0};
+  attention.operands[2] = {OPENNPUX_NPU_OPERAND_OUTPUT, output->address,
+                           UINT32_C(32), 0};
+  opennpux_npu_operator_parameters attention_parameters = {};
+  attention_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  attention_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  attention_parameters.struct_size = sizeof(attention_parameters);
+  attention_parameters.opcode = OPENNPUX_NPU_OP_ATTENTION;
+  Gem5HostXGraphExecutionStats attention_stats = {};
+  const Gem5FunctionalMemoryRegion arena_region = {
+      graph.arena().base(), graph.arena().data(), graph.arena().size()};
+  assert(ExecuteGem5HostXGraphRequest(
+             attention, attention_parameters, &arena_region, 1,
+             &graph.arena(), &attention_stats) ==
+         Gem5HostXGraphExecutionOutcome::kExecuted);
+  for (uint32_t index = 0; index < 8; ++index) {
+    assert(std::isfinite(output_data[index]));
+  }
+  const uint64_t visible_positions =
+      attention_rows * (attention_kv_length - attention_rows + 1) +
+      attention_rows * (attention_rows - 1) / 2;
+  const uint64_t attention_operations =
+      visible_positions * attention_heads * attention_head_dim * 4;
+  assert(attention_stats.commands == 1 &&
+         attention_stats.operations == attention_operations &&
+         attention_stats.modeled_cycles == attention_operations);
+  std::puts("functional_graph_xopennpux_attention=PASS");
+
   uint32_t matmul_index = UINT32_MAX;
   for (uint32_t index = 0; index < graph.command_count(); ++index) {
     if (graph.command(index)->opcode == OPENNPUX_NPU_OP_MATMUL) {

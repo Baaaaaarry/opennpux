@@ -57,6 +57,8 @@ bool IsSupportedPrimitive(uint32_t opcode) {
     case OPENNPUX_XGRAPH_OP_TTOPK:
     case OPENNPUX_XGRAPH_OP_TDMA:
     case OPENNPUX_XGRAPH_OP_TROW_SCALE:
+    case OPENNPUX_XGRAPH_OP_TCAUSALCONV:
+    case OPENNPUX_XGRAPH_OP_TATTENTION:
       return true;
     default:
       return false;
@@ -65,7 +67,8 @@ bool IsSupportedPrimitive(uint32_t opcode) {
 
 bool IsSupportedCommand(uint32_t opcode) {
   return IsSupportedPrimitive(opcode) || opcode == OPENNPUX_XGRAPH_OP_TMMA ||
-         opcode == OPENNPUX_XGRAPH_OP_TDEQUANT;
+         opcode == OPENNPUX_XGRAPH_OP_TDEQUANT ||
+         opcode == OPENNPUX_XGRAPH_OP_TRECURRENT;
 }
 
 bool IsOutputRole(uint32_t role) {
@@ -85,6 +88,7 @@ bool HasOperandRole(const opennpux_npu_functional_request& request,
 }
 
 bool IsComplexCandidate(const opennpux_npu_functional_request& request) {
+  if (request.opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE) return true;
   if (request.opcode != OPENNPUX_NPU_OP_MATMUL) return false;
   return HasOperandRole(request, OPENNPUX_NPU_OPERAND_WEIGHT) ||
          HasOperandRole(request, OPENNPUX_NPU_OPERAND_QWEIGHT) ||
@@ -96,7 +100,8 @@ bool IsStagedPrimitiveCandidate(
     const opennpux_npu_functional_request& request) {
   // These operators commonly consume read-only weights supplied by the host
   // weight provider rather than resident tensor-arena storage.
-  return request.opcode == OPENNPUX_NPU_OP_NORMALIZE;
+  return request.opcode == OPENNPUX_NPU_OP_NORMALIZE ||
+         request.opcode == OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION;
 }
 
 const uint8_t* TranslateRegions(const Gem5FunctionalMemoryRegion* regions,
@@ -208,6 +213,71 @@ bool ValidateRanges(const opennpux_xgraph_command& command,
     case OPENNPUX_XGRAPH_OP_TROW_SCALE:
       source1_elements = command.dim0;
       break;
+    case OPENNPUX_XGRAPH_OP_TCAUSALCONV: {
+      if (command.dim2 == 0) return false;
+      source1_elements = static_cast<uint64_t>(command.dim1) * command.dim2;
+      const bool stateful =
+          (command.flags & OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL) != 0;
+      if (stateful && command.dim2 > 1) {
+        const uint64_t state_elements =
+            static_cast<uint64_t>(command.dim2 - 1) * command.dim1;
+        if (!RangeInMemory(memory_size, command.reserved[0], state_elements) ||
+            !RangeInMemory(memory_size, command.reserved[1], state_elements)) {
+          return false;
+        }
+      }
+      break;
+    }
+    case OPENNPUX_XGRAPH_OP_TRECURRENT: {
+      const uint32_t key_heads = command.dim1;
+      const uint32_t key_dim = command.dim2;
+      const uint32_t value_heads = command.scalar0 & 0xffffu;
+      const uint32_t value_dim = command.scalar0 >> 16;
+      if (key_heads == 0 || key_dim == 0 || value_heads == 0 ||
+          value_dim == 0 || value_heads % key_heads != 0) {
+        return false;
+      }
+      source0_elements =
+          static_cast<uint64_t>(command.dim0) *
+          (static_cast<uint64_t>(2) * key_heads * key_dim +
+           static_cast<uint64_t>(value_heads) * value_dim);
+      source1_elements =
+          static_cast<uint64_t>(command.dim0) * value_heads;
+      destination_elements =
+          static_cast<uint64_t>(command.dim0) * value_heads * value_dim;
+      const uint64_t state_elements =
+          static_cast<uint64_t>(value_heads) * key_dim * value_dim;
+      if (!RangeInMemory(memory_size, command.reserved[0],
+                         source1_elements) ||
+          !RangeInMemory(memory_size, command.reserved[1], state_elements) ||
+          !RangeInMemory(memory_size, command.reserved[2], value_heads) ||
+          !RangeInMemory(memory_size, command.reserved[3], value_heads)) {
+        return false;
+      }
+      break;
+    }
+    case OPENNPUX_XGRAPH_OP_TATTENTION: {
+      const uint32_t heads = command.dim1;
+      const uint32_t head_dim = command.dim2;
+      const uint32_t kv_heads = command.scalar0;
+      const uint32_t kv_length = command.flags;
+      const uint32_t attention_flags = command.reserved[1];
+      if (heads == 0 || head_dim == 0 || kv_heads == 0 || kv_length == 0 ||
+          command.dim0 > kv_length || heads % kv_heads != 0) {
+        return false;
+      }
+      source0_elements =
+          static_cast<uint64_t>(command.dim0) * heads * head_dim;
+      source1_elements =
+          static_cast<uint64_t>(2) * kv_length * kv_heads * head_dim;
+      destination_elements = source0_elements;
+      if ((attention_flags & OPENNPUX_XGRAPH_TATTENTION_GATED) != 0 &&
+          !RangeInMemory(memory_size, command.reserved[0],
+                         source0_elements)) {
+        return false;
+      }
+      break;
+    }
     case OPENNPUX_XGRAPH_OP_TADD:
     case OPENNPUX_XGRAPH_OP_TMUL:
       break;
@@ -286,6 +356,72 @@ bool CalculateTraffic(const opennpux_xgraph_command& command,
     case OPENNPUX_XGRAPH_OP_TROW_SCALE:
       source1_elements = command.dim0;
       break;
+    case OPENNPUX_XGRAPH_OP_TCAUSALCONV: {
+      if (command.dim2 == 0) return false;
+      source1_elements = static_cast<uint64_t>(command.dim1) * command.dim2;
+      const bool stateful =
+          (command.flags & OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL) != 0;
+      if (stateful && command.dim2 > 1) {
+        const uint64_t state_elements =
+            static_cast<uint64_t>(command.dim2 - 1) * command.dim1;
+        if (source0_elements > UINT64_MAX - state_elements ||
+            destination_elements > UINT64_MAX - state_elements) {
+          return false;
+        }
+        source0_elements += state_elements;
+        destination_elements += state_elements;
+      }
+      break;
+    }
+    case OPENNPUX_XGRAPH_OP_TRECURRENT: {
+      const uint32_t key_heads = command.dim1;
+      const uint32_t key_dim = command.dim2;
+      const uint32_t value_heads = command.scalar0 & 0xffffu;
+      const uint32_t value_dim = command.scalar0 >> 16;
+      if (key_heads == 0 || key_dim == 0 || value_heads == 0 ||
+          value_dim == 0 || value_heads % key_heads != 0) {
+        return false;
+      }
+      source0_elements =
+          static_cast<uint64_t>(command.dim0) *
+          (static_cast<uint64_t>(2) * key_heads * key_dim +
+           static_cast<uint64_t>(value_heads) * value_dim);
+      source1_elements =
+          static_cast<uint64_t>(command.dim0) * value_heads * 2 +
+          static_cast<uint64_t>(value_heads) * 2;
+      destination_elements =
+          static_cast<uint64_t>(command.dim0) * value_heads * value_dim;
+      const uint64_t state_elements =
+          static_cast<uint64_t>(value_heads) * key_dim * value_dim;
+      if (source1_elements > UINT64_MAX - state_elements ||
+          destination_elements > UINT64_MAX - state_elements) {
+        return false;
+      }
+      source1_elements += state_elements;
+      destination_elements += state_elements;
+      break;
+    }
+    case OPENNPUX_XGRAPH_OP_TATTENTION: {
+      const uint32_t heads = command.dim1;
+      const uint32_t head_dim = command.dim2;
+      const uint32_t kv_heads = command.scalar0;
+      const uint32_t kv_length = command.flags;
+      const uint32_t attention_flags = command.reserved[1];
+      if (heads == 0 || head_dim == 0 || kv_heads == 0 || kv_length == 0 ||
+          command.dim0 > kv_length || heads % kv_heads != 0) {
+        return false;
+      }
+      source0_elements =
+          static_cast<uint64_t>(command.dim0) * heads * head_dim;
+      source1_elements =
+          static_cast<uint64_t>(2) * kv_length * kv_heads * head_dim;
+      destination_elements = source0_elements;
+      if ((attention_flags & OPENNPUX_XGRAPH_TATTENTION_GATED) != 0) {
+        if (source1_elements > UINT64_MAX - source0_elements) return false;
+        source1_elements += source0_elements;
+      }
+      break;
+    }
     case OPENNPUX_XGRAPH_OP_TADD:
     case OPENNPUX_XGRAPH_OP_TMUL:
       break;
@@ -329,6 +465,12 @@ uint32_t EncodeInstruction(uint32_t opcode) {
       return xopennpux::EncodeTdma(kRd, kRs1);
     case OPENNPUX_XGRAPH_OP_TROW_SCALE:
       return xopennpux::EncodeTrowScale(kRd, kRs1, kRs2);
+    case OPENNPUX_XGRAPH_OP_TCAUSALCONV:
+      return xopennpux::EncodeTcausalconv(kRd, kRs1, kRs2);
+    case OPENNPUX_XGRAPH_OP_TRECURRENT:
+      return xopennpux::EncodeTrecurrent(kRd, kRs1, kRs2);
+    case OPENNPUX_XGRAPH_OP_TATTENTION:
+      return xopennpux::EncodeTattention(kRd, kRs1, kRs2);
     default:
       return 0;
   }
@@ -381,6 +523,61 @@ bool BuildPacket(const opennpux_xgraph_command& command,
     packet->quant_qzeros_stride = command.reserved[3];
     packet->quant_scales_stride = command.reserved[4];
     packet->quant_group_range = command.flags;
+    return true;
+  }
+  if (command.opcode == OPENNPUX_XGRAPH_OP_TCAUSALCONV) {
+    packet->tensor_shape =
+        xopennpux::EncodeTensorShape(command.dim0, command.dim1);
+    packet->tensor_data_type = xopennpux::EncodeMmaDataTypes(
+        xopennpux::DataType::kFp32, xopennpux::DataType::kFp32,
+        xopennpux::DataType::kFp32);
+    packet->scalar_param0 = command.dim2 | (command.flags << 16);
+    if ((command.flags & OPENNPUX_XGRAPH_TCAUSALCONV_STATEFUL) != 0 &&
+        (!DeviceAddress(memory_base, command.reserved[0],
+                        &packet->tensor_aux_source_address) ||
+         !DeviceAddress(memory_base, command.reserved[1],
+                        &packet->tensor_aux_destination_address))) {
+      return false;
+    }
+    return true;
+  }
+  if (command.opcode == OPENNPUX_XGRAPH_OP_TRECURRENT) {
+    packet->tensor_shape = xopennpux::EncodeTensorShape(
+        command.dim0, command.dim1 * command.dim2);
+    packet->tensor_data_type = xopennpux::EncodeMmaDataTypes(
+        xopennpux::DataType::kFp32, xopennpux::DataType::kFp32,
+        xopennpux::DataType::kFp32);
+    packet->recurrent_heads =
+        command.dim1 | ((command.scalar0 & 0xffffu) << 16);
+    packet->recurrent_dims =
+        command.dim2 | ((command.scalar0 >> 16) << 16);
+    if (!DeviceAddress(memory_base, command.reserved[0],
+                       &packet->recurrent_beta_address) ||
+        !DeviceAddress(memory_base, command.reserved[1],
+                       &packet->tensor_aux_destination_address) ||
+        !DeviceAddress(memory_base, command.reserved[2],
+                       &packet->recurrent_a_log_address) ||
+        !DeviceAddress(memory_base, command.reserved[3],
+                       &packet->recurrent_dt_bias_address)) {
+      return false;
+    }
+    return true;
+  }
+  if (command.opcode == OPENNPUX_XGRAPH_OP_TATTENTION) {
+    packet->tensor_shape = xopennpux::EncodeTensorShape(
+        command.dim0, command.dim1 * command.dim2);
+    packet->tensor_data_type = xopennpux::EncodeMmaDataTypes(
+        xopennpux::DataType::kFp32, xopennpux::DataType::kFp32,
+        xopennpux::DataType::kFp32);
+    packet->attention_heads = command.dim1 | (command.scalar0 << 16);
+    packet->attention_head_dim_flags =
+        command.dim2 | (command.reserved[1] << 16);
+    packet->attention_kv_length = command.flags;
+    if (command.reserved[0] != 0 &&
+        !DeviceAddress(memory_base, command.reserved[0],
+                       &packet->tensor_aux_source_address)) {
+      return false;
+    }
     return true;
   }
   packet->tensor_shape =

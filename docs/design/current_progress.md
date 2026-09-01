@@ -1270,3 +1270,15 @@ CSR snapshot 和 functional coprocessor，最终只将 Tensor Arena 区域发布
 新增 `host_functional_xgraph_fallback_opcode_<n>` 统计用于区分尚未替换的 QKV 多投影、
 Expert 和其他复合请求。预计普通投影接入后，真实模型每步 81 个 MATMUL fallback 将先下降，
 但 GPTQ gated QKV 仍需独立的多输出 lowering；任何 strict token 偏差均阻止该阶段验收。
+
+GB10 已验证普通 GPTQ projection sequence 和外部 RMSNorm weight staging：累计
+`xgraph_requests=282`、`xgraph_commands=1510`、`fallback_requests=202`，其中 81 个
+NORMALIZE 已全部通过 `TRMSNORM` 执行，strict token 保持 PASS。剩余 fallback 分布为
+EMBED 1、QKV MATMUL 40、TOPK 1、CAUSAL_CONVOLUTION 30、RECURRENT_UPDATE 30、ROUTER
+40、EXPERT 40、DMA 10、ATTENTION 10。
+
+下一批把已有 functional coprocessor 后端接到 Host executor：stateful causal convolution
+经 `TCAUSALCONV`，gated-delta recurrent update 经 `TRECURRENT`，causal GQA attention 经
+`TATTENTION`。三条路径均补齐范围校验、custom instruction 编码、扩展 CSR packet、流量/
+cycle 统计和 tensor/state 回写回归。GB10 预期再消除 opcode 10/11/15 共 70 个 fallback；
+验收仍要求 strict token 完全一致。

@@ -89,7 +89,8 @@ bool HasOperandRole(const opennpux_npu_functional_request& request,
 
 bool IsComplexCandidate(const opennpux_npu_functional_request& request) {
   if (request.opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE ||
-      request.opcode == OPENNPUX_NPU_OP_DMA) {
+      request.opcode == OPENNPUX_NPU_OP_DMA ||
+      request.opcode == OPENNPUX_NPU_OP_TOPK) {
     return true;
   }
   if (request.opcode != OPENNPUX_NPU_OP_MATMUL) return false;
@@ -104,7 +105,8 @@ bool IsStagedPrimitiveCandidate(
   // These operators commonly consume read-only weights supplied by the host
   // weight provider rather than resident tensor-arena storage.
   return request.opcode == OPENNPUX_NPU_OP_NORMALIZE ||
-         request.opcode == OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION;
+         request.opcode == OPENNPUX_NPU_OP_CAUSAL_CONVOLUTION ||
+         request.opcode == OPENNPUX_NPU_OP_EMBED;
 }
 
 const uint8_t* TranslateRegions(const Gem5FunctionalMemoryRegion* regions,

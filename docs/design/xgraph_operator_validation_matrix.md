@@ -111,10 +111,14 @@ MATMUL 40, TOPK 1, ROUTER 40, EXPERT 40 and DMA 10.
 
 Host-executor integration for generic KV-cache DMA is locally validated. Each
 logical request atomically emits `TDMA(K) + TDMA(V)` and writes the visible tail
-of the two persistent state planes. The next GB10 acceptance target is 362
-logical XGraph requests, 1600 physical commands and 122 fallback requests with
-opcode 14 absent and strict token equivalence unchanged. These are projected
-acceptance values until the full-model run is reported.
+of the two persistent state planes. External-weight EMBED now stages its
+read-only vocabulary table and executes `TGATHER`. Indices-only TOPK uses an
+internal values scratch plane while publishing only token indices through
+`TTOPK`. Local tests independently verify selected embedding rows, per-row
+Top-1 indices, command counts and modeled cycles. The next GB10 acceptance
+target is 364 logical XGraph requests, 1602 physical commands and 120 fallback
+requests with opcodes 1, 8 and 14 absent and strict token equivalence unchanged.
+These are projected acceptance values until the full-model run is reported.
 
 The accepted fourth batch appends one generic `TATTENTION` command after the
 eight-command GPTQ `EXPERT` decomposition. The fifth batch adds one gated

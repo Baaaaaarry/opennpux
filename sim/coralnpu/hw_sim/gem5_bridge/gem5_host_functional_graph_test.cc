@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -200,6 +201,81 @@ int main(int argc, char** argv) {
   assert(norm_stats.commands == 1 && norm_stats.operations == count * 4 &&
          norm_stats.modeled_cycles == count * 4);
   std::puts("functional_graph_xopennpux_external_norm=PASS");
+
+  const uint32_t embed_indices[] = {2, 0};
+  std::vector<float> embed_weights = {
+      1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  std::memcpy(lhs_data, embed_indices, sizeof(embed_indices));
+  std::fill(output_data, output_data + 4, 0.0f);
+  opennpux_npu_functional_request embed = {};
+  embed.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  embed.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  embed.struct_size = sizeof(embed);
+  embed.opcode = OPENNPUX_NPU_OP_EMBED;
+  embed.rows = 2;
+  embed.features = 2;
+  embed.operand_count = 3;
+  embed.operands[0] = {OPENNPUX_NPU_OPERAND_INPUT_INDICES, lhs->address,
+                       sizeof(embed_indices), 0};
+  embed.operands[1] = {OPENNPUX_NPU_OPERAND_OUTPUT, output->address,
+                       UINT32_C(16), 0};
+  embed.operands[2] = {
+      OPENNPUX_NPU_OPERAND_WEIGHT, UINT32_C(0x60500000),
+      static_cast<uint32_t>(embed_weights.size() * sizeof(float)), 0};
+  const Gem5FunctionalMemoryRegion embed_region = {
+      UINT32_C(0x60500000),
+      reinterpret_cast<uint8_t*>(embed_weights.data()),
+      embed_weights.size() * sizeof(float)};
+  opennpux_npu_operator_parameters embed_parameters = {};
+  embed_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  embed_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  embed_parameters.struct_size = sizeof(embed_parameters);
+  embed_parameters.opcode = OPENNPUX_NPU_OP_EMBED;
+  embed_parameters.input_features = 3;
+  Gem5HostXGraphExecutionStats embed_stats = {};
+  assert(ExecuteGem5HostXGraphRequest(
+             embed, embed_parameters, &embed_region, 1, &graph.arena(),
+             &embed_stats) == Gem5HostXGraphExecutionOutcome::kExecuted);
+  assert(output_data[0] == 5.0f && output_data[1] == 6.0f &&
+         output_data[2] == 1.0f && output_data[3] == 2.0f);
+  assert(embed_stats.commands == 1 && embed_stats.operations == 4 &&
+         embed_stats.modeled_cycles == 4);
+  std::puts("functional_graph_xopennpux_external_embed=PASS");
+
+  const float topk_input_values[] = {1.0f, 9.0f, 3.0f,
+                                     8.0f, 2.0f, 7.0f};
+  std::copy(topk_input_values, topk_input_values + 6, lhs_data);
+  auto* topk_indices = reinterpret_cast<uint32_t*>(rhs_data);
+  topk_indices[0] = UINT32_MAX;
+  topk_indices[1] = UINT32_MAX;
+  opennpux_npu_functional_request indices_topk = {};
+  indices_topk.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  indices_topk.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  indices_topk.struct_size = sizeof(indices_topk);
+  indices_topk.opcode = OPENNPUX_NPU_OP_TOPK;
+  indices_topk.rows = 2;
+  indices_topk.features = 3;
+  indices_topk.top_k = 1;
+  indices_topk.operand_count = 2;
+  indices_topk.operands[0] = {OPENNPUX_NPU_OPERAND_INPUT, lhs->address,
+                              UINT32_C(24), 0};
+  indices_topk.operands[1] = {OPENNPUX_NPU_OPERAND_OUTPUT_INDICES,
+                              rhs->address, UINT32_C(8), 0};
+  opennpux_npu_operator_parameters topk_parameters = {};
+  topk_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  topk_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  topk_parameters.struct_size = sizeof(topk_parameters);
+  topk_parameters.opcode = OPENNPUX_NPU_OP_TOPK;
+  const Gem5FunctionalMemoryRegion topk_region = {
+      graph.arena().base(), graph.arena().data(), graph.arena().size()};
+  Gem5HostXGraphExecutionStats topk_stats = {};
+  assert(ExecuteGem5HostXGraphRequest(
+             indices_topk, topk_parameters, &topk_region, 1, &graph.arena(),
+             &topk_stats) == Gem5HostXGraphExecutionOutcome::kExecuted);
+  assert(topk_indices[0] == 1 && topk_indices[1] == 0);
+  assert(topk_stats.commands == 1 && topk_stats.operations == 6 &&
+         topk_stats.modeled_cycles == 6);
+  std::puts("functional_graph_xopennpux_indices_only_topk=PASS");
 
   assert(count % 2 == 0);
   const uint32_t conv_rows = 2;

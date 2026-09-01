@@ -1292,5 +1292,11 @@ EXPERT 40 和 KV DMA 10。
 Host executor 随后接入通用 KV-cache DMA lowering。一个 generic DMA request 原子展开为
 `TDMA(K) + TDMA(V)`，按照 `rows/kv_heads/head_dim/kv_length` 计算两个 state plane 的
 尾部写入范围；本地回归独立验证 K/V 数据、地址边界、2 条物理命令和 8 个 functional
-cycles。下一轮 GB10 预期达到 `xgraph_requests=362`、`xgraph_commands=1600`、
-`fallback_requests=122`，且 opcode 14 消失；这些数值在 GB10 复验前仅为验收预期。
+cycles。
+
+外部词表权重 EMBED 和 indices-only TOPK 也已接入同一执行器。EMBED 将只读词表页 staging
+到 EXTMEM 后执行 `TGATHER`；TOPK 由 batch lowerer 分配内部 values scratch，只向可见
+Tensor Arena 发布 token indices。独立回归验证 1 条命令的 embedding 行选择、逐行 Top-1
+index、地址边界和 functional cycles。合并三项后，下一轮 GB10 预期达到
+`xgraph_requests=364`、`xgraph_commands=1602`、`fallback_requests=120`，opcode 1、8、
+14 全部消失；这些数值在 GB10 复验前仅为验收预期。

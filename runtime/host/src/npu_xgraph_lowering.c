@@ -676,15 +676,14 @@ opennpux_npu_xgraph_lower_gated_normalize(
             norm->dim0 = 1;
             norm->dim1 = head_dim;
             norm->dim2 = 1;
+            /* Gated DeltaNet RMS weights are direct scales. The generic
+             * normalization command may carry NORM_WEIGHT_OFFSET for other
+             * normalization sites, but the gated kernel must not add one. */
             norm->flags =
-                ((parameters->flags &
-                  OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0
-                     ? OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET
-                     : 0) |
-                ((parameters->flags &
-                  OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0
-                     ? OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_NORMALIZED
-                     : 0);
+                (parameters->flags &
+                 OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0
+                    ? OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_NORMALIZED
+                    : 0;
             memcpy(&norm->scalar0, &request->epsilon, sizeof(norm->scalar0));
             if (set_operands(norm, &output_view, &input_view, norm_weight,
                              extmem_base, extmem_size) != 0) {

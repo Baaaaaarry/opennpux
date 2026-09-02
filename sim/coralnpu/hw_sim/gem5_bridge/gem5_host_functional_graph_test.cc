@@ -998,6 +998,7 @@ int main(int argc, char** argv) {
   tiled_gated_parameters.struct_size = sizeof(tiled_gated_parameters);
   tiled_gated_parameters.opcode = OPENNPUX_NPU_OP_NORMALIZE;
   tiled_gated_parameters.flags =
+      OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET |
       OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET |
       OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE;
   tiled_gated_parameters.input_features = kTiledInputFeatures;

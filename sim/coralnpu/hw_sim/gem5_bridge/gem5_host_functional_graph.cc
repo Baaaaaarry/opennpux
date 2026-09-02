@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_functional_graph.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -88,6 +89,16 @@ bool ClaimGraphFallbackDiagnostic(uint32_t opcode) {
   return true;
 }
 
+bool ShadowCompareEnabled(uint32_t opcode) {
+  const char* value = std::getenv("OPENNPUX_HOST_XGRAPH_SHADOW_COMPARE");
+  if (value == nullptr || value[0] == '\0' || std::strcmp(value, "0") == 0) {
+    return false;
+  }
+  return std::strcmp(value, "all") == 0 ||
+         (opcode == OPENNPUX_NPU_OP_NORMALIZE &&
+          std::strcmp(value, "normalize") == 0);
+}
+
 bool IsFloatingOutputRole(uint32_t role) {
   return role == OPENNPUX_NPU_OPERAND_OUTPUT ||
          role == OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY ||
@@ -129,6 +140,72 @@ void RoundToBfloat16(float* values, size_t count) {
       std::memcpy(values + index, &bits, sizeof(bits));
     }
   }
+}
+
+bool ShadowCompareXGraphOutput(
+    opennpux_npu_functional_request* request,
+    const std::vector<Gem5FunctionalMemoryRegion>& regions) {
+  const auto* output = FindOperand(*request, OPENNPUX_NPU_OPERAND_OUTPUT);
+  if (output == nullptr || output->byte_size == 0 ||
+      output->byte_size % sizeof(float) != 0) {
+    return false;
+  }
+  auto* values = reinterpret_cast<float*>(
+      TranslateRegion(regions, output->address, output->byte_size));
+  if (values == nullptr) return false;
+
+  if (UseBfloat16Boundaries()) {
+    ApplyGem5HostBfloat16OutputBoundaries(*request, regions);
+  }
+  std::vector<uint8_t> xgraph_output(output->byte_size);
+  std::memcpy(xgraph_output.data(), values, output->byte_size);
+
+  opennpux_npu_functional_request reference = *request;
+  if (!ExecuteGem5FunctionalRequestInRegions(&reference, regions.data(),
+                                              regions.size())) {
+    std::fprintf(stderr,
+                 "host_xgraph_shadow_error command=%u opcode=%u "
+                 "stage=host-reference\n",
+                 request->command_id, request->opcode);
+    std::memcpy(values, xgraph_output.data(), output->byte_size);
+    return false;
+  }
+  if (UseBfloat16Boundaries()) {
+    ApplyGem5HostBfloat16OutputBoundaries(reference, regions);
+  }
+
+  const auto* actual =
+      reinterpret_cast<const float*>(xgraph_output.data());
+  const size_t count = output->byte_size / sizeof(float);
+  double squared_error = 0.0;
+  float max_abs_error = 0.0f;
+  size_t max_error_index = 0;
+  size_t different = 0;
+  size_t nonfinite = 0;
+  for (size_t index = 0; index < count; ++index) {
+    if (!std::isfinite(actual[index]) || !std::isfinite(values[index])) {
+      ++nonfinite;
+      continue;
+    }
+    const float error = std::fabs(actual[index] - values[index]);
+    if (error != 0.0f) ++different;
+    squared_error += static_cast<double>(error) * error;
+    if (error > max_abs_error) {
+      max_abs_error = error;
+      max_error_index = index;
+    }
+  }
+  const double rmse = count == 0 ? 0.0 : std::sqrt(squared_error / count);
+  std::fprintf(
+      stderr,
+      "host_xgraph_shadow command=%u opcode=%u rows=%u features=%u "
+      "elements=%zu different=%zu nonfinite=%zu rmse=%.9g "
+      "max_abs=%.9g max_index=%zu xgraph=%.9g host=%.9g\n",
+      request->command_id, request->opcode, request->rows, request->features,
+      count, different, nonfinite, rmse, max_abs_error, max_error_index,
+      actual[max_error_index], values[max_error_index]);
+  std::memcpy(values, xgraph_output.data(), output->byte_size);
+  return true;
 }
 
 }  // namespace
@@ -308,6 +385,9 @@ bool Gem5HostFunctionalGraph::Execute(
       if (outcome == Gem5HostXGraphExecutionOutcome::kError) return false;
       if (outcome == Gem5HostXGraphExecutionOutcome::kExecuted) {
         executed = true;
+        if (ShadowCompareEnabled(request->opcode)) {
+          ShadowCompareXGraphOutput(request, regions);
+        }
         request->operation_count = xgraph.operations;
         request->modeled_cycles = xgraph.modeled_cycles;
         request->bytes_read = xgraph.bytes_read;

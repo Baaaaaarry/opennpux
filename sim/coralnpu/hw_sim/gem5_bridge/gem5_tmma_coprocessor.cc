@@ -505,7 +505,15 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
     const uint32_t flags =
         packet.csr_epoch == 0 ? tensor_flags_ : packet.tensor_flags;
     if ((flags & ~(xopennpux::kTensorFlagNormWeightOffset |
-                   xopennpux::kTensorFlagBfloat16Input)) != 0) {
+                   xopennpux::kTensorFlagBfloat16Input |
+                   xopennpux::kTensorFlagBfloat16Normalized)) != 0) {
+      return Gem5TmmaSubmitResult::kInvalidCsrState;
+    }
+  }
+  if (operation == xopennpux::Operation::kTsilu) {
+    const uint32_t flags =
+        packet.csr_epoch == 0 ? tensor_flags_ : packet.tensor_flags;
+    if ((flags & ~xopennpux::kTensorFlagBfloat16Input) != 0) {
       return Gem5TmmaSubmitResult::kInvalidCsrState;
     }
   }
@@ -1377,6 +1385,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
         (command.tensor_flags & xopennpux::kTensorFlagNormWeightOffset) != 0;
     const bool bfloat16_input =
         (command.tensor_flags & xopennpux::kTensorFlagBfloat16Input) != 0;
+    const bool bfloat16_normalized =
+        (command.tensor_flags &
+         xopennpux::kTensorFlagBfloat16Normalized) != 0;
     for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
       float sum_squares = 0.0f;
       const size_t row_base =
@@ -1403,9 +1414,13 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
         const float weight =
             LoadFloat(*memory, rhs_base + feature * sizeof(float)) +
             (weight_offset ? 1.0f : 0.0f);
+        float normalized = value * inverse_rms;
+        if (bfloat16_normalized) {
+          normalized = RoundBfloat16(normalized);
+        }
         StoreFloat(memory,
                    dst_base + (row_base + feature) * sizeof(float),
-                   value * inverse_rms * weight);
+                   normalized * weight);
       }
     }
   } else if (command.operation == xopennpux::Operation::kTsoftmax) {
@@ -1472,9 +1487,12 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
       }
     }
   } else if (command.operation == xopennpux::Operation::kTsilu) {
+    const bool bfloat16_input =
+        (command.tensor_flags & xopennpux::kTensorFlagBfloat16Input) != 0;
     for (uint64_t index = 0; index < tensor_elements; ++index) {
       const size_t offset = static_cast<size_t>(index) * sizeof(float);
-      const float value = LoadFloat(*memory, lhs_base + offset);
+      const float source = LoadFloat(*memory, lhs_base + offset);
+      const float value = bfloat16_input ? RoundBfloat16(source) : source;
       StoreFloat(memory, dst_base + offset,
                  value / (1.0f + std::exp(-value)));
     }

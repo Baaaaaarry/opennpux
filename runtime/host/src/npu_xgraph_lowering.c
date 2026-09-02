@@ -566,6 +566,167 @@ opennpux_npu_xgraph_lower_attention_projection(
 }
 
 int
+opennpux_npu_xgraph_lower_gated_normalize(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (command_count != NULL) {
+        *command_count = 0;
+    }
+    if (validate_request(request, parameters, extmem_size) != 0 ||
+        request->opcode != OPENNPUX_NPU_OP_NORMALIZE || commands == NULL ||
+        command_count == NULL ||
+        (parameters->flags & OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const struct opennpux_npu_functional_operand *input =
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT);
+    const struct opennpux_npu_functional_operand *projection_input =
+        find_operand(request, OPENNPUX_NPU_OPERAND_SECONDARY);
+    const struct opennpux_npu_functional_operand *output =
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+    const struct opennpux_npu_functional_operand *gate_weight =
+        find_operand(request, OPENNPUX_NPU_OPERAND_LINEAR_GATE_WEIGHT);
+    const struct opennpux_npu_functional_operand *norm_weight =
+        find_operand(request, OPENNPUX_NPU_OPERAND_LINEAR_NORM_WEIGHT);
+    const uint32_t input_features = parameters->input_features;
+    const uint32_t output_features = parameters->output_features;
+    const uint32_t head_dim =
+        norm_weight != NULL &&
+                norm_weight->byte_size % sizeof(float) == 0
+            ? norm_weight->byte_size / sizeof(float)
+            : 0;
+    if (input == NULL || projection_input == NULL || output == NULL ||
+        gate_weight == NULL || norm_weight == NULL || request->rows == 0 ||
+        input_features == 0 || output_features == 0 || head_dim == 0 ||
+        output_features % head_dim != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const uint32_t heads = output_features / head_dim;
+    const uint64_t tensor_elements =
+        (uint64_t)request->rows * output_features;
+    const uint64_t tensor_bytes = tensor_elements * sizeof(float);
+    const uint64_t required_scratch = tensor_bytes * 2;
+    const uint64_t required_commands =
+        UINT64_C(3) + (uint64_t)request->rows * heads;
+    if (tensor_bytes > UINT32_MAX || required_scratch > scratch_size ||
+        (uint64_t)scratch_address + required_scratch > UINT32_MAX ||
+        required_commands > command_capacity) {
+        errno = required_commands > command_capacity ? ENOSPC : ENOMEM;
+        return -1;
+    }
+    if (input->byte_size < tensor_bytes ||
+        projection_input->byte_size <
+            (uint64_t)request->rows * input_features * sizeof(float) ||
+        output->byte_size < tensor_bytes ||
+        gate_weight->byte_size <
+            (uint64_t)input_features * output_features * sizeof(float) ||
+        norm_weight->byte_size < (uint64_t)head_dim * sizeof(float)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const struct opennpux_npu_functional_operand gate = {
+        OPENNPUX_NPU_OPERAND_OUTPUT, scratch_address,
+        (uint32_t)tensor_bytes, 0,
+    };
+    const struct opennpux_npu_functional_operand normalized = {
+        OPENNPUX_NPU_OPERAND_OUTPUT,
+        scratch_address + (uint32_t)tensor_bytes,
+        (uint32_t)tensor_bytes, 0,
+    };
+    uint32_t emitted = 0;
+    struct opennpux_xgraph_command *projection = &commands[emitted++];
+    memset(projection, 0, sizeof(*projection));
+    projection->opcode = OPENNPUX_XGRAPH_OP_TMMA;
+    projection->command_id = first_command_id;
+    projection->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    projection->dim0 = request->rows;
+    projection->dim1 = output_features;
+    projection->dim2 = input_features;
+    if (set_operands(projection, &gate, projection_input, gate_weight,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+
+    for (uint32_t row = 0; row < request->rows; ++row) {
+        for (uint32_t head = 0; head < heads; ++head) {
+            const uint64_t element =
+                (uint64_t)row * output_features + (uint64_t)head * head_dim;
+            const uint64_t byte_offset = element * sizeof(float);
+            struct opennpux_npu_functional_operand input_view = *input;
+            struct opennpux_npu_functional_operand output_view = normalized;
+            input_view.address += (uint32_t)byte_offset;
+            input_view.byte_size = head_dim * sizeof(float);
+            output_view.address += (uint32_t)byte_offset;
+            output_view.byte_size = head_dim * sizeof(float);
+
+            struct opennpux_xgraph_command *norm = &commands[emitted++];
+            memset(norm, 0, sizeof(*norm));
+            norm->opcode = OPENNPUX_XGRAPH_OP_TRMSNORM;
+            norm->command_id = first_command_id + emitted - 1;
+            norm->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+            norm->dim0 = 1;
+            norm->dim1 = head_dim;
+            norm->dim2 = 1;
+            norm->flags =
+                ((parameters->flags &
+                  OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0
+                     ? OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET
+                     : 0) |
+                ((parameters->flags &
+                  OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0
+                     ? OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_NORMALIZED
+                     : 0);
+            memcpy(&norm->scalar0, &request->epsilon, sizeof(norm->scalar0));
+            if (set_operands(norm, &output_view, &input_view, norm_weight,
+                             extmem_base, extmem_size) != 0) {
+                return -1;
+            }
+        }
+    }
+
+    struct opennpux_xgraph_command *silu = &commands[emitted++];
+    memset(silu, 0, sizeof(*silu));
+    silu->opcode = OPENNPUX_XGRAPH_OP_TSILU;
+    silu->command_id = first_command_id + emitted - 1;
+    silu->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    silu->dim0 = request->rows;
+    silu->dim1 = output_features;
+    silu->dim2 = 1;
+    silu->flags =
+        (parameters->flags & OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0
+            ? OPENNPUX_XGRAPH_TSILU_BFLOAT16_INPUT
+            : 0;
+    if (set_operands(silu, &gate, &gate, NULL, extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+
+    struct opennpux_xgraph_command *multiply = &commands[emitted++];
+    memset(multiply, 0, sizeof(*multiply));
+    multiply->opcode = OPENNPUX_XGRAPH_OP_TMUL;
+    multiply->command_id = first_command_id + emitted - 1;
+    multiply->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+    multiply->dim0 = request->rows;
+    multiply->dim1 = output_features;
+    multiply->dim2 = 1;
+    if (set_operands(multiply, output, &normalized, &gate,
+                     extmem_base, extmem_size) != 0) {
+        return -1;
+    }
+    *command_count = emitted;
+    return 0;
+}
+
+int
 opennpux_npu_xgraph_lower_shared_expert(
     const struct opennpux_npu_functional_request *request,
     const struct opennpux_npu_operator_parameters *parameters,
@@ -768,6 +929,11 @@ opennpux_npu_xgraph_lower_primitive(
         return set_operands(command, output, input, secondary,
                             extmem_base, extmem_size);
     case OPENNPUX_NPU_OP_NORMALIZE:
+        if ((parameters->flags &
+             OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0) {
+            errno = ENOTSUP;
+            return -1;
+        }
         command->opcode = OPENNPUX_XGRAPH_OP_TRMSNORM;
         command->flags =
             ((parameters->flags &
@@ -2000,6 +2166,10 @@ opennpux_npu_xgraph_lower_batch(
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             !has_gptq_operands(&requests[index]) &&
             !is_dense_multi_projection && !is_attention_projection;
+        const int is_gated_normalize =
+            requests[index].opcode == OPENNPUX_NPU_OP_NORMALIZE &&
+            (parameters[index].flags &
+             OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0;
         const int is_shared_expert =
             requests[index].opcode == OPENNPUX_NPU_OP_EXPERT &&
             find_operand(&requests[index],
@@ -2055,6 +2225,16 @@ opennpux_npu_xgraph_lower_batch(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, emitted, commands + emitted, available,
                     &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_gated_normalize) {
+            if (opennpux_npu_xgraph_lower_gated_normalize(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, scratch_address, scratch_size, emitted,
+                    commands + emitted, available, &produced) != 0) {
                 if (errno == ENOSPC && emitted != 0) {
                     break;
                 }

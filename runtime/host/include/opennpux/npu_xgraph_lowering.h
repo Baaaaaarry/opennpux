@@ -148,6 +148,20 @@ int opennpux_npu_xgraph_lower_attention_projection(
     struct opennpux_xgraph_command *commands, uint32_t command_capacity,
     uint32_t *command_count);
 
+/*
+ * Lower a projected gated RMSNorm into generic tensor primitives. The gate
+ * projection uses TMMA, each head is normalized independently, and TSILU /
+ * TMUL apply the projected gate. Explicit BF16 boundaries preserve runtime
+ * semantics without introducing a model-specific fused instruction.
+ */
+int opennpux_npu_xgraph_lower_gated_normalize(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count);
+
 /* Lower a dense shared expert to tiled projections and elementwise ops. */
 int opennpux_npu_xgraph_lower_shared_expert(
     const struct opennpux_npu_functional_request *request,
@@ -224,9 +238,10 @@ int opennpux_npu_xgraph_lower_router(
 /*
  * Lower as many ordered generic commands as fit in one bounded XGraph batch.
  * Primitive commands emit one record; composite GPTQ MatMul commands emit a
- * tiled TDEQUANT/TMMA/TADD sequence, GPTQ Expert emits three such projections
- * around TSILU/TMUL, DMA and basic recurrent state updates emit two TDMA
- * records, and Router emits TMMA/TTOPK/TSOFTMAX plus two TDMA writebacks.
+ * tiled TDEQUANT/TMMA/TADD sequence, gated normalization emits a projection,
+ * per-head TRMSNORM, TSILU and TMUL, GPTQ Expert emits three projections around
+ * TSILU/TMUL, DMA and basic recurrent state updates emit two TDMA records, and
+ * Router emits TMMA/TTOPK/TSOFTMAX plus two TDMA writebacks.
  * Output command IDs are local to the batch and dense from zero.
  * command_origins, when non-NULL, maps each emitted record back to its input
  * request command_id.

@@ -73,6 +73,7 @@ constexpr uint32_t kMmaFlagTransposeRhs = 1u;
 constexpr uint32_t kMmaFlagAccumulate = 2u;
 constexpr uint32_t kTensorFlagNormWeightOffset = 1u;
 constexpr uint32_t kTensorFlagBfloat16Input = 2u;
+constexpr uint32_t kTensorFlagBfloat16Normalized = 4u;
 
 constexpr uint32_t kShapeFieldMask = 0x3ff;
 constexpr uint32_t kShapeMShift = 0;

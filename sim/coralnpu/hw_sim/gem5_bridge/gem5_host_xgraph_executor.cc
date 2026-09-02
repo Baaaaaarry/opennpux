@@ -100,6 +100,12 @@ bool HasOperandRole(const opennpux_npu_functional_request& request,
 }
 
 bool IsComplexCandidate(const opennpux_npu_functional_request& request) {
+  if (request.opcode == OPENNPUX_NPU_OP_NORMALIZE) {
+    return HasOperandRole(request,
+                          OPENNPUX_NPU_OPERAND_LINEAR_GATE_WEIGHT) &&
+           HasOperandRole(request,
+                          OPENNPUX_NPU_OPERAND_LINEAR_NORM_WEIGHT);
+  }
   if (request.opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE ||
       request.opcode == OPENNPUX_NPU_OP_DMA ||
       request.opcode == OPENNPUX_NPU_OP_TOPK) {
@@ -203,6 +209,12 @@ bool ValidateRanges(const opennpux_xgraph_command& command,
   uint64_t destination_elements = elements;
   switch (command.opcode) {
     case OPENNPUX_XGRAPH_OP_TRMSNORM:
+      if ((command.flags &
+           ~(OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET |
+             OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_INPUT |
+             OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_NORMALIZED)) != 0) {
+        return false;
+      }
       source1_elements = command.dim1;
       break;
     case OPENNPUX_XGRAPH_OP_TROPE:
@@ -230,6 +242,11 @@ bool ValidateRanges(const opennpux_xgraph_command& command,
       }
       break;
     case OPENNPUX_XGRAPH_OP_TSILU:
+      if ((command.flags & ~OPENNPUX_XGRAPH_TSILU_BFLOAT16_INPUT) != 0) {
+        return false;
+      }
+      source1_elements = 0;
+      break;
     case OPENNPUX_XGRAPH_OP_TSIGMOID:
     case OPENNPUX_XGRAPH_OP_TSOFTMAX:
     case OPENNPUX_XGRAPH_OP_TDMA:

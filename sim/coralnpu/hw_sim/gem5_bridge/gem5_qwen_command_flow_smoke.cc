@@ -152,8 +152,9 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       }
     case OPENNPUX_XGRAPH_OP_TRMSNORM:
       if ((command.flags &
-           ~(OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET |
-             OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_INPUT)) != 0) {
+          ~(OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET |
+             OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_INPUT |
+             OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_NORMALIZED)) != 0) {
         return false;
       }
       source1_elements = command.dim1;
@@ -295,6 +296,11 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       break;
     }
     case OPENNPUX_XGRAPH_OP_TSILU:
+      if ((command.flags & ~OPENNPUX_XGRAPH_TSILU_BFLOAT16_INPUT) != 0) {
+        return false;
+      }
+      source1_elements = 0;
+      break;
     case OPENNPUX_XGRAPH_OP_TSIGMOID:
     case OPENNPUX_XGRAPH_OP_TSOFTMAX:
     case OPENNPUX_XGRAPH_OP_TDMA:

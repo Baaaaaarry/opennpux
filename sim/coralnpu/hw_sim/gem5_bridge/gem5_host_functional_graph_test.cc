@@ -865,6 +865,31 @@ int main(int argc, char** argv) {
   }
   assert(linear_gate_norm_index != UINT32_MAX);
   assert(graph.ExecuteCommand(linear_gate_norm_index, &weights));
+  opennpux_npu_functional_request linear_gate_norm = {};
+  assert(graph.Materialize(linear_gate_norm_index, nullptr, 0,
+                           &linear_gate_norm));
+  const auto* linear_gate_norm_output =
+      FindOperand(linear_gate_norm, OPENNPUX_NPU_OPERAND_OUTPUT);
+  assert(linear_gate_norm_output != nullptr);
+  auto* linear_gate_norm_data = reinterpret_cast<float*>(
+      graph.arena().Translate(linear_gate_norm_output->address,
+                              linear_gate_norm_output->byte_size));
+  assert(linear_gate_norm_data != nullptr);
+  const size_t linear_gate_norm_count =
+      linear_gate_norm_output->byte_size / sizeof(float);
+  const std::vector<float> linear_gate_norm_reference(
+      linear_gate_norm_data, linear_gate_norm_data + linear_gate_norm_count);
+  const uint64_t gated_commands_before = graph.stats().xgraph_commands;
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION",
+                "xopennpux-primitives", 1) == 0);
+  assert(setenv("OPENNPUX_HOST_XGRAPH_NORMALIZE_SCOPE", "gated", 1) == 0);
+  assert(graph.ExecuteCommand(linear_gate_norm_index, &weights));
+  assert(unsetenv("OPENNPUX_HOST_XGRAPH_NORMALIZE_SCOPE") == 0);
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
+  assert(graph.stats().xgraph_commands > gated_commands_before + 2);
+  for (size_t index = 0; index < linear_gate_norm_count; ++index) {
+    assert(linear_gate_norm_data[index] == linear_gate_norm_reference[index]);
+  }
   std::vector<float> linear_gate_projection;
   assert(graph.ComputeLinearAttentionGateProjection(
       linear_gate_norm_index, &weights, &linear_gate_projection));
@@ -916,6 +941,7 @@ int main(int argc, char** argv) {
   std::puts("functional_graph_linear_attention_projection=PASS");
   std::puts("functional_graph_linear_attention_recurrent=PASS");
   std::puts("functional_graph_linear_attention_gate_norm=PASS");
+  std::puts("functional_graph_xopennpux_gated_norm=PASS");
   std::puts("functional_graph_float_shared_expert=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);

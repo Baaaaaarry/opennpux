@@ -263,6 +263,12 @@ bool Gem5HostFunctionalGraph::Execute(
     observer_->Observe(Gem5HostFunctionalExecutionPath::kGenericRequest,
                        *request, regions.data(), regions.size());
   }
+  const opennpux_npu_operator_parameters* parameters = nullptr;
+  if (request->parameter_size == sizeof(opennpux_npu_operator_parameters)) {
+    parameters = reinterpret_cast<const opennpux_npu_operator_parameters*>(
+        TranslateRegion(regions, request->parameter_address,
+                        request->parameter_size));
+  }
   bool matmul_scope_enabled = true;
   if (request->opcode == OPENNPUX_NPU_OP_MATMUL) {
     const char* scope =
@@ -276,16 +282,23 @@ bool Gem5HostFunctionalGraph::Execute(
          (std::strcmp(scope, "lm-head") == 0 && lm_head) ||
          (std::strcmp(scope, "attention-output") == 0 && !lm_head));
   }
+  bool normalize_scope_enabled = true;
+  if (request->opcode == OPENNPUX_NPU_OP_NORMALIZE) {
+    const char* scope =
+        std::getenv("OPENNPUX_HOST_XGRAPH_NORMALIZE_SCOPE");
+    const bool gated = parameters != nullptr &&
+                       (parameters->flags &
+                        OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0;
+    normalize_scope_enabled =
+        scope != nullptr &&
+        (std::strcmp(scope, "all") == 0 ||
+         (std::strcmp(scope, "standard") == 0 && !gated) ||
+         (std::strcmp(scope, "gated") == 0 && gated));
+  }
   bool executed = false;
   if (UseXOpenNpuPrimitiveExecution() && allow_xgraph &&
-      XGraphOpcodeEnabled(request->opcode) && matmul_scope_enabled) {
-    const opennpux_npu_operator_parameters* parameters = nullptr;
-    if (request->parameter_size ==
-        sizeof(opennpux_npu_operator_parameters)) {
-      parameters = reinterpret_cast<const opennpux_npu_operator_parameters*>(
-          TranslateRegion(regions, request->parameter_address,
-                          request->parameter_size));
-    }
+      XGraphOpcodeEnabled(request->opcode) && matmul_scope_enabled &&
+      normalize_scope_enabled) {
     if (parameters != nullptr) {
       Gem5HostXGraphExecutionStats xgraph = {};
       const auto outcome = ExecuteGem5HostXGraphRequest(

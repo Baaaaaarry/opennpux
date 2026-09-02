@@ -890,6 +890,58 @@ int main(int argc, char** argv) {
   for (size_t index = 0; index < linear_gate_norm_count; ++index) {
     assert(linear_gate_norm_data[index] == linear_gate_norm_reference[index]);
   }
+  opennpux_npu_functional_request large_gated_norm = {};
+  large_gated_norm.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  large_gated_norm.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  large_gated_norm.struct_size = sizeof(large_gated_norm);
+  large_gated_norm.opcode = OPENNPUX_NPU_OP_NORMALIZE;
+  large_gated_norm.rows = 18;
+  large_gated_norm.features = 4096;
+  large_gated_norm.epsilon = 1.0e-6f;
+  large_gated_norm.operand_count = 5;
+  large_gated_norm.operands[0] = {
+      OPENNPUX_NPU_OPERAND_INPUT, UINT32_C(0x60000000), 18 * 4096 * 4, 0};
+  large_gated_norm.operands[1] = {
+      OPENNPUX_NPU_OPERAND_SECONDARY, UINT32_C(0x60100000), 18 * 2048 * 4, 0};
+  large_gated_norm.operands[2] = {
+      OPENNPUX_NPU_OPERAND_OUTPUT, UINT32_C(0x60200000), 18 * 4096 * 4, 0};
+  large_gated_norm.operands[3] = {
+      OPENNPUX_NPU_OPERAND_LINEAR_GATE_WEIGHT, UINT32_C(0x61000000),
+      2048 * 4096 * 4, 0};
+  large_gated_norm.operands[4] = {
+      OPENNPUX_NPU_OPERAND_LINEAR_NORM_WEIGHT, UINT32_C(0x63000000),
+      128 * 4, 0};
+  opennpux_npu_operator_parameters large_gated_parameters = {};
+  large_gated_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  large_gated_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  large_gated_parameters.struct_size = sizeof(large_gated_parameters);
+  large_gated_parameters.opcode = OPENNPUX_NPU_OP_NORMALIZE;
+  large_gated_parameters.flags =
+      OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET |
+      OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE;
+  large_gated_parameters.input_features = 2048;
+  large_gated_parameters.output_features = 4096;
+  std::vector<opennpux_xgraph_command> large_gated_commands(
+      OPENNPUX_XGRAPH_MAX_COMMANDS);
+  uint32_t large_gated_command_count = 0;
+  assert(opennpux_npu_xgraph_lower_gated_normalize(
+             &large_gated_norm, &large_gated_parameters,
+             UINT32_C(0x60000000), UINT32_C(0x08000000),
+             UINT32_C(0x64000000), UINT32_C(0x00100000), 0,
+             large_gated_commands.data(), large_gated_commands.size(),
+             &large_gated_command_count) == 0);
+  assert(large_gated_command_count > 18 * 32 + 3);
+  for (uint32_t index = 0; index < large_gated_command_count; ++index) {
+    const auto& command = large_gated_commands[index];
+    if (command.opcode == OPENNPUX_XGRAPH_OP_TMMA) {
+      assert(command.dim0 <= 1023 && command.dim1 <= 1023 &&
+             command.dim2 <= 1023);
+    }
+  }
+  assert(large_gated_commands[large_gated_command_count - 2].opcode ==
+         OPENNPUX_XGRAPH_OP_TSILU);
+  assert(large_gated_commands[large_gated_command_count - 1].opcode ==
+         OPENNPUX_XGRAPH_OP_TMUL);
   std::vector<float> linear_gate_projection;
   assert(graph.ComputeLinearAttentionGateProjection(
       linear_gate_norm_index, &weights, &linear_gate_projection));
@@ -942,6 +994,7 @@ int main(int argc, char** argv) {
   std::puts("functional_graph_linear_attention_recurrent=PASS");
   std::puts("functional_graph_linear_attention_gate_norm=PASS");
   std::puts("functional_graph_xopennpux_gated_norm=PASS");
+  std::puts("functional_graph_xopennpux_large_gated_norm_lowering=PASS");
   std::puts("functional_graph_float_shared_expert=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);

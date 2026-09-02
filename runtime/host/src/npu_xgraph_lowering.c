@@ -615,12 +615,12 @@ opennpux_npu_xgraph_lower_gated_normalize(
         (uint64_t)request->rows * output_features;
     const uint64_t tensor_bytes = tensor_elements * sizeof(float);
     const uint64_t required_scratch = tensor_bytes * 2;
-    const uint64_t required_commands =
-        UINT64_C(3) + (uint64_t)request->rows * heads;
+    const uint64_t tail_commands =
+        UINT64_C(2) + (uint64_t)request->rows * heads;
     if (tensor_bytes > UINT32_MAX || required_scratch > scratch_size ||
         (uint64_t)scratch_address + required_scratch > UINT32_MAX ||
-        required_commands > command_capacity) {
-        errno = required_commands > command_capacity ? ENOSPC : ENOMEM;
+        tail_commands >= command_capacity) {
+        errno = tail_commands >= command_capacity ? ENOSPC : ENOMEM;
         return -1;
     }
     if (input->byte_size < tensor_bytes ||
@@ -644,18 +644,17 @@ opennpux_npu_xgraph_lower_gated_normalize(
         (uint32_t)tensor_bytes, 0,
     };
     uint32_t emitted = 0;
-    struct opennpux_xgraph_command *projection = &commands[emitted++];
-    memset(projection, 0, sizeof(*projection));
-    projection->opcode = OPENNPUX_XGRAPH_OP_TMMA;
-    projection->command_id = first_command_id;
-    projection->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
-    projection->dim0 = request->rows;
-    projection->dim1 = output_features;
-    projection->dim2 = input_features;
-    if (set_operands(projection, &gate, projection_input, gate_weight,
-                     extmem_base, extmem_size) != 0) {
+    uint32_t projection_commands = 0;
+    if (lower_dense_matmul_operands_strided(
+            projection_input, gate_weight, &gate, request->rows,
+            input_features, output_features, input_features * sizeof(float),
+            input_features * sizeof(float), output_features * sizeof(float),
+            extmem_base, extmem_size, first_command_id, commands,
+            command_capacity - (uint32_t)tail_commands,
+            &projection_commands) != 0) {
         return -1;
     }
+    emitted = projection_commands;
 
     for (uint32_t row = 0; row < request->rows; ++row) {
         for (uint32_t head = 0; head < heads; ++head) {

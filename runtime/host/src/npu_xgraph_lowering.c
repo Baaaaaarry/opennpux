@@ -63,6 +63,29 @@ has_attention_projection_operands(
 }
 
 static int
+has_gptq_attention_projection_operands(
+    const struct opennpux_npu_functional_request *request)
+{
+    return find_operand(request, OPENNPUX_NPU_OPERAND_INPUT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_Q_QWEIGHT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_Q_QZEROS) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_Q_SCALES) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_K_QWEIGHT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_K_QZEROS) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_K_SCALES) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_V_QWEIGHT) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_V_QZEROS) != NULL &&
+        find_operand(request, OPENNPUX_NPU_OPERAND_V_SCALES) != NULL &&
+        find_operand(request,
+                     OPENNPUX_NPU_OPERAND_ATTENTION_Q_NORM_WEIGHT) != NULL &&
+        find_operand(request,
+                     OPENNPUX_NPU_OPERAND_ATTENTION_K_NORM_WEIGHT) != NULL;
+}
+
+static int
 operand_offset(const struct opennpux_npu_functional_operand *operand,
                uint32_t extmem_base, uint32_t extmem_size, uint32_t *offset)
 {
@@ -1514,6 +1537,159 @@ build_expert_projection(
         : -1;
 }
 
+static int
+lower_gptq_attention_projection(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t extmem_base, uint32_t extmem_size, uint32_t scratch_address,
+    uint32_t scratch_size, uint32_t first_command_id,
+    struct opennpux_xgraph_command *commands, uint32_t command_capacity,
+    uint32_t *command_count)
+{
+    if (command_count != NULL) {
+        *command_count = 0;
+    }
+    const uint64_t query_features64 =
+        request != NULL ? (uint64_t)request->heads * request->head_dim : 0;
+    const uint64_t key_features64 =
+        request != NULL ? (uint64_t)request->kv_heads * request->head_dim : 0;
+    if (request == NULL || parameters == NULL || commands == NULL ||
+        command_count == NULL ||
+        validate_request(request, parameters, extmem_size) != 0 ||
+        request->opcode != OPENNPUX_NPU_OP_MATMUL ||
+        !has_gptq_attention_projection_operands(request) ||
+        parameters->input_features == 0 || request->heads == 0 ||
+        request->kv_heads == 0 || request->head_dim == 0 ||
+        query_features64 > UINT32_MAX || key_features64 > UINT32_MAX ||
+        request->features != query_features64) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const uint32_t output_roles[] = {
+        OPENNPUX_NPU_OPERAND_OUTPUT,
+        OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
+        OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY,
+    };
+    const uint32_t qweight_roles[] = {
+        OPENNPUX_NPU_OPERAND_Q_QWEIGHT,
+        OPENNPUX_NPU_OPERAND_K_QWEIGHT,
+        OPENNPUX_NPU_OPERAND_V_QWEIGHT,
+    };
+    const uint32_t qzeros_roles[] = {
+        OPENNPUX_NPU_OPERAND_Q_QZEROS,
+        OPENNPUX_NPU_OPERAND_K_QZEROS,
+        OPENNPUX_NPU_OPERAND_V_QZEROS,
+    };
+    const uint32_t scales_roles[] = {
+        OPENNPUX_NPU_OPERAND_Q_SCALES,
+        OPENNPUX_NPU_OPERAND_K_SCALES,
+        OPENNPUX_NPU_OPERAND_V_SCALES,
+    };
+    const uint32_t g_idx_roles[] = {
+        OPENNPUX_NPU_OPERAND_Q_G_IDX,
+        OPENNPUX_NPU_OPERAND_K_G_IDX,
+        OPENNPUX_NPU_OPERAND_V_G_IDX,
+    };
+    const uint32_t output_features[] = {
+        (uint32_t)query_features64,
+        (uint32_t)key_features64,
+        (uint32_t)key_features64,
+    };
+    struct opennpux_npu_functional_request projection;
+    struct opennpux_npu_operator_parameters projection_parameters;
+    uint32_t emitted = 0;
+    for (uint32_t index = 0; index < 3; ++index) {
+        uint32_t produced = 0;
+        if (build_expert_projection(
+                request, parameters, OPENNPUX_NPU_OPERAND_INPUT,
+                output_roles[index], qweight_roles[index],
+                qzeros_roles[index], scales_roles[index], g_idx_roles[index],
+                parameters->input_features, output_features[index],
+                &projection, &projection_parameters) != 0 ||
+            opennpux_npu_xgraph_lower_gptq_matmul(
+                &projection, &projection_parameters, extmem_base, extmem_size,
+                scratch_address, scratch_size, first_command_id + emitted,
+                commands + emitted, command_capacity - emitted,
+                &produced) != 0) {
+            return -1;
+        }
+        emitted += produced;
+    }
+
+    const struct {
+        uint32_t tensor_role;
+        uint32_t weight_role;
+        uint32_t heads;
+    } norm_groups[] = {
+        {OPENNPUX_NPU_OPERAND_OUTPUT,
+         OPENNPUX_NPU_OPERAND_ATTENTION_Q_NORM_WEIGHT, request->heads},
+        {OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
+         OPENNPUX_NPU_OPERAND_ATTENTION_K_NORM_WEIGHT, request->kv_heads},
+    };
+    const uint64_t norm_commands =
+        (uint64_t)request->rows * (request->heads + request->kv_heads);
+    if (norm_commands > command_capacity - emitted) {
+        errno = ENOSPC;
+        return -1;
+    }
+    for (uint32_t group = 0; group < 2; ++group) {
+        const struct opennpux_npu_functional_operand *tensor =
+            find_operand(request, norm_groups[group].tensor_role);
+        const struct opennpux_npu_functional_operand *weight =
+            find_operand(request, norm_groups[group].weight_role);
+        const uint64_t row_stride =
+            (uint64_t)norm_groups[group].heads * request->head_dim *
+            sizeof(float);
+        if (tensor == NULL || weight == NULL || row_stride > UINT32_MAX) {
+            errno = EINVAL;
+            return -1;
+        }
+        for (uint32_t row = 0; row < request->rows; ++row) {
+            for (uint32_t head = 0; head < norm_groups[group].heads; ++head) {
+                const uint64_t tensor_offset =
+                    (uint64_t)row * row_stride +
+                    (uint64_t)head * request->head_dim * sizeof(float);
+                if (tensor_offset > UINT32_MAX ||
+                    tensor_offset > tensor->byte_size ||
+                    request->head_dim * sizeof(float) >
+                        tensor->byte_size - tensor_offset) {
+                    errno = EINVAL;
+                    return -1;
+                }
+                struct opennpux_npu_functional_operand tensor_view = *tensor;
+                tensor_view.address += (uint32_t)tensor_offset;
+                tensor_view.byte_size = request->head_dim * sizeof(float);
+                struct opennpux_xgraph_command *command = &commands[emitted++];
+                memset(command, 0, sizeof(*command));
+                command->command_id = first_command_id + emitted - 1;
+                command->opcode = OPENNPUX_XGRAPH_OP_TRMSNORM;
+                command->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+                command->dim0 = 1;
+                command->dim1 = request->head_dim;
+                command->dim2 = 1;
+                command->flags =
+                    ((parameters->flags &
+                      OPENNPUX_NPU_PARAMETER_NORM_WEIGHT_OFFSET) != 0
+                         ? OPENNPUX_XGRAPH_TRMSNORM_WEIGHT_OFFSET
+                         : 0) |
+                    ((parameters->flags &
+                      OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE) != 0
+                         ? OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_INPUT
+                         : 0);
+                memcpy(&command->scalar0, &request->epsilon,
+                       sizeof(command->scalar0));
+                if (set_operands(command, &tensor_view, &tensor_view, weight,
+                                 extmem_base, extmem_size) != 0) {
+                    return -1;
+                }
+            }
+        }
+    }
+    *command_count = emitted;
+    return 0;
+}
+
 int
 opennpux_npu_xgraph_lower_gptq_expert(
     const struct opennpux_npu_functional_request *request,
@@ -2160,16 +2336,21 @@ opennpux_npu_xgraph_lower_batch(
         const int is_attention_projection =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             has_attention_projection_operands(&requests[index]);
+        const int is_gptq_attention_projection =
+            requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
+            has_gptq_attention_projection_operands(&requests[index]);
         const int is_gptq_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
-            has_gptq_operands(&requests[index]) && !is_attention_projection;
+            has_gptq_operands(&requests[index]) &&
+            !is_attention_projection && !is_gptq_attention_projection;
         const int is_dense_multi_projection =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             has_dense_multi_projection_operands(&requests[index]);
         const int is_dense_matmul =
             requests[index].opcode == OPENNPUX_NPU_OP_MATMUL &&
             !has_gptq_operands(&requests[index]) &&
-            !is_dense_multi_projection && !is_attention_projection;
+            !is_dense_multi_projection && !is_attention_projection &&
+            !is_gptq_attention_projection;
         const int is_gated_normalize =
             requests[index].opcode == OPENNPUX_NPU_OP_NORMALIZE &&
             (parameters[index].flags &
@@ -2194,7 +2375,17 @@ opennpux_npu_xgraph_lower_batch(
         const int is_recurrent =
             requests[index].opcode == OPENNPUX_NPU_OP_RECURRENT_UPDATE;
         uint32_t produced = 0;
-        if (is_attention_projection) {
+        if (is_gptq_attention_projection) {
+            if (lower_gptq_attention_projection(
+                    &requests[index], &parameters[index], extmem_base,
+                    extmem_size, scratch_address, scratch_size, emitted,
+                    commands + emitted, available, &produced) != 0) {
+                if (errno == ENOSPC && emitted != 0) {
+                    break;
+                }
+                goto fail;
+            }
+        } else if (is_attention_projection) {
             if (opennpux_npu_xgraph_lower_attention_projection(
                     &requests[index], &parameters[index], extmem_base,
                     extmem_size, emitted, commands + emitted, available,

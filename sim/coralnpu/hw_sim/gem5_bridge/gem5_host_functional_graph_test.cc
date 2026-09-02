@@ -154,6 +154,19 @@ int main(int argc, char** argv) {
          graph.stats().xgraph_fallback_requests == 0);
   std::printf("functional_graph_xopennpux_add=PASS\n");
 
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION",
+                "xopennpux-primitives", 1) == 0);
+  assert(setenv("OPENNPUX_HOST_XGRAPH_OPCODE_MASK", "0", 1) == 0);
+  assert(setenv("OPENNPUX_HOST_XGRAPH_REQUIRE_FULL", "1", 1) == 0);
+  assert(!graph.Execute(&request));
+  assert(unsetenv("OPENNPUX_HOST_XGRAPH_REQUIRE_FULL") == 0);
+  assert(unsetenv("OPENNPUX_HOST_XGRAPH_OPCODE_MASK") == 0);
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
+  assert(graph.stats().completed_commands == 1 &&
+         graph.stats().xgraph_fallback_requests == 1 &&
+         graph.stats().xgraph_fallback_opcodes[OPENNPUX_NPU_OP_ADD] == 1);
+  std::puts("functional_graph_xopennpux_require_full=PASS");
+
   std::vector<float> norm_weights(count, 1.0f);
   for (size_t index = 0; index < count; ++index) {
     lhs_data[index] = static_cast<float>(index + 1);
@@ -696,16 +709,19 @@ int main(int argc, char** argv) {
   const auto matmul_stats_before = graph.stats();
   assert(setenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION",
                 "xopennpux-primitives", 1) == 0);
+  assert(setenv("OPENNPUX_HOST_XGRAPH_GPTQ_MATMUL_SCOPE", "all", 1) == 0);
   assert(graph.ExecuteGptqQkv(matmul_index, &weights));
+  assert(unsetenv("OPENNPUX_HOST_XGRAPH_GPTQ_MATMUL_SCOPE") == 0);
   assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
   assert(graph.stats().xgraph_requests ==
-             matmul_stats_before.xgraph_requests &&
+             matmul_stats_before.xgraph_requests + 1 &&
+         graph.stats().xgraph_commands > matmul_stats_before.xgraph_commands &&
+         graph.stats().xgraph_operations >
+             matmul_stats_before.xgraph_operations &&
          graph.stats().xgraph_fallback_requests ==
-             matmul_stats_before.xgraph_fallback_requests + 1 &&
-         graph.stats().xgraph_fallback_opcodes[OPENNPUX_NPU_OP_MATMUL] ==
-             matmul_stats_before
-                     .xgraph_fallback_opcodes[OPENNPUX_NPU_OP_MATMUL] +
-                 1);
+             matmul_stats_before.xgraph_fallback_requests &&
+         graph.stats().xgraph_opcodes[OPENNPUX_NPU_OP_MATMUL] ==
+             matmul_stats_before.xgraph_opcodes[OPENNPUX_NPU_OP_MATMUL] + 1);
   for (size_t index = 0; index < matmul_output->byte_size / sizeof(float);
        ++index) {
     assert(std::isfinite(matmul_output_data[index]));
@@ -806,13 +822,14 @@ int main(int argc, char** argv) {
   assert(graph.ExecuteGptqRouter(router_index, &weights));
   assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
   assert(graph.stats().xgraph_requests ==
-             router_stats_before.xgraph_requests &&
+             router_stats_before.xgraph_requests + 1 &&
+         graph.stats().xgraph_commands > router_stats_before.xgraph_commands &&
+         graph.stats().xgraph_operations >
+             router_stats_before.xgraph_operations &&
          graph.stats().xgraph_fallback_requests ==
-             router_stats_before.xgraph_fallback_requests + 1 &&
-         graph.stats().xgraph_fallback_opcodes[OPENNPUX_NPU_OP_ROUTER] ==
-             router_stats_before
-                     .xgraph_fallback_opcodes[OPENNPUX_NPU_OP_ROUTER] +
-                 1);
+             router_stats_before.xgraph_fallback_requests &&
+         graph.stats().xgraph_opcodes[OPENNPUX_NPU_OP_ROUTER] ==
+             router_stats_before.xgraph_opcodes[OPENNPUX_NPU_OP_ROUTER] + 1);
   const size_t route_count =
       static_cast<size_t>(router.rows) * router.top_k;
   for (size_t row = 0; row < router.rows; ++row) {

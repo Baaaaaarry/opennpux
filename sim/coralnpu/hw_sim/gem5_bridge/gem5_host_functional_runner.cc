@@ -770,11 +770,31 @@ int main(int argc, char** argv) {
           static_cast<unsigned long long>(graph.stats().modeled_cycles));
     }
   }
+  const char* require_full_value =
+      std::getenv("OPENNPUX_HOST_XGRAPH_REQUIRE_FULL");
+  const bool require_full_xgraph =
+      require_full_value != nullptr && require_full_value[0] != '\0' &&
+      std::strcmp(require_full_value, "0") != 0;
+  if (ready && require_full_xgraph &&
+      (graph.stats().xgraph_fallback_requests != 0 ||
+       graph.stats().xgraph_requests != graph.stats().completed_commands)) {
+    std::fprintf(
+        stderr,
+        "host_functional_xgraph_incomplete=completed:%u,xgraph:%llu,"
+        "fallback:%llu\n",
+        graph.stats().completed_commands,
+        static_cast<unsigned long long>(graph.stats().xgraph_requests),
+        static_cast<unsigned long long>(
+            graph.stats().xgraph_fallback_requests));
+    ready = false;
+  }
   if (ready) {
     std::printf("host_functional_token_ids=");
     for (size_t index = 0; index < generated.size(); ++index) {
       std::printf("%s%u", index == 0 ? "" : ",", generated[index]);
     }
+    std::printf("\nhost_functional_completed_commands=%u",
+                graph.stats().completed_commands);
     std::printf("\nhost_functional_routed_expert_commands=%llu\n",
                 static_cast<unsigned long long>(
                     graph.stats().routed_expert_commands));
@@ -809,6 +829,9 @@ int main(int argc, char** argv) {
                     static_cast<unsigned long long>(
                         graph.stats().xgraph_fallback_opcodes[opcode]));
       }
+    }
+    if (require_full_xgraph) {
+      std::printf("host_functional_xgraph_complete=PASS\n");
     }
     std::printf("host_functional_run=PASS\n");
   }

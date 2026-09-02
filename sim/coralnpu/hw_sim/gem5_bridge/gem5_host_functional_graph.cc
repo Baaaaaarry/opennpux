@@ -69,6 +69,11 @@ bool UseXOpenNpuPrimitiveExecution() {
          std::strcmp(mode, "xopennpux-primitives") == 0;
 }
 
+bool RequireFullXGraphExecution() {
+  const char* value = std::getenv("OPENNPUX_HOST_XGRAPH_REQUIRE_FULL");
+  return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+}
+
 bool XGraphOpcodeEnabled(uint32_t opcode) {
   if (opcode >= 32) return false;
   const char* value = std::getenv("OPENNPUX_HOST_XGRAPH_OPCODE_MASK");
@@ -450,6 +455,9 @@ bool Gem5HostFunctionalGraph::Execute(
         if (request->opcode < 32) {
           ++stats_.xgraph_fallback_opcodes[request->opcode];
         }
+        if (RequireFullXGraphExecution()) {
+          return false;
+        }
       }
     } else {
       if (ClaimGraphFallbackDiagnostic(request->opcode)) {
@@ -466,6 +474,9 @@ bool Gem5HostFunctionalGraph::Execute(
       if (request->opcode < 32) {
         ++stats_.xgraph_fallback_opcodes[request->opcode];
       }
+      if (RequireFullXGraphExecution()) {
+        return false;
+      }
     }
   } else if (UseXOpenNpuPrimitiveExecution()) {
     ++stats_.xgraph_fallback_requests;
@@ -473,6 +484,9 @@ bool Gem5HostFunctionalGraph::Execute(
         fallback_opcode == UINT32_MAX ? request->opcode : fallback_opcode;
     if (opcode < 32) {
       ++stats_.xgraph_fallback_opcodes[opcode];
+    }
+    if (RequireFullXGraphExecution()) {
+      return false;
     }
   }
   if (!executed &&
@@ -648,14 +662,14 @@ bool Gem5HostFunctionalGraph::ExecuteGptqRouter(
   if (ExecuteGptqProjection(command_index, weights,
                             OPENNPUX_NPU_WEIGHT_ROLE_ROUTER,
                             OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
-                            OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT, false,
+                            OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT, true,
                             OPENNPUX_NPU_OP_ROUTER)) {
     return true;
   }
   const Gem5HostWeightBinding binding = {
       OPENNPUX_NPU_WEIGHT_ROLE_ROUTER, OPENNPUX_NPU_WEIGHT_EXPERT_NONE,
       OPENNPUX_NPU_WEIGHT_SLOT_DEFAULT};
-  return ExecuteFloatWeight(command_index, weights, binding, false,
+  return ExecuteFloatWeight(command_index, weights, binding, true,
                             OPENNPUX_NPU_OP_ROUTER);
 }
 
@@ -726,6 +740,15 @@ bool Gem5HostFunctionalGraph::ExecuteRoutedExpert(
   ++stats_.routed_expert_commands;
   stats_.routed_expert_routes_issued += routed_stats.routes_issued;
   stats_.routed_expert_routes_completed += routed_stats.routes_completed;
+  if (UseXOpenNpuPrimitiveExecution()) {
+    ++stats_.xgraph_requests;
+    ++stats_.xgraph_commands;
+    stats_.xgraph_operations += routed_stats.operations;
+    stats_.xgraph_modeled_cycles += routed_stats.modeled_cycles;
+    if (request.opcode < 32) {
+      ++stats_.xgraph_opcodes[request.opcode];
+    }
+  }
   return true;
 }
 

@@ -1176,7 +1176,23 @@ int main(int argc, char** argv) {
     }
   }
   assert(shared_expert_index != UINT32_MAX);
+  const auto shared_expert_stats_before = graph.stats();
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION",
+                "xopennpux-primitives", 1) == 0);
+  assert(setenv("OPENNPUX_HOST_XGRAPH_REQUIRE_FULL", "1", 1) == 0);
   assert(graph.ExecuteCommand(shared_expert_index, &weights));
+  assert(unsetenv("OPENNPUX_HOST_XGRAPH_REQUIRE_FULL") == 0);
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
+  assert(graph.stats().xgraph_requests ==
+             shared_expert_stats_before.xgraph_requests + 1 &&
+         graph.stats().xgraph_commands >
+             shared_expert_stats_before.xgraph_commands &&
+         graph.stats().xgraph_opcodes[OPENNPUX_NPU_OP_EXPERT] ==
+             shared_expert_stats_before
+                     .xgraph_opcodes[OPENNPUX_NPU_OP_EXPERT] +
+                 1 &&
+         graph.stats().xgraph_fallback_requests ==
+             shared_expert_stats_before.xgraph_fallback_requests);
   opennpux_npu_functional_request shared_expert = {};
   assert(graph.Materialize(shared_expert_index, nullptr, 0, &shared_expert));
   const auto* shared_output =

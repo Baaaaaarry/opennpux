@@ -125,6 +125,11 @@ bool IsComplexCandidate(const opennpux_npu_functional_request& request) {
   if (request.opcode == OPENNPUX_NPU_OP_ROUTER) {
     return true;
   }
+  // EXPERT includes shared, routed, and GPTQ expert forms. The batch lowerer
+  // validates the operand contract and selects the corresponding sequence.
+  if (request.opcode == OPENNPUX_NPU_OP_EXPERT) {
+    return true;
+  }
   // MATMUL covers dense, GPTQ, fused QKV and linear-attention projections.
   // The batch lowerer validates the exact operand set and shape.
   return request.opcode == OPENNPUX_NPU_OP_MATMUL;

@@ -145,20 +145,33 @@ void RoundToBfloat16(float* values, size_t count) {
 bool ShadowCompareXGraphOutput(
     opennpux_npu_functional_request* request,
     const std::vector<Gem5FunctionalMemoryRegion>& regions) {
-  const auto* output = FindOperand(*request, OPENNPUX_NPU_OPERAND_OUTPUT);
-  if (output == nullptr || output->byte_size == 0 ||
-      output->byte_size % sizeof(float) != 0) {
-    return false;
+  struct ShadowOutput {
+    const opennpux_npu_functional_operand* operand;
+    float* values;
+    std::vector<uint8_t> xgraph;
+  };
+  std::vector<ShadowOutput> outputs;
+  for (uint32_t index = 0; index < request->operand_count; ++index) {
+    const auto& operand = request->operands[index];
+    if (!IsFloatingOutputRole(operand.role) || operand.byte_size == 0 ||
+        operand.byte_size % sizeof(float) != 0) {
+      continue;
+    }
+    auto* values = reinterpret_cast<float*>(
+        TranslateRegion(regions, operand.address, operand.byte_size));
+    if (values == nullptr) return false;
+    outputs.push_back({&operand, values, {}});
   }
-  auto* values = reinterpret_cast<float*>(
-      TranslateRegion(regions, output->address, output->byte_size));
-  if (values == nullptr) return false;
+  if (outputs.empty()) return false;
 
   if (UseBfloat16Boundaries()) {
     ApplyGem5HostBfloat16OutputBoundaries(*request, regions);
   }
-  std::vector<uint8_t> xgraph_output(output->byte_size);
-  std::memcpy(xgraph_output.data(), values, output->byte_size);
+  for (auto& output : outputs) {
+    output.xgraph.resize(output.operand->byte_size);
+    std::memcpy(output.xgraph.data(), output.values,
+                output.operand->byte_size);
+  }
 
   opennpux_npu_functional_request reference = *request;
   if (!ExecuteGem5FunctionalRequestInRegions(&reference, regions.data(),
@@ -167,44 +180,52 @@ bool ShadowCompareXGraphOutput(
                  "host_xgraph_shadow_error command=%u opcode=%u "
                  "stage=host-reference\n",
                  request->command_id, request->opcode);
-    std::memcpy(values, xgraph_output.data(), output->byte_size);
+    for (const auto& output : outputs) {
+      std::memcpy(output.values, output.xgraph.data(),
+                  output.operand->byte_size);
+    }
     return false;
   }
   if (UseBfloat16Boundaries()) {
     ApplyGem5HostBfloat16OutputBoundaries(reference, regions);
   }
 
-  const auto* actual =
-      reinterpret_cast<const float*>(xgraph_output.data());
-  const size_t count = output->byte_size / sizeof(float);
-  double squared_error = 0.0;
-  float max_abs_error = 0.0f;
-  size_t max_error_index = 0;
-  size_t different = 0;
-  size_t nonfinite = 0;
-  for (size_t index = 0; index < count; ++index) {
-    if (!std::isfinite(actual[index]) || !std::isfinite(values[index])) {
-      ++nonfinite;
-      continue;
+  for (const auto& output : outputs) {
+    const auto* actual =
+        reinterpret_cast<const float*>(output.xgraph.data());
+    const size_t count = output.operand->byte_size / sizeof(float);
+    double squared_error = 0.0;
+    float max_abs_error = 0.0f;
+    size_t max_error_index = 0;
+    size_t different = 0;
+    size_t nonfinite = 0;
+    for (size_t index = 0; index < count; ++index) {
+      if (!std::isfinite(actual[index]) ||
+          !std::isfinite(output.values[index])) {
+        ++nonfinite;
+        continue;
+      }
+      const float error = std::fabs(actual[index] - output.values[index]);
+      if (error != 0.0f) ++different;
+      squared_error += static_cast<double>(error) * error;
+      if (error > max_abs_error) {
+        max_abs_error = error;
+        max_error_index = index;
+      }
     }
-    const float error = std::fabs(actual[index] - values[index]);
-    if (error != 0.0f) ++different;
-    squared_error += static_cast<double>(error) * error;
-    if (error > max_abs_error) {
-      max_abs_error = error;
-      max_error_index = index;
-    }
+    const double rmse = std::sqrt(squared_error / count);
+    std::fprintf(
+        stderr,
+        "host_xgraph_shadow command=%u opcode=%u output_role=%u rows=%u "
+        "features=%u elements=%zu different=%zu nonfinite=%zu rmse=%.9g "
+        "max_abs=%.9g max_index=%zu xgraph=%.9g host=%.9g\n",
+        request->command_id, request->opcode, output.operand->role,
+        request->rows, request->features, count, different, nonfinite, rmse,
+        max_abs_error, max_error_index, actual[max_error_index],
+        output.values[max_error_index]);
+    std::memcpy(output.values, output.xgraph.data(),
+                output.operand->byte_size);
   }
-  const double rmse = count == 0 ? 0.0 : std::sqrt(squared_error / count);
-  std::fprintf(
-      stderr,
-      "host_xgraph_shadow command=%u opcode=%u rows=%u features=%u "
-      "elements=%zu different=%zu nonfinite=%zu rmse=%.9g "
-      "max_abs=%.9g max_index=%zu xgraph=%.9g host=%.9g\n",
-      request->command_id, request->opcode, request->rows, request->features,
-      count, different, nonfinite, rmse, max_abs_error, max_error_index,
-      actual[max_error_index], values[max_error_index]);
-  std::memcpy(values, xgraph_output.data(), output->byte_size);
   return true;
 }
 
@@ -353,11 +374,16 @@ bool Gem5HostFunctionalGraph::Execute(
     const auto* selected = command(request->command_id);
     const bool lm_head = selected != nullptr &&
                          selected->profiling_tag == UINT64_C(0xff000011);
+    const bool qkv =
+        FindOperand(*request, OPENNPUX_NPU_OPERAND_Q_QWEIGHT) != nullptr ||
+        FindOperand(*request, OPENNPUX_NPU_OPERAND_LINEAR_QKV_WEIGHT) !=
+            nullptr;
     matmul_scope_enabled =
         scope != nullptr &&
         (std::strcmp(scope, "all") == 0 ||
          (std::strcmp(scope, "lm-head") == 0 && lm_head) ||
-         (std::strcmp(scope, "attention-output") == 0 && !lm_head));
+         (std::strcmp(scope, "qkv") == 0 && qkv) ||
+         (std::strcmp(scope, "attention-output") == 0 && !lm_head && !qkv));
   }
   bool normalize_scope_enabled = true;
   if (request->opcode == OPENNPUX_NPU_OP_NORMALIZE) {

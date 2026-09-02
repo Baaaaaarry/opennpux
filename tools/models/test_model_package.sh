@@ -161,6 +161,14 @@ assert rope["parameters"]["flags"] & 4
 qkv_command = next(command for command in executable["commands"]
                    if command["attributes"]["phase"] == "qkv_projection")
 assert qkv_command["parameters"]["flags"] & 16
+attention_output = next(
+    command for command in executable["commands"]
+    if command["attributes"]["phase"] == "attention_output_projection"
+)
+assert attention_output["parameters"]["input_features"] == 24
+assert attention_output["parameters"]["output_features"] == 18
+assert attention_output["estimated_operations"] == 864
+assert attention_output["estimated_bytes"] == 84
 gate_norm = next(command for command in executable["commands"]
                  if command["attributes"]["phase"] ==
                     "linear_attention_gate_norm")
@@ -170,6 +178,7 @@ tensor_plan = json.load(open(sys.argv[2].replace(".npxe", ".npxt"),
 qkv = next(command for command in tensor_plan["command_io"]
            if len(command["output_tensor_ids"]) == 4)
 assert len(qkv["output_tensor_ids"]) == 4
+print("qwen_attention_projection_parameters=PASS")
 print("qwen_rotary_and_norm_parameters=PASS")
 PY
 "${SCRIPT_DIR}/inspect_npu_tensor_plan.py" "${MODEL_DIR}/model.npxt"

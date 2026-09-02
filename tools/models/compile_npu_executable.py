@@ -136,6 +136,8 @@ def operator_parameters(manifest: dict[str, Any], phase: str, opcode: str) -> di
     elif phase == "linear_attention_gate_norm":
         output_features = linear_value_features
         intermediate = linear_value_dim
+    elif phase == "attention_output_projection":
+        input_features = heads * head_dim
     elif phase == "linear_attention_output_projection":
         input_features = linear_value_features
     elif phase == "router_topk":
@@ -214,6 +216,15 @@ def estimate_phase_work(
     heads = max(1, int(manifest.get("head_count", 1)))
     kv_heads = max(1, int(manifest.get("kv_head_count", heads)))
     head_dim = max(1, int(manifest.get("head_dim", hidden // heads or 1)))
+    linear_key_heads = max(1, int(manifest.get("linear_num_key_heads", heads)))
+    linear_value_heads = max(1, int(manifest.get("linear_num_value_heads", heads)))
+    linear_key_dim = max(1, int(manifest.get("linear_key_head_dim", head_dim)))
+    linear_value_dim = max(1, int(manifest.get("linear_value_head_dim", head_dim)))
+    linear_qkv_features = (
+        2 * linear_key_heads * linear_key_dim +
+        linear_value_heads * linear_value_dim
+    )
+    linear_value_features = linear_value_heads * linear_value_dim
     experts = max(1, int(manifest.get("expert_count", 1)))
     active = max(1, int(manifest.get("experts_per_token", 1)))
     moe = max(1, int(manifest.get("moe_intermediate_size", hidden)))
@@ -223,12 +234,16 @@ def estimate_phase_work(
     if phase == "qkv_projection":
         output = (heads + 2 * kv_heads) * head_dim
         return 2 * hidden * output, (hidden + output) * element_bytes
-    if phase in {
-        "attention_output_projection",
-        "linear_attention_projection",
-        "linear_attention_output_projection",
-    }:
-        return 2 * hidden * hidden, 2 * hidden * element_bytes
+    if phase == "attention_output_projection":
+        attention_features = heads * head_dim
+        return (2 * attention_features * hidden,
+                (attention_features + hidden) * element_bytes)
+    if phase == "linear_attention_projection":
+        return (2 * hidden * linear_qkv_features,
+                (hidden + linear_qkv_features) * element_bytes)
+    if phase == "linear_attention_output_projection":
+        return (2 * linear_value_features * hidden,
+                (linear_value_features + hidden) * element_bytes)
     if phase == "scaled_dot_product_attention":
         return 4 * heads * head_dim, 3 * heads * head_dim * element_bytes
     if phase == "router_topk":

@@ -525,6 +525,56 @@ int main(int argc, char** argv) {
          recurrent_stats.modeled_cycles == recurrent_operations);
   std::puts("functional_graph_xopennpux_external_recurrent=PASS");
 
+  Gem5HostFunctionalGraph shadow_graph;
+  assert(shadow_graph.LoadTensorPlan(argv[2]));
+  assert(shadow_graph.Configure(submission, submission_size,
+                                UINT32_C(0x24000000)));
+  auto* shadow_lhs = reinterpret_cast<float*>(
+      shadow_graph.arena().Translate(lhs->address, lhs->byte_size));
+  auto* shadow_rhs = reinterpret_cast<float*>(
+      shadow_graph.arena().Translate(rhs->address, rhs->byte_size));
+  auto* shadow_output = reinterpret_cast<float*>(
+      shadow_graph.arena().Translate(output->address, output->byte_size));
+  assert(shadow_lhs != nullptr && shadow_rhs != nullptr &&
+         shadow_output != nullptr);
+  std::copy(recurrent_qkv, recurrent_qkv + 12, shadow_lhs);
+  std::fill(shadow_lhs + 12, shadow_lhs + 16, 0.5f);
+  std::fill(shadow_rhs, shadow_rhs + 4, 0.0f);
+  std::fill(shadow_output, shadow_output + 4, 0.0f);
+  const std::vector<uint8_t> shadow_initial(
+      shadow_graph.arena().data(),
+      shadow_graph.arena().data() + shadow_graph.arena().size());
+  constexpr uint32_t kRecurrentParameterAddress = UINT32_C(0x62000200);
+  const Gem5FunctionalMemoryRegion shadow_regions[] = {
+      recurrent_weight_regions[0], recurrent_weight_regions[1],
+      {kRecurrentParameterAddress,
+       reinterpret_cast<uint8_t*>(&recurrent_parameters),
+       sizeof(recurrent_parameters)}};
+  opennpux_npu_functional_request shadow_recurrent = recurrent;
+  shadow_recurrent.parameter_address = kRecurrentParameterAddress;
+  shadow_recurrent.parameter_size = sizeof(recurrent_parameters);
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION",
+                "xopennpux-primitives", 1) == 0);
+  assert(unsetenv("OPENNPUX_HOST_XGRAPH_SHADOW_COMPARE") == 0);
+  assert(shadow_graph.Execute(&shadow_recurrent, shadow_regions, 3));
+  const std::vector<uint8_t> expected_xgraph_arena(
+      shadow_graph.arena().data(),
+      shadow_graph.arena().data() + shadow_graph.arena().size());
+
+  std::memcpy(shadow_graph.arena().data(), shadow_initial.data(),
+              shadow_initial.size());
+  shadow_recurrent = recurrent;
+  shadow_recurrent.parameter_address = kRecurrentParameterAddress;
+  shadow_recurrent.parameter_size = sizeof(recurrent_parameters);
+  assert(setenv("OPENNPUX_HOST_XGRAPH_SHADOW_COMPARE", "all", 1) == 0);
+  assert(shadow_graph.Execute(&shadow_recurrent, shadow_regions, 3));
+  assert(std::equal(expected_xgraph_arena.begin(),
+                    expected_xgraph_arena.end(),
+                    shadow_graph.arena().data()));
+  assert(unsetenv("OPENNPUX_HOST_XGRAPH_SHADOW_COMPARE") == 0);
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
+  std::puts("functional_graph_xopennpux_shadow_state=PASS");
+
   constexpr uint32_t attention_rows = 2;
   constexpr uint32_t attention_heads = 2;
   constexpr uint32_t attention_kv_heads = 1;

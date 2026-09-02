@@ -144,7 +144,8 @@ void RoundToBfloat16(float* values, size_t count) {
 
 bool ShadowCompareXGraphOutput(
     opennpux_npu_functional_request* request,
-    const std::vector<Gem5FunctionalMemoryRegion>& regions) {
+    const std::vector<Gem5FunctionalMemoryRegion>& regions,
+    const std::vector<uint8_t>& input_arena, uint32_t arena_base) {
   struct ShadowOutput {
     const opennpux_npu_functional_operand* operand;
     float* values;
@@ -164,6 +165,11 @@ bool ShadowCompareXGraphOutput(
   }
   if (outputs.empty()) return false;
 
+  if (input_arena.size() > UINT32_MAX) return false;
+  auto* arena = TranslateRegion(regions, arena_base,
+                                static_cast<uint32_t>(input_arena.size()));
+  if (arena == nullptr) return false;
+
   if (UseBfloat16Boundaries()) {
     ApplyGem5HostBfloat16OutputBoundaries(*request, regions);
   }
@@ -173,6 +179,13 @@ bool ShadowCompareXGraphOutput(
                 output.operand->byte_size);
   }
 
+  // Stateful operators can alias an input and output (KV/conv/recurrent
+  // state). Run the reference from the same pre-command arena rather than
+  // feeding it state already updated by XGraph.
+  std::vector<uint8_t> xgraph_arena(input_arena.size());
+  std::memcpy(xgraph_arena.data(), arena, xgraph_arena.size());
+  std::memcpy(arena, input_arena.data(), input_arena.size());
+
   opennpux_npu_functional_request reference = *request;
   if (!ExecuteGem5FunctionalRequestInRegions(&reference, regions.data(),
                                               regions.size())) {
@@ -180,10 +193,7 @@ bool ShadowCompareXGraphOutput(
                  "host_xgraph_shadow_error command=%u opcode=%u "
                  "stage=host-reference\n",
                  request->command_id, request->opcode);
-    for (const auto& output : outputs) {
-      std::memcpy(output.values, output.xgraph.data(),
-                  output.operand->byte_size);
-    }
+    std::memcpy(arena, xgraph_arena.data(), xgraph_arena.size());
     return false;
   }
   if (UseBfloat16Boundaries()) {
@@ -223,9 +233,9 @@ bool ShadowCompareXGraphOutput(
         request->rows, request->features, count, different, nonfinite, rmse,
         max_abs_error, max_error_index, actual[max_error_index],
         output.values[max_error_index]);
-    std::memcpy(output.values, output.xgraph.data(),
-                output.operand->byte_size);
   }
+  // Preserve every XGraph side effect, not only declared tensor outputs.
+  std::memcpy(arena, xgraph_arena.data(), xgraph_arena.size());
   return true;
 }
 
@@ -400,6 +410,15 @@ bool Gem5HostFunctionalGraph::Execute(
          (std::strcmp(scope, "gated") == 0 && gated)));
   }
   bool executed = false;
+  const bool shadow_compare = ShadowCompareEnabled(request->opcode);
+  std::vector<uint8_t> shadow_input_arena;
+  if (shadow_compare) {
+    try {
+      shadow_input_arena.assign(arena_.data(), arena_.data() + arena_.size());
+    } catch (...) {
+      return false;
+    }
+  }
   if (UseXOpenNpuPrimitiveExecution() && allow_xgraph &&
       XGraphOpcodeEnabled(request->opcode) && matmul_scope_enabled &&
       normalize_scope_enabled) {
@@ -411,8 +430,9 @@ bool Gem5HostFunctionalGraph::Execute(
       if (outcome == Gem5HostXGraphExecutionOutcome::kError) return false;
       if (outcome == Gem5HostXGraphExecutionOutcome::kExecuted) {
         executed = true;
-        if (ShadowCompareEnabled(request->opcode)) {
-          ShadowCompareXGraphOutput(request, regions);
+        if (shadow_compare) {
+          ShadowCompareXGraphOutput(request, regions, shadow_input_arena,
+                                    arena_.base());
         }
         request->operation_count = xgraph.operations;
         request->modeled_cycles = xgraph.modeled_cycles;

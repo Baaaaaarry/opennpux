@@ -838,7 +838,24 @@ int main(int argc, char** argv) {
     }
   }
   assert(rope_index != UINT32_MAX);
+  opennpux_npu_functional_request rope_request = {};
+  assert(graph.Materialize(rope_index, nullptr, 0, &rope_request));
+  const auto rope_stats_before = graph.stats();
+  assert(setenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION",
+                "xopennpux-primitives", 1) == 0);
+  assert(setenv("OPENNPUX_HOST_XGRAPH_SHADOW_COMPARE", "all", 1) == 0);
   assert(graph.ExecuteCommand(rope_index, &weights));
+  assert(unsetenv("OPENNPUX_HOST_XGRAPH_SHADOW_COMPARE") == 0);
+  assert(unsetenv("OPENNPUX_HOST_FUNCTIONAL_EXECUTION") == 0);
+  assert(graph.stats().xgraph_requests ==
+             rope_stats_before.xgraph_requests + 1 &&
+         graph.stats().xgraph_commands ==
+             rope_stats_before.xgraph_commands +
+                 static_cast<uint64_t>(rope_request.rows) *
+                     (rope_request.heads + rope_request.kv_heads) * 2 &&
+         graph.stats().xgraph_fallback_requests ==
+             rope_stats_before.xgraph_fallback_requests);
+  std::puts("functional_graph_xopennpux_multihead_rope=PASS");
   assert(graph.stats().completed_commands == 10);
   uint32_t failed_command = UINT32_MAX;
   assert(!graph.ExecuteProgram(&weights, &failed_command));

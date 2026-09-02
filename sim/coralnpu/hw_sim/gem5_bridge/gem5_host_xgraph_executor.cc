@@ -1,6 +1,7 @@
 #include "hw_sim/gem5_bridge/gem5_host_xgraph_executor.h"
 
 #include <cerrno>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -97,6 +98,16 @@ bool HasOperandRole(const opennpux_npu_functional_request& request,
     if (request.operands[index].role == role) return true;
   }
   return false;
+}
+
+const opennpux_npu_functional_operand* FindOperand(
+    const opennpux_npu_functional_request& request, uint32_t role) {
+  for (uint32_t index = 0; index < request.operand_count; ++index) {
+    if (request.operands[index].role == role) {
+      return &request.operands[index];
+    }
+  }
+  return nullptr;
 }
 
 bool IsComplexCandidate(const opennpux_npu_functional_request& request) {
@@ -678,6 +689,203 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
   return true;
 }
 
+Gem5HostXGraphExecutionOutcome ExecuteRopeRequest(
+    const opennpux_npu_functional_request& request,
+    const opennpux_npu_operator_parameters& parameters,
+    const Gem5FunctionalMemoryRegion* regions, size_t region_count,
+    Gem5HostTensorArena* arena, Gem5HostXGraphExecutionStats* stats) {
+  const auto* query = FindOperand(request, OPENNPUX_NPU_OPERAND_INPUT);
+  const auto* key = FindOperand(request, OPENNPUX_NPU_OPERAND_SECONDARY);
+  const auto* positions =
+      FindOperand(request, OPENNPUX_NPU_OPERAND_POSITIONS);
+  const auto* query_output =
+      FindOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT);
+  const auto* key_output =
+      FindOperand(request, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY);
+  const uint32_t rotary_dim = parameters.intermediate_features == 0
+                                  ? request.head_dim
+                                  : parameters.intermediate_features;
+  if (query == nullptr || positions == nullptr || query_output == nullptr ||
+      request.rows == 0 || request.heads == 0 || request.head_dim == 0 ||
+      request.features != request.heads * request.head_dim ||
+      rotary_dim == 0 || rotary_dim > request.head_dim ||
+      (rotary_dim & 1U) != 0 ||
+      !(request.rope_theta > 0.0f) || !std::isfinite(request.rope_theta) ||
+      ((key == nullptr) != (key_output == nullptr)) ||
+      (key != nullptr && request.kv_heads == 0)) {
+    return Gem5HostXGraphExecutionOutcome::kNotEligible;
+  }
+
+  const uint64_t query_elements =
+      static_cast<uint64_t>(request.rows) * request.features;
+  const uint64_t key_features =
+      static_cast<uint64_t>(request.kv_heads) * request.head_dim;
+  const uint64_t key_elements =
+      static_cast<uint64_t>(request.rows) * key_features;
+  const uint64_t table_elements =
+      static_cast<uint64_t>(request.rows) * rotary_dim * 2;
+  const uint32_t commands_per_head = rotary_dim == request.head_dim ? 1 : 2;
+  const uint64_t command_count =
+      static_cast<uint64_t>(request.rows) *
+      (request.heads + (key == nullptr ? 0 : request.kv_heads)) *
+      commands_per_head;
+  if (query_elements > UINT32_MAX / sizeof(float) ||
+      key_elements > UINT32_MAX / sizeof(float) ||
+      table_elements > UINT32_MAX / sizeof(float) ||
+      command_count == 0 || command_count > OPENNPUX_XGRAPH_MAX_COMMANDS ||
+      query->byte_size < query_elements * sizeof(float) ||
+      query_output->byte_size < query_elements * sizeof(float) ||
+      positions->byte_size <
+          static_cast<uint64_t>(request.rows) * sizeof(uint32_t) ||
+      (key != nullptr &&
+       (key->byte_size < key_elements * sizeof(float) ||
+        key_output->byte_size < key_elements * sizeof(float)))) {
+    return Gem5HostXGraphExecutionOutcome::kNotEligible;
+  }
+
+  std::vector<uint8_t> memory;
+  try {
+    memory = *arena->mutable_storage_for_coprocessor();
+  } catch (...) {
+    return Gem5HostXGraphExecutionOutcome::kError;
+  }
+  const size_t resident_bytes = memory.size();
+  opennpux_npu_functional_request staged = {};
+  if (!StageExternalOperands(request, regions, region_count, arena->base(),
+                             resident_bytes, &memory, &staged) ||
+      !AlignMemory(&memory, 64)) {
+    return Gem5HostXGraphExecutionOutcome::kNotEligible;
+  }
+
+  query = FindOperand(staged, OPENNPUX_NPU_OPERAND_INPUT);
+  key = FindOperand(staged, OPENNPUX_NPU_OPERAND_SECONDARY);
+  positions = FindOperand(staged, OPENNPUX_NPU_OPERAND_POSITIONS);
+  query_output = FindOperand(staged, OPENNPUX_NPU_OPERAND_OUTPUT);
+  key_output =
+      FindOperand(staged, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY);
+  if (query == nullptr || positions == nullptr || query_output == nullptr ||
+      (key != nullptr && key_output == nullptr)) {
+    return Gem5HostXGraphExecutionOutcome::kError;
+  }
+  const auto offset_of = [&](uint32_t address, uint64_t bytes,
+                             uint32_t* offset) {
+    if (offset == nullptr || address < arena->base()) return false;
+    const uint64_t value =
+        static_cast<uint64_t>(address) - arena->base();
+    if (value > UINT32_MAX || value > memory.size() ||
+        bytes > memory.size() - value) {
+      return false;
+    }
+    *offset = static_cast<uint32_t>(value);
+    return true;
+  };
+  uint32_t query_offset = 0;
+  uint32_t key_offset = 0;
+  uint32_t positions_offset = 0;
+  uint32_t query_output_offset = 0;
+  uint32_t key_output_offset = 0;
+  if (!offset_of(query->address, query_elements * sizeof(float),
+                 &query_offset) ||
+      !offset_of(positions->address,
+                 static_cast<uint64_t>(request.rows) * sizeof(uint32_t),
+                 &positions_offset) ||
+      !offset_of(query_output->address, query_elements * sizeof(float),
+                 &query_output_offset) ||
+      (key != nullptr &&
+       (!offset_of(key->address, key_elements * sizeof(float), &key_offset) ||
+        !offset_of(key_output->address, key_elements * sizeof(float),
+                   &key_output_offset)))) {
+    return Gem5HostXGraphExecutionOutcome::kNotEligible;
+  }
+
+  const size_t table_offset = memory.size();
+  const size_t table_bytes =
+      static_cast<size_t>(table_elements) * sizeof(float);
+  if (table_offset > UINT32_MAX || table_bytes > UINT32_MAX - table_offset) {
+    return Gem5HostXGraphExecutionOutcome::kNotEligible;
+  }
+  try {
+    memory.resize(table_offset + table_bytes);
+  } catch (...) {
+    return Gem5HostXGraphExecutionOutcome::kError;
+  }
+  auto* table = reinterpret_cast<float*>(memory.data() + table_offset);
+  const auto* position_values = reinterpret_cast<const uint32_t*>(
+      memory.data() + positions_offset);
+  const uint32_t half = rotary_dim / 2;
+  for (uint32_t row = 0; row < request.rows; ++row) {
+    float* cosine = table + static_cast<size_t>(row) * rotary_dim * 2;
+    float* sine = cosine + rotary_dim;
+    for (uint32_t pair = 0; pair < half; ++pair) {
+      const float exponent =
+          -2.0f * static_cast<float>(pair) /
+          static_cast<float>(rotary_dim);
+      const float angle = static_cast<float>(position_values[row]) *
+                          std::pow(request.rope_theta, exponent);
+      const float cosine_value = std::cos(angle);
+      const float sine_value = std::sin(angle);
+      cosine[pair] = cosine[half + pair] = cosine_value;
+      sine[pair] = sine[half + pair] = sine_value;
+    }
+  }
+
+  std::vector<opennpux_xgraph_command> commands;
+  try {
+    commands.reserve(static_cast<size_t>(command_count));
+  } catch (...) {
+    return Gem5HostXGraphExecutionOutcome::kError;
+  }
+  const auto emit_heads = [&](uint32_t input_offset, uint32_t output_offset,
+                              uint32_t heads, uint32_t row_features) {
+    for (uint32_t row = 0; row < request.rows; ++row) {
+      for (uint32_t head = 0; head < heads; ++head) {
+        opennpux_xgraph_command command = {};
+        command.opcode = OPENNPUX_XGRAPH_OP_TROPE;
+        command.command_id = request.command_id + commands.size();
+        command.data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+        command.dim0 = 1;
+        command.dim1 = rotary_dim;
+        command.dim2 = 1;
+        command.scalar0 = OPENNPUX_NPU_XGRAPH_ROPE_HALF_SPLIT;
+        const uint32_t element = row * row_features + head * request.head_dim;
+        command.source0_offset = input_offset + element * sizeof(float);
+        command.destination_offset =
+            output_offset + element * sizeof(float);
+        command.source1_offset =
+            static_cast<uint32_t>(table_offset) +
+            row * rotary_dim * 2 * sizeof(float);
+        commands.push_back(command);
+        if (rotary_dim != request.head_dim) {
+          command = {};
+          command.opcode = OPENNPUX_XGRAPH_OP_TDMA;
+          command.command_id = request.command_id + commands.size();
+          command.data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
+          command.dim0 = 1;
+          command.dim1 = request.head_dim - rotary_dim;
+          command.dim2 = 1;
+          command.source0_offset =
+              input_offset + (element + rotary_dim) * sizeof(float);
+          command.destination_offset =
+              output_offset + (element + rotary_dim) * sizeof(float);
+          commands.push_back(command);
+        }
+      }
+    }
+  };
+  emit_heads(query_offset, query_output_offset, request.heads,
+             request.features);
+  if (key != nullptr) {
+    emit_heads(key_offset, key_output_offset, request.kv_heads,
+               static_cast<uint32_t>(key_features));
+  }
+  if (!ExecuteCommands(commands, static_cast<uint32_t>(commands.size()),
+                       arena->base(), &memory, stats)) {
+    return Gem5HostXGraphExecutionOutcome::kError;
+  }
+  std::memcpy(arena->data(), memory.data(), resident_bytes);
+  return Gem5HostXGraphExecutionOutcome::kExecuted;
+}
+
 }  // namespace
 
 Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
@@ -690,6 +898,10 @@ Gem5HostXGraphExecutionOutcome ExecuteGem5HostXGraphRequest(
     return Gem5HostXGraphExecutionOutcome::kError;
   }
   *stats = {};
+  if (request.opcode == OPENNPUX_NPU_OP_ROPE) {
+    return ExecuteRopeRequest(request, parameters, regions, region_count,
+                              arena, stats);
+  }
   opennpux_npu_xgraph_lowering_options options = {};
   options.rope_layout = OPENNPUX_NPU_XGRAPH_ROPE_HALF_SPLIT;
   options.activation = OPENNPUX_NPU_XGRAPH_ACTIVATION_SILU;

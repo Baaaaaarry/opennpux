@@ -913,6 +913,12 @@ opennpux_npu_xgraph_lower_primitive(
             errno = ENOTSUP;
             return -1;
         }
+        if (request->rows > OPENNPUX_TMMA_TILE_LIMIT ||
+            parameters->output_features > OPENNPUX_TMMA_TILE_LIMIT ||
+            parameters->input_features > OPENNPUX_TMMA_TILE_LIMIT) {
+            errno = ENOTSUP;
+            return -1;
+        }
         command->opcode = OPENNPUX_XGRAPH_OP_TMMA;
         command->dim1 = parameters->output_features;
         command->dim2 = parameters->input_features;

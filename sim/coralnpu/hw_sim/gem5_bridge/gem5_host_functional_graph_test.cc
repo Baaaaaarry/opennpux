@@ -942,6 +942,130 @@ int main(int argc, char** argv) {
          OPENNPUX_XGRAPH_OP_TSILU);
   assert(large_gated_commands[large_gated_command_count - 1].opcode ==
          OPENNPUX_XGRAPH_OP_TMUL);
+  constexpr uint32_t kTiledInputFeatures = 1024;
+  constexpr uint32_t kTiledOutputFeatures = 4;
+  std::vector<float> tiled_projection_input(kTiledInputFeatures);
+  std::vector<float> tiled_gate_weight(
+      kTiledInputFeatures * kTiledOutputFeatures);
+  std::vector<float> tiled_norm_weight = {0.75f, 1.25f};
+  for (uint32_t index = 0; index < kTiledInputFeatures; ++index) {
+    tiled_projection_input[index] =
+        static_cast<float>(static_cast<int32_t>(index % 17) - 8) / 32.0f;
+  }
+  for (uint32_t index = 0; index < tiled_gate_weight.size(); ++index) {
+    tiled_gate_weight[index] =
+        static_cast<float>(static_cast<int32_t>(index % 13) - 6) / 64.0f;
+  }
+  const float tiled_norm_input[] = {0.75f, -1.25f, 2.0f, -0.5f};
+  auto* tiled_norm_data = reinterpret_cast<float*>(
+      graph.arena().Translate(lhs->address,
+                              kTiledOutputFeatures * sizeof(float)));
+  auto* tiled_output_data = reinterpret_cast<float*>(
+      graph.arena().Translate(output->address,
+                              kTiledOutputFeatures * sizeof(float)));
+  assert(tiled_norm_data != nullptr && tiled_output_data != nullptr);
+  std::copy(std::begin(tiled_norm_input), std::end(tiled_norm_input),
+            tiled_norm_data);
+  std::fill(tiled_output_data,
+            tiled_output_data + kTiledOutputFeatures, 0.0f);
+  opennpux_npu_functional_request tiled_gated_norm = {};
+  tiled_gated_norm.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  tiled_gated_norm.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  tiled_gated_norm.struct_size = sizeof(tiled_gated_norm);
+  tiled_gated_norm.opcode = OPENNPUX_NPU_OP_NORMALIZE;
+  tiled_gated_norm.rows = 1;
+  tiled_gated_norm.features = kTiledOutputFeatures;
+  tiled_gated_norm.epsilon = 1.0e-6f;
+  tiled_gated_norm.operand_count = 5;
+  tiled_gated_norm.operands[0] = {
+      OPENNPUX_NPU_OPERAND_INPUT, lhs->address,
+      kTiledOutputFeatures * sizeof(float), 0};
+  tiled_gated_norm.operands[1] = {
+      OPENNPUX_NPU_OPERAND_SECONDARY, UINT32_C(0x60000000),
+      kTiledInputFeatures * sizeof(float), 0};
+  tiled_gated_norm.operands[2] = {
+      OPENNPUX_NPU_OPERAND_OUTPUT, output->address,
+      kTiledOutputFeatures * sizeof(float), 0};
+  tiled_gated_norm.operands[3] = {
+      OPENNPUX_NPU_OPERAND_LINEAR_GATE_WEIGHT, UINT32_C(0x60010000),
+      kTiledInputFeatures * kTiledOutputFeatures * sizeof(float), 0};
+  tiled_gated_norm.operands[4] = {
+      OPENNPUX_NPU_OPERAND_LINEAR_NORM_WEIGHT, UINT32_C(0x60020000),
+      static_cast<uint32_t>(tiled_norm_weight.size() * sizeof(float)), 0};
+  opennpux_npu_operator_parameters tiled_gated_parameters = {};
+  tiled_gated_parameters.magic = OPENNPUX_NPU_OPERATOR_PARAMETERS_MAGIC;
+  tiled_gated_parameters.version = OPENNPUX_NPU_OPERATOR_PARAMETERS_VERSION;
+  tiled_gated_parameters.struct_size = sizeof(tiled_gated_parameters);
+  tiled_gated_parameters.opcode = OPENNPUX_NPU_OP_NORMALIZE;
+  tiled_gated_parameters.flags =
+      OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET |
+      OPENNPUX_NPU_PARAMETER_BFLOAT16_INTERMEDIATE;
+  tiled_gated_parameters.input_features = kTiledInputFeatures;
+  tiled_gated_parameters.output_features = kTiledOutputFeatures;
+  tiled_gated_parameters.intermediate_features = tiled_norm_weight.size();
+  const Gem5FunctionalMemoryRegion tiled_regions[] = {
+      {UINT32_C(0x60000000),
+       reinterpret_cast<uint8_t*>(tiled_projection_input.data()),
+       tiled_projection_input.size() * sizeof(float)},
+      {UINT32_C(0x60010000),
+       reinterpret_cast<uint8_t*>(tiled_gate_weight.data()),
+       tiled_gate_weight.size() * sizeof(float)},
+      {UINT32_C(0x60020000),
+       reinterpret_cast<uint8_t*>(tiled_norm_weight.data()),
+       tiled_norm_weight.size() * sizeof(float)},
+  };
+  Gem5HostXGraphExecutionStats tiled_gated_stats = {};
+  opennpux_npu_functional_request tiled_projection = {};
+  tiled_projection.magic = OPENNPUX_NPU_FUNCTIONAL_MAGIC;
+  tiled_projection.version = OPENNPUX_NPU_FUNCTIONAL_VERSION;
+  tiled_projection.struct_size = sizeof(tiled_projection);
+  tiled_projection.opcode = OPENNPUX_NPU_OP_MATMUL;
+  tiled_projection.rows = 1;
+  tiled_projection.features = kTiledOutputFeatures;
+  tiled_projection.operand_count = 3;
+  tiled_projection.operands[0] = {
+      OPENNPUX_NPU_OPERAND_INPUT, UINT32_C(0x60000000),
+      kTiledInputFeatures * sizeof(float), 0};
+  tiled_projection.operands[1] = {
+      OPENNPUX_NPU_OPERAND_OUTPUT, output->address,
+      kTiledOutputFeatures * sizeof(float), 0};
+  tiled_projection.operands[2] = {
+      OPENNPUX_NPU_OPERAND_WEIGHT, UINT32_C(0x60010000),
+      kTiledInputFeatures * kTiledOutputFeatures * sizeof(float), 0};
+  opennpux_npu_operator_parameters tiled_projection_parameters =
+      tiled_gated_parameters;
+  tiled_projection_parameters.opcode = OPENNPUX_NPU_OP_MATMUL;
+  tiled_projection_parameters.flags = 0;
+  Gem5HostXGraphExecutionStats tiled_projection_xgraph_stats = {};
+  assert(ExecuteGem5HostXGraphRequest(
+             tiled_projection, tiled_projection_parameters, tiled_regions, 2,
+             &graph.arena(), &tiled_projection_xgraph_stats) ==
+         Gem5HostXGraphExecutionOutcome::kExecuted);
+  std::vector<float> tiled_gate(kTiledOutputFeatures);
+  Gem5TransformerKernelStats tiled_projection_stats = {};
+  assert(RunGem5MatMulF32(
+      tiled_projection_input.data(), tiled_gate_weight.data(), 1,
+      kTiledInputFeatures, kTiledOutputFeatures, tiled_gate.data(),
+      &tiled_projection_stats));
+  for (uint32_t index = 0; index < kTiledOutputFeatures; ++index) {
+    assert(tiled_output_data[index] == tiled_gate[index]);
+  }
+  std::fill(tiled_output_data,
+            tiled_output_data + kTiledOutputFeatures, 0.0f);
+  assert(ExecuteGem5HostXGraphRequest(
+             tiled_gated_norm, tiled_gated_parameters, tiled_regions,
+             std::size(tiled_regions), &graph.arena(), &tiled_gated_stats) ==
+         Gem5HostXGraphExecutionOutcome::kExecuted);
+  std::vector<float> tiled_expected(kTiledOutputFeatures);
+  Gem5TransformerKernelStats tiled_norm_stats = {};
+  assert(RunGem5GatedRmsNormF32(
+      tiled_norm_input, tiled_gate.data(), tiled_norm_weight.data(), 1, 2, 2,
+      tiled_gated_norm.epsilon, tiled_expected.data(), &tiled_norm_stats,
+      true));
+  assert(tiled_gated_stats.commands == 6);
+  for (uint32_t index = 0; index < kTiledOutputFeatures; ++index) {
+    assert(tiled_output_data[index] == tiled_expected[index]);
+  }
   std::vector<float> linear_gate_projection;
   assert(graph.ComputeLinearAttentionGateProjection(
       linear_gate_norm_index, &weights, &linear_gate_projection));
@@ -995,6 +1119,7 @@ int main(int argc, char** argv) {
   std::puts("functional_graph_linear_attention_gate_norm=PASS");
   std::puts("functional_graph_xopennpux_gated_norm=PASS");
   std::puts("functional_graph_xopennpux_large_gated_norm_lowering=PASS");
+  std::puts("functional_graph_xopennpux_tiled_gated_norm=PASS");
   std::puts("functional_graph_float_shared_expert=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);

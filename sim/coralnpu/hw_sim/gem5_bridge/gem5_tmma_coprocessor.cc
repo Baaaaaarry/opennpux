@@ -1389,7 +1389,7 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
         (command.tensor_flags &
          xopennpux::kTensorFlagBfloat16Normalized) != 0;
     for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {
-      float sum_squares = 0.0f;
+      double sum_squares = 0.0;
       const size_t row_base =
           static_cast<size_t>(row) * command.tensor_shape.features;
       for (uint32_t feature = 0; feature < command.tensor_shape.features;
@@ -1399,11 +1399,13 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                                    (row_base + feature) * sizeof(float));
         const float value =
             bfloat16_input ? RoundBfloat16(source) : source;
-        sum_squares += value * value;
+        sum_squares += static_cast<double>(value) * value;
       }
       const float inverse_rms =
-          1.0f / std::sqrt(sum_squares / command.tensor_shape.features +
-                           epsilon);
+          1.0f /
+          std::sqrt(static_cast<float>(
+                        sum_squares / command.tensor_shape.features) +
+                    epsilon);
       for (uint32_t feature = 0; feature < command.tensor_shape.features;
            ++feature) {
         const float source =

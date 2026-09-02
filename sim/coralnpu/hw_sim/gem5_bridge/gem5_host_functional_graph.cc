@@ -290,10 +290,11 @@ bool Gem5HostFunctionalGraph::Execute(
                        (parameters->flags &
                         OPENNPUX_NPU_PARAMETER_GATED_DELTA_NET) != 0;
     normalize_scope_enabled =
-        scope != nullptr &&
-        (std::strcmp(scope, "all") == 0 ||
+        (scope == nullptr && !gated) ||
+        (scope != nullptr &&
+         (std::strcmp(scope, "all") == 0 ||
          (std::strcmp(scope, "standard") == 0 && !gated) ||
-         (std::strcmp(scope, "gated") == 0 && gated));
+         (std::strcmp(scope, "gated") == 0 && gated)));
   }
   bool executed = false;
   if (UseXOpenNpuPrimitiveExecution() && allow_xgraph &&

@@ -1316,3 +1316,33 @@ route 权重逐行归一化、expert IDs、物理命令计数增加且不产生 
 首次 GB10 preflight 进一步表明真实 Router 使用 FP32 `[2048,256]` 权重，而不是 GPTQ，
 单条 TMMA 无法编码 `K=2048`。浮点分支已改为复用通用 tiled dense MatMul lowerer；新增
 `rows=2/K=2048/N=4/top_k=2` 回归验证多条 TMMA、合法 expert IDs 和逐行归一化权重。
+
+## 2026-09-03 TVM BYOC XGraph Codegen 第一阶段
+
+模型编译入口开始从模型特定 execution-plan 脚本迁移到 TVM Relax + BYOC。新增独立
+`OPENNPUX_TVM_BYOC_GRAPH_V1` 边界、静态 shared-DMA Tensor arena planner 和 XGraph v2
+Codegen；输出 `.npxg` 直接使用现有 96-byte header 与 64-byte command ABI，不新增另一套
+firmware 协议。首批支持将静态 FP32 `matmul/add/multiply/rms_norm/softmax/silu/take` BYOC
+区域映射到 `TMMA/TADD/TMUL/TRMSNORM/TSOFTMAX/TSILU/TGATHER`，规范化边界还可编码
+`TTOPK/TROPE/TDMA`。
+
+编译器对 dynamic shape、未定义 broadcast、非末轴 softmax、超过单条 TMMA 10-bit shape
+范围和地址重叠执行硬拒绝。GPTQ、attention、routed expert 等多命令分解仍由现有
+`opennpux_npu_xgraph_lower_batch()` 作为唯一语义实现；后续通过符号 generic request 与运行期
+地址物化衔接，而不是在 Python Codegen 中复制切片算法。当前单测已核对 Python 编码与 C ABI
+均为 header 96 bytes、command 64 bytes，并验证五命令 BYOC fixture 的 opcode、shape、输出
+地址与 command ID。
+
+真实 Apache TVM 0.24.0 路径也已完成本机端到端验收。测试构造实际 Relax `IRModule`，通过
+`FuseOpsByPattern + MergeCompositeFunctions` 合并 `matmul -> add -> silu -> softmax` 为单个
+`Codegen=opennpux` 区域，再提取为稳定边界并生成 4 条
+`TMMA/TADD/TSILU/TSOFTMAX` XGraph v2 command。ABI 级 C consumer 从二进制重新读取正式
+header/command，独立填充输入、权重和 bias，执行命令并与直接计算结果逐元素比较，误差门限
+为 `1e-6`。这解决了真实 TVM Composite 局部变量重名以及每个 primitive 被错误拆成独立
+Codegen region 的问题。
+
+新增 `setup_tvm_byoc_env.sh` 固定源码版本和构建参数，避免误装 PyPI 上同名但非 Apache TVM
+的 `tvm` 包。当前闭环覆盖“真实 Relax -> BYOC -> XGraph ABI -> 数值执行”；Linux Guest 到
+Coral firmware 的系统验收仍保持 executable 与 invocation 分离，下一步由 runtime 将
+`.npxg` command 和动态 Tensor bindings 分别放入 shared DMA window 后提交，不能把测试数据
+固化进模型编译产物。

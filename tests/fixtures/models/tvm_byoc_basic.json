@@ -1,0 +1,22 @@
+{
+  "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+  "tensors": [
+    {"name": "input", "shape": [2, 4], "dtype": "float32", "storage": "input"},
+    {"name": "weight", "shape": [4, 3], "dtype": "float32", "storage": "constant"},
+    {"name": "bias", "shape": [2, 3], "dtype": "float32", "storage": "constant"},
+    {"name": "matmul", "shape": [2, 3], "dtype": "float32", "storage": "scratch"},
+    {"name": "biased", "shape": [2, 3], "dtype": "float32", "storage": "scratch"},
+    {"name": "activated", "shape": [2, 3], "dtype": "float32", "storage": "scratch"},
+    {"name": "probabilities", "shape": [2, 3], "dtype": "float32", "storage": "scratch"},
+    {"name": "top_values", "shape": [2, 1], "dtype": "float32", "storage": "output"},
+    {"name": "top_indices", "shape": [2, 1], "dtype": "int32", "storage": "output"}
+  ],
+  "nodes": [
+    {"op": "relax.matmul", "inputs": ["input", "weight"], "outputs": ["matmul"]},
+    {"op": "relax.add", "inputs": ["matmul", "bias"], "outputs": ["biased"]},
+    {"op": "relax.nn.silu", "inputs": ["biased"], "outputs": ["activated"]},
+    {"op": "relax.nn.softmax", "inputs": ["activated"], "outputs": ["probabilities"], "attrs": {"axis": -1}},
+    {"op": "relax.topk", "inputs": ["probabilities"], "outputs": ["top_values", "top_indices"], "attrs": {"axis": -1, "k": 1}}
+  ],
+  "outputs": ["top_indices"]
+}

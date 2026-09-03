@@ -57,4 +57,8 @@ if [ -n "${TVM_HOME:-}" ]; then
     echo "tvm_relax_byoc_e2e=PASS"
 else
     echo "TVM Relax end-to-end test: SKIP (set TVM_HOME and TVM_PYTHON)"
+    if [ "${OPENNPUX_REQUIRE_TVM:-0}" = 1 ]; then
+        echo "TVM Relax end-to-end test: FAIL (TVM is required)" >&2
+        exit 1
+    fi
 fi

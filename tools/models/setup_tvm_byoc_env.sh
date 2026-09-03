@@ -8,8 +8,22 @@ TVM_ROOT="${TVM_ROOT:-${ROOT_DIR}/.cache/tvm}"
 TVM_HOME="${TVM_HOME:-${TVM_ROOT}/apache-tvm-${TVM_VERSION}}"
 TVM_BUILD_DIR="${TVM_BUILD_DIR:-${TVM_HOME}/build}"
 TVM_VENV="${TVM_VENV:-${ROOT_DIR}/.venv/tvm-byoc}"
-PYTHON_BOOTSTRAP="${PYTHON_BOOTSTRAP:-python3.11}"
 TVM_BUILD_JOBS="${TVM_BUILD_JOBS:-4}"
+
+if [ -z "${PYTHON_BOOTSTRAP:-}" ]; then
+    for candidate in python3.12 python3.11 python3.10 python3.9 python3; do
+        if command -v "${candidate}" >/dev/null 2>&1 &&
+           "${candidate}" -c \
+               'import sys; raise SystemExit(sys.version_info < (3, 9))'; then
+            PYTHON_BOOTSTRAP="${candidate}"
+            break
+        fi
+    done
+fi
+[ -n "${PYTHON_BOOTSTRAP:-}" ] || {
+    echo "error: Python 3.9 or newer is required" >&2
+    exit 1
+}
 
 command -v git >/dev/null
 command -v cmake >/dev/null

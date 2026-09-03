@@ -94,7 +94,7 @@ environment:
 Run the complete compiler-path acceptance test:
 
 ```bash
-./tools/models/test_tvm_byoc_xgraph_codegen.sh
+OPENNPUX_REQUIRE_TVM=1 ./tools/models/test_tvm_byoc_xgraph_codegen.sh
 ```
 
 The test has two explicit levels:

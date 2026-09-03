@@ -91,6 +91,19 @@ environment:
 . .cache/tvm/env.sh
 ```
 
+If direct GitHub access is unstable, route the main repository and all nested
+submodules through the same GitHub-compatible mirror without modifying global
+Git configuration:
+
+```bash
+TVM_GITHUB_BASE=https://gh-proxy.com/https://github.com \
+TVM_BUILD_JOBS=12 ./tools/models/setup_tvm_byoc_env.sh
+```
+
+`TVM_GITHUB_BASE` must accept paths such as `apache/tvm.git`,
+`apache/tvm-ffi`, `dmlc/dlpack`, and `ianlancetaylor/libbacktrace`. The setup
+script retries interrupted clones and resumes an existing partial TVM tree.
+
 Run the complete compiler-path acceptance test:
 
 ```bash

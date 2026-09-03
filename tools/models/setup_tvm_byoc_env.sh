@@ -9,6 +9,8 @@ TVM_HOME="${TVM_HOME:-${TVM_ROOT}/apache-tvm-${TVM_VERSION}}"
 TVM_BUILD_DIR="${TVM_BUILD_DIR:-${TVM_HOME}/build}"
 TVM_VENV="${TVM_VENV:-${ROOT_DIR}/.venv/tvm-byoc}"
 TVM_BUILD_JOBS="${TVM_BUILD_JOBS:-4}"
+TVM_GITHUB_BASE="${TVM_GITHUB_BASE:-https://github.com}"
+TVM_GIT_RETRIES="${TVM_GIT_RETRIES:-4}"
 
 if [ -z "${PYTHON_BOOTSTRAP:-}" ]; then
     for candidate in python3.12 python3.11 python3.10 python3.9 python3; do
@@ -29,13 +31,37 @@ command -v git >/dev/null
 command -v cmake >/dev/null
 command -v "${PYTHON_BOOTSTRAP}" >/dev/null
 
+retry_git()
+{
+    attempt=1
+    while ! git -c http.version=HTTP/1.1 \
+                 -c http.lowSpeedLimit=1 \
+                 -c http.lowSpeedTime=600 "$@"; do
+        if [ "${attempt}" -ge "${TVM_GIT_RETRIES}" ]; then
+            echo "error: git operation failed after ${attempt} attempts" >&2
+            return 1
+        fi
+        echo "[tvm-setup] git attempt ${attempt} failed; retrying" >&2
+        attempt=$((attempt + 1))
+        sleep 2
+    done
+}
+
 mkdir -p "${TVM_ROOT}" "${TVM_VENV}"
 if [ ! -d "${TVM_HOME}/.git" ]; then
-    git clone --branch "v${TVM_VERSION}" --depth 1 \
-        https://github.com/apache/tvm.git "${TVM_HOME}"
+    retry_git clone --branch "v${TVM_VERSION}" --depth 1 \
+        "${TVM_GITHUB_BASE}/apache/tvm.git" "${TVM_HOME}"
 fi
-git -C "${TVM_HOME}" submodule update --init --depth 1 3rdparty/tvm-ffi
-git -C "${TVM_HOME}/3rdparty/tvm-ffi" submodule update --init --depth 1
+git -C "${TVM_HOME}" config submodule.3rdparty/tvm-ffi.url \
+    "${TVM_GITHUB_BASE}/apache/tvm-ffi"
+retry_git -C "${TVM_HOME}" submodule update --init --depth 1 \
+    3rdparty/tvm-ffi
+git -C "${TVM_HOME}/3rdparty/tvm-ffi" config submodule.3rdparty/dlpack.url \
+    "${TVM_GITHUB_BASE}/dmlc/dlpack"
+git -C "${TVM_HOME}/3rdparty/tvm-ffi" config \
+    submodule.3rdparty/libbacktrace.url \
+    "${TVM_GITHUB_BASE}/ianlancetaylor/libbacktrace"
+retry_git -C "${TVM_HOME}/3rdparty/tvm-ffi" submodule update --init --depth 1
 
 cmake -S "${TVM_HOME}" -B "${TVM_BUILD_DIR}" \
     -DCMAKE_BUILD_TYPE=Release \

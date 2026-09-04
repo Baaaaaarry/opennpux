@@ -1443,6 +1443,13 @@ Host 算子。Resolver 只接收 region/tensor 标识和已验证的生产者输
 写入 NPU 调度器。第 17 项单测以包含负数的 `TADD -> Host ReLU -> TSILU` 验证 Host 变换确实
 生效，避免将 Host 边界错误退化为 NPU-to-NPU memcpy。
 
+混合图契约继续从运行时回调提升为编译产物的一部分。`module.npxgm.json` 新增可选
+`host_bindings`，记录 source/destination Tensor、字节数和有序 Host operation pipeline；它与
+直接 edge 共用 shape/dtype、单生产者和 DAG 校验。Relax 提取器会沿 main function 中的 Host
+一元调用追踪 NPU producer，不再把 `add -> Host relu -> silu` 中的 `relu` 丢失为外部输入。
+Runtime 必须注入 `host_executor` 才能消费该 binding。当前 19 项本地测试通过；下一次真实 TVM
+验收必须确认 2 个 NPU region、0 条 direct edge 和 1 条 `relax.nn.relu` Host binding。
+
 修正后的 GB10 验收进一步补齐 driver 级 Shared DMA Window 与 Local EXTMEM 双向显式同步，
 并在数值比较前强制验证 firmware checksum 与回读 checksum 一致，从而排除直接比较 shared
 window 中预置 reference 的假阳性。最终 6 条命令全部完成，设备与回读 checksum 均为

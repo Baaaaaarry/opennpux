@@ -105,6 +105,58 @@ def compile_module(
             successors[source_region].add(target_region)
             indegree[target_region] += 1
 
+    host_bindings = module.get("host_bindings", [])
+    if not isinstance(host_bindings, list):
+        raise CodegenError("module host_bindings must be an array")
+    normalized_host_bindings = []
+    for index, binding in enumerate(host_bindings):
+        if not isinstance(binding, dict):
+            raise CodegenError(f"host binding {index} must be an object")
+        source_region, source_tensor = _endpoint(
+            binding.get("from"), f"host binding {index} source"
+        )
+        target_region, target_tensor = _endpoint(
+            binding.get("to"), f"host binding {index} target"
+        )
+        if source_region not in graphs or target_region not in graphs:
+            raise CodegenError(f"host binding {index} references an unknown region")
+        source = tensor_tables[source_region].get(source_tensor)
+        target = tensor_tables[target_region].get(target_tensor)
+        if source is None or target is None:
+            raise CodegenError(f"host binding {index} references an unknown tensor")
+        if source.get("storage") != "output" or target.get("storage") != "input":
+            raise CodegenError(
+                f"host binding {index} must bind output storage to input storage"
+            )
+        if source.get("shape") != target.get("shape") or source.get("dtype") != target.get("dtype"):
+            raise CodegenError(f"host binding {index} tensor type mismatch")
+        target_key = (target_region, target_tensor)
+        if target_key in bound_inputs:
+            raise CodegenError(f"input {target_region}.{target_tensor} has multiple producers")
+        pipeline = binding.get("pipeline")
+        if not isinstance(pipeline, list) or not pipeline:
+            raise CodegenError(f"host binding {index} has an empty pipeline")
+        normalized_pipeline = []
+        for operation in pipeline:
+            if not isinstance(operation, dict) or not isinstance(operation.get("op"), str):
+                raise CodegenError(f"host binding {index} has an invalid operation")
+            attrs = operation.get("attrs", {})
+            if not isinstance(attrs, dict):
+                raise CodegenError(f"host binding {index} operation attrs must be an object")
+            normalized_pipeline.append({"op": operation["op"], "attrs": attrs})
+        bound_inputs.add(target_key)
+        normalized_host_bindings.append({
+            "from_region": source_region,
+            "from_tensor": source_tensor,
+            "to_region": target_region,
+            "to_tensor": target_tensor,
+            "bytes": 4 * _product(source["shape"]),
+            "pipeline": normalized_pipeline,
+        })
+        if target_region not in successors[source_region]:
+            successors[source_region].add(target_region)
+            indegree[target_region] += 1
+
     ready = sorted(
         (name for name, degree in indegree.items() if degree == 0),
         key=declaration_order.get,
@@ -126,6 +178,10 @@ def compile_module(
     edge_sources = {
         (edge["from_region"], edge["from_tensor"]) for edge in normalized_edges
     }
+    edge_sources.update(
+        (binding["from_region"], binding["from_tensor"])
+        for binding in normalized_host_bindings
+    )
     for sequence, name in enumerate(execution_order):
         binary, metadata = compile_graph(graphs[name], lowering_library)
         artifact_name = f"region-{sequence:03d}-{name}.npxg"
@@ -158,6 +214,7 @@ def compile_module(
         "execution_order": execution_order,
         "regions": region_manifest,
         "edges": normalized_edges,
+        "host_bindings": normalized_host_bindings,
         "module_outputs": [
             {"region": name, "tensor": tensor}
             for name in execution_order

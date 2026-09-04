@@ -88,6 +88,11 @@ manifest = json.load(open(sys.argv[1], encoding="utf-8"))
 assert manifest["region_count"] == 2
 assert manifest["total_commands"] == 2
 assert len(manifest["execution_order"]) == 2
+assert manifest["edges"] == []
+assert len(manifest["host_bindings"]) == 1
+host_binding = manifest["host_bindings"][0]
+assert host_binding["pipeline"] == [{"op": "relax.nn.relu", "attrs": {}}]
+assert host_binding["bytes"] == 32
 PY
     "${TVM_PYTHON}" "${SCRIPT_DIR}/build_xgraph_tensor_image.py" \
         "${BUILD_DIR}/relax-model.npxg.json" \

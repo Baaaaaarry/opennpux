@@ -15,6 +15,7 @@ from .xgraph_codegen import CodegenError
 
 RegionExecutor = Callable[[str, bytes, bytearray, dict[str, Any]], None]
 BindingResolver = Callable[[str, str, dict[str, bytes]], bytes | None]
+HostExecutor = Callable[[dict[str, Any], bytes], bytes]
 
 
 class CoralCtlExecutor:
@@ -91,10 +92,12 @@ class ModuleRuntime:
         directory: Path | str,
         executor: RegionExecutor,
         binding_resolver: BindingResolver | None = None,
+        host_executor: HostExecutor | None = None,
     ):
         self.directory = Path(directory)
         self.executor = executor
         self.binding_resolver = binding_resolver
+        self.host_executor = host_executor
         self.manifest = self._load_json(self.directory / "module.npxgm.json")
         if self.manifest.get("format") != MODULE_FORMAT:
             raise CodegenError("invalid XGraph module manifest format")
@@ -163,8 +166,30 @@ class ModuleRuntime:
         }
         for edge in self.manifest.get("edges", []):
             incoming[edge["to_region"]].append(edge)
+        incoming_host: dict[str, list[dict[str, Any]]] = {
+            name: [] for name in self.regions
+        }
+        for binding in self.manifest.get("host_bindings", []):
+            incoming_host[binding["to_region"]].append(binding)
         for name in self.manifest["execution_order"]:
             record = self.regions[name]["record"]
+            for binding in incoming_host[name]:
+                if self.host_executor is None:
+                    raise CodegenError(
+                        f"region {name} requires a Host executor for "
+                        f"{binding['to_tensor']}"
+                    )
+                source_key = f"{binding['from_region']}.{binding['from_tensor']}"
+                if source_key not in available:
+                    raise CodegenError(
+                        f"region {name} depends on an unavailable Host input"
+                    )
+                data = self.host_executor(binding, available[source_key])
+                if len(data) != binding["bytes"]:
+                    raise CodegenError(f"region {name} Host binding size mismatch")
+                target = self._tensor(name, binding["to_tensor"])
+                target_offset = target["offset"]
+                self.arenas[name][target_offset : target_offset + len(data)] = data
             for tensor_name in record.get("external_bindings", []):
                 if (name, tensor_name) in self.bound or self.binding_resolver is None:
                     continue

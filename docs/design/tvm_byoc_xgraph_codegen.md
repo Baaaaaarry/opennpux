@@ -309,5 +309,13 @@ bytes and returns the Host-runtime result. This preserves Host operations such
 as the ReLU separating two BYOC regions without encoding ReLU or model logic in
 the NPU scheduler.
 
+The compiler now emits such paths explicitly as `host_bindings`. Each record
+contains the producing region/Tensor, consuming region/Tensor, byte count, and
+an ordered Host operation pipeline. Host bindings participate in the same DAG,
+single-producer, shape and dtype validation as direct device edges, but require
+an injected `host_executor` before the consumer can run. The real TVM
+`add -> Host relu -> silu` regression must therefore contain zero direct edges
+and exactly one `relax.nn.relu` Host binding.
+
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

@@ -278,7 +278,9 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
 
     invocation_order: list[Any] = []
     producer: dict[Any, tuple[str, str]] = {}
+    host_value: dict[Any, tuple[str, str, list[dict[str, Any]]]] = {}
     edges = []
+    host_bindings = []
     body = main.body
     bindings = []
     if isinstance(body, relax.SeqExpr):
@@ -289,6 +291,30 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
             continue
         call = binding.value
         if call.op not in regions:
+            sources = [argument for argument in call.args if argument in producer or argument in host_value]
+            if not sources:
+                continue
+            if len(call.args) != 1 or len(sources) != 1:
+                raise CodegenError(
+                    "Host bridges between OpenNPUX regions currently require unary calls"
+                )
+            argument = call.args[0]
+            if argument in producer:
+                source_region, source_tensor = producer[argument]
+                pipeline = []
+            else:
+                source_region, source_tensor, pipeline = host_value[argument]
+            op_name = getattr(call.op, "name", None)
+            if not op_name:
+                raise CodegenError("Host bridge contains a non-primitive call")
+            host_value[binding.var] = (
+                source_region,
+                source_tensor,
+                pipeline + [{
+                    "op": str(op_name),
+                    "attrs": _call_attrs(str(op_name), getattr(call, "attrs", None)),
+                }],
+            )
             continue
         region_name, function = regions[call.op]
         if call.op in invocation_order:
@@ -301,13 +327,19 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
             tensor["name"] for tensor in graph["tensors"][: len(function.params)]
         ]
         for argument, parameter_name in zip(call.args, parameter_names):
-            if argument not in producer:
-                continue
-            source_region, source_tensor = producer[argument]
-            edges.append({
-                "from": {"region": source_region, "tensor": source_tensor},
-                "to": {"region": region_name, "tensor": parameter_name},
-            })
+            if argument in producer:
+                source_region, source_tensor = producer[argument]
+                edges.append({
+                    "from": {"region": source_region, "tensor": source_tensor},
+                    "to": {"region": region_name, "tensor": parameter_name},
+                })
+            elif argument in host_value:
+                source_region, source_tensor, pipeline = host_value[argument]
+                host_bindings.append({
+                    "from": {"region": source_region, "tensor": source_tensor},
+                    "to": {"region": region_name, "tensor": parameter_name},
+                    "pipeline": pipeline,
+                })
         producer[binding.var] = (region_name, graph["outputs"][0])
 
     if len(invocation_order) != len(regions):
@@ -325,4 +357,5 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
             for global_var in invocation_order
         ],
         "edges": edges,
+        "host_bindings": host_bindings,
     }

@@ -172,6 +172,89 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             for lhs, rhs in zip(actual, expected):
                 self.assertAlmostEqual(lhs, rhs, places=6)
 
+    def test_runtime_executes_manifest_host_binding(self):
+        module = self.load_fixture()
+        module["regions"].reverse()
+        module["edges"] = []
+        module["host_bindings"] = [
+            {
+                "from": {"region": "residual", "tensor": "sum"},
+                "to": {"region": "activation", "tensor": "input"},
+                "pipeline": [{"op": "relax.nn.relu", "attrs": {}}],
+            }
+        ]
+        artifacts, manifest = compile_module(module)
+        self.assertEqual(manifest["execution_order"], ["residual", "activation"])
+        self.assertEqual(manifest["regions"][1]["external_bindings"], [])
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            for region in manifest["regions"]:
+                binary, metadata = artifacts[region["name"]]
+                path = directory / region["artifact"]
+                path.write_bytes(binary)
+                Path(f"{path}.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+            def execute(name, _artifact, arena, metadata):
+                tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+                source_name = "lhs" if name == "residual" else "input"
+                source = struct.unpack_from("<8f", arena, tensors[source_name]["offset"])
+                if name == "residual":
+                    rhs = struct.unpack_from("<8f", arena, tensors["rhs"]["offset"])
+                    result = [a + b for a, b in zip(source, rhs)]
+                    output_name = "sum"
+                else:
+                    result = [value / (1.0 + math.exp(-value)) for value in source]
+                    output_name = "output"
+                struct.pack_into("<8f", arena, tensors[output_name]["offset"], *result)
+
+            def execute_host(binding, data):
+                self.assertEqual(
+                    binding["pipeline"], [{"op": "relax.nn.relu", "attrs": {}}]
+                )
+                values = struct.unpack("<8f", data)
+                return struct.pack("<8f", *(max(value, 0.0) for value in values))
+
+            runtime = ModuleRuntime(directory, execute, host_executor=execute_host)
+            runtime.bind("residual", "lhs", struct.pack("<8f", *range(-4, 4)))
+            runtime.bind("residual", "rhs", struct.pack("<8f", *([1.0] * 8)))
+            outputs = runtime.run()
+            actual = struct.unpack("<8f", outputs["activation.output"])
+            expected_input = [max(float(value + 1), 0.0) for value in range(-4, 4)]
+            expected = [value / (1.0 + math.exp(-value)) for value in expected_input]
+            for lhs, rhs in zip(actual, expected):
+                self.assertAlmostEqual(lhs, rhs, places=6)
+
+    def test_runtime_rejects_missing_host_executor(self):
+        module = self.load_fixture()
+        module["regions"].reverse()
+        module["edges"] = []
+        module["host_bindings"] = [
+            {
+                "from": {"region": "residual", "tensor": "sum"},
+                "to": {"region": "activation", "tensor": "input"},
+                "pipeline": [{"op": "relax.nn.relu", "attrs": {}}],
+            }
+        ]
+        artifacts, manifest = compile_module(module)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            for region in manifest["regions"]:
+                binary, metadata = artifacts[region["name"]]
+                path = directory / region["artifact"]
+                path.write_bytes(binary)
+                Path(f"{path}.json").write_text(json.dumps(metadata), encoding="utf-8")
+            runtime = ModuleRuntime(directory, lambda *_: None)
+            runtime.bind("residual", "lhs", bytes(32))
+            runtime.bind("residual", "rhs", bytes(32))
+            with self.assertRaisesRegex(CodegenError, "requires a Host executor"):
+                runtime.run()
+
     def test_coralctl_executor_chains_verified_region_outputs(self):
         artifacts, manifest = compile_module(self.load_fixture())
         with tempfile.TemporaryDirectory() as temporary:

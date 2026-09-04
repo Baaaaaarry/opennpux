@@ -1415,6 +1415,13 @@ binding。编译器对跨 region shape/dtype、output-to-input 方向、单一�
 Guest runtime 中消费 module manifest，依次提交 `.npxg`，并在 Host region 与 NPU region
 之间绑定 Tensor，而不是将 Host 调度策略固化进单个设备 artifact。
 
+GB10 上真实 TVM 多 region 编译验收已通过。随后新增 model-independent
+`ModuleRuntime` 调度核心：为每个 region 分配独立 arena，提交前检查全部外部
+input/constant/state binding，按 manifest edge 将生产者 output 精确复制到消费者 input，并
+按拓扑顺序调用可注入 executor。当前 15 项单测覆盖两 region `TADD -> TSILU` 数值链、执行
+顺序、中间 Tensor 传递、缺失 binding、类型不匹配、多生产者和环。下一步是提供 Coral
+driver executor，将该调度接口从内存功能回调接到 Guest 的真实 `.npxg` 提交和完成队列。
+
 修正后的 GB10 验收进一步补齐 driver 级 Shared DMA Window 与 Local EXTMEM 双向显式同步，
 并在数值比较前强制验证 firmware checksum 与回读 checksum 一致，从而排除直接比较 shared
 window 中预置 reference 的假阳性。最终 6 条命令全部完成，设备与回读 checksum 均为

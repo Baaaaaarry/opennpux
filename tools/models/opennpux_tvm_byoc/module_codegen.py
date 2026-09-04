@@ -123,6 +123,9 @@ def compile_module(
 
     artifacts = {}
     region_manifest = []
+    edge_sources = {
+        (edge["from_region"], edge["from_tensor"]) for edge in normalized_edges
+    }
     for sequence, name in enumerate(execution_order):
         binary, metadata = compile_graph(graphs[name], lowering_library)
         artifact_name = f"region-{sequence:03d}-{name}.npxg"
@@ -132,6 +135,12 @@ def compile_module(
             for tensor_name, tensor in tensor_tables[name].items()
             if tensor.get("storage") == "input" and (name, tensor_name) not in bound_inputs
         ]
+        external_bindings = [
+            tensor_name
+            for tensor_name, tensor in tensor_tables[name].items()
+            if tensor.get("storage") in {"input", "constant", "state"}
+            and (name, tensor_name) not in bound_inputs
+        ]
         region_manifest.append({
             "name": name,
             "sequence": sequence,
@@ -139,6 +148,7 @@ def compile_module(
             "command_count": metadata["command_count"],
             "arena_size": metadata["arena_size"],
             "external_inputs": external_inputs,
+            "external_bindings": external_bindings,
             "outputs": list(graphs[name].get("outputs", [])),
         })
 
@@ -148,6 +158,12 @@ def compile_module(
         "execution_order": execution_order,
         "regions": region_manifest,
         "edges": normalized_edges,
+        "module_outputs": [
+            {"region": name, "tensor": tensor}
+            for name in execution_order
+            for tensor in graphs[name].get("outputs", [])
+            if (name, tensor) not in edge_sources
+        ],
         "total_commands": sum(region["command_count"] for region in region_manifest),
     }
     return artifacts, manifest

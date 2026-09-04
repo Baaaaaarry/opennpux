@@ -1,6 +1,9 @@
 import copy
 import json
+import math
+import struct
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,6 +13,7 @@ sys.path.insert(0, str(ROOT / "tools/models"))
 
 from opennpux_tvm_byoc import CodegenError  # noqa: E402
 from opennpux_tvm_byoc.module_codegen import compile_module  # noqa: E402
+from opennpux_tvm_byoc.module_runtime import ModuleRuntime  # noqa: E402
 
 
 class XGraphModuleCodegenTest(unittest.TestCase):
@@ -56,6 +60,66 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(CodegenError, "contains a cycle"):
             compile_module(module)
+
+    def test_runtime_binds_edges_and_executes_in_order(self):
+        artifacts, manifest = compile_module(self.load_fixture())
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            for region in manifest["regions"]:
+                binary, metadata = artifacts[region["name"]]
+                path = directory / region["artifact"]
+                path.write_bytes(binary)
+                Path(f"{path}.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+            executed = []
+
+            def execute(name, _artifact, arena, metadata):
+                tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+
+                def values(tensor_name):
+                    tensor = tensors[tensor_name]
+                    return struct.unpack_from(
+                        "<8f", arena, tensor["offset"]
+                    )
+
+                if name == "residual":
+                    result = [a + b for a, b in zip(values("lhs"), values("rhs"))]
+                    struct.pack_into("<8f", arena, tensors["sum"]["offset"], *result)
+                else:
+                    result = [value / (1.0 + math.exp(-value)) for value in values("input")]
+                    struct.pack_into(
+                        "<8f", arena, tensors["output"]["offset"], *result
+                    )
+                executed.append(name)
+
+            runtime = ModuleRuntime(directory, execute)
+            runtime.bind("residual", "lhs", struct.pack("<8f", *range(8)))
+            runtime.bind("residual", "rhs", struct.pack("<8f", *([1.0] * 8)))
+            outputs = runtime.run()
+            actual = struct.unpack("<8f", outputs["activation.output"])
+            expected = [value / (1.0 + math.exp(-value)) for value in range(1, 9)]
+            self.assertEqual(executed, ["residual", "activation"])
+            for lhs, rhs in zip(actual, expected):
+                self.assertAlmostEqual(lhs, rhs, places=6)
+
+    def test_runtime_rejects_missing_external_binding(self):
+        artifacts, manifest = compile_module(self.load_fixture())
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            for region in manifest["regions"]:
+                binary, metadata = artifacts[region["name"]]
+                path = directory / region["artifact"]
+                path.write_bytes(binary)
+                Path(f"{path}.json").write_text(json.dumps(metadata), encoding="utf-8")
+            runtime = ModuleRuntime(directory, lambda *_: None)
+            with self.assertRaisesRegex(CodegenError, "unbound external Tensors"):
+                runtime.run()
 
 
 if __name__ == "__main__":

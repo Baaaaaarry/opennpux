@@ -103,6 +103,14 @@ separated from the next one by an unsupported Host operation intentionally has
 no direct edge: its next input remains an external runtime binding produced by
 the Host executor.
 
+`ModuleRuntime` is the model-independent scheduler for this manifest. It owns a
+separate Tensor arena per region, requires every external input, constant and
+state binding before launch, copies direct NPU-to-NPU edges immediately before
+the consumer executes, and returns all module-boundary outputs. Device execution
+is an injected callback rather than Python operator code, so the same scheduler
+contract can be tested with a functional executor and then implemented by the
+Coral driver or TVM C++ runtime without changing artifacts.
+
 The normalized Codegen boundary already encodes `TOPK`, `ROPE`, and contiguous
 copy commands. The initial automatic Relax pattern table excludes `TOPK`
 because Relax represents its values/indices result as a tuple; tuple result
@@ -152,6 +160,11 @@ The test has two explicit levels:
 - The multi-region path partitions `add -> Host relu -> silu`, verifies that
   the Host operation prevents incorrect region merging, and emits two ordered
   one-command XGraph artifacts plus a module manifest.
+
+The real TVM multi-region compiler test is validated on GB10. Dependency-free
+tests additionally execute a two-region `TADD -> TSILU` chain, bind both external
+inputs, transfer the intermediate Tensor through the manifest edge, and compare
+the final floating output.
 
 The expected final line is:
 

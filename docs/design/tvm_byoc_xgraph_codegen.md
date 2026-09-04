@@ -80,8 +80,28 @@ the same lowering after runtime addresses and dynamic dimensions are
 materialized.
 
 Multiple OpenNPUX regions mixed with host regions are also deferred. That step
-requires a TVM runtime module which stages each region, submits the `.npxg`
-batch, waits on completion/fences, and publishes output Tensor bindings.
+is now split into two explicit layers. The compiler layer exports every region
+as an independent `.npxg` plus `module.npxgm.json`; the manifest records
+topological submission order, external inputs and direct NPU-to-NPU Tensor
+edges. The remaining runtime layer must stage each region, execute Host regions
+between NPU submissions, wait on completion/fences, and publish output Tensor
+bindings. Keeping those responsibilities separate prevents compiler artifacts
+from embedding a particular Host scheduler.
+
+Compile a normalized multi-region module or a TVM IRModule with:
+
+```bash
+python3 tools/models/compile_tvm_byoc_module.py \
+  model.relax.json build/model-regions \
+  --dump-byoc-module build/model-regions.normalized.json
+```
+
+The compiler validates every cross-region edge as output-to-input, requires
+identical shape and dtype, rejects multiple producers and cycles, and emits one
+artifact per region in deterministic topological order. A supported region
+separated from the next one by an unsupported Host operation intentionally has
+no direct edge: its next input remains an external runtime binding produced by
+the Host executor.
 
 The normalized Codegen boundary already encodes `TOPK`, `ROPE`, and contiguous
 copy commands. The initial automatic Relax pattern table excludes `TOPK`
@@ -129,6 +149,9 @@ The test has two explicit levels:
   `TADD/TSILU/TSOFTMAX`, executes all six commands through an ABI-level C
   consumer, and compares the output numerically with an independently evaluated
   graph.
+- The multi-region path partitions `add -> Host relu -> silu`, verifies that
+  the Host operation prevents incorrect region merging, and emits two ordered
+  one-command XGraph artifacts plus a module manifest.
 
 The expected final line is:
 

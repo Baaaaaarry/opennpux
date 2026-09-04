@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .module_codegen import MODULE_FORMAT
 from .xgraph_codegen import CodegenError, FORMAT
 
 
@@ -154,24 +155,7 @@ def _call_attrs(op_name: str, attrs: Any) -> dict[str, Any]:
     return {}
 
 
-def normalized_graph_from_relax(module) -> dict[str, Any]:
-    """Extract one fully offloaded Relax region into the stable BYOC JSON boundary.
-
-    Stage one intentionally accepts exactly one OpenNPUX region. Host/NPU graph
-    stitching belongs to the runtime integration stage and must not be hidden in
-    command codegen.
-    """
-    _, relax, _, _ = _tvm_modules()
-    regions = [
-        function
-        for function in module.functions.values()
-        if isinstance(function, relax.Function) and _codegen_name(function) == "opennpux"
-    ]
-    if len(regions) != 1:
-        raise CodegenError(
-            f"stage-one codegen requires exactly one OpenNPUX region, found {len(regions)}"
-        )
-    function = regions[0]
+def _normalized_graph_from_function(function: Any, relax: Any) -> dict[str, Any]:
     tensors: dict[str, dict[str, Any]] = {}
     value_names: dict[Any, str] = {}
     used_names: set[str] = set()
@@ -248,4 +232,97 @@ def normalized_graph_from_relax(module) -> dict[str, Any]:
         "tensors": list(tensors.values()),
         "nodes": nodes,
         "outputs": [result_name],
+    }
+
+
+def normalized_graph_from_relax(module) -> dict[str, Any]:
+    """Extract one fully offloaded Relax region into the stable graph boundary."""
+    _, relax, _, _ = _tvm_modules()
+    regions = [
+        function
+        for function in module.functions.values()
+        if isinstance(function, relax.Function) and _codegen_name(function) == "opennpux"
+    ]
+    if len(regions) != 1:
+        raise CodegenError(
+            f"single-region codegen requires exactly one OpenNPUX region, found {len(regions)}"
+        )
+    return _normalized_graph_from_function(regions[0], relax)
+
+
+def normalized_module_from_relax(module) -> dict[str, Any]:
+    """Extract all OpenNPUX regions and direct device-to-device Tensor edges."""
+    _, relax, _, _ = _tvm_modules()
+    regions: dict[Any, tuple[str, Any]] = {}
+    used_names: set[str] = set()
+    for global_var, function in module.functions.items():
+        if not isinstance(function, relax.Function) or _codegen_name(function) != "opennpux":
+            continue
+        base = str(_attr(function.attrs, "global_symbol", global_var.name_hint))
+        name = base
+        suffix = 1
+        while name in used_names:
+            name = f"{base}_{suffix}"
+            suffix += 1
+        used_names.add(name)
+        regions[global_var] = (name, function)
+    if not regions:
+        raise CodegenError("partitioned module contains no OpenNPUX regions")
+
+    try:
+        main = module["main"]
+    except (KeyError, TypeError) as error:
+        raise CodegenError("partitioned module has no Relax main function") from error
+    if not isinstance(main, relax.Function):
+        raise CodegenError("partitioned module main is not a Relax function")
+
+    invocation_order: list[Any] = []
+    producer: dict[Any, tuple[str, str]] = {}
+    edges = []
+    body = main.body
+    bindings = []
+    if isinstance(body, relax.SeqExpr):
+        for block in body.blocks:
+            bindings.extend(block.bindings)
+    for binding in bindings:
+        if not isinstance(binding, relax.VarBinding) or not isinstance(binding.value, relax.Call):
+            continue
+        call = binding.value
+        if call.op not in regions:
+            continue
+        region_name, function = regions[call.op]
+        if call.op in invocation_order:
+            raise CodegenError(f"OpenNPUX region {region_name} is invoked more than once")
+        invocation_order.append(call.op)
+        graph = _normalized_graph_from_function(function, relax)
+        if len(call.args) != len(function.params):
+            raise CodegenError(f"OpenNPUX region {region_name} argument count mismatch")
+        parameter_names = [
+            tensor["name"] for tensor in graph["tensors"][: len(function.params)]
+        ]
+        for argument, parameter_name in zip(call.args, parameter_names):
+            if argument not in producer:
+                continue
+            source_region, source_tensor = producer[argument]
+            edges.append({
+                "from": {"region": source_region, "tensor": source_tensor},
+                "to": {"region": region_name, "tensor": parameter_name},
+            })
+        producer[binding.var] = (region_name, graph["outputs"][0])
+
+    if len(invocation_order) != len(regions):
+        missing = [name for key, (name, _) in regions.items() if key not in invocation_order]
+        raise CodegenError(
+            "OpenNPUX regions are not each invoked once from main: " + ", ".join(missing)
+        )
+    return {
+        "format": MODULE_FORMAT,
+        "regions": [
+            {
+                "name": regions[global_var][0],
+                "graph": _normalized_graph_from_function(regions[global_var][1], relax),
+            }
+            for global_var in invocation_order
+        ],
+        "edges": edges,
     }

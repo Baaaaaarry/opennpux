@@ -1396,6 +1396,25 @@ Host 分片执行的旧 checksum 不同。该失败暴露的是验收缺陷：FP
 invocation arena，Runtime 在 NPU 完成后逐元素检查 finite 和最大绝对误差；实际 checksum
 继续输出用于复现和诊断，但不再替代数值正确性判断。
 
+显式双向同步与回读硬校验后的 GB10 验收已经通过。Runtime 在 launch 前将完整 invocation
+arena 从 Shared DMA Window 发布到 Local EXTMEM，完成后分别同步 header 与 output；设备生成
+和 Host 回读 checksum 均为 `0xaeedc3a1`。独立 reference checksum 为 `0x40f42b1d`，逐元素
+最大绝对误差 `1.60336494e-05`，低于 `5e-5` 门限。Firmware 完成 6 commands，记录
+`operation_count=32896`、`modeled_cycles=32896`，排除了预置 reference 造成的假 PASS。
+
+## 2026-09-04 TVM BYOC 多 Region 编译边界
+
+新增 `OPENNPUX_TVM_BYOC_MODULE_V1`，不再要求分区后的 Relax 模型恰好只有一个完整下沉
+region。`compile_tvm_byoc_module.py` 为每个 region 生成独立 `.npxg`，并生成
+`module.npxgm.json`，记录确定性的拓扑执行顺序、外部输入、输出和直接 NPU-to-NPU Tensor
+binding。编译器对跨 region shape/dtype、output-to-input 方向、单一生产者和 DAG 无环性执行
+硬校验。
+
+真实 TVM 回归新增 `add -> Host relu -> silu` 图，用不支持的 Host `relu` 验证 BYOC 不会把
+两个 NPU region 错误合并。当前阶段完成的是 compiler/scheduler contract；下一增量是在
+Guest runtime 中消费 module manifest，依次提交 `.npxg`，并在 Host region 与 NPU region
+之间绑定 Tensor，而不是将 Host 调度策略固化进单个设备 artifact。
+
 修正后的 GB10 验收进一步补齐 driver 级 Shared DMA Window 与 Local EXTMEM 双向显式同步，
 并在数值比较前强制验证 firmware checksum 与回读 checksum 一致，从而排除直接比较 shared
 window 中预置 reference 的假阳性。最终 6 条命令全部完成，设备与回读 checksum 均为

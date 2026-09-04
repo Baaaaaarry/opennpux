@@ -1,0 +1,40 @@
+{
+  "format": "OPENNPUX_TVM_BYOC_MODULE_V1",
+  "regions": [
+    {
+      "name": "activation",
+      "graph": {
+        "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+        "tensors": [
+          {"name": "input", "shape": [2, 4], "dtype": "float32", "storage": "input"},
+          {"name": "output", "shape": [2, 4], "dtype": "float32", "storage": "output"}
+        ],
+        "nodes": [
+          {"op": "silu", "inputs": ["input"], "outputs": ["output"]}
+        ],
+        "outputs": ["output"]
+      }
+    },
+    {
+      "name": "residual",
+      "graph": {
+        "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+        "tensors": [
+          {"name": "lhs", "shape": [2, 4], "dtype": "float32", "storage": "input"},
+          {"name": "rhs", "shape": [2, 4], "dtype": "float32", "storage": "input"},
+          {"name": "sum", "shape": [2, 4], "dtype": "float32", "storage": "output"}
+        ],
+        "nodes": [
+          {"op": "add", "inputs": ["lhs", "rhs"], "outputs": ["sum"]}
+        ],
+        "outputs": ["sum"]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": {"region": "residual", "tensor": "sum"},
+      "to": {"region": "activation", "tensor": "input"}
+    }
+  ]
+}

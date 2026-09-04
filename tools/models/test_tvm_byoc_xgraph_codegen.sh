@@ -24,10 +24,22 @@ fi
 export OPENNPUX_XGRAPH_LOWERING_LIB="${LOWERING_LIB}"
 "${PYTHON}" -m unittest discover \
     -s "${ROOT_DIR}/tests/unit/models" \
-    -p 'test_tvm_byoc_xgraph_codegen.py'
+    -p 'test_tvm_byoc*_codegen.py'
 "${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
     "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_basic.json" \
     "${BUILD_DIR}/basic.npxg"
+"${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
+    "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_module.json" \
+    "${BUILD_DIR}/module"
+"${PYTHON}" - "${BUILD_DIR}/module/module.npxgm.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["execution_order"] == ["residual", "activation"]
+assert manifest["region_count"] == 2
+assert manifest["total_commands"] == 2
+PY
 "${PYTHON}" - "${BUILD_DIR}/basic.npxg" <<'PY'
 import struct
 import sys
@@ -62,6 +74,21 @@ if [ -n "${TVM_HOME:-}" ]; then
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
         "${BUILD_DIR}/relax-model.json" "${BUILD_DIR}/relax-model.npxg" \
         --dump-byoc-graph "${BUILD_DIR}/relax-model.byoc.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/create_tvm_byoc_multi_region.py" \
+        "${BUILD_DIR}/multi-region-model.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
+        "${BUILD_DIR}/multi-region-model.json" \
+        "${BUILD_DIR}/multi-region-module" \
+        --dump-byoc-module "${BUILD_DIR}/multi-region-module.json"
+    "${TVM_PYTHON}" - "${BUILD_DIR}/multi-region-module/module.npxgm.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["region_count"] == 2
+assert manifest["total_commands"] == 2
+assert len(manifest["execution_order"]) == 2
+PY
     "${TVM_PYTHON}" "${SCRIPT_DIR}/build_xgraph_tensor_image.py" \
         "${BUILD_DIR}/relax-model.npxg.json" \
         "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_relax_values.json" \

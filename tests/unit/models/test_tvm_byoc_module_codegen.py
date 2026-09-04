@@ -124,6 +124,54 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             with self.assertRaisesRegex(CodegenError, "unbound external Tensors"):
                 runtime.run()
 
+    def test_runtime_resolves_host_tensor_between_npu_regions(self):
+        module = self.load_fixture()
+        module["regions"].reverse()
+        module["edges"] = []
+        artifacts, manifest = compile_module(module)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            for region in manifest["regions"]:
+                binary, metadata = artifacts[region["name"]]
+                path = directory / region["artifact"]
+                path.write_bytes(binary)
+                Path(f"{path}.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+            def execute(name, _artifact, arena, metadata):
+                tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+                source_name = "lhs" if name == "residual" else "input"
+                source = struct.unpack_from("<8f", arena, tensors[source_name]["offset"])
+                if name == "residual":
+                    rhs = struct.unpack_from("<8f", arena, tensors["rhs"]["offset"])
+                    result = [a + b for a, b in zip(source, rhs)]
+                    output_name = "sum"
+                else:
+                    result = [value / (1.0 + math.exp(-value)) for value in source]
+                    output_name = "output"
+                struct.pack_into("<8f", arena, tensors[output_name]["offset"], *result)
+
+            resolved = []
+
+            def resolve(region, tensor, available):
+                self.assertEqual((region, tensor), ("activation", "input"))
+                values = struct.unpack("<8f", available["residual.sum"])
+                resolved.append((region, tensor))
+                return struct.pack("<8f", *(max(value, 0.0) for value in values))
+
+            runtime = ModuleRuntime(directory, execute, resolve)
+            runtime.bind("residual", "lhs", struct.pack("<8f", *range(-4, 4)))
+            runtime.bind("residual", "rhs", struct.pack("<8f", *([1.0] * 8)))
+            outputs = runtime.run()
+            actual = struct.unpack("<8f", outputs["activation.output"])
+            expected_input = [max(float(value + 1), 0.0) for value in range(-4, 4)]
+            expected = [value / (1.0 + math.exp(-value)) for value in expected_input]
+            self.assertEqual(resolved, [("activation", "input")])
+            for lhs, rhs in zip(actual, expected):
+                self.assertAlmostEqual(lhs, rhs, places=6)
+
     def test_coralctl_executor_chains_verified_region_outputs(self):
         artifacts, manifest = compile_module(self.load_fixture())
         with tempfile.TemporaryDirectory() as temporary:

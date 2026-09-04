@@ -14,6 +14,7 @@ from .xgraph_codegen import CodegenError
 
 
 RegionExecutor = Callable[[str, bytes, bytearray, dict[str, Any]], None]
+BindingResolver = Callable[[str, str, dict[str, bytes]], bytes | None]
 
 
 class CoralCtlExecutor:
@@ -85,9 +86,15 @@ class CoralCtlExecutor:
 class ModuleRuntime:
     """Bind invocation data and execute XGraph regions in manifest order."""
 
-    def __init__(self, directory: Path | str, executor: RegionExecutor):
+    def __init__(
+        self,
+        directory: Path | str,
+        executor: RegionExecutor,
+        binding_resolver: BindingResolver | None = None,
+    ):
         self.directory = Path(directory)
         self.executor = executor
+        self.binding_resolver = binding_resolver
         self.manifest = self._load_json(self.directory / "module.npxgm.json")
         if self.manifest.get("format") != MODULE_FORMAT:
             raise CodegenError("invalid XGraph module manifest format")
@@ -150,6 +157,7 @@ class ModuleRuntime:
 
     def run(self) -> dict[str, bytes]:
         executed: set[str] = set()
+        available: dict[str, bytes] = {}
         incoming: dict[str, list[dict[str, Any]]] = {
             name: [] for name in self.regions
         }
@@ -157,6 +165,12 @@ class ModuleRuntime:
             incoming[edge["to_region"]].append(edge)
         for name in self.manifest["execution_order"]:
             record = self.regions[name]["record"]
+            for tensor_name in record.get("external_bindings", []):
+                if (name, tensor_name) in self.bound or self.binding_resolver is None:
+                    continue
+                data = self.binding_resolver(name, tensor_name, dict(available))
+                if data is not None:
+                    self.bind(name, tensor_name, data)
             missing = [
                 tensor for tensor in record.get("external_bindings", [])
                 if (name, tensor) not in self.bound
@@ -180,6 +194,12 @@ class ModuleRuntime:
             region = self.regions[name]
             self.executor(name, region["artifact"], self.arenas[name], region["metadata"])
             executed.add(name)
+            for tensor_name in record.get("outputs", []):
+                tensor = self._tensor(name, tensor_name)
+                offset = tensor["offset"]
+                available[f"{name}.{tensor_name}"] = bytes(
+                    self.arenas[name][offset : offset + tensor["byte_size"]]
+                )
 
         outputs = {}
         for endpoint in self.manifest.get("module_outputs", []):

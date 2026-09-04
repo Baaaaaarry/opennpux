@@ -296,5 +296,18 @@ xgraph_module_tensor_edges=1
 xgraph_module_chain=PASS
 ```
 
+This acceptance is now verified on GB10. Region 0 reported matching firmware,
+readback and reference checksums (`0x644b35ab`) with zero numerical error;
+region 1 completed the chain with `operation_count=24` and
+`modeled_cycles=24`.
+
+For a mixed TVM graph, a Host operation is not represented as a direct NPU
+edge. `ModuleRuntime` accepts a model-independent binding resolver which runs
+after producer regions complete and before a consumer with an unresolved
+external binding is submitted. The resolver receives verified producer Tensor
+bytes and returns the Host-runtime result. This preserves Host operations such
+as the ReLU separating two BYOC regions without encoding ReLU or model logic in
+the NPU scheduler.
+
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

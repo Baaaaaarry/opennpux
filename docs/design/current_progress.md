@@ -1434,6 +1434,15 @@ checkpoint 中注入的精简 BusyBox 不提供 `dd` applet，导致中间 Tenso
 优先使用 Guest coreutils `dd`，仅在确认 BusyBox 支持该 applet 时回退；复制采用 32-byte
 Tensor block seek，写后校验 region 1 arena 大小，并在失败时保留原始 stderr。
 
+修复后 GB10 验收通过：region 0 的 firmware/output readback/reference checksum 均为
+`0x644b35ab` 且最大绝对误差为 0；两个 region、一个 Tensor edge 全部完成，最终输出
+`xgraph_module_chain=PASS`，末级记录 `operation_count=24`、`modeled_cycles=24`。
+
+进一步新增通用 Host binding resolver，处理真实 TVM 图中两个 NPU region 之间不能下沉的
+Host 算子。Resolver 只接收 region/tensor 标识和已验证的生产者输出，不把模型或 ReLU 等语义
+写入 NPU 调度器。第 17 项单测以包含负数的 `TADD -> Host ReLU -> TSILU` 验证 Host 变换确实
+生效，避免将 Host 边界错误退化为 NPU-to-NPU memcpy。
+
 修正后的 GB10 验收进一步补齐 driver 级 Shared DMA Window 与 Local EXTMEM 双向显式同步，
 并在数值比较前强制验证 firmware checksum 与回读 checksum 一致，从而排除直接比较 shared
 window 中预置 reference 的假阳性。最终 6 条命令全部完成，设备与回读 checksum 均为

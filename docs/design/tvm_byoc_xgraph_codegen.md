@@ -277,5 +277,24 @@ absolute-error limit rather than requiring byte-identical floating-point data.
 Operation and cycle counts are recorded from firmware rather than predicted by
 the compiler test.
 
+Multi-region execution uses the same artifact ABI. `CoralCtlExecutor` invokes
+`coralctl xgraph-run` once per region, requests the verified device output with
+`OPENNPUX_XGRAPH_OUTPUT_PATH`, and copies only that output range into the next
+region's input binding. The output file is written only after Local EXTMEM has
+been synchronized and its checksum has matched the firmware checksum, so an
+edge cannot consume stale host arena contents. `ModuleRuntime` remains the
+model-independent DAG scheduler; it validates external bindings and edge byte
+ranges and does not encode model-specific operator order.
+
+The full-system script additionally executes two independent one-command
+regions (`TADD` followed by `TSILU`) and transfers the intermediate 32-byte
+Tensor between their arenas. A successful multi-region acceptance adds:
+
+```text
+xgraph_module_regions_completed=2
+xgraph_module_tensor_edges=1
+xgraph_module_chain=PASS
+```
+
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

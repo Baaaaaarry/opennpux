@@ -13,7 +13,10 @@ sys.path.insert(0, str(ROOT / "tools/models"))
 
 from opennpux_tvm_byoc import CodegenError  # noqa: E402
 from opennpux_tvm_byoc.module_codegen import compile_module  # noqa: E402
-from opennpux_tvm_byoc.module_runtime import ModuleRuntime  # noqa: E402
+from opennpux_tvm_byoc.module_runtime import (  # noqa: E402
+    CoralCtlExecutor,
+    ModuleRuntime,
+)
 
 
 class XGraphModuleCodegenTest(unittest.TestCase):
@@ -120,6 +123,53 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             runtime = ModuleRuntime(directory, lambda *_: None)
             with self.assertRaisesRegex(CodegenError, "unbound external Tensors"):
                 runtime.run()
+
+    def test_coralctl_executor_chains_verified_region_outputs(self):
+        artifacts, manifest = compile_module(self.load_fixture())
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            for region in manifest["regions"]:
+                binary, metadata = artifacts[region["name"]]
+                path = directory / region["artifact"]
+                path.write_bytes(binary)
+                Path(f"{path}.json").write_text(json.dumps(metadata), encoding="utf-8")
+            fake = directory / "coralctl"
+            fake.write_text(
+                """#!/usr/bin/env python3
+import math, os, struct, sys
+graph = open(sys.argv[2], 'rb').read()
+arena = bytearray(open(sys.argv[3], 'rb').read())
+command = struct.unpack_from('<16I', graph, 96)
+opcode, destination, source0, source1 = command[0], command[2], command[3], command[4]
+count = command[5] * command[6]
+lhs = struct.unpack_from(f'<{count}f', arena, source0)
+if opcode == 2:
+    rhs = struct.unpack_from(f'<{count}f', arena, source1)
+    result = [a + b for a, b in zip(lhs, rhs)]
+elif opcode == 7:
+    result = [value / (1.0 + math.exp(-value)) for value in lhs]
+else:
+    raise SystemExit(2)
+open(os.environ['OPENNPUX_XGRAPH_OUTPUT_PATH'], 'wb').write(struct.pack(f'<{count}f', *result))
+print('xgraph_output_readback=PASS')
+""",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            executor = CoralCtlExecutor(fake)
+            runtime = ModuleRuntime(directory, executor)
+            runtime.bind("residual", "lhs", struct.pack("<8f", *range(8)))
+            runtime.bind("residual", "rhs", struct.pack("<8f", *([1.0] * 8)))
+            outputs = runtime.run()
+            actual = struct.unpack("<8f", outputs["activation.output"])
+            expected = [value / (1.0 + math.exp(-value)) for value in range(1, 9)]
+            self.assertEqual(len(executor.logs), 2)
+            self.assertTrue(all("xgraph_output_readback=PASS" in log for log in executor.logs))
+            for lhs, rhs in zip(actual, expected):
+                self.assertAlmostEqual(lhs, rhs, places=6)
 
 
 if __name__ == "__main__":

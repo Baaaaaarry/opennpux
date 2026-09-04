@@ -2457,6 +2457,7 @@ opennpux_coral_run_xgraph_artifact(
     }
     FILE *arena_file = fopen(arena_path, "rb");
     uint8_t *arena = NULL;
+    uint8_t *actual = NULL;
     size_t arena_size = 0;
     int rc = -1;
     int saved_errno = 0;
@@ -2529,7 +2530,7 @@ opennpux_coral_run_xgraph_artifact(
         errno = EIO;
         goto out;
     }
-    uint8_t *actual = malloc(result->output_bytes);
+    actual = malloc(result->output_bytes);
     if (actual == NULL) {
         goto out;
     }
@@ -2538,7 +2539,6 @@ opennpux_coral_run_xgraph_artifact(
     result->output_readback_checksum =
         checksum_bytes(actual, result->output_bytes);
     if (result->output_readback_checksum != result->output_checksum) {
-        free(actual);
         errno = EIO;
         goto out;
     }
@@ -2546,7 +2546,6 @@ opennpux_coral_run_xgraph_artifact(
     if (output_tolerance > 0.0f) {
         if ((result->output_offset & (sizeof(float) - 1)) != 0 ||
             (result->output_bytes & (sizeof(float) - 1)) != 0) {
-            free(actual);
             errno = EINVAL;
             goto out;
         }
@@ -2569,15 +2568,29 @@ opennpux_coral_run_xgraph_artifact(
                 result->output_max_abs_error,
                 fabsf(actual_value - reference_value));
         }
-        free(actual);
-        actual = NULL;
         if (!isfinite(result->output_max_abs_error) ||
             result->output_max_abs_error > output_tolerance) {
             errno = ERANGE;
             goto out;
         }
     }
-    free(actual);
+    const char *output_path = getenv("OPENNPUX_XGRAPH_OUTPUT_PATH");
+    if (output_path != NULL && output_path[0] != '\0') {
+        FILE *output_file = fopen(output_path, "wb");
+        if (output_file == NULL) {
+            goto out;
+        }
+        if (fwrite(actual, 1, result->output_bytes, output_file) !=
+            result->output_bytes) {
+            fclose(output_file);
+            errno = EIO;
+            goto out;
+        }
+        if (fclose(output_file) != 0) {
+            errno = EIO;
+            goto out;
+        }
+    }
     rc = 0;
 
 out:
@@ -2589,6 +2602,7 @@ out:
         opennpux_coral_close_shared_window(&window);
     }
     free(arena);
+    free(actual);
     opennpux_xgraph_artifact_unload(&artifact);
     errno = saved_errno;
     return rc;

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 from typing import Any, Callable
 
 from .module_codegen import MODULE_FORMAT
@@ -11,6 +14,72 @@ from .xgraph_codegen import CodegenError
 
 
 RegionExecutor = Callable[[str, bytes, bytearray, dict[str, Any]], None]
+
+
+class CoralCtlExecutor:
+    """Execute one region through coralctl and import its verified output."""
+
+    def __init__(
+        self,
+        coralctl: Path | str,
+        base: int = 0x1D000000,
+        polls: int = 1000000,
+        environment: dict[str, str] | None = None,
+    ):
+        self.coralctl = str(coralctl)
+        self.base = base
+        self.polls = polls
+        self.environment = dict(environment or {})
+        self.logs: list[str] = []
+
+    def __call__(
+        self, name: str, artifact: bytes, arena: bytearray, metadata: dict[str, Any]
+    ) -> None:
+        output_name = metadata.get("output")
+        tensors = {
+            tensor.get("name"): tensor for tensor in metadata.get("tensors", [])
+        }
+        if output_name not in tensors:
+            raise CodegenError(f"region {name} output metadata is missing")
+        output = tensors[output_name]
+        with tempfile.TemporaryDirectory(prefix="opennpux-region-") as temporary:
+            directory = Path(temporary)
+            graph_path = directory / "region.npxg"
+            arena_path = directory / "region.arena.bin"
+            output_path = directory / "region.output.bin"
+            graph_path.write_bytes(artifact)
+            arena_path.write_bytes(arena)
+            environment = os.environ.copy()
+            environment.update(self.environment)
+            environment["OPENNPUX_XGRAPH_OUTPUT_PATH"] = str(output_path)
+            completed = subprocess.run(
+                [
+                    self.coralctl,
+                    "xgraph-run",
+                    str(graph_path),
+                    str(arena_path),
+                    hex(self.base),
+                    str(self.polls),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.logs.append(completed.stdout + completed.stderr)
+            if completed.returncode != 0:
+                raise CodegenError(
+                    f"region {name} Coral execution failed with status {completed.returncode}"
+                )
+            if "xgraph_output_readback=PASS" not in completed.stdout:
+                raise CodegenError(f"region {name} Coral output was not verified")
+            if not output_path.is_file():
+                raise CodegenError(f"region {name} Coral output file is missing")
+            data = output_path.read_bytes()
+            if len(data) != output.get("byte_size"):
+                raise CodegenError(f"region {name} Coral output size mismatch")
+            offset = output["offset"]
+            arena[offset : offset + len(data)] = data
 
 
 class ModuleRuntime:

@@ -136,13 +136,37 @@ python3 tools/models/compile_tvm_byoc_xgraph.py \
   --dump-byoc-graph build/model.byoc.json
 ```
 
-This is a complete compiler and command-level numerical loop, not yet the
-full-system Linux/Coral acceptance. `.npxg` intentionally contains commands
-only. A live invocation must bind and stage input, constant, state, scratch,
-and output tensors separately before placing the artifact at
-`OPENNPUX_XGRAPH_OFFSET`. The full-system acceptance must then use the existing
-shared DMA window and Coral command firmware; embedding test tensors in
-`.npxg` would incorrectly merge executable and invocation state.
+`.npxg` intentionally contains reusable commands only. A live invocation binds
+input, constant and state tensors through a separate raw Tensor arena image.
+`build_xgraph_tensor_image.py` constructs that image from the generated
+`.npxg.json` allocation table and a values JSON file; scratch and output ranges
+remain runtime-owned.
+
+The Guest runtime command is:
+
+```bash
+coralctl xgraph-run model.npxg invocation.arena.bin \
+  0x1d000000 1000000
+```
+
+`xgraph-run` validates the artifact ABI and arena bounds, stages commands at
+`OPENNPUX_XGRAPH_OFFSET`, stages Tensor data at
+`OPENNPUX_XGRAPH_DATA_OFFSET`, starts the Coral command firmware and reports
+the firmware completion state, command count, output checksum, operation count
+and modeled cycles. This keeps executable and invocation state separate while
+using the same shared DMA/EXTMEM protocol as other Guest submissions.
+
+Run the complete compiler plus full-system acceptance on the x86/GB10 host:
+
+```bash
+. .cache/tvm/env.sh
+./tools/coralnpu/run_tvm_byoc_xgraph_test.sh
+```
+
+The script first computes the host numerical reference and checksum, then
+injects the same `.npxg` and arena into the Linux checkpoint. Acceptance
+requires four firmware-dispatched XOpenNPUX operations (`tmma`, `tadd`,
+`tsilu`, `tsoftmax`) and an exact output checksum match.
 
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

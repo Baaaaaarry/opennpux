@@ -444,6 +444,8 @@ usage(const char *prog)
             "[base [poll-count]]\n"
             "  %s generic-test [base [poll-count]]\n"
             "  %s xopennpux-graph-test [base [poll-count]]\n"
+            "  %s xgraph-run <graph.npxg> <arena.bin> "
+            "[base [poll-count]]\n"
             "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
@@ -453,7 +455,7 @@ usage(const char *prog)
             "features: qwen-run-tcb-v2 qwen-device-run-v1\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog);
+            prog, prog);
 }
 
 static int
@@ -2071,6 +2073,38 @@ print_xgraph_test(struct opennpux_coral_device *dev, uint32_t entry,
 }
 
 static int
+print_xgraph_run(struct opennpux_coral_device *dev, uint32_t entry,
+                 const char *graph_path, const char *arena_path,
+                 uint64_t polls)
+{
+    struct opennpux_coral_xgraph_result result;
+    printf("xgraph_artifact=%s\n", graph_path);
+    printf("xgraph_arena=%s\n", arena_path);
+    printf("xgraph_run=started\n");
+    fflush(stdout);
+    const int run_result = opennpux_coral_run_xgraph_artifact(
+        dev, entry, graph_path, arena_path, polls, &result);
+    printf("status=0x%08" PRIx32 "\n", result.device_status);
+    printf("xgraph_state=0x%08" PRIx32 "\n", result.state);
+    printf("xgraph_error=%" PRIu32 "\n", result.error_code);
+    printf("xgraph_completed_commands=%" PRIu32 "\n",
+           result.completed_commands);
+    printf("xgraph_output_offset=0x%08" PRIx32 "\n",
+           result.output_offset);
+    printf("xgraph_output_bytes=%" PRIu32 "\n", result.output_bytes);
+    printf("xgraph_output_checksum=0x%08" PRIx32 "\n",
+           result.output_checksum);
+    printf("xgraph_operation_count=%" PRIu64 "\n", result.operation_count);
+    printf("xgraph_modeled_cycles=%" PRIu64 "\n", result.modeled_cycles);
+    if (run_result != 0) {
+        perror("xgraph-run");
+        return 1;
+    }
+    printf("xgraph_artifact_run=PASS\n");
+    return 0;
+}
+
+static int
 print_mobilenet_test(struct opennpux_coral_device *dev, uint32_t entry,
                      uint64_t polls)
 {
@@ -2139,6 +2173,7 @@ main(int argc, char **argv)
     const int command_generic_test = strcmp(argv[1], "generic-test") == 0;
     const int command_xgraph_test =
         strcmp(argv[1], "xopennpux-graph-test") == 0;
+    const int command_xgraph_run = strcmp(argv[1], "xgraph-run") == 0;
     const int command_mobilenet_test =
         strcmp(argv[1], "mobilenet-test") == 0;
     const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
@@ -2152,7 +2187,7 @@ main(int argc, char **argv)
         !command_qwen_info && !command_qwen_run &&
         !command_qwen_stage_tcb && !command_qwen_run_tcb &&
         !command_qwen_device_run &&
-        !command_generic_test && !command_xgraph_test &&
+        !command_generic_test && !command_xgraph_test && !command_xgraph_run &&
         !command_mobilenet_test &&
         !command_mem_info && !command_mem_clear && !command_mem_load &&
         !command_mem_read32 &&
@@ -2175,6 +2210,7 @@ main(int argc, char **argv)
         (command_qwen_run_tcb && (argc < 3 || argc > 5)) ||
         (command_qwen_device_run && (argc < 4 || argc > 6)) ||
         ((command_generic_test || command_xgraph_test) && argc > 4) ||
+        (command_xgraph_run && (argc < 4 || argc > 6)) ||
         (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
@@ -2200,6 +2236,7 @@ main(int argc, char **argv)
     uint64_t shared_value = 0;
     uint64_t vector_elements = 0;
     const char *model_path = NULL;
+    const char *xgraph_arena_path = NULL;
     const char *weight_page_path = NULL;
     const char *weight_manifest_path = NULL;
     const char *weight_range_path = NULL;
@@ -2220,6 +2257,13 @@ main(int argc, char **argv)
         if (argc > base_arg &&
             opennpux_coral_parse_u64(argv[base_arg], &base) != 0) {
             fprintf(stderr, "invalid base address: %s\n", argv[base_arg]);
+            return 2;
+        }
+    } else if (command_xgraph_run) {
+        model_path = argv[2];
+        xgraph_arena_path = argv[3];
+        if (argc >= 5 && opennpux_coral_parse_u64(argv[4], &base) != 0) {
+            fprintf(stderr, "invalid base address: %s\n", argv[4]);
             return 2;
         }
     } else if (command_mem_load) {
@@ -2372,6 +2416,7 @@ main(int argc, char **argv)
         (command_dma_test || command_vector_add || command_vector_add_custom ||
          command_model_run || command_mobilenet_test || command_qwen_run_tcb ||
          command_generic_test || command_xgraph_test ||
+         command_xgraph_run ||
          command_qwen_device_run ||
          command_executable_run) ?
             100000 : 1000;
@@ -2383,8 +2428,9 @@ main(int argc, char **argv)
     }
     const int poll_arg =
         command_executable_run ? executable_poll_arg :
-        (command_generic_test || command_xgraph_test ||
-         command_mobilenet_test) ? 3 :
+        (command_generic_test || command_xgraph_test) ? 3 :
+        command_xgraph_run ? 5 :
+        command_mobilenet_test ? 3 :
         command_qwen_run_tcb ? 4 :
         command_qwen_device_run ? 5 :
         (command_model_run || command_vector_add ||
@@ -2416,6 +2462,9 @@ main(int argc, char **argv)
         result = print_generic_test(&dev, (uint32_t)entry, polls);
     } else if (command_xgraph_test) {
         result = print_xgraph_test(&dev, (uint32_t)entry, polls);
+    } else if (command_xgraph_run) {
+        result = print_xgraph_run(&dev, (uint32_t)entry, model_path,
+                                  xgraph_arena_path, polls);
     } else if (command_mobilenet_test) {
         result = print_mobilenet_test(&dev, (uint32_t)entry, polls);
     } else if (command_vector_add || command_vector_add_custom) {

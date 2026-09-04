@@ -49,11 +49,25 @@ if [ -n "${TVM_HOME:-}" ]; then
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
         "${BUILD_DIR}/relax-model.json" "${BUILD_DIR}/relax-model.npxg" \
         --dump-byoc-graph "${BUILD_DIR}/relax-model.byoc.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/build_xgraph_tensor_image.py" \
+        "${BUILD_DIR}/relax-model.npxg.json" \
+        "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_relax_values.json" \
+        "${BUILD_DIR}/relax-model.arena.bin"
     "${CC}" -std=c11 -Wall -Wextra -Werror -pedantic \
         -I"${ROOT_DIR}/runtime/host/include" \
         "${ROOT_DIR}/tests/unit/models/tvm_byoc_relax_e2e_test.c" \
         -lm -o "${BUILD_DIR}/tvm_byoc_relax_e2e_test"
-    "${BUILD_DIR}/tvm_byoc_relax_e2e_test" "${BUILD_DIR}/relax-model.npxg"
+    "${BUILD_DIR}/tvm_byoc_relax_e2e_test" \
+        "${BUILD_DIR}/relax-model.npxg" \
+        "${BUILD_DIR}/relax-model.arena.bin"
+    "${CC}" -std=c11 -Wall -Wextra -Werror -pedantic \
+        -I"${ROOT_DIR}/runtime/host/include" \
+        "${ROOT_DIR}/runtime/host/src/xgraph_artifact.c" \
+        "${ROOT_DIR}/tests/unit/models/tvm_byoc_xgraph_loader_test.c" \
+        -o "${BUILD_DIR}/tvm_byoc_xgraph_loader_test"
+    "${BUILD_DIR}/tvm_byoc_xgraph_loader_test" \
+        "${BUILD_DIR}/relax-model.npxg" \
+        "${BUILD_DIR}/relax-model.arena.bin"
     echo "tvm_relax_byoc_e2e=PASS"
 else
     echo "TVM Relax end-to-end test: SKIP (set TVM_HOME and TVM_PYTHON)"

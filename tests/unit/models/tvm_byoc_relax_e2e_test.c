@@ -77,7 +77,7 @@ execute(const struct opennpux_xgraph_command *command, float *arena)
 int
 main(int argc, char **argv)
 {
-    assert(argc == 2);
+    assert(argc == 3);
     FILE *source = fopen(argv[1], "rb");
     assert(source != NULL);
     struct opennpux_xgraph_header header;
@@ -89,16 +89,15 @@ main(int argc, char **argv)
     assert(fread(commands, sizeof(commands), 1, source) == 1);
     assert(fclose(source) == 0);
 
+    FILE *arena_source = fopen(argv[2], "rb");
+    assert(arena_source != NULL);
     float *arena = calloc(1, ARENA_BYTES);
     assert(arena != NULL);
-    const float input[] = {1.0f, 2.0f, 3.0f, 4.0f,
-                           0.5f, -1.0f, 2.0f, 0.0f};
-    const float weight[] = {1.0f, 0.0f, -1.0f, 0.5f, 1.0f, 0.0f,
-                            -1.0f, 2.0f, 1.0f, 2.0f, -0.5f, 0.25f};
-    const float bias[] = {0.1f, -0.2f, 0.3f, -0.4f, 0.5f, -0.6f};
-    memcpy(tensor(arena, commands[0].source0_offset), input, sizeof(input));
-    memcpy(tensor(arena, commands[0].source1_offset), weight, sizeof(weight));
-    memcpy(tensor(arena, commands[1].source1_offset), bias, sizeof(bias));
+    assert(fread(arena, 1, ARENA_BYTES, arena_source) > 0);
+    assert(fclose(arena_source) == 0);
+    const float *input = tensor(arena, commands[0].source0_offset);
+    const float *weight = tensor(arena, commands[0].source1_offset);
+    const float *bias = tensor(arena, commands[1].source1_offset);
 
     const uint32_t expected_opcodes[] = {
         OPENNPUX_XGRAPH_OP_TMMA,
@@ -137,6 +136,13 @@ main(int argc, char **argv)
     for (uint32_t index = 0; index < 6; ++index) {
         assert(fabsf(actual[index] - expected[index]) < 1.0e-6f);
     }
+    const uint8_t *output_bytes = (const uint8_t *)(const void *)actual;
+    uint32_t checksum = UINT32_C(2166136261);
+    for (uint32_t index = 0; index < header.output_bytes; ++index) {
+        checksum ^= output_bytes[index];
+        checksum *= UINT32_C(16777619);
+    }
+    printf("xgraph_output_checksum=0x%08x\n", checksum);
     free(arena);
     puts("TVM Relax -> BYOC -> XGraph -> C execution: PASS");
     return 0;

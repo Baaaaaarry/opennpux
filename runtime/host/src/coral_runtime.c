@@ -2,6 +2,7 @@
 
 #include "opennpux/coral_runtime.h"
 #include "opennpux/npu_xgraph_lowering.h"
+#include "opennpux/xgraph_artifact.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -2395,4 +2396,99 @@ opennpux_coral_xgraph_test(
         return -1;
     }
     return 0;
+}
+
+int
+opennpux_coral_run_xgraph_artifact(
+    struct opennpux_coral_device *dev, uint32_t entry,
+    const char *graph_path, const char *arena_path, uint64_t polls,
+    struct opennpux_coral_xgraph_result *result)
+{
+    if (dev == NULL || graph_path == NULL || arena_path == NULL ||
+        result == NULL || polls == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    memset(result, 0, sizeof(*result));
+    struct opennpux_xgraph_artifact artifact;
+    if (opennpux_xgraph_artifact_load(graph_path, &artifact) != 0) {
+        return -1;
+    }
+    FILE *arena_file = fopen(arena_path, "rb");
+    uint8_t *arena = NULL;
+    size_t arena_size = 0;
+    int rc = -1;
+    int saved_errno = 0;
+    struct opennpux_coral_shared_window window = {0};
+    if (arena_file == NULL || fseek(arena_file, 0, SEEK_END) != 0) {
+        goto out;
+    }
+    const long arena_length = ftell(arena_file);
+    if (arena_length <= 0 || (unsigned long)arena_length > UINT32_MAX ||
+        fseek(arena_file, 0, SEEK_SET) != 0) {
+        errno = EINVAL;
+        goto out;
+    }
+    arena_size = (size_t)arena_length;
+    if (opennpux_xgraph_artifact_validate_arena(&artifact, arena_size) != 0) {
+        goto out;
+    }
+    arena = malloc(arena_size);
+    if (arena == NULL) {
+        goto out;
+    }
+    if (fread(arena, 1, arena_size, arena_file) != arena_size ||
+        ferror(arena_file)) {
+        errno = EIO;
+        goto out;
+    }
+    fclose(arena_file);
+    arena_file = NULL;
+    if (opennpux_coral_open_shared_window(dev, arena_size, &window) != 0) {
+        goto out;
+    }
+    copy_to_volatile_bytes(
+        window.bytes + OPENNPUX_XGRAPH_DATA_OFFSET,
+        arena + OPENNPUX_XGRAPH_DATA_OFFSET,
+        arena_size - OPENNPUX_XGRAPH_DATA_OFFSET);
+    copy_to_volatile_bytes(window.bytes + OPENNPUX_XGRAPH_OFFSET,
+                           artifact.bytes, artifact.size);
+    __sync_synchronize();
+    if (opennpux_coral_run(dev, entry, polls, &result->device_status) != 0) {
+        goto out;
+    }
+    __sync_synchronize();
+    const volatile struct opennpux_xgraph_header *completed =
+        (const volatile struct opennpux_xgraph_header *)(const volatile void *)(
+            window.bytes + OPENNPUX_XGRAPH_OFFSET);
+    result->state = completed->state;
+    result->error_code = completed->error;
+    result->completed_commands = completed->completed_commands;
+    result->output_offset = completed->output_offset;
+    result->output_bytes = completed->output_bytes;
+    result->output_checksum = completed->output_checksum;
+    result->operation_count = completed->operation_count;
+    result->modeled_cycles = completed->modeled_cycles;
+    if (result->state != OPENNPUX_XGRAPH_STATE_COMPLETE ||
+        result->error_code != OPENNPUX_XGRAPH_ERROR_NONE ||
+        result->completed_commands != artifact.header->command_count ||
+        result->output_offset != artifact.header->output_offset ||
+        result->output_bytes != artifact.header->output_bytes) {
+        errno = EIO;
+        goto out;
+    }
+    rc = 0;
+
+out:
+    saved_errno = errno;
+    if (arena_file != NULL) {
+        fclose(arena_file);
+    }
+    if (window.bytes != NULL) {
+        opennpux_coral_close_shared_window(&window);
+    }
+    free(arena);
+    opennpux_xgraph_artifact_unload(&artifact);
+    errno = saved_errno;
+    return rc;
 }

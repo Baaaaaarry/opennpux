@@ -14,6 +14,7 @@ from opennpux_tvm_byoc.xgraph_codegen import (  # noqa: E402
     CodegenError,
     compile_graph,
 )
+from build_xgraph_tensor_image import build_image  # noqa: E402
 
 
 class XGraphCodegenTest(unittest.TestCase):
@@ -162,6 +163,31 @@ class XGraphCodegenTest(unittest.TestCase):
         ]
         self.assertEqual([command[0] for command in commands], [8, 4, 6, 3, 11])
         self.assertEqual(commands[2][8], 1)
+
+    def test_builds_runtime_tensor_arena_from_codegen_metadata(self):
+        _, metadata = compile_graph(self.load_fixture())
+        values = {
+            "input": [1.0] * 8,
+            "weight": [2.0] * 12,
+            "bias": [3.0] * 6,
+        }
+        image = build_image(metadata, values)
+        tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+        self.assertEqual(len(image), metadata["arena_size"])
+        self.assertEqual(
+            struct.unpack_from("<f", image, tensors["input"]["offset"])[0], 1.0
+        )
+        self.assertEqual(
+            struct.unpack_from("<f", image, tensors["weight"]["offset"])[0], 2.0
+        )
+        self.assertEqual(
+            struct.unpack_from("<f", image, tensors["bias"]["offset"])[0], 3.0
+        )
+
+    def test_tensor_arena_rejects_missing_runtime_binding(self):
+        _, metadata = compile_graph(self.load_fixture())
+        with self.assertRaisesRegex(ValueError, "runtime values are required"):
+            build_image(metadata, {"input": [1.0] * 8})
 
 
 if __name__ == "__main__":

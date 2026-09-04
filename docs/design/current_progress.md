@@ -1346,3 +1346,23 @@ Codegen region 的问题。
 Coral firmware 的系统验收仍保持 executable 与 invocation 分离，下一步由 runtime 将
 `.npxg` command 和动态 Tensor bindings 分别放入 shared DMA window 后提交，不能把测试数据
 固化进模型编译产物。
+
+## 2026-09-04 TVM BYOC Guest/Coral Runtime 接入
+
+真实 TVM Relax 测试已在 Linux 环境通过，输出 `xgraph_commands=4`、
+`xgraph_arena_bytes=131520`、`tvm_relax_byoc_e2e=PASS`。在此基础上新增通用
+`xgraph-run <graph.npxg> <arena.bin>` Runtime 接口，不再由测试代码手工构造命令。
+`.npxg` 保存可复用 XGraph header/commands，独立 arena 保存本次 invocation 的 input、
+constant 和 state；Runtime 分别写入 shared DMA window 的 `0x10000` 命令区与 `0x20000+`
+Tensor 区，Coral firmware 回填 state/error/completed commands/output checksum/operations/cycles。
+
+新增 artifact loader 对 magic/version/header size/command size/command ID/命令区重叠及
+Tensor arena 基础地址边界做硬校验；新增 arena builder 根据 Codegen metadata 分配表严格
+检查 Tensor 名称、dtype、元素数和 byte range。主机数值路径与 Guest 路径使用同一个
+arena，当前参考输出 checksum 为 `0xbcd03dc5`。
+
+本机已通过 Python 8 项 Codegen 单测、真实 TVM Relax -> BYOC -> 4-command XGraph、C 数值
+执行、artifact runtime loader 和 runtime host tests。新增
+`run_tvm_byoc_xgraph_test.sh` 用于 x86/GB10 全系统验收：自动注入 `.npxg`、arena 和当前
+`coralctl` 到 checkpoint，要求 `TMMA/TADD/TSILU/TSOFTMAX` 均经 Coral firmware 的
+XOpenNPUX 通路完成，并要求 Guest 输出 checksum 与主机参考一致。

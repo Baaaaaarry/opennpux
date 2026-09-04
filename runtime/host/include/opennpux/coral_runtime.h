@@ -140,6 +140,18 @@ struct opennpux_coral_generic_test_result {
     float operator_max_abs_error[OPENNPUX_CORAL_XGRAPH_TEST_OPERATORS];
 };
 
+struct opennpux_coral_xgraph_result {
+    uint32_t device_status;
+    uint32_t state;
+    uint32_t error_code;
+    uint32_t completed_commands;
+    uint32_t output_offset;
+    uint32_t output_bytes;
+    uint32_t output_checksum;
+    uint64_t operation_count;
+    uint64_t modeled_cycles;
+};
+
 const char *opennpux_coral_backend_name(enum opennpux_coral_backend backend);
 const char *opennpux_coral_transport_name(
     enum opennpux_coral_transport transport);
@@ -201,6 +213,10 @@ int opennpux_coral_generic_test(
 int opennpux_coral_xgraph_test(
     struct opennpux_coral_device *dev, uint32_t entry, uint64_t polls,
     struct opennpux_coral_generic_test_result *result);
+int opennpux_coral_run_xgraph_artifact(
+    struct opennpux_coral_device *dev, uint32_t entry,
+    const char *graph_path, const char *arena_path, uint64_t polls,
+    struct opennpux_coral_xgraph_result *result);
 
 #ifdef __cplusplus
 }

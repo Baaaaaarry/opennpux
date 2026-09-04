@@ -187,8 +187,9 @@ Run the complete compiler plus full-system acceptance on the x86/GB10 host:
 The script first computes the host numerical reference and checksum, then
 injects the same `.npxg` and arena into the Linux checkpoint. Acceptance checks
 the generated command count dynamically, requires firmware-dispatched
-XOpenNPUX `tmma`, `tadd`, `tsilu`, and `tsoftmax` operations, and requires an
-exact output checksum match.
+XOpenNPUX `tmma`, `tadd`, `tsilu`, and `tsoftmax` operations, verifies that the
+Local EXTMEM output checksum survives the explicit device-to-host transfer, and
+then performs an independent elementwise numerical comparison.
 
 The previous one-tile GB10 full-system acceptance baseline was:
 
@@ -209,14 +210,30 @@ checkpoint tmpfs before the resume script opens `/dev/opennpux-coral`. The
 module and simulated `vmlinux` must come from the same kernel build; otherwise
 the test fails before artifact staging and prints the `insmod` error.
 
-The next GB10 run must report `xgraph_completed_commands=6`,
-`xgraph_output_bytes=64`, `xgraph_reference_checksum=0x40f42b1d`,
-`xgraph_output_reference=PASS`, and both artifact/system PASS verdicts.
-It must also report `xgraph_output_readback=PASS`: the runtime explicitly
+The six-command GB10 full-system acceptance now reports:
+
+```text
+xgraph_completed_commands=6
+xgraph_output_bytes=64
+xgraph_output_checksum=0xaeedc3a1
+xgraph_output_readback_checksum=0xaeedc3a1
+xgraph_output_readback=PASS
+xgraph_reference_checksum=0x40f42b1d
+xgraph_output_max_abs_error=1.60336494e-05
+xgraph_output_reference=PASS
+xgraph_operation_count=32896
+xgraph_modeled_cycles=32896
+xgraph_artifact_run=PASS
+tvm_byoc_xgraph=PASS
+```
+
+The runtime explicitly
 synchronizes Local EXTMEM back to the Shared DMA Window and requires the
 readback checksum to equal the checksum produced by firmware. This prevents a
 preloaded reference tensor in shared memory from creating a false numerical
-PASS. The firmware output checksum remains diagnostic: optimized C++ execution may
+PASS. It also explicitly publishes the invocation arena from the host window to
+Local EXTMEM before launch. The firmware output checksum remains diagnostic:
+optimized C++ execution may
 differ from the independent Host C reference in low FP32 bits after tiled
 accumulation and transcendental operations. Acceptance therefore compares all
 output elements against the staged independent reference with a `5e-5`

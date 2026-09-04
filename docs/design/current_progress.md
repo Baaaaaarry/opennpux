@@ -1395,3 +1395,10 @@ Host 分片执行的旧 checksum 不同。该失败暴露的是验收缺陷：FP
 跨 C/C++ 优化边界不能用逐字节 checksum 作为数值等价条件。测试现将独立 reference 写入
 invocation arena，Runtime 在 NPU 完成后逐元素检查 finite 和最大绝对误差；实际 checksum
 继续输出用于复现和诊断，但不再替代数值正确性判断。
+
+修正后的 GB10 验收进一步补齐 driver 级 Shared DMA Window 与 Local EXTMEM 双向显式同步，
+并在数值比较前强制验证 firmware checksum 与回读 checksum 一致，从而排除直接比较 shared
+window 中预置 reference 的假阳性。最终 6 条命令全部完成，设备与回读 checksum 均为
+`0xaeedc3a1`，独立 reference checksum 为 `0x40f42b1d`，逐元素最大绝对误差
+`1.60336494e-05 < 5e-5`，`operation_count=32896`、`modeled_cycles=32896`，Guest、artifact
+和系统验收全部 PASS。该结果形成后续多 BYOC region、动态 binding 与复合算子接入的可信基线。

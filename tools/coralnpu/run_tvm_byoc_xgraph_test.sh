@@ -37,10 +37,11 @@ metadata0 = json.load(open(sys.argv[1], encoding="utf-8"))
 metadata1 = json.load(open(sys.argv[3], encoding="utf-8"))
 tensors0 = {tensor["name"]: tensor for tensor in metadata0["tensors"]}
 tensors1 = {tensor["name"]: tensor for tensor in metadata1["tensors"]}
-lhs = [float(value) for value in range(8)]
+lhs = [float(value) for value in range(-4, 4)]
 rhs = [1.0] * 8
 summed = [a + b for a, b in zip(lhs, rhs)]
-activated = [value / (1.0 + math.exp(-value)) for value in summed]
+host_relu = [max(value, 0.0) for value in summed]
+activated = [value / (1.0 + math.exp(-value)) for value in host_relu]
 arena0 = bytearray(metadata0["arena_size"])
 arena1 = bytearray(metadata1["arena_size"])
 for arena, table, name, values in (
@@ -199,6 +200,18 @@ has_output_line 'xgraph_output_reference=PASS' ||
     fail 'module region 0 reference mismatch'
 [ "\$(wc -c </tmp/tvm-region0.output.bin)" -eq 32 ] ||
     fail 'module region 0 output size mismatch'
+HOST_OUTPUT="\$(/tmp/coralctl host-tensor-unary relu \
+    /tmp/tvm-region0.output.bin /tmp/tvm-region0.host.bin)" || {
+    printf '%s\n' "\${HOST_OUTPUT}"
+    fail 'module Host ReLU execution failed'
+}
+printf '%s\n' "\${HOST_OUTPUT}"
+case "\${HOST_OUTPUT}" in
+    *'host_tensor_run=PASS'*) ;;
+    *) fail 'module Host ReLU PASS verdict missing' ;;
+esac
+[ "\$(wc -c </tmp/tvm-region0.host.bin)" -eq 32 ] ||
+    fail 'module Host ReLU output size mismatch'
 if command -v dd >/dev/null 2>&1; then
     DD_BIN="\$(command -v dd)"
     DD_APPLET=
@@ -208,7 +221,7 @@ elif /tmp/busybox dd --help >/dev/null 2>&1; then
 else
     fail 'module Tensor edge copy requires dd'
 fi
-if ! "\${DD_BIN}" \${DD_APPLET} if=/tmp/tvm-region0.output.bin \
+if ! "\${DD_BIN}" \${DD_APPLET} if=/tmp/tvm-region0.host.bin \
     of=/tmp/tvm-region1.arena.bin bs=32 count=1 \
     seek=$((REGION1_INPUT_OFFSET / 32)) conv=notrunc \
     2>/tmp/tvm-edge-copy.err; then
@@ -237,7 +250,9 @@ has_output_line 'xgraph_output_readback=PASS' ||
 has_output_line 'xgraph_output_reference=PASS' ||
     fail 'module region 1 reference mismatch'
 echo 'xgraph_module_regions_completed=2'
-echo 'xgraph_module_tensor_edges=1'
+echo 'xgraph_module_direct_edges=0'
+echo 'xgraph_module_host_bindings=1'
+echo 'xgraph_module_host_pipeline=relax.nn.relu'
 echo 'xgraph_module_chain=PASS'
 echo 'tvm_byoc_xgraph=PASS'
 echo '[tvm-byoc-xgraph] PASS'

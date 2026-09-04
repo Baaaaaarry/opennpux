@@ -287,12 +287,18 @@ model-independent DAG scheduler; it validates external bindings and edge byte
 ranges and does not encode model-specific operator order.
 
 The full-system script additionally executes two independent one-command
-regions (`TADD` followed by `TSILU`) and transfers the intermediate 32-byte
-Tensor between their arenas. A successful multi-region acceptance adds:
+regions with a CPU operation between them: `TADD -> Host ReLU -> TSILU`.
+Region 0 deliberately produces negative values, so replacing ReLU with a raw
+copy cannot pass the region 1 numerical reference. `coralctl
+host-tensor-unary` is the initial CPU Host-pipeline entry point; it validates
+the FP32 Tensor file and produces a separate output file. A successful mixed
+runtime acceptance adds:
 
 ```text
 xgraph_module_regions_completed=2
-xgraph_module_tensor_edges=1
+xgraph_module_direct_edges=0
+xgraph_module_host_bindings=1
+xgraph_module_host_pipeline=relax.nn.relu
 xgraph_module_chain=PASS
 ```
 

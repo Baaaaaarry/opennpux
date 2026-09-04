@@ -1450,6 +1450,13 @@ Host 算子。Resolver 只接收 region/tensor 标识和已验证的生产者输
 Runtime 必须注入 `host_executor` 才能消费该 binding。当前 19 项本地测试通过；下一次真实 TVM
 验收必须确认 2 个 NPU region、0 条 direct edge 和 1 条 `relax.nn.relu` Host binding。
 
+Guest 验收现已从直接 `TADD -> TSILU` 升级为真实混合链
+`TADD -> CPU ReLU -> TSILU`。新增 `coralctl host-tensor-unary` 作为首个通用 Host Tensor
+pipeline 执行入口，当前注册 FP32 ReLU；输入刻意使 TADD 产生负值，若跳过 ReLU 或只 memcpy，
+TSILU reference 比较必然失败。新验收输出必须包含 `host_tensor_run=PASS`、
+`xgraph_module_direct_edges=0`、`xgraph_module_host_bindings=1` 和
+`xgraph_module_host_pipeline=relax.nn.relu`。
+
 修正后的 GB10 验收进一步补齐 driver 级 Shared DMA Window 与 Local EXTMEM 双向显式同步，
 并在数值比较前强制验证 firmware checksum 与回读 checksum 一致，从而排除直接比较 shared
 window 中预置 reference 的假阳性。最终 6 条命令全部完成，设备与回读 checksum 均为

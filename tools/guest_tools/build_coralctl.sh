@@ -9,8 +9,8 @@
 #
 # coralctl is the primary guest-side NPU interface.  It auto-selects the
 # transport: /dev/opennpux-coral driver when available, /dev/mem otherwise.
-# Supported commands: info, run, dma-test, vector-add, mem-info, mem-clear,
-# mem-read32, mem-write32.
+# Supported commands include device control, XGraph execution, Host Tensor
+# fallback, shared-memory inspection and model execution.
 #
 # Pipeline:
 #   runtime/host/src/coral_runtime.c  ─┐

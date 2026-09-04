@@ -446,6 +446,7 @@ usage(const char *prog)
             "  %s xopennpux-graph-test [base [poll-count]]\n"
             "  %s xgraph-run <graph.npxg> <arena.bin> "
             "[base [poll-count]]\n"
+            "  %s host-tensor-unary <relu> <input.bin> <output.bin>\n"
             "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
@@ -455,7 +456,79 @@ usage(const char *prog)
             "features: qwen-run-tcb-v2 qwen-device-run-v1\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog, prog);
+            prog, prog, prog);
+}
+
+static int
+print_host_tensor_unary(const char *operation, const char *input_path,
+                        const char *output_path)
+{
+    if (strcmp(operation, "relu") != 0) {
+        fprintf(stderr, "unsupported Host Tensor unary operation: %s\n",
+                operation);
+        return 2;
+    }
+    FILE *input = fopen(input_path, "rb");
+    if (input == NULL || fseek(input, 0, SEEK_END) != 0) {
+        if (input != NULL) {
+            fclose(input);
+        }
+        perror("host-tensor-unary input");
+        return 1;
+    }
+    const long length = ftell(input);
+    if (length <= 0 || (length % (long)sizeof(float)) != 0 ||
+        fseek(input, 0, SEEK_SET) != 0) {
+        fclose(input);
+        errno = EINVAL;
+        perror("host-tensor-unary input");
+        return 1;
+    }
+    float *values = malloc((size_t)length);
+    if (values == NULL ||
+        fread(values, 1, (size_t)length, input) != (size_t)length ||
+        ferror(input)) {
+        const int saved_errno = values == NULL ? errno : EIO;
+        free(values);
+        fclose(input);
+        errno = saved_errno;
+        perror("host-tensor-unary read");
+        return 1;
+    }
+    fclose(input);
+    const size_t elements = (size_t)length / sizeof(*values);
+    for (size_t index = 0; index < elements; ++index) {
+        if (values[index] < 0.0f) {
+            values[index] = 0.0f;
+        }
+    }
+    FILE *output = fopen(output_path, "wb");
+    if (output == NULL) {
+        const int saved_errno = errno;
+        free(values);
+        errno = saved_errno;
+        perror("host-tensor-unary write");
+        return 1;
+    }
+    if (fwrite(values, 1, (size_t)length, output) != (size_t)length) {
+        fclose(output);
+        free(values);
+        errno = EIO;
+        perror("host-tensor-unary write");
+        return 1;
+    }
+    if (fclose(output) != 0) {
+        free(values);
+        perror("host-tensor-unary write");
+        return 1;
+    }
+    printf("host_tensor_operation=%s\n", operation);
+    printf("host_tensor_elements=%zu\n", elements);
+    printf("host_tensor_checksum=0x%08" PRIx32 "\n",
+           byte_checksum(values, (size_t)length));
+    printf("host_tensor_run=PASS\n");
+    free(values);
+    return 0;
 }
 
 static int
@@ -2186,6 +2259,8 @@ main(int argc, char **argv)
     const int command_xgraph_test =
         strcmp(argv[1], "xopennpux-graph-test") == 0;
     const int command_xgraph_run = strcmp(argv[1], "xgraph-run") == 0;
+    const int command_host_tensor_unary =
+        strcmp(argv[1], "host-tensor-unary") == 0;
     const int command_mobilenet_test =
         strcmp(argv[1], "mobilenet-test") == 0;
     const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
@@ -2200,6 +2275,7 @@ main(int argc, char **argv)
         !command_qwen_stage_tcb && !command_qwen_run_tcb &&
         !command_qwen_device_run &&
         !command_generic_test && !command_xgraph_test && !command_xgraph_run &&
+        !command_host_tensor_unary &&
         !command_mobilenet_test &&
         !command_mem_info && !command_mem_clear && !command_mem_load &&
         !command_mem_read32 &&
@@ -2223,6 +2299,7 @@ main(int argc, char **argv)
         (command_qwen_device_run && (argc < 4 || argc > 6)) ||
         ((command_generic_test || command_xgraph_test) && argc > 4) ||
         (command_xgraph_run && (argc < 4 || argc > 6)) ||
+        (command_host_tensor_unary && argc != 5) ||
         (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
@@ -2241,6 +2318,9 @@ main(int argc, char **argv)
     }
     if (command_qwen_run) {
         return print_qwen_run(argv[2], argc >= 4 ? argv[3] : NULL);
+    }
+    if (command_host_tensor_unary) {
+        return print_host_tensor_unary(argv[2], argv[3], argv[4]);
     }
 
     uint64_t base = OPENNPUX_CORAL_DEFAULT_BASE;

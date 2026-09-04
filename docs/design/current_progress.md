@@ -1366,3 +1366,11 @@ arena，当前参考输出 checksum 为 `0xbcd03dc5`。
 `run_tvm_byoc_xgraph_test.sh` 用于 x86/GB10 全系统验收：自动注入 `.npxg`、arena 和当前
 `coralctl` 到 checkpoint，要求 `TMMA/TADD/TSILU/TSOFTMAX` 均经 Coral firmware 的
 XOpenNPUX 通路完成，并要求 Guest 输出 checksum 与主机参考一致。
+
+GB10 全系统验收已通过。Guest 从 checkpoint 加载与当前 `vmlinux` 匹配的
+`opennpux_coral.ko`，通过 `/dev/opennpux-coral` 将 artifact 与 arena 发布到 8 MiB
+shared DMA window。Coral firmware 完成 4 条 command，返回 24-byte 输出、
+`operation_count=72`、`modeled_cycles=72` 和 `output_checksum=0xbcd03dc5`；checksum
+与 Host C 独立参考一致，`xgraph_artifact_run=PASS` 与 `tvm_byoc_xgraph=PASS`
+均已确认。至此该阶段完成了“Relax -> BYOC -> XGraph -> Guest Runtime ->
+Coral firmware -> XOpenNPUX -> 结果回传”的真实系统闭环。

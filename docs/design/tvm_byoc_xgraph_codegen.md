@@ -168,5 +168,24 @@ injects the same `.npxg` and arena into the Linux checkpoint. Acceptance
 requires four firmware-dispatched XOpenNPUX operations (`tmma`, `tadd`,
 `tsilu`, `tsoftmax`) and an exact output checksum match.
 
+The GB10 full-system acceptance result is:
+
+```text
+xgraph_state=0x00000003
+xgraph_error=0
+xgraph_completed_commands=4
+xgraph_output_bytes=24
+xgraph_output_checksum=0xbcd03dc5
+xgraph_operation_count=72
+xgraph_modeled_cycles=72
+xgraph_artifact_run=PASS
+tvm_byoc_xgraph=PASS
+```
+
+The resume script loads the checkpoint-preloaded `opennpux_coral.ko` before
+opening `/dev/opennpux-coral`. The module and simulated `vmlinux` must come
+from the same kernel build; otherwise the test fails before artifact staging
+and prints the `insmod` error.
+
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

@@ -35,6 +35,18 @@ trap 'rm -f "${TEST_SCRIPT}"' EXIT
 cat >"${TEST_SCRIPT}" <<'EOF'
 #!/bin/sh
 set -eu
+mkdir -p /proc /sys /tmp /dev
+[ -r /proc/mounts ] || mount -t proc proc /proc 2>/dev/null || true
+is_mounted()
+{
+    while read -r _source target _rest; do
+        [ "${target}" = "$1" ] && return 0
+    done </proc/mounts
+    return 1
+}
+is_mounted /sys || mount -t sysfs sysfs /sys 2>/dev/null || true
+is_mounted /tmp || mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+is_mounted /dev || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 fail()
 {
     echo "[tvm-byoc-xgraph] FAIL: $*"
@@ -49,6 +61,21 @@ decode_base64()
     else fail 'base64 decoder missing'
     fi
 }
+[ -f /tmp/coralnpu-baseline-preload.ready ] || fail 'stale checkpoint'
+[ -f /tmp/opennpux_coral.ko ] || fail 'kernel module missing'
+[ -x /tmp/busybox ] || fail 'BusyBox missing'
+if [ ! -c /dev/opennpux-coral ]; then
+    /tmp/busybox insmod /tmp/opennpux_coral.ko \
+        2>/tmp/opennpux-coral-insmod.err || true
+fi
+if [ ! -c /dev/opennpux-coral ]; then
+    if [ -r /tmp/opennpux-coral-insmod.err ]; then
+        while IFS= read -r line; do
+            echo "[tvm-byoc-xgraph] insmod: ${line}"
+        done </tmp/opennpux-coral-insmod.err
+    fi
+    fail '/dev/opennpux-coral missing; module and vmlinux must match'
+fi
 decode_base64 >/tmp/tvm-model.npxg <<'OPENNPUX_TVM_GRAPH_EOF'
 EOF
 base64 "${GRAPH}" >>"${TEST_SCRIPT}"
@@ -65,11 +92,23 @@ OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver /tmp/coralctl xgraph-run \
     fail 'artifact execution failed'
 }
 printf '%s\n' "\${OUTPUT}"
-printf '%s\n' "\${OUTPUT}" | grep -qx 'xgraph_completed_commands=4' ||
+has_output_line()
+{
+    expected="\$1"
+    while IFS= read -r line; do
+        case "\${line}" in
+            "\${expected}"*) return 0 ;;
+        esac
+    done <<OPENNPUX_OUTPUT_EOF
+\${OUTPUT}
+OPENNPUX_OUTPUT_EOF
+    return 1
+}
+has_output_line 'xgraph_completed_commands=4' ||
     fail 'unexpected command completion count'
-printf '%s\n' "\${OUTPUT}" | grep -qx 'xgraph_output_checksum=${EXPECTED_CHECKSUM}' ||
+has_output_line 'xgraph_output_checksum=${EXPECTED_CHECKSUM}' ||
     fail 'output checksum differs from host reference'
-printf '%s\n' "\${OUTPUT}" | grep -qx 'xgraph_artifact_run=PASS' ||
+has_output_line 'xgraph_artifact_run=PASS' ||
     fail 'runtime PASS verdict missing'
 echo 'tvm_byoc_xgraph=PASS'
 echo '[tvm-byoc-xgraph] PASS'

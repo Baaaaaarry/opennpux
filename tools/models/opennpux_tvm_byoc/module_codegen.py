@@ -151,6 +151,8 @@ def compile_module(
             "to_region": target_region,
             "to_tensor": target_tensor,
             "bytes": 4 * _product(source["shape"]),
+            "shape": source["shape"],
+            "dtype": source["dtype"],
             "pipeline": normalized_pipeline,
         })
         if target_region not in successors[source_region]:

@@ -79,14 +79,14 @@ symbolic generic-request serialization, so GPTQ and fused operators can invoke
 the same lowering after runtime addresses and dynamic dimensions are
 materialized.
 
-Multiple OpenNPUX regions mixed with host regions are also deferred. That step
-is now split into two explicit layers. The compiler layer exports every region
+Multiple OpenNPUX regions mixed with host regions are split into two explicit
+layers. The compiler layer exports every region
 as an independent `.npxg` plus `module.npxgm.json`; the manifest records
-topological submission order, external inputs and direct NPU-to-NPU Tensor
-edges. The remaining runtime layer must stage each region, execute Host regions
-between NPU submissions, wait on completion/fences, and publish output Tensor
-bindings. Keeping those responsibilities separate prevents compiler artifacts
-from embedding a particular Host scheduler.
+topological submission order, external inputs, direct NPU-to-NPU Tensor edges,
+and ordered Host pipelines. The runtime layer stages each region, executes Host
+operations between NPU submissions, waits on completion, and publishes output
+Tensor bindings. Keeping those responsibilities separate prevents compiler
+artifacts from embedding a particular Host scheduler.
 
 Compile a normalized multi-region module or a TVM IRModule with:
 
@@ -110,6 +110,26 @@ the consumer executes, and returns all module-boundary outputs. Device execution
 is an injected callback rather than Python operator code, so the same scheduler
 contract can be tested with a functional executor and then implemented by the
 Coral driver or TVM C++ runtime without changing artifacts.
+
+`run_tvm_byoc_module.py` is the first generic manifest consumer. It binds raw
+Tensor files, submits every NPU region through `coralctl xgraph-run`, executes
+the manifest Host pipeline, and writes module outputs only after verified
+device readback. For example:
+
+```bash
+python3 tools/models/run_tvm_byoc_module.py build/model-regions \
+  --coralctl /usr/local/bin/coralctl \
+  --transport driver \
+  --bind residual.lhs=lhs.bin \
+  --bind residual.rhs=rhs.bin \
+  --output-dir build/model-output
+```
+
+The initial Host operation registry contains only FP32
+`relax.nn.relu`. Unsupported operations and invalid dtype/byte-size contracts
+fail explicitly. This Python runner is a reference scheduler for a Host OS
+with Python; the production Guest path still requires an equivalent static C
+runtime rather than embedding Python in the checkpoint.
 
 The normalized Codegen boundary already encodes `TOPK`, `ROPE`, and contiguous
 copy commands. The initial automatic Relax pattern table excludes `TOPK`
@@ -303,9 +323,12 @@ xgraph_module_chain=PASS
 ```
 
 This acceptance is now verified on GB10. Region 0 reported matching firmware,
-readback and reference checksums (`0x644b35ab`) with zero numerical error;
-region 1 completed the chain with `operation_count=24` and
-`modeled_cycles=24`.
+readback and reference checksums (`0x119b1ae5`) with zero numerical error. The
+CPU ReLU processed eight elements and reported `host_tensor_run=PASS`. Region 1
+reported firmware/readback checksum `0x4983e4f0`, maximum absolute error
+`2.38418579e-07`, `operation_count=24`, and `modeled_cycles=24`. The module
+summary confirmed two regions, zero direct edges, one Host binding, and the
+`relax.nn.relu` pipeline.
 
 For a mixed TVM graph, a Host operation is not represented as a direct NPU
 edge. `ModuleRuntime` accepts a model-independent binding resolver which runs

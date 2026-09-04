@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import struct
 import subprocess
 import tempfile
 from typing import Any, Callable
@@ -16,6 +17,30 @@ from .xgraph_codegen import CodegenError
 RegionExecutor = Callable[[str, bytes, bytearray, dict[str, Any]], None]
 BindingResolver = Callable[[str, str, dict[str, bytes]], bytes | None]
 HostExecutor = Callable[[dict[str, Any], bytes], bytes]
+
+
+class HostPipelineExecutor:
+    """Execute manifest Host pipelines without introducing model semantics."""
+
+    def __init__(self) -> None:
+        self.completed_bindings = 0
+        self.completed_operations = 0
+        self.completed_elements = 0
+
+    def __call__(self, binding: dict[str, Any], data: bytes) -> bytes:
+        if binding.get("dtype") != "float32" or len(data) % 4 != 0:
+            raise CodegenError("Host pipeline currently requires float32 Tensors")
+        values = list(struct.unpack(f"<{len(data) // 4}f", data))
+        for operation in binding.get("pipeline", []):
+            op_name = operation.get("op")
+            if op_name == "relax.nn.relu":
+                values = [max(value, 0.0) for value in values]
+            else:
+                raise CodegenError(f"unsupported Host pipeline operation {op_name}")
+            self.completed_operations += 1
+        self.completed_bindings += 1
+        self.completed_elements += len(values)
+        return struct.pack(f"<{len(values)}f", *values)
 
 
 class CoralCtlExecutor:

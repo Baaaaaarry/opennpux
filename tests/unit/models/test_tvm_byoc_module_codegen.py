@@ -2,6 +2,7 @@ import copy
 import json
 import math
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -15,6 +16,7 @@ from opennpux_tvm_byoc import CodegenError  # noqa: E402
 from opennpux_tvm_byoc.module_codegen import compile_module  # noqa: E402
 from opennpux_tvm_byoc.module_runtime import (  # noqa: E402
     CoralCtlExecutor,
+    HostPipelineExecutor,
     ModuleRuntime,
 )
 
@@ -186,6 +188,8 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         artifacts, manifest = compile_module(module)
         self.assertEqual(manifest["execution_order"], ["residual", "activation"])
         self.assertEqual(manifest["regions"][1]["external_bindings"], [])
+        self.assertEqual(manifest["host_bindings"][0]["shape"], [2, 4])
+        self.assertEqual(manifest["host_bindings"][0]["dtype"], "float32")
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / "module.npxgm.json").write_text(
@@ -210,14 +214,8 @@ class XGraphModuleCodegenTest(unittest.TestCase):
                     output_name = "output"
                 struct.pack_into("<8f", arena, tensors[output_name]["offset"], *result)
 
-            def execute_host(binding, data):
-                self.assertEqual(
-                    binding["pipeline"], [{"op": "relax.nn.relu", "attrs": {}}]
-                )
-                values = struct.unpack("<8f", data)
-                return struct.pack("<8f", *(max(value, 0.0) for value in values))
-
-            runtime = ModuleRuntime(directory, execute, host_executor=execute_host)
+            host = HostPipelineExecutor()
+            runtime = ModuleRuntime(directory, execute, host_executor=host)
             runtime.bind("residual", "lhs", struct.pack("<8f", *range(-4, 4)))
             runtime.bind("residual", "rhs", struct.pack("<8f", *([1.0] * 8)))
             outputs = runtime.run()
@@ -226,6 +224,18 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             expected = [value / (1.0 + math.exp(-value)) for value in expected_input]
             for lhs, rhs in zip(actual, expected):
                 self.assertAlmostEqual(lhs, rhs, places=6)
+            self.assertEqual(host.completed_bindings, 1)
+            self.assertEqual(host.completed_operations, 1)
+            self.assertEqual(host.completed_elements, 8)
+
+    def test_host_pipeline_rejects_unsupported_operation(self):
+        executor = HostPipelineExecutor()
+        binding = {
+            "dtype": "float32",
+            "pipeline": [{"op": "relax.nn.gelu", "attrs": {}}],
+        }
+        with self.assertRaisesRegex(CodegenError, "unsupported Host pipeline"):
+            executor(binding, struct.pack("<f", 1.0))
 
     def test_runtime_rejects_missing_host_executor(self):
         module = self.load_fixture()
@@ -299,6 +309,89 @@ print('xgraph_output_readback=PASS')
             expected = [value / (1.0 + math.exp(-value)) for value in range(1, 9)]
             self.assertEqual(len(executor.logs), 2)
             self.assertTrue(all("xgraph_output_readback=PASS" in log for log in executor.logs))
+            for lhs, rhs in zip(actual, expected):
+                self.assertAlmostEqual(lhs, rhs, places=6)
+
+    def test_module_runner_executes_manifest_host_pipeline(self):
+        module = self.load_fixture()
+        module["regions"].reverse()
+        module["edges"] = []
+        module["host_bindings"] = [
+            {
+                "from": {"region": "residual", "tensor": "sum"},
+                "to": {"region": "activation", "tensor": "input"},
+                "pipeline": [{"op": "relax.nn.relu", "attrs": {}}],
+            }
+        ]
+        artifacts, manifest = compile_module(module)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            module_dir = directory / "module"
+            output_dir = directory / "outputs"
+            module_dir.mkdir()
+            (module_dir / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            for region in manifest["regions"]:
+                binary, metadata = artifacts[region["name"]]
+                path = module_dir / region["artifact"]
+                path.write_bytes(binary)
+                Path(f"{path}.json").write_text(
+                    json.dumps(metadata), encoding="utf-8"
+                )
+            fake = directory / "coralctl"
+            fake.write_text(
+                """#!/usr/bin/env python3
+import math, os, struct, sys
+graph = open(sys.argv[2], 'rb').read()
+arena = bytearray(open(sys.argv[3], 'rb').read())
+command = struct.unpack_from('<16I', graph, 96)
+opcode, destination, source0, source1 = command[0], command[2], command[3], command[4]
+count = command[5] * command[6]
+lhs = struct.unpack_from(f'<{count}f', arena, source0)
+if opcode == 2:
+    rhs = struct.unpack_from(f'<{count}f', arena, source1)
+    result = [a + b for a, b in zip(lhs, rhs)]
+elif opcode == 7:
+    result = [value / (1.0 + math.exp(-value)) for value in lhs]
+else:
+    raise SystemExit(2)
+open(os.environ['OPENNPUX_XGRAPH_OUTPUT_PATH'], 'wb').write(struct.pack(f'<{count}f', *result))
+print('xgraph_output_readback=PASS')
+""",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            lhs_path = directory / "lhs.bin"
+            rhs_path = directory / "rhs.bin"
+            lhs_path.write_bytes(struct.pack("<8f", *range(-4, 4)))
+            rhs_path.write_bytes(struct.pack("<8f", *([1.0] * 8)))
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools/models/run_tvm_byoc_module.py"),
+                    str(module_dir),
+                    "--coralctl",
+                    str(fake),
+                    "--bind",
+                    f"residual.lhs={lhs_path}",
+                    "--bind",
+                    f"residual.rhs={rhs_path}",
+                    "--output-dir",
+                    str(output_dir),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("xgraph_module_host_bindings_completed=1", completed.stdout)
+            self.assertIn("xgraph_module_run=PASS", completed.stdout)
+            actual = struct.unpack(
+                "<8f", (output_dir / "activation.output.bin").read_bytes()
+            )
+            expected_input = [max(float(value + 1), 0.0) for value in range(-4, 4)]
+            expected = [value / (1.0 + math.exp(-value)) for value in expected_input]
             for lhs, rhs in zip(actual, expected):
                 self.assertAlmostEqual(lhs, rhs, places=6)
 

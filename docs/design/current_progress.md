@@ -1463,3 +1463,16 @@ window 中预置 reference 的假阳性。最终 6 条命令全部完成，设�
 `0xaeedc3a1`，独立 reference checksum 为 `0x40f42b1d`，逐元素最大绝对误差
 `1.60336494e-05 < 5e-5`，`operation_count=32896`、`modeled_cycles=32896`，Guest、artifact
 和系统验收全部 PASS。该结果形成后续多 BYOC region、动态 binding 与复合算子接入的可信基线。
+
+最新 GB10 验收已证明真实混合拓扑可执行：region 0 的 TADD 对含负数输入计算并以
+`0x119b1ae5` 完成设备回读校验，CPU Host pipeline 对 8 个 FP32 元素执行 ReLU，region 1
+的 TSILU 输出回读 checksum 为 `0x4983e4f0`，相对独立参考最大绝对误差仅
+`2.38418579e-07`。最终统计为 2 个 NPU region、0 条 direct edge、1 条 Host binding，
+`xgraph_module_chain=PASS`。
+
+在此基础上新增通用 `run_tvm_byoc_module.py`：直接读取 `module.npxgm.json`，通过
+`--bind region.tensor=file` 绑定 invocation Tensor，按 manifest 拓扑调用
+`coralctl xgraph-run`，解释 Host operation pipeline，并将完成设备回读验证的 module output
+写入指定目录。首个 Host registry 支持 FP32 `relax.nn.relu`，未知算子、dtype 或尺寸不匹配
+均硬失败。该 Python 实现是调度契约和 Host OS 参考 runtime；后续仍需实现等价静态 C Guest
+runtime，不能把 Python 作为最终 checkpoint 依赖。

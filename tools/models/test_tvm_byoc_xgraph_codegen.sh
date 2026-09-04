@@ -93,6 +93,9 @@ assert len(manifest["host_bindings"]) == 1
 host_binding = manifest["host_bindings"][0]
 assert host_binding["pipeline"] == [{"op": "relax.nn.relu", "attrs": {}}]
 assert host_binding["bytes"] == 32
+print("xgraph_module_direct_edges=0")
+print("xgraph_module_host_bindings=1")
+print("xgraph_module_host_pipeline=relax.nn.relu")
 PY
     "${TVM_PYTHON}" "${SCRIPT_DIR}/build_xgraph_tensor_image.py" \
         "${BUILD_DIR}/relax-model.npxg.json" \

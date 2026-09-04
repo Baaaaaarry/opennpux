@@ -57,6 +57,7 @@ PY
 REGION1_INPUT_OFFSET="$("${TVM_PYTHON:-python3}" -c \
     'import json,sys; print(next(t["offset"] for t in json.load(open(sys.argv[1]))["tensors"] if t["name"] == "input"))' \
     "${REGION1_GRAPH}.json")"
+REGION1_ARENA_SIZE="$(wc -c <"${REGION1_ARENA}")"
 EXPECTED_CHECKSUM="$(sed -n \
     's/^xgraph_output_checksum=\(0x[0-9a-fA-F]*\)$/\1/p' \
     "${LOCAL_LOG}" | tail -n 1)"
@@ -198,9 +199,27 @@ has_output_line 'xgraph_output_reference=PASS' ||
     fail 'module region 0 reference mismatch'
 [ "\$(wc -c </tmp/tvm-region0.output.bin)" -eq 32 ] ||
     fail 'module region 0 output size mismatch'
-/tmp/busybox dd if=/tmp/tvm-region0.output.bin \
-    of=/tmp/tvm-region1.arena.bin bs=1 seek=${REGION1_INPUT_OFFSET} \
-    conv=notrunc 2>/dev/null || fail 'module Tensor edge copy failed'
+if command -v dd >/dev/null 2>&1; then
+    DD_BIN="\$(command -v dd)"
+    DD_APPLET=
+elif /tmp/busybox dd --help >/dev/null 2>&1; then
+    DD_BIN=/tmp/busybox
+    DD_APPLET=dd
+else
+    fail 'module Tensor edge copy requires dd'
+fi
+if ! "\${DD_BIN}" \${DD_APPLET} if=/tmp/tvm-region0.output.bin \
+    of=/tmp/tvm-region1.arena.bin bs=32 count=1 \
+    seek=$((REGION1_INPUT_OFFSET / 32)) conv=notrunc \
+    2>/tmp/tvm-edge-copy.err; then
+    [ ! -r /tmp/tvm-edge-copy.err ] ||
+        while IFS= read -r line; do
+            echo "[tvm-byoc-xgraph] edge-copy: \${line}"
+        done </tmp/tvm-edge-copy.err
+    fail 'module Tensor edge copy failed'
+fi
+[ "\$(wc -c </tmp/tvm-region1.arena.bin)" -eq ${REGION1_ARENA_SIZE} ] ||
+    fail 'module region 1 arena size changed during edge copy'
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     OPENNPUX_XGRAPH_OUTPUT_PATH=/tmp/tvm-region1.output.bin \

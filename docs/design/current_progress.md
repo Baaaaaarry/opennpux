@@ -1429,6 +1429,11 @@ region 写入独立 artifact/arena，通过 `OPENNPUX_XGRAPH_OUTPUT_PATH` 取回
 `xgraph_module_regions_completed=2`、`xgraph_module_tensor_edges=1` 和
 `xgraph_module_chain=PASS`。这验证的是跨两次设备提交的数据依赖闭环，而不是 Python 内存回调。
 
+首次 GB10 多 region 运行确认 region 0 的设备执行、EXTMEM 回读与 reference 比较均通过，但
+checkpoint 中注入的精简 BusyBox 不提供 `dd` applet，导致中间 Tensor 文件绑定失败。测试现
+优先使用 Guest coreutils `dd`，仅在确认 BusyBox 支持该 applet 时回退；复制采用 32-byte
+Tensor block seek，写后校验 region 1 arena 大小，并在失败时保留原始 stderr。
+
 修正后的 GB10 验收进一步补齐 driver 级 Shared DMA Window 与 Local EXTMEM 双向显式同步，
 并在数值比较前强制验证 firmware checksum 与回读 checksum 一致，从而排除直接比较 shared
 window 中预置 reference 的假阳性。最终 6 条命令全部完成，设备与回读 checksum 均为

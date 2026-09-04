@@ -2410,6 +2410,19 @@ opennpux_coral_run_xgraph_artifact(
         return -1;
     }
     memset(result, 0, sizeof(*result));
+    float output_tolerance = 0.0f;
+    const char *tolerance_text =
+        getenv("OPENNPUX_XGRAPH_OUTPUT_TOLERANCE");
+    if (tolerance_text != NULL && tolerance_text[0] != '\0') {
+        char *end = NULL;
+        errno = 0;
+        output_tolerance = strtof(tolerance_text, &end);
+        if (errno != 0 || end == tolerance_text || *end != '\0' ||
+            !isfinite(output_tolerance) || output_tolerance <= 0.0f) {
+            errno = EINVAL;
+            return -1;
+        }
+    }
     struct opennpux_xgraph_artifact artifact;
     if (opennpux_xgraph_artifact_load(graph_path, &artifact) != 0) {
         return -1;
@@ -2476,6 +2489,45 @@ opennpux_coral_run_xgraph_artifact(
         result->output_bytes != artifact.header->output_bytes) {
         errno = EIO;
         goto out;
+    }
+    if (output_tolerance > 0.0f) {
+        if ((result->output_offset & (sizeof(float) - 1)) != 0 ||
+            (result->output_bytes & (sizeof(float) - 1)) != 0) {
+            errno = EINVAL;
+            goto out;
+        }
+        const uint8_t *reference = arena + result->output_offset;
+        uint8_t *actual = malloc(result->output_bytes);
+        if (actual == NULL) {
+            goto out;
+        }
+        copy_from_volatile_bytes(actual,
+                                 window.bytes + result->output_offset,
+                                 result->output_bytes);
+        result->reference_checksum =
+            checksum_bytes(reference, result->output_bytes);
+        result->output_reference_compared = 1;
+        for (uint32_t offset = 0; offset < result->output_bytes;
+             offset += sizeof(float)) {
+            float actual_value;
+            float reference_value;
+            memcpy(&actual_value, actual + offset, sizeof(actual_value));
+            memcpy(&reference_value, reference + offset,
+                   sizeof(reference_value));
+            if (!isfinite(actual_value) || !isfinite(reference_value)) {
+                result->output_max_abs_error = INFINITY;
+                break;
+            }
+            result->output_max_abs_error = fmaxf(
+                result->output_max_abs_error,
+                fabsf(actual_value - reference_value));
+        }
+        free(actual);
+        if (!isfinite(result->output_max_abs_error) ||
+            result->output_max_abs_error > output_tolerance) {
+            errno = ERANGE;
+            goto out;
+        }
     }
     rc = 0;
 

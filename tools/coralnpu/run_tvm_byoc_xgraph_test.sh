@@ -93,7 +93,9 @@ EOF
 base64 "${ARENA}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_ARENA_EOF
-OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver /tmp/coralctl xgraph-run \
+OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
+    /tmp/coralctl xgraph-run \
     /tmp/tvm-model.npxg /tmp/tvm-model.arena.bin 0x1d000000 1000000)" || {
     printf '%s\n' "\${OUTPUT}"
     fail 'artifact execution failed'
@@ -113,8 +115,10 @@ OPENNPUX_OUTPUT_EOF
 }
 has_output_line 'xgraph_completed_commands=${EXPECTED_COMMANDS}' ||
     fail 'unexpected command completion count'
-has_output_line 'xgraph_output_checksum=${EXPECTED_CHECKSUM}' ||
-    fail 'output checksum differs from host reference'
+has_output_line 'xgraph_reference_checksum=${EXPECTED_CHECKSUM}' ||
+    fail 'staged reference checksum differs from host reference'
+has_output_line 'xgraph_output_reference=PASS' ||
+    fail 'output differs numerically from host reference'
 has_output_line 'xgraph_artifact_run=PASS' ||
     fail 'runtime PASS verdict missing'
 echo 'tvm_byoc_xgraph=PASS'

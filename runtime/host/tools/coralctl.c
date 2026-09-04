@@ -2094,6 +2094,14 @@ print_xgraph_run(struct opennpux_coral_device *dev, uint32_t entry,
     printf("xgraph_output_bytes=%" PRIu32 "\n", result.output_bytes);
     printf("xgraph_output_checksum=0x%08" PRIx32 "\n",
            result.output_checksum);
+    if (result.output_reference_compared != 0) {
+        printf("xgraph_reference_checksum=0x%08" PRIx32 "\n",
+               result.reference_checksum);
+        printf("xgraph_output_max_abs_error=%.9g\n",
+               result.output_max_abs_error);
+        printf("xgraph_output_reference=%s\n",
+               run_result == 0 ? "PASS" : "FAIL");
+    }
     printf("xgraph_operation_count=%" PRIu64 "\n", result.operation_count);
     printf("xgraph_modeled_cycles=%" PRIu64 "\n", result.modeled_cycles);
     if (run_result != 0) {

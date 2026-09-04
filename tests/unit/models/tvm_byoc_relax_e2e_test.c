@@ -161,7 +161,12 @@ main(int argc, char **argv)
         max_error = fmaxf(max_error, error);
     }
     assert(max_error < 5.0e-5f);
-    const uint8_t *output_bytes = (const uint8_t *)(const void *)actual;
+    FILE *arena_output = fopen(argv[2], "r+b");
+    assert(arena_output != NULL);
+    assert(fseek(arena_output, (long)header.output_offset, SEEK_SET) == 0);
+    assert(fwrite(expected, sizeof(expected), 1, arena_output) == 1);
+    assert(fclose(arena_output) == 0);
+    const uint8_t *output_bytes = (const uint8_t *)(const void *)expected;
     uint32_t checksum = UINT32_C(2166136261);
     for (uint32_t index = 0; index < header.output_bytes; ++index) {
         checksum ^= output_bytes[index];

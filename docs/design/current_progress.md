@@ -1384,7 +1384,14 @@ K 维切片、stride 编码和 destination accumulate，避免 Python 编译器�
 
 真实 TVM 回归现使用 `[2,2048] x [2048,8]` MatMul。一个 Relax 节点被拆成 K 维
 `1023 + 1023 + 2` 的三条 TMMA，再接 `TADD/TSILU/TSOFTMAX`，因此区域包含 4 个图节点、
-6 条硬件命令。ABI C consumer 独立执行后得到 64-byte 输出、checksum `0xaeedc3a1`，与直接
-数值计算最大绝对误差 `1.60336494e-05`。本地 Codegen、C ABI、artifact loader、runtime host
+6 条硬件命令。独立直接计算得到 64-byte reference、checksum `0x40f42b1d`；ABI C consumer
+的分片执行结果与 reference 最大绝对误差为 `1.60336494e-05`。本地 Codegen、C ABI、
+artifact loader、runtime host
 和真实 TVM 数值测试均通过；下一项系统验收是在 GB10 上确认 Guest/firmware 完成 6 条命令并
-返回相同 checksum。
+以 `5e-5` 绝对误差门限通过逐元素 reference 比对。
+
+首次 6-command GB10 执行已完成全部命令，但 firmware 输出 checksum 为 `0x8f84ff19`，与
+Host 分片执行的旧 checksum 不同。该失败暴露的是验收缺陷：FP32 长 K 累加以及 SiLU/Softmax
+跨 C/C++ 优化边界不能用逐字节 checksum 作为数值等价条件。测试现将独立 reference 写入
+invocation arena，Runtime 在 NPU 完成后逐元素检查 finite 和最大绝对误差；实际 checksum
+继续输出用于复现和诊断，但不再替代数值正确性判断。

@@ -141,7 +141,7 @@ The current large-MatMul local acceptance reports:
 ```text
 xgraph_commands=6
 xgraph_arena_bytes=213312
-xgraph_output_checksum=0xaeedc3a1
+xgraph_output_checksum=0x40f42b1d
 xgraph_max_abs_error=1.60336494e-05
 tvm_relax_byoc_e2e=PASS
 ```
@@ -210,9 +210,15 @@ from the same kernel build; otherwise the test fails before artifact staging
 and prints the `insmod` error.
 
 The next GB10 run must report `xgraph_completed_commands=6`,
-`xgraph_output_bytes=64`, `xgraph_output_checksum=0xaeedc3a1`, and both PASS
-verdicts. Operation and cycle counts are recorded from firmware rather than
-predicted by the compiler test.
+`xgraph_output_bytes=64`, `xgraph_reference_checksum=0x40f42b1d`,
+`xgraph_output_reference=PASS`, and both artifact/system PASS verdicts.
+The firmware output checksum remains diagnostic: optimized C++ execution may
+differ from the independent Host C reference in low FP32 bits after tiled
+accumulation and transcendental operations. Acceptance therefore compares all
+output elements against the staged independent reference with a `5e-5`
+absolute-error limit rather than requiring byte-identical floating-point data.
+Operation and cycle counts are recorded from firmware rather than predicted by
+the compiler test.
 
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

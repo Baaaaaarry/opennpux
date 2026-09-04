@@ -148,6 +148,8 @@ struct opennpux_coral_xgraph_result {
     uint32_t output_offset;
     uint32_t output_bytes;
     uint32_t output_checksum;
+    uint32_t output_readback_checksum;
+    uint32_t output_readback_verified;
     uint32_t reference_checksum;
     uint32_t output_reference_compared;
     float output_max_abs_error;

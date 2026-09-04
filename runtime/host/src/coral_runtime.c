@@ -318,8 +318,22 @@ int
 opennpux_coral_sync_shared_to_extmem(
     struct opennpux_coral_device *dev, uint32_t offset, uint32_t size)
 {
-    if (dev == NULL || size == 0 ||
-        dev->transport != OPENNPUX_CORAL_TRANSPORT_DEVMEM) {
+    if (dev == NULL || size == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        if ((dev->features & OPENNPUX_CORAL_FEATURE_EXTMEM_SYNC) == 0) {
+            errno = EOPNOTSUPP;
+            return -1;
+        }
+        struct opennpux_coral_ioc_sync sync = {
+            .offset = offset,
+            .size = size,
+        };
+        return ioctl(dev->fd, OPENNPUX_CORAL_IOC_SYNC_TO_EXTMEM, &sync);
+    }
+    if (dev->transport != OPENNPUX_CORAL_TRANSPORT_DEVMEM) {
         errno = EOPNOTSUPP;
         return -1;
     }
@@ -339,8 +353,22 @@ int
 opennpux_coral_sync_extmem_to_shared(
     struct opennpux_coral_device *dev, uint32_t offset, uint32_t size)
 {
-    if (dev == NULL || size == 0 ||
-        dev->transport != OPENNPUX_CORAL_TRANSPORT_DEVMEM) {
+    if (dev == NULL || size == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (dev->transport == OPENNPUX_CORAL_TRANSPORT_DRIVER) {
+        if ((dev->features & OPENNPUX_CORAL_FEATURE_EXTMEM_SYNC) == 0) {
+            errno = EOPNOTSUPP;
+            return -1;
+        }
+        struct opennpux_coral_ioc_sync sync = {
+            .offset = offset,
+            .size = size,
+        };
+        return ioctl(dev->fd, OPENNPUX_CORAL_IOC_SYNC_FROM_EXTMEM, &sync);
+    }
+    if (dev->transport != OPENNPUX_CORAL_TRANSPORT_DEVMEM) {
         errno = EOPNOTSUPP;
         return -1;
     }
@@ -2467,7 +2495,18 @@ opennpux_coral_run_xgraph_artifact(
     copy_to_volatile_bytes(window.bytes + OPENNPUX_XGRAPH_OFFSET,
                            artifact.bytes, artifact.size);
     __sync_synchronize();
+    if (opennpux_coral_sync_shared_to_extmem(
+            dev, 0, (uint32_t)arena_size) != 0) {
+        goto out;
+    }
     if (opennpux_coral_run(dev, entry, polls, &result->device_status) != 0) {
+        goto out;
+    }
+    if (opennpux_coral_sync_extmem_to_shared(
+            dev, OPENNPUX_XGRAPH_OFFSET, (uint32_t)artifact.size) != 0 ||
+        opennpux_coral_sync_extmem_to_shared(
+            dev, artifact.header->output_offset,
+            artifact.header->output_bytes) != 0) {
         goto out;
     }
     __sync_synchronize();
@@ -2490,20 +2529,28 @@ opennpux_coral_run_xgraph_artifact(
         errno = EIO;
         goto out;
     }
+    uint8_t *actual = malloc(result->output_bytes);
+    if (actual == NULL) {
+        goto out;
+    }
+    copy_from_volatile_bytes(actual, window.bytes + result->output_offset,
+                             result->output_bytes);
+    result->output_readback_checksum =
+        checksum_bytes(actual, result->output_bytes);
+    if (result->output_readback_checksum != result->output_checksum) {
+        free(actual);
+        errno = EIO;
+        goto out;
+    }
+    result->output_readback_verified = 1;
     if (output_tolerance > 0.0f) {
         if ((result->output_offset & (sizeof(float) - 1)) != 0 ||
             (result->output_bytes & (sizeof(float) - 1)) != 0) {
+            free(actual);
             errno = EINVAL;
             goto out;
         }
         const uint8_t *reference = arena + result->output_offset;
-        uint8_t *actual = malloc(result->output_bytes);
-        if (actual == NULL) {
-            goto out;
-        }
-        copy_from_volatile_bytes(actual,
-                                 window.bytes + result->output_offset,
-                                 result->output_bytes);
         result->reference_checksum =
             checksum_bytes(reference, result->output_bytes);
         result->output_reference_compared = 1;
@@ -2523,12 +2570,14 @@ opennpux_coral_run_xgraph_artifact(
                 fabsf(actual_value - reference_value));
         }
         free(actual);
+        actual = NULL;
         if (!isfinite(result->output_max_abs_error) ||
             result->output_max_abs_error > output_tolerance) {
             errno = ERANGE;
             goto out;
         }
     }
+    free(actual);
     rc = 0;
 
 out:

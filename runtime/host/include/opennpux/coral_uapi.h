@@ -21,6 +21,7 @@ typedef uint64_t opennpux_coral_u64;
 #define OPENNPUX_CORAL_FEATURE_ASYNC_START (1U << 1)
 #define OPENNPUX_CORAL_FEATURE_POLL_COMPLETION (1U << 2)
 #define OPENNPUX_CORAL_FEATURE_RESET (1U << 3)
+#define OPENNPUX_CORAL_FEATURE_EXTMEM_SYNC (1U << 4)
 
 struct opennpux_coral_ioc_info {
     opennpux_coral_u64 base;
@@ -53,6 +54,11 @@ struct opennpux_coral_ioc_start {
     opennpux_coral_u32 flags;
 };
 
+struct opennpux_coral_ioc_sync {
+    opennpux_coral_u32 offset;
+    opennpux_coral_u32 size;
+};
+
 #define OPENNPUX_CORAL_IOC_GET_INFO \
     _IOR(OPENNPUX_CORAL_IOC_MAGIC, 0x00, struct opennpux_coral_ioc_info)
 #define OPENNPUX_CORAL_IOC_RUN \
@@ -63,5 +69,9 @@ struct opennpux_coral_ioc_start {
     _IOW(OPENNPUX_CORAL_IOC_MAGIC, 0x03, struct opennpux_coral_ioc_start)
 #define OPENNPUX_CORAL_IOC_RESET \
     _IO(OPENNPUX_CORAL_IOC_MAGIC, 0x04)
+#define OPENNPUX_CORAL_IOC_SYNC_TO_EXTMEM \
+    _IOW(OPENNPUX_CORAL_IOC_MAGIC, 0x05, struct opennpux_coral_ioc_sync)
+#define OPENNPUX_CORAL_IOC_SYNC_FROM_EXTMEM \
+    _IOW(OPENNPUX_CORAL_IOC_MAGIC, 0x06, struct opennpux_coral_ioc_sync)
 
 #endif

@@ -52,10 +52,13 @@ main(void)
           "driver capabilities ABI size changed");
     check(sizeof(struct opennpux_coral_ioc_start) == 8,
           "driver start ABI size changed");
+    check(sizeof(struct opennpux_coral_ioc_sync) == 8,
+          "driver sync ABI size changed");
     check((OPENNPUX_CORAL_FEATURE_SHARED_MMAP |
            OPENNPUX_CORAL_FEATURE_ASYNC_START |
            OPENNPUX_CORAL_FEATURE_POLL_COMPLETION |
-           OPENNPUX_CORAL_FEATURE_RESET) == 0xf,
+           OPENNPUX_CORAL_FEATURE_RESET |
+           OPENNPUX_CORAL_FEATURE_EXTMEM_SYNC) == 0x1f,
           "driver feature bits changed");
 
     check(sizeof(struct opennpux_coral_command) ==

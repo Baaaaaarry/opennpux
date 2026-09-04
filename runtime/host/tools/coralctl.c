@@ -2094,6 +2094,10 @@ print_xgraph_run(struct opennpux_coral_device *dev, uint32_t entry,
     printf("xgraph_output_bytes=%" PRIu32 "\n", result.output_bytes);
     printf("xgraph_output_checksum=0x%08" PRIx32 "\n",
            result.output_checksum);
+    printf("xgraph_output_readback_checksum=0x%08" PRIx32 "\n",
+           result.output_readback_checksum);
+    printf("xgraph_output_readback=%s\n",
+           result.output_readback_verified != 0 ? "PASS" : "FAIL");
     if (result.output_reference_compared != 0) {
         printf("xgraph_reference_checksum=0x%08" PRIx32 "\n",
                result.reference_checksum);

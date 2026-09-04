@@ -38,6 +38,10 @@
 #define DMA_STATE 0x30fec
 #define SHARED_BASE 0x30ff0
 #define SHARED_SIZE 0x30ff4
+#define RUNTIME_SYNC_OFFSET 0x30fd0
+#define RUNTIME_SYNC_SIZE 0x30fd4
+#define RUNTIME_SYNC_CONTROL 0x30fd8
+#define RUNTIME_SYNC_STATUS 0x30fdc
 #define FIRMWARE_ENTRY 0x30ff8
 #define BACKEND_ID 0x30ffc
 
@@ -143,6 +147,31 @@ static void coral_reset(struct opennpux_coral_dev *coral)
 	mutex_unlock(&coral->state_lock);
 }
 
+static int coral_sync_extmem(struct opennpux_coral_dev *coral,
+			      const struct opennpux_coral_ioc_sync *sync,
+			      u32 direction)
+{
+	int ret;
+
+	if (!sync->size || sync->offset > coral->shared_size ||
+	    sync->size > coral->shared_size - sync->offset)
+		return -EINVAL;
+
+	mutex_lock(&coral->state_lock);
+	if (atomic_read(&coral->running)) {
+		ret = -EBUSY;
+		goto out;
+	}
+
+	coral_writel(coral, RUNTIME_SYNC_OFFSET, sync->offset);
+	coral_writel(coral, RUNTIME_SYNC_SIZE, sync->size);
+	coral_writel(coral, RUNTIME_SYNC_CONTROL, direction);
+	ret = coral_readl(coral, RUNTIME_SYNC_STATUS) == 1 ? 0 : -EIO;
+out:
+	mutex_unlock(&coral->state_lock);
+	return ret;
+}
+
 static int coral_run(struct opennpux_coral_dev *coral,
 		     struct opennpux_coral_ioc_run *run)
 {
@@ -203,7 +232,8 @@ static long coral_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			.features = OPENNPUX_CORAL_FEATURE_SHARED_MMAP |
 				    OPENNPUX_CORAL_FEATURE_ASYNC_START |
 				    OPENNPUX_CORAL_FEATURE_POLL_COMPLETION |
-				    OPENNPUX_CORAL_FEATURE_RESET,
+				    OPENNPUX_CORAL_FEATURE_RESET |
+				    OPENNPUX_CORAL_FEATURE_EXTMEM_SYNC,
 		};
 
 		if (copy_to_user((void __user *)arg, &caps, sizeof(caps)))
@@ -222,6 +252,16 @@ static long coral_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case OPENNPUX_CORAL_IOC_RESET:
 		coral_reset(coral);
 		return 0;
+	case OPENNPUX_CORAL_IOC_SYNC_TO_EXTMEM:
+	case OPENNPUX_CORAL_IOC_SYNC_FROM_EXTMEM: {
+		struct opennpux_coral_ioc_sync sync;
+
+		if (copy_from_user(&sync, (void __user *)arg, sizeof(sync)))
+			return -EFAULT;
+		return coral_sync_extmem(
+			coral, &sync,
+			cmd == OPENNPUX_CORAL_IOC_SYNC_TO_EXTMEM ? 1 : 2);
+	}
 	default:
 		return -ENOTTY;
 	}

@@ -115,6 +115,8 @@ OPENNPUX_OUTPUT_EOF
 }
 has_output_line 'xgraph_completed_commands=${EXPECTED_COMMANDS}' ||
     fail 'unexpected command completion count'
+has_output_line 'xgraph_output_readback=PASS' ||
+    fail 'Local EXTMEM output was not synchronized to the host window'
 has_output_line 'xgraph_reference_checksum=${EXPECTED_CHECKSUM}' ||
     fail 'staged reference checksum differs from host reference'
 has_output_line 'xgraph_output_reference=PASS' ||

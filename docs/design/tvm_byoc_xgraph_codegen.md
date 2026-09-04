@@ -204,15 +204,19 @@ xgraph_artifact_run=PASS
 tvm_byoc_xgraph=PASS
 ```
 
-The resume script loads the checkpoint-preloaded `opennpux_coral.ko` before
-opening `/dev/opennpux-coral`. The module and simulated `vmlinux` must come
-from the same kernel build; otherwise the test fails before artifact staging
-and prints the `insmod` error.
+The launch wrapper rebuilds a stale `opennpux_coral.ko` and injects it into the
+checkpoint tmpfs before the resume script opens `/dev/opennpux-coral`. The
+module and simulated `vmlinux` must come from the same kernel build; otherwise
+the test fails before artifact staging and prints the `insmod` error.
 
 The next GB10 run must report `xgraph_completed_commands=6`,
 `xgraph_output_bytes=64`, `xgraph_reference_checksum=0x40f42b1d`,
 `xgraph_output_reference=PASS`, and both artifact/system PASS verdicts.
-The firmware output checksum remains diagnostic: optimized C++ execution may
+It must also report `xgraph_output_readback=PASS`: the runtime explicitly
+synchronizes Local EXTMEM back to the Shared DMA Window and requires the
+readback checksum to equal the checksum produced by firmware. This prevents a
+preloaded reference tensor in shared memory from creating a false numerical
+PASS. The firmware output checksum remains diagnostic: optimized C++ execution may
 differ from the independent Host C reference in low FP32 bits after tiled
 accumulation and transcendental operations. Acceptance therefore compares all
 output elements against the staged independent reference with a `5e-5`

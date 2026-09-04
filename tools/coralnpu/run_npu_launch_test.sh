@@ -80,6 +80,33 @@ CORAL_DISK_IMG="${CORAL_DISK_IMG:-${HOME}/wlk/gem5_arm_linux_images/ubuntu-18.04
     exit 1
 }
 
+KERNEL_MODULE="${CORAL_NPU_LAUNCH_KERNEL_MODULE:-}"
+if [ -z "${KERNEL_MODULE}" ]; then
+    [ -f "${KERNEL_RELEASE_FILE}" ] || {
+        echo "error: set CORAL_NPU_LAUNCH_KERNEL_MODULE or provide ${KERNEL_RELEASE_FILE}" >&2
+        exit 1
+    }
+    KERNEL_RELEASE="$(cat "${KERNEL_RELEASE_FILE}")"
+    KERNEL_MODULE="${ROOT_DIR}/build/kernel/opennpux_coral-${KERNEL_RELEASE}.ko"
+fi
+kernel_module_stale=0
+if [ ! -f "${KERNEL_MODULE}" ]; then
+    kernel_module_stale=1
+elif find "${ROOT_DIR}/runtime/kernel" \
+          "${ROOT_DIR}/runtime/host/include/opennpux/coral_uapi.h" \
+          -type f -newer "${KERNEL_MODULE}" -print -quit | grep -q .; then
+    kernel_module_stale=1
+fi
+if [ "${kernel_module_stale}" -eq 1 ] &&
+   [ "${CORAL_NPU_LAUNCH_AUTO_BUILD_KERNEL_MODULE:-1}" = 1 ]; then
+    echo "[npu-launch] kernel module missing or stale; rebuilding" >&2
+    "${ROOT_DIR}/tools/kernel/build_opennpux_coral_ko.sh"
+fi
+[ -f "${KERNEL_MODULE}" ] || {
+    echo "error: current Coral kernel module not found: ${KERNEL_MODULE}" >&2
+    exit 1
+}
+
 mkdir -p "$(dirname "${HOST_LOG}")" "$(dirname "${DEBUG_LOG}")"
 "${ROOT_DIR}/sim/gem5/apply_patchset.sh"
 [ -f "${TEST_SCRIPT}" ] || {
@@ -114,6 +141,15 @@ cat >>"${INJECTED_TEST_SCRIPT}" <<'EOF'
 OPENNPUX_CORALCTL_EOF
 chmod 0755 /tmp/coralctl
 echo '[npu-launch] injected current coralctl into checkpoint tmpfs'
+EOF
+cat >>"${INJECTED_TEST_SCRIPT}" <<'EOF'
+decode_base64 >/tmp/opennpux_coral.ko <<'OPENNPUX_CORAL_MODULE_EOF'
+EOF
+base64 "${KERNEL_MODULE}" >>"${INJECTED_TEST_SCRIPT}"
+cat >>"${INJECTED_TEST_SCRIPT}" <<'EOF'
+OPENNPUX_CORAL_MODULE_EOF
+chmod 0644 /tmp/opennpux_coral.ko
+echo '[npu-launch] injected current opennpux_coral.ko into checkpoint tmpfs'
 EOF
 tail -n +2 "${TEST_SCRIPT}" >>"${INJECTED_TEST_SCRIPT}"
 TEST_SCRIPT="${INJECTED_TEST_SCRIPT}"

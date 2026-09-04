@@ -1,4 +1,5 @@
 import json
+import os
 import struct
 import sys
 import unittest
@@ -88,8 +89,51 @@ class XGraphCodegenTest(unittest.TestCase):
             "nodes": [{"op": "matmul", "inputs": ["a", "b"], "outputs": ["c"]}],
             "outputs": ["c"],
         }
-        with self.assertRaisesRegex(CodegenError, "tiled lowering"):
+        with self.assertRaisesRegex(CodegenError, "tiled C lowering"):
             compile_graph(graph)
+
+    @unittest.skipUnless(
+        os.environ.get("OPENNPUX_XGRAPH_LOWERING_LIB"),
+        "C lowering library is not configured",
+    )
+    def test_large_relax_matmul_uses_runtime_c_tiler(self):
+        graph = {
+            "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+            "tensors": [
+                {
+                    "name": "a",
+                    "shape": [2, 2048],
+                    "dtype": "float32",
+                    "storage": "input",
+                },
+                {
+                    "name": "b",
+                    "shape": [2048, 8],
+                    "dtype": "float32",
+                    "storage": "constant",
+                },
+                {
+                    "name": "c",
+                    "shape": [2, 8],
+                    "dtype": "float32",
+                    "storage": "output",
+                },
+            ],
+            "nodes": [{"op": "matmul", "inputs": ["a", "b"], "outputs": ["c"]}],
+            "outputs": ["c"],
+        }
+        binary, metadata = compile_graph(
+            graph, os.environ["OPENNPUX_XGRAPH_LOWERING_LIB"]
+        )
+        commands = [
+            COMMAND.unpack_from(binary, HEADER.size + index * COMMAND.size)
+            for index in range(metadata["command_count"])
+        ]
+        self.assertEqual(metadata["command_count"], 3)
+        self.assertEqual(metadata["lowering_backend"], "runtime-c")
+        self.assertEqual([command[1] for command in commands], [0, 2, 2])
+        self.assertEqual([command[7] for command in commands], [1023, 1023, 2])
+        self.assertEqual([command[10] for command in commands], [0, 1, 2])
 
     def test_rejects_overlapping_explicit_offsets(self):
         graph = self.load_fixture()

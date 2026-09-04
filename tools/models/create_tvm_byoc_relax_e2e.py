@@ -12,10 +12,10 @@ from tvm import relax
 
 def build_module():
     input_tensor = relax.Var(
-        "input", relax.TensorStructInfo([2, 4], "float32")
+        "input", relax.TensorStructInfo([2, 2048], "float32")
     )
-    weight = relax.Var("weight", relax.TensorStructInfo([4, 3], "float32"))
-    bias = relax.Var("bias", relax.TensorStructInfo([2, 3], "float32"))
+    weight = relax.Var("weight", relax.TensorStructInfo([2048, 8], "float32"))
+    bias = relax.Var("bias", relax.TensorStructInfo([2, 8], "float32"))
     builder = relax.BlockBuilder()
     with builder.function("main", [input_tensor, weight, bias]):
         with builder.dataflow():

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import math
 import struct
 from dataclasses import dataclass
@@ -66,6 +67,107 @@ OP_ALIASES = {
 
 class CodegenError(ValueError):
     """The BYOC graph cannot be represented by the current XGraph ABI."""
+
+
+class _DenseSpec(ctypes.Structure):
+    _fields_ = [
+        (name, ctypes.c_uint32)
+        for name in (
+            "struct_size",
+            "extmem_base",
+            "extmem_size",
+            "lhs_offset",
+            "lhs_bytes",
+            "rhs_offset",
+            "rhs_bytes",
+            "output_offset",
+            "output_bytes",
+            "rows",
+            "input_features",
+            "output_features",
+            "transpose_rhs",
+            "first_command_id",
+        )
+    ]
+
+
+class CLowering:
+    """Thin binding to the authoritative runtime XGraph lowering library."""
+
+    def __init__(self, path: str):
+        try:
+            self.library = ctypes.CDLL(path, use_errno=True)
+        except OSError as error:
+            raise CodegenError(
+                f"cannot load XGraph lowering library {path}: {error}"
+            ) from error
+        self.dense = self.library.opennpux_xgraph_codegen_dense_matmul
+        self.dense.argtypes = [
+            ctypes.POINTER(_DenseSpec),
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.POINTER(ctypes.c_uint32),
+        ]
+        self.dense.restype = ctypes.c_int
+
+    def lower_dense(
+        self,
+        lhs: Tensor,
+        rhs: Tensor,
+        output: Tensor,
+        rows: int,
+        k: int,
+        n: int,
+        transpose_rhs: bool,
+        command_id: int,
+        arena_size: int,
+    ) -> list[CommandRecord]:
+        spec = _DenseSpec(
+            ctypes.sizeof(_DenseSpec),
+            0x20000000,
+            arena_size,
+            lhs.offset,
+            lhs.byte_size,
+            rhs.offset,
+            rhs.byte_size,
+            output.offset,
+            output.byte_size,
+            rows,
+            k,
+            n,
+            int(transpose_rhs),
+            command_id,
+        )
+        storage = (ctypes.c_ubyte * (MAX_COMMANDS * COMMAND_SIZE))()
+        count = ctypes.c_uint32()
+        if self.dense(
+            ctypes.byref(spec),
+            ctypes.cast(storage, ctypes.c_void_p),
+            MAX_COMMANDS,
+            ctypes.byref(count),
+        ) != 0:
+            error = ctypes.get_errno()
+            raise CodegenError(f"C dense MatMul lowering failed with errno {error}")
+        binary = bytes(storage)
+        records = []
+        for index in range(count.value):
+            fields = COMMAND.unpack_from(binary, index * COMMAND_SIZE)
+            records.append(
+                CommandRecord(
+                    opcode=fields[0],
+                    flags=fields[1],
+                    destination=fields[2],
+                    source0=fields[3],
+                    source1=fields[4],
+                    dim0=fields[5],
+                    dim1=fields[6],
+                    dim2=fields[7],
+                    scalar0=fields[8],
+                    command_id=fields[10],
+                    reserved=tuple(fields[11:16]),
+                )
+            )
+        return records
 
 
 def _u32(value: Any, field: str) -> int:
@@ -208,8 +310,9 @@ def _expect_count(values: Any, count: int, label: str, node_index: int) -> list[
 
 
 def _lower_node(
-    node: dict[str, Any], tensors: dict[str, Tensor], command_id: int, node_index: int
-) -> CommandRecord:
+    node: dict[str, Any], tensors: dict[str, Tensor], command_id: int,
+    node_index: int, c_lowering: CLowering | None, arena_size: int,
+) -> list[CommandRecord]:
     raw_op = node.get("op")
     op = OP_ALIASES.get(raw_op)
     if op is None:
@@ -234,8 +337,15 @@ def _lower_node(
         if rhs_k != k or output.shape != lhs.shape[:-1] + (n,):
             raise CodegenError("matmul input/output shapes are inconsistent")
         if max(rows, n, k) > 1023:
-            raise CodegenError("matmul exceeds one TMMA command; tiled lowering is required")
-        return CommandRecord(
+            if c_lowering is None:
+                raise CodegenError(
+                    "matmul exceeds one TMMA command; tiled C lowering library is required"
+                )
+            return c_lowering.lower_dense(
+                lhs, rhs, output, rows, k, n, transpose_rhs, command_id,
+                arena_size,
+            )
+        return [CommandRecord(
             OP_TMMA,
             TMMA_TRANSPOSE_RHS if transpose_rhs else 0,
             output.offset,
@@ -246,7 +356,7 @@ def _lower_node(
             k,
             0,
             command_id,
-        )
+        )]
 
     if op in {"add", "multiply"}:
         names = _expect_count(inputs, 2, "inputs", node_index)
@@ -263,7 +373,7 @@ def _lower_node(
         ):
             raise CodegenError(f"{op} currently requires equal, non-broadcast shapes")
         rows, features = _elementwise_shape(output)
-        return CommandRecord(
+        return [CommandRecord(
             OP_TADD if op == "add" else OP_TMUL,
             0,
             output.offset,
@@ -274,7 +384,7 @@ def _lower_node(
             1,
             0,
             command_id,
-        )
+        )]
 
     if op == "rms_norm":
         names = _expect_count(inputs, 2, "inputs", node_index)
@@ -295,7 +405,7 @@ def _lower_node(
         if not isinstance(epsilon, (int, float)) or not math.isfinite(epsilon) or epsilon <= 0:
             raise CodegenError("rms_norm epsilon must be positive and finite")
         epsilon_bits = struct.unpack("<I", struct.pack("<f", float(epsilon)))[0]
-        return CommandRecord(
+        return [CommandRecord(
             OP_TRMSNORM,
             0,
             output.offset,
@@ -306,7 +416,7 @@ def _lower_node(
             1,
             epsilon_bits,
             command_id,
-        )
+        )]
 
     if op in {"softmax", "silu"}:
         names = _expect_count(inputs, 1, "inputs", node_index)
@@ -322,7 +432,7 @@ def _lower_node(
         if op == "softmax" and int(attrs.get("axis", -1)) not in {-1, len(source.shape) - 1}:
             raise CodegenError("softmax currently requires the innermost axis")
         rows, features = _elementwise_shape(output)
-        return CommandRecord(
+        return [CommandRecord(
             OP_TSOFTMAX if op == "softmax" else OP_TSILU,
             0,
             output.offset,
@@ -333,7 +443,7 @@ def _lower_node(
             1,
             0,
             command_id,
-        )
+        )]
 
     if op == "take":
         names = _expect_count(inputs, 2, "inputs", node_index)
@@ -350,7 +460,7 @@ def _lower_node(
             raise CodegenError("take expects float32 [vocabulary,K] data and int32 indices")
         if int(attrs.get("axis", 0)) != 0 or output.shape != indices.shape + (data.shape[1],):
             raise CodegenError("take supports embedding gather on axis 0 only")
-        return CommandRecord(
+        return [CommandRecord(
             OP_TGATHER,
             0,
             output.offset,
@@ -361,7 +471,7 @@ def _lower_node(
             1,
             data.shape[1],
             command_id,
-        )
+        )]
 
     if op == "topk":
         names = _expect_count(inputs, 1, "inputs", node_index)
@@ -378,7 +488,7 @@ def _lower_node(
             raise CodegenError("topk outputs must be float32 values and int32 indices")
         if values.shape != expected or indices.shape != expected:
             raise CodegenError("topk output shapes are inconsistent")
-        return CommandRecord(
+        return [CommandRecord(
             OP_TTOPK,
             TTOPK_SPLIT_OUTPUT,
             values.offset,
@@ -390,7 +500,7 @@ def _lower_node(
             k,
             command_id,
             (indices.offset, 0, 0, 0, 0),
-        )
+        )]
 
     if op == "rope":
         names = _expect_count(inputs, 2, "inputs", node_index)
@@ -404,7 +514,7 @@ def _lower_node(
         layout = attrs.get("layout", "adjacent")
         if layout not in {"adjacent", "half_split"}:
             raise CodegenError("rope layout must be adjacent or half_split")
-        return CommandRecord(
+        return [CommandRecord(
             OP_TROPE,
             0,
             output.offset,
@@ -415,7 +525,7 @@ def _lower_node(
             1,
             int(layout == "half_split"),
             command_id,
-        )
+        )]
 
     names = _expect_count(inputs, 1, "inputs", node_index)
     output_names = _expect_count(outputs, 1, "outputs", node_index)
@@ -423,7 +533,7 @@ def _lower_node(
     output = _tensor(tensors, output_names[0], node_index)
     if source.shape != output.shape or source.dtype != output.dtype:
         raise CodegenError("copy input/output tensor types must match")
-    return CommandRecord(
+    return [CommandRecord(
         OP_TDMA,
         0,
         output.offset,
@@ -434,10 +544,12 @@ def _lower_node(
         1,
         source.byte_size,
         command_id,
-    )
+    )]
 
 
-def compile_graph(graph: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
+def compile_graph(
+    graph: dict[str, Any], lowering_library: str | None = None,
+) -> tuple[bytes, dict[str, Any]]:
     """Compile a normalized BYOC graph and return binary plus inspectable metadata."""
     if not isinstance(graph, dict) or graph.get("format") != FORMAT:
         raise CodegenError(f"graph format must be {FORMAT}")
@@ -445,6 +557,10 @@ def compile_graph(graph: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
     if data_offset < DATA_OFFSET or data_offset % ALIGNMENT != 0:
         raise CodegenError("data_offset must be 64-byte aligned and not overlap commands")
     tensors = _parse_tensors(graph.get("tensors"), data_offset)
+    arena_size = _align(
+        max(tensor.offset + tensor.byte_size for tensor in tensors.values())
+    )
+    c_lowering = CLowering(lowering_library) if lowering_library else None
     nodes = graph.get("nodes")
     if not isinstance(nodes, list) or not nodes:
         raise CodegenError("nodes must be a non-empty array")
@@ -466,7 +582,12 @@ def compile_graph(graph: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
             raise CodegenError(f"node {index} consumes a tensor before it is available")
         if not isinstance(outputs, list) or any(name in available for name in outputs):
             raise CodegenError(f"node {index} writes a tensor more than once")
-        commands.append(_lower_node(node, tensors, index, index))
+        lowered = _lower_node(
+            node, tensors, len(commands), index, c_lowering, arena_size
+        )
+        if len(commands) + len(lowered) > MAX_COMMANDS:
+            raise CodegenError(f"graph exceeds the {MAX_COMMANDS}-command XGraph batch limit")
+        commands.extend(lowered)
         produced.update(outputs)
         available.update(outputs)
     output_names = graph.get("outputs")
@@ -502,9 +623,9 @@ def compile_graph(graph: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
         "command_size": COMMAND_SIZE,
         "command_count": len(commands),
         "binary_size": len(binary),
-        "arena_size": _align(
-            max(tensor.offset + tensor.byte_size for tensor in tensors.values())
-        ),
+        "arena_size": arena_size,
+        "node_count": len(nodes),
+        "lowering_backend": "runtime-c" if c_lowering else "direct",
         "output": output.name,
         "tensors": [
             {

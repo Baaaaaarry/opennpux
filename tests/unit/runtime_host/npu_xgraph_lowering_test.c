@@ -471,6 +471,41 @@ test_dense_matmul_with_model_gptq_capability(void)
 }
 
 static void
+test_dense_matmul_relax_rhs_layout(void)
+{
+    struct opennpux_npu_functional_request request;
+    struct opennpux_npu_operator_parameters parameters;
+    struct opennpux_xgraph_command commands[3];
+    uint32_t command_count = 0;
+    initialize(&request, &parameters, OPENNPUX_NPU_OP_MATMUL);
+    request.command_id = 0;
+    request.rows = 2;
+    request.features = 2048;
+    parameters.input_features = 2048;
+    parameters.output_features = 8;
+    add_operand(&request, OPENNPUX_NPU_OPERAND_INPUT, 0x10000,
+                2 * 2048 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_WEIGHT, 0x20000,
+                2048 * 8 * sizeof(float));
+    add_operand(&request, OPENNPUX_NPU_OPERAND_OUTPUT, 0x30000,
+                2 * 8 * sizeof(float));
+
+    assert(opennpux_npu_xgraph_lower_dense_matmul_layout(
+               &request, &parameters, 0, EXTMEM_BASE, EXTMEM_SIZE, 0,
+               commands, 3, &command_count) == 0);
+    assert(command_count == 3);
+    assert(commands[0].flags == 0);
+    assert(commands[1].flags == OPENNPUX_XGRAPH_TMMA_ACCUMULATE);
+    assert(commands[2].flags == OPENNPUX_XGRAPH_TMMA_ACCUMULATE);
+    assert(commands[0].dim2 == 1023 && commands[1].dim2 == 1023 &&
+           commands[2].dim2 == 2);
+    assert(commands[0].source1_offset == 0x20000);
+    assert(commands[1].source1_offset == 0x20000 + 1023 * 8 * sizeof(float));
+    assert(commands[2].source1_offset == 0x20000 + 2046 * 8 * sizeof(float));
+    assert(commands[0].reserved[1] == 8 * sizeof(float));
+}
+
+static void
 test_last_row_indices_only_topk(void)
 {
     struct opennpux_npu_functional_request request;
@@ -1251,6 +1286,7 @@ main(void)
     test_sequence_lowering();
     test_gptq_tiled_lowering();
     test_dense_matmul_with_model_gptq_capability();
+    test_dense_matmul_relax_rhs_layout();
     test_last_row_indices_only_topk();
     test_gptq_k_tiled_accumulation();
     test_bounded_mixed_batch_lowering();

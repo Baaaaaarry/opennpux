@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -45,6 +46,11 @@ def main() -> None:
         type=Path,
         help="write the normalized graph extracted from TVM",
     )
+    parser.add_argument(
+        "--lowering-library",
+        default=os.environ.get("OPENNPUX_XGRAPH_LOWERING_LIB"),
+        help="runtime C lowering shared library for tiled/composite operations",
+    )
     args = parser.parse_args()
     metadata_path = args.metadata or Path(f"{args.output}.json")
     try:
@@ -71,7 +77,7 @@ def main() -> None:
             args.dump_byoc_graph.write_text(
                 json.dumps(graph, indent=2, sort_keys=True) + "\n"
             )
-        binary, metadata = compile_graph(graph)
+        binary, metadata = compile_graph(graph, args.lowering_library)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_bytes(binary)
         metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")

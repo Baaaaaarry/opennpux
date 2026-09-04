@@ -27,6 +27,13 @@ EXPECTED_CHECKSUM="$(sed -n \
     echo "error: host reference output checksum missing" >&2
     exit 1
 }
+EXPECTED_COMMANDS="$(sed -n \
+    's/^xgraph_commands=\([0-9][0-9]*\)$/\1/p' \
+    "${LOCAL_LOG}" | tail -n 1)"
+[ -n "${EXPECTED_COMMANDS}" ] || {
+    echo "error: compiled XGraph command count missing" >&2
+    exit 1
+}
 
 "${ROOT_DIR}/tools/coralnpu/build_qwen_command_flow_smoke.sh"
 
@@ -104,7 +111,7 @@ has_output_line()
 OPENNPUX_OUTPUT_EOF
     return 1
 }
-has_output_line 'xgraph_completed_commands=4' ||
+has_output_line 'xgraph_completed_commands=${EXPECTED_COMMANDS}' ||
     fail 'unexpected command completion count'
 has_output_line 'xgraph_output_checksum=${EXPECTED_CHECKSUM}' ||
     fail 'output checksum differs from host reference'

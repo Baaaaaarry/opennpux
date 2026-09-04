@@ -189,7 +189,7 @@ lower_dense_matmul_operands_strided(
     const struct opennpux_npu_functional_operand *output,
     uint32_t rows, uint32_t input_features, uint32_t output_features,
     uint32_t input_row_stride, uint32_t weight_row_stride,
-    uint32_t output_row_stride,
+    uint32_t output_row_stride, uint32_t transpose_rhs,
     uint32_t extmem_base, uint32_t extmem_size, uint32_t first_command_id,
     struct opennpux_xgraph_command *commands, uint32_t command_capacity,
     uint32_t *command_count)
@@ -199,7 +199,9 @@ lower_dense_matmul_operands_strided(
     }
     const uint64_t minimum_input_stride =
         (uint64_t)input_features * sizeof(float);
-    const uint64_t minimum_weight_stride = minimum_input_stride;
+    const uint64_t minimum_weight_stride =
+        (uint64_t)(transpose_rhs ? input_features : output_features) *
+        sizeof(float);
     const uint64_t minimum_output_stride =
         (uint64_t)output_features * sizeof(float);
     const uint64_t input_stride =
@@ -210,9 +212,10 @@ lower_dense_matmul_operands_strided(
         output_row_stride == 0 ? minimum_output_stride : output_row_stride;
     const uint64_t input_bytes =
         (uint64_t)(rows - 1) * input_stride + minimum_input_stride;
-    const uint64_t weight_bytes = (uint64_t)(output_features - 1) *
-            weight_stride +
-        minimum_weight_stride;
+    const uint64_t weight_rows =
+        transpose_rhs ? output_features : input_features;
+    const uint64_t weight_bytes =
+        (weight_rows - 1) * weight_stride + minimum_weight_stride;
     const uint64_t output_bytes =
         (uint64_t)(rows - 1) * output_stride + minimum_output_stride;
     const uint64_t m_tiles =
@@ -262,7 +265,8 @@ lower_dense_matmul_operands_strided(
                 memset(command, 0, sizeof(*command));
                 command->command_id = first_command_id + emitted;
                 command->opcode = OPENNPUX_XGRAPH_OP_TMMA;
-                command->flags = OPENNPUX_XGRAPH_TMMA_TRANSPOSE_RHS |
+                command->flags =
+                    (transpose_rhs ? OPENNPUX_XGRAPH_TMMA_TRANSPOSE_RHS : 0) |
                     (k_base == 0 ? 0 : OPENNPUX_XGRAPH_TMMA_ACCUMULATE);
                 command->data_type = OPENNPUX_XGRAPH_DTYPE_FP32;
                 command->dim0 = m;
@@ -275,10 +279,12 @@ lower_dense_matmul_operands_strided(
                     (uint64_t)input->address +
                     ((uint64_t)m_base * input_features + k_base) *
                         sizeof(float);
-                const uint64_t weight_address =
-                    (uint64_t)weight->address +
-                    ((uint64_t)n_base * input_features + k_base) *
-                        sizeof(float);
+                const uint64_t weight_address = (uint64_t)weight->address +
+                    (transpose_rhs
+                         ? (uint64_t)n_base * weight_stride +
+                               (uint64_t)k_base * sizeof(float)
+                         : (uint64_t)k_base * weight_stride +
+                               (uint64_t)n_base * sizeof(float));
                 const uint64_t output_address =
                     (uint64_t)output->address +
                     ((uint64_t)m_base * output_features + n_base) *
@@ -291,8 +297,11 @@ lower_dense_matmul_operands_strided(
                         &command->source0_offset) != 0 ||
                     address_offset64(
                         weight_address,
-                        (uint64_t)(n - 1) * command->reserved[1] +
-                            k * sizeof(float),
+                        transpose_rhs
+                            ? (uint64_t)(n - 1) * command->reserved[1] +
+                                  k * sizeof(float)
+                            : (uint64_t)(k - 1) * command->reserved[1] +
+                                  n * sizeof(float),
                         extmem_base, extmem_size,
                         &command->source1_offset) != 0 ||
                     address_offset64(
@@ -322,8 +331,31 @@ lower_dense_matmul_operands(
     uint32_t *command_count)
 {
     return lower_dense_matmul_operands_strided(
-        input, weight, output, rows, input_features, output_features, 0, 0, 0,
+        input, weight, output, rows, input_features, output_features, 0, 0, 0, 1,
         extmem_base, extmem_size, first_command_id, commands,
+        command_capacity, command_count);
+}
+
+int
+opennpux_npu_xgraph_lower_dense_matmul_layout(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t transpose_rhs, uint32_t extmem_base, uint32_t extmem_size,
+    uint32_t first_command_id, struct opennpux_xgraph_command *commands,
+    uint32_t command_capacity, uint32_t *command_count)
+{
+    if (validate_request(request, parameters, extmem_size) != 0 ||
+        request->opcode != OPENNPUX_NPU_OP_MATMUL ||
+        has_gptq_operands(request) || transpose_rhs > 1) {
+        errno = EINVAL;
+        return -1;
+    }
+    return lower_dense_matmul_operands_strided(
+        find_operand(request, OPENNPUX_NPU_OPERAND_INPUT),
+        find_operand(request, OPENNPUX_NPU_OPERAND_WEIGHT),
+        find_operand(request, OPENNPUX_NPU_OPERAND_OUTPUT), request->rows,
+        parameters->input_features, parameters->output_features, 0, 0, 0,
+        transpose_rhs, extmem_base, extmem_size, first_command_id, commands,
         command_capacity, command_count);
 }
 
@@ -509,7 +541,7 @@ opennpux_npu_xgraph_lower_attention_projection(
                     input, &weight_view, &output_view, request->rows,
                     parameters->input_features, request->head_dim,
                     (uint32_t)input_stride64, (uint32_t)input_stride64,
-                    (uint32_t)query_stride64, extmem_base, extmem_size,
+                    (uint32_t)query_stride64, 1, extmem_base, extmem_size,
                     first_command_id + emitted, commands + emitted,
                     command_capacity - emitted, &produced) != 0) {
                 return -1;
@@ -672,7 +704,7 @@ opennpux_npu_xgraph_lower_gated_normalize(
             projection_input, gate_weight, &gate, request->rows,
             input_features, output_features, input_features * sizeof(float),
             input_features * sizeof(float), output_features * sizeof(float),
-            extmem_base, extmem_size, first_command_id, commands,
+            1, extmem_base, extmem_size, first_command_id, commands,
             command_capacity - (uint32_t)tail_commands,
             &projection_commands) != 0) {
         return -1;

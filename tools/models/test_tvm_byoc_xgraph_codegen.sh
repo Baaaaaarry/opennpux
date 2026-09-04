@@ -9,6 +9,19 @@ CC="${CC:-cc}"
 PYTHON="${PYTHON:-python3}"
 
 mkdir -p "${BUILD_DIR}"
+LOWERING_LIB="${BUILD_DIR}/libopennpux_xgraph_codegen.so"
+CC_ARCH_FLAGS=""
+if [ "$(uname -s)" = Darwin ]; then
+    CC_ARCH_FLAGS="-arch $("${PYTHON}" -c 'import platform; print(platform.machine())')"
+fi
+# shellcheck disable=SC2086
+"${CC}" ${CC_ARCH_FLAGS} -std=c11 -Wall -Wextra -Werror -pedantic -fPIC -shared \
+    -I"${ROOT_DIR}/runtime/host/include" \
+    "${ROOT_DIR}/runtime/host/src/npu_xgraph_codegen_ffi.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_xgraph_lowering.c" \
+    "${ROOT_DIR}/runtime/host/src/npu_gptq_tile_plan.c" \
+    -lm -o "${LOWERING_LIB}"
+export OPENNPUX_XGRAPH_LOWERING_LIB="${LOWERING_LIB}"
 "${PYTHON}" -m unittest discover \
     -s "${ROOT_DIR}/tests/unit/models" \
     -p 'test_tvm_byoc_xgraph_codegen.py'
@@ -67,7 +80,7 @@ if [ -n "${TVM_HOME:-}" ]; then
         -o "${BUILD_DIR}/tvm_byoc_xgraph_loader_test"
     "${BUILD_DIR}/tvm_byoc_xgraph_loader_test" \
         "${BUILD_DIR}/relax-model.npxg" \
-        "${BUILD_DIR}/relax-model.arena.bin"
+        "${BUILD_DIR}/relax-model.arena.bin" 6 64
     echo "tvm_relax_byoc_e2e=PASS"
 else
     echo "TVM Relax end-to-end test: SKIP (set TVM_HOME and TVM_PYTHON)"

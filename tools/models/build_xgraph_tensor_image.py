@@ -17,6 +17,23 @@ PACKERS = {
 RUNTIME_STORAGES = {"input", "constant", "state"}
 
 
+def _expand_values(value: Any, count: int, name: str) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, dict):
+        raise ValueError(f"tensor {name}: values must be an array or generator object")
+    if set(value) == {"fill"}:
+        return [value["fill"]] * count
+    if (
+        set(value) == {"repeat"}
+        and isinstance(value["repeat"], list)
+        and value["repeat"]
+    ):
+        pattern = value["repeat"]
+        return (pattern * ((count + len(pattern) - 1) // len(pattern)))[:count]
+    raise ValueError(f"tensor {name}: unsupported value generator")
+
+
 def _load_object(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
@@ -47,12 +64,14 @@ def build_image(metadata: dict[str, Any], values: dict[str, Any]) -> bytes:
             continue
         if not isinstance(name, str) or name not in values:
             raise ValueError(f"tensor {name}: runtime values are required")
-        if dtype not in PACKERS or not isinstance(offset, int) or not isinstance(byte_size, int):
+        if (
+            dtype not in PACKERS
+            or not isinstance(offset, int)
+            or not isinstance(byte_size, int)
+        ):
             raise ValueError(f"tensor {name}: invalid metadata")
-        tensor_values = values[name]
-        if not isinstance(tensor_values, list):
-            raise ValueError(f"tensor {name}: values must be an array")
         element_size = struct.calcsize("<" + PACKERS[dtype])
+        tensor_values = _expand_values(values[name], byte_size // element_size, name)
         if len(tensor_values) * element_size != byte_size:
             raise ValueError(
                 f"tensor {name}: expected {byte_size // element_size} values, "
@@ -67,7 +86,9 @@ def build_image(metadata: dict[str, Any], values: dict[str, Any]) -> bytes:
         consumed.add(name)
     unknown = set(values) - consumed
     if unknown:
-        raise ValueError(f"values contain unknown runtime tensors: {', '.join(sorted(unknown))}")
+        raise ValueError(
+            f"values contain unknown runtime tensors: {', '.join(sorted(unknown))}"
+        )
     return bytes(image)
 
 

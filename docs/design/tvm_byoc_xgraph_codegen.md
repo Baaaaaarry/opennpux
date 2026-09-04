@@ -10,7 +10,9 @@ into the exact XGraph v2 command layout already consumed by Coral firmware.
 This is not a Qwen-specific compiler. Model frontends are responsible for
 importing ONNX, PyTorch Export, or another supported model format into Relax.
 OpenNPUX only owns backend capability matching, layout validation, Tensor arena
-planning, XGraph command selection, and later device/runtime integration.
+planning, XGraph command selection, and device/runtime integration. Hardware
+tiling semantics live in the runtime C lowering library and are reused by the
+compiler through a stable C ABI; they are not duplicated in Python Codegen.
 
 ## Stage-one flow
 
@@ -50,7 +52,7 @@ single TMMA shapes above the 10-bit hardware dimension limit.
 
 | Relax/BYOC operation | XGraph command | Initial restriction |
 | --- | --- | --- |
-| `relax.matmul` | `TMMA` | FP32, static, one tile |
+| `relax.matmul` | one or more `TMMA` | FP32, static; C lowering tiles dimensions that exceed the instruction fields |
 | `relax.add` | `TADD` | equal shapes, no broadcast |
 | `relax.multiply` | `TMUL` | equal shapes, no broadcast |
 | `relax.nn.rms_norm` | `TRMSNORM` | last-axis FP32 normalization |
@@ -65,10 +67,17 @@ single TMMA shapes above the 10-bit hardware dimension limit.
 
 The existing C lowering remains authoritative for GPTQ dequantization, N/K
 tiling, routed experts, attention, recurrent state, and other multi-command
-expansions. Reimplementing those algorithms inside an early Python Codegen
-would create two incompatible hardware contracts. The next compiler increment
-will define a symbolic generic-request serialization so TVM can invoke the same
-lowering after runtime addresses and dynamic dimensions are materialized.
+expansions. Reimplementing those algorithms inside Python Codegen would create
+two incompatible hardware contracts. Dense FP32 MatMul is the first operation
+to cross this boundary: Codegen passes Tensor offsets, shapes, RHS layout and
+command ID through `opennpux_xgraph_codegen_dense_matmul()`, which invokes the
+same C tiler used by the runtime. Both Relax `[K,N]` and model-runtime `[N,K]`
+weight layouts are explicit rather than inferred.
+
+The next compiler increment will generalize this bridge from dense MatMul to a
+symbolic generic-request serialization, so GPTQ and fused operators can invoke
+the same lowering after runtime addresses and dynamic dimensions are
+materialized.
 
 Multiple OpenNPUX regions mixed with host regions are also deferred. That step
 requires a TVM runtime module which stages each region, submits the `.npxg`
@@ -115,14 +124,26 @@ The test has two explicit levels:
 - The dependency-free path compiles a normalized graph and checks the emitted
   bytes against the project C ABI.
 - The real-TVM path constructs an actual Relax `IRModule`, runs OpenNPUX
-  pattern fusion and BYOC region merging, extracts the merged region, emits an
-  XGraph artifact, executes all four commands through an ABI-level C consumer,
-  and compares the output numerically with an independently evaluated graph.
+  pattern fusion and BYOC region merging, extracts the merged region, lowers a
+  `[2,2048] x [2048,8]` MatMul into three accumulating TMMA tiles plus
+  `TADD/TSILU/TSOFTMAX`, executes all six commands through an ABI-level C
+  consumer, and compares the output numerically with an independently evaluated
+  graph.
 
 The expected final line is:
 
 ```text
 TVM Relax -> BYOC -> XGraph -> C execution: PASS
+```
+
+The current large-MatMul local acceptance reports:
+
+```text
+xgraph_commands=6
+xgraph_arena_bytes=213312
+xgraph_output_checksum=0xaeedc3a1
+xgraph_max_abs_error=1.60336494e-05
+tvm_relax_byoc_e2e=PASS
 ```
 
 For another serialized TVM `IRModule`, pass its JSON as the input. The CLI
@@ -164,11 +185,12 @@ Run the complete compiler plus full-system acceptance on the x86/GB10 host:
 ```
 
 The script first computes the host numerical reference and checksum, then
-injects the same `.npxg` and arena into the Linux checkpoint. Acceptance
-requires four firmware-dispatched XOpenNPUX operations (`tmma`, `tadd`,
-`tsilu`, `tsoftmax`) and an exact output checksum match.
+injects the same `.npxg` and arena into the Linux checkpoint. Acceptance checks
+the generated command count dynamically, requires firmware-dispatched
+XOpenNPUX `tmma`, `tadd`, `tsilu`, and `tsoftmax` operations, and requires an
+exact output checksum match.
 
-The GB10 full-system acceptance result is:
+The previous one-tile GB10 full-system acceptance baseline was:
 
 ```text
 xgraph_state=0x00000003
@@ -186,6 +208,11 @@ The resume script loads the checkpoint-preloaded `opennpux_coral.ko` before
 opening `/dev/opennpux-coral`. The module and simulated `vmlinux` must come
 from the same kernel build; otherwise the test fails before artifact staging
 and prints the `insmod` error.
+
+The next GB10 run must report `xgraph_completed_commands=6`,
+`xgraph_output_bytes=64`, `xgraph_output_checksum=0xaeedc3a1`, and both PASS
+verdicts. Operation and cycle counts are recorded from firmware rather than
+predicted by the compiler test.
 
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

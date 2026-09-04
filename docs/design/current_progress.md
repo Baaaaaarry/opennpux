@@ -1374,3 +1374,17 @@ shared DMA window。Coral firmware 完成 4 条 command，返回 24-byte 输出�
 与 Host C 独立参考一致，`xgraph_artifact_run=PASS` 与 `tvm_byoc_xgraph=PASS`
 均已确认。至此该阶段完成了“Relax -> BYOC -> XGraph -> Guest Runtime ->
 Coral firmware -> XOpenNPUX -> 结果回传”的真实系统闭环。
+
+## 2026-09-04 TVM 大矩阵复用统一 C Lowering
+
+TVM Codegen 不再把超过 XOpenNPUX 指令 10-bit 维度字段的 MatMul 直接拒绝。新增稳定 C ABI，
+将 Relax 标准 `[K,N]` RHS 布局显式传入已有 runtime lowering，由同一个 C 实现完成地址范围校验、
+K 维切片、stride 编码和 destination accumulate，避免 Python 编译器与 Guest runtime 维护两套
+切片规则。原有模型 runtime 使用的 `[N,K]` 布局继续通过显式 transpose 标志走同一实现。
+
+真实 TVM 回归现使用 `[2,2048] x [2048,8]` MatMul。一个 Relax 节点被拆成 K 维
+`1023 + 1023 + 2` 的三条 TMMA，再接 `TADD/TSILU/TSOFTMAX`，因此区域包含 4 个图节点、
+6 条硬件命令。ABI C consumer 独立执行后得到 64-byte 输出、checksum `0xaeedc3a1`，与直接
+数值计算最大绝对误差 `1.60336494e-05`。本地 Codegen、C ABI、artifact loader、runtime host
+和真实 TVM 数值测试均通过；下一项系统验收是在 GB10 上确认 Guest/firmware 完成 6 条命令并
+返回相同 checksum。

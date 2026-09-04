@@ -125,6 +125,18 @@ int opennpux_npu_xgraph_lower_dense_matmul(
     uint32_t *command_count);
 
 /*
+ * Compiler-facing dense MatMul variant with an explicit RHS layout. A nonzero
+ * transpose_rhs describes model weights stored as [N,K]; zero describes the
+ * standard Relax MatMul layout [K,N]. Both layouts use the same C tiler.
+ */
+int opennpux_npu_xgraph_lower_dense_matmul_layout(
+    const struct opennpux_npu_functional_request *request,
+    const struct opennpux_npu_operator_parameters *parameters,
+    uint32_t transpose_rhs, uint32_t extmem_base, uint32_t extmem_size,
+    uint32_t first_command_id, struct opennpux_xgraph_command *commands,
+    uint32_t command_capacity, uint32_t *command_count);
+
+/*
  * Lower three dense projections sharing one input. Output widths are derived
  * from each explicit [N,K] weight operand, so the interface is independent of
  * model names and does not require all projections to have the same N.

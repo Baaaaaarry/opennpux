@@ -256,6 +256,7 @@ case "\${MISMATCH_OUTPUT}" in
 esac
 echo 'xgraph_module_identity_rejection=PASS'
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-module.output.bin \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/tvm-module-output \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module.npxmi \

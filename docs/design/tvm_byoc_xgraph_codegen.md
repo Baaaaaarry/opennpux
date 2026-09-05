@@ -173,6 +173,11 @@ region arena. This allows one compiled module package to be reused for
 different requests while preserving the old embedded-arena path when no
 invocation overlay is supplied.
 
+The first dynamic invocation retains the independent FP32 reference in the
+base arena and runs with the `5e-5` numerical tolerance. The second invocation
+tests rebinding with different inputs and does not reuse that first request's
+reference Tensor.
+
 The full-system acceptance executes the same cleared `.npxgm` twice with two
 different `.npxmi` files during one Guest boot. Both invocations must apply two
 bindings and complete the same region/Host topology, while their exported

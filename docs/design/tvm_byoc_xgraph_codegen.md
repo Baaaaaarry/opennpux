@@ -151,6 +151,14 @@ package is an invocation artifact: it contains runtime Tensor values, while
 artifacts. A later ABI revision can split invocation arenas from the package
 without changing the region command format.
 
+Every module output is reported with its region, byte range, name checksum,
+and data checksum. `OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH` writes output 0 for
+backward compatibility. Setting `OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/out`
+writes all outputs as `/tmp/out.0.bin`, `/tmp/out.1.bin`, and so on. Completion
+reports both `xgraph_module_outputs_completed` and aggregate
+`xgraph_module_output_bytes`, so tuple and auxiliary outputs are not silently
+discarded.
+
 The normalized Codegen boundary already encodes `TOPK`, `ROPE`, and contiguous
 copy commands. The initial automatic Relax pattern table excludes `TOPK`
 because Relax represents its values/indices result as a tuple; tuple result

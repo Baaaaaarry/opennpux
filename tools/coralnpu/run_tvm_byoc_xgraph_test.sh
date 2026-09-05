@@ -187,6 +187,7 @@ has_output_line 'xgraph_artifact_run=PASS' ||
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-module.output.bin \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/tvm-module-output \
     /tmp/coralctl xgraph-module-run \
     /tmp/tvm-mixed-module.npxgm 0x1d000000 1000000)" || {
     printf '%s\n' "\${OUTPUT}"
@@ -199,10 +200,18 @@ has_output_line 'xgraph_module_commands_completed=2' ||
     fail 'module command completion count mismatch'
 has_output_line 'xgraph_module_host_operations_completed=1' ||
     fail 'compiled Host pipeline was not executed'
+has_output_line 'xgraph_module_outputs_completed=1' ||
+    fail 'module output completion count mismatch'
+has_output_line 'xgraph_module_output_bytes=32' ||
+    fail 'module aggregate output size mismatch'
 has_output_line 'xgraph_module_run=PASS' ||
     fail 'module runtime PASS verdict missing'
 [ "\$(wc -c </tmp/tvm-module.output.bin)" -eq 32 ] ||
     fail 'module output size mismatch'
+[ "\$(wc -c </tmp/tvm-module-output.0.bin)" -eq 32 ] ||
+    fail 'indexed module output size mismatch'
+cmp /tmp/tvm-module.output.bin /tmp/tvm-module-output.0.bin ||
+    fail 'compatibility and indexed module outputs differ'
 echo 'xgraph_module_chain=PASS'
 echo 'tvm_byoc_xgraph=PASS'
 echo '[tvm-byoc-xgraph] PASS'

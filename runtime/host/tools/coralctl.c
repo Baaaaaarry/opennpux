@@ -2468,6 +2468,9 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
                result.modeled_cycles);
     }
     const char *output_path = getenv("OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH");
+    const char *output_prefix =
+        getenv("OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX");
+    uint64_t total_output_bytes = 0;
     for (uint32_t index = 0; index < header->output_count; ++index) {
         const struct opennpux_tvm_module_output *output = &outputs[index];
         const uint8_t *data = arenas[output->region] + output->offset;
@@ -2477,10 +2480,28 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
                " checksum=0x%08" PRIx32 "\n",
                index, output->region, output->bytes, output->name_checksum,
                byte_checksum(data, output->bytes));
+        total_output_bytes += output->bytes;
         if (index == 0 && output_path != NULL && output_path[0] != '\0' &&
             write_binary_file(output_path, data, output->bytes) != 0) {
             perror("xgraph-module-run output write");
             goto out;
+        }
+        if (output_prefix != NULL && output_prefix[0] != '\0') {
+            char indexed_output_path[256];
+            const int length = snprintf(indexed_output_path,
+                                        sizeof(indexed_output_path),
+                                        "%s.%" PRIu32 ".bin", output_prefix,
+                                        index);
+            if (length < 0 || (size_t)length >= sizeof(indexed_output_path)) {
+                errno = ENAMETOOLONG;
+                perror("xgraph-module-run output path");
+                goto out;
+            }
+            if (write_binary_file(indexed_output_path, data, output->bytes) !=
+                0) {
+                perror("xgraph-module-run indexed output write");
+                goto out;
+            }
         }
     }
     printf("xgraph_module_regions_completed=%" PRIu32 "\n",
@@ -2489,6 +2510,9 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
            completed_commands);
     printf("xgraph_module_host_operations_completed=%" PRIu32 "\n",
            completed_host_operations);
+    printf("xgraph_module_outputs_completed=%" PRIu32 "\n",
+           header->output_count);
+    printf("xgraph_module_output_bytes=%" PRIu64 "\n", total_output_bytes);
     printf("xgraph_module_operation_count=%" PRIu64 "\n", total_operations);
     printf("xgraph_module_modeled_cycles=%" PRIu64 "\n", total_cycles);
     printf("xgraph_module_run=PASS\n");

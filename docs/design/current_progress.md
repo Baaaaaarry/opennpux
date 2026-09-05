@@ -1488,3 +1488,9 @@ pipeline、逐 region 固件提交及设备输出回读，并汇总 command、op
 仅执行一个 module 命令，不再包含固定 region 名、Tensor offset、`dd` 或显式 ReLU 调用。
 本地 22 项 BYOC 测试、package ABI 测试、严格 C11 编译和 shell 语法检查已通过；真实 TVM、
 AArch64 静态链接与 gem5 指令日志闭环等待 GB10 全系统验收。
+
+GB10 随后完成上述静态 Guest runtime 验收：两个 NPU region 和一个 Host ReLU 由单次
+`xgraph-module-run` 自动调度，累计完成 2 条设备命令、32 次 operation 和 32 个 modeled
+cycle，最终 output checksum `0x4983e4f0` 与 region 1 回读一致。下一增量补齐多输出导出：
+兼容变量 `OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH` 继续写 output 0，新变量
+`OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX` 按索引写出全部 output，并报告 output 数量和总字节数。

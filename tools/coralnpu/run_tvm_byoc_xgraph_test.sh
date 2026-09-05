@@ -10,6 +10,7 @@ ARENA="${BUILD_DIR}/relax-model.arena.bin"
 MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
+MODULE_INVOCATION2="${BUILD_DIR}/tvm-mixed-module-second.npxmi"
 LOCAL_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph-local.log"
 HOST_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph-host.log"
 DEBUG_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph.debug"
@@ -62,6 +63,24 @@ arena0_path.write_bytes(arena0)
 arena1_path.write_bytes(arena1)
 print(f"{region0['name']}={arena0_path}")
 print(f"{region1['name']}={arena1_path}")
+
+second_lhs = [float(value) for value in range(4, 12)]
+second_rhs = [2.0] * 8
+second_arena0 = bytearray(metadata0["arena_size"])
+second_arena1 = bytearray(metadata1["arena_size"])
+struct.pack_into("<8f", second_arena0, tensors0[inputs0[0]["name"]]["offset"],
+                 *second_lhs)
+struct.pack_into("<8f", second_arena0, tensors0[inputs0[1]["name"]]["offset"],
+                 *second_rhs)
+second_arena0_path = directory / "region-000.invocation2.bin"
+second_arena1_path = directory / "region-001.invocation2.bin"
+second_arena0_path.write_bytes(second_arena0)
+second_arena1_path.write_bytes(second_arena1)
+(directory / "invocation2.bindings").write_text(
+    f"{region0['name']}={second_arena0_path}\n"
+    f"{region1['name']}={second_arena1_path}\n",
+    encoding="utf-8",
+)
 PY
 )"
 set --
@@ -76,7 +95,15 @@ EOF
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${MODULE_DIR}" "${MODULE_INVOCATION}" "$@"
-[ -f "${MODULE_PACKAGE}" ] && [ -f "${MODULE_INVOCATION}" ] || {
+set --
+while IFS= read -r binding; do
+    [ -n "${binding}" ] && set -- "$@" --arena "${binding}"
+done <"${MODULE_DIR}/invocation2.bindings"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
+    "${MODULE_DIR}" "${MODULE_INVOCATION2}" "$@"
+[ -f "${MODULE_PACKAGE}" ] && [ -f "${MODULE_INVOCATION}" ] &&
+    [ -f "${MODULE_INVOCATION2}" ] || {
     echo "error: TVM BYOC module or invocation was not generated" >&2
     exit 1
 }
@@ -163,6 +190,11 @@ EOF
 base64 "${MODULE_INVOCATION}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_INVOCATION_EOF
+decode_base64 >/tmp/tvm-mixed-module-second.npxmi <<'OPENNPUX_TVM_INVOCATION2_EOF'
+EOF
+base64 "${MODULE_INVOCATION2}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_INVOCATION2_EOF
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     /tmp/coralctl xgraph-run \
@@ -194,7 +226,6 @@ has_output_line 'xgraph_output_reference=PASS' ||
 has_output_line 'xgraph_artifact_run=PASS' ||
     fail 'runtime PASS verdict missing'
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
-    OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-module.output.bin \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/tvm-module-output \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module.npxmi \
@@ -224,6 +255,26 @@ has_output_line 'xgraph_module_run=PASS' ||
     fail 'indexed module output size mismatch'
 cmp /tmp/tvm-module.output.bin /tmp/tvm-module-output.0.bin ||
     fail 'compatibility and indexed module outputs differ'
+SECOND_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-module-second.output.bin \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-second.npxmi \
+    /tmp/coralctl xgraph-module-run \
+    /tmp/tvm-mixed-module.npxgm 0x1d000000 1000000)" || {
+    printf '%s\n' "\${SECOND_OUTPUT}"
+    fail 'second module invocation failed'
+}
+printf '%s\n' "\${SECOND_OUTPUT}"
+case "\${SECOND_OUTPUT}" in
+    *'xgraph_module_invocation_bindings=2'*'xgraph_module_run=PASS'*) ;;
+    *) fail 'second module invocation verdict missing' ;;
+esac
+[ "\$(wc -c </tmp/tvm-module-second.output.bin)" -eq 32 ] ||
+    fail 'second module output size mismatch'
+if cmp -s /tmp/tvm-module.output.bin /tmp/tvm-module-second.output.bin; then
+    fail 'different module invocations produced identical output'
+fi
+echo 'xgraph_module_reused_invocations=2'
+echo 'xgraph_module_reuse=PASS'
 echo 'xgraph_module_chain=PASS'
 echo 'tvm_byoc_xgraph=PASS'
 echo '[tvm-byoc-xgraph] PASS'

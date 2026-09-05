@@ -173,6 +173,13 @@ region arena. This allows one compiled module package to be reused for
 different requests while preserving the old embedded-arena path when no
 invocation overlay is supplied.
 
+The full-system acceptance executes the same cleared `.npxgm` twice with two
+different `.npxmi` files during one Guest boot. Both invocations must apply two
+bindings and complete the same region/Host topology, while their exported
+outputs must differ. This separates dynamic rebinding coverage from the
+single-graph numerical-reference test and detects runtimes that accidentally
+retain the first request's input or output.
+
 Every module output is reported with its region, byte range, name checksum,
 and data checksum. `OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH` writes output 0 for
 backward compatibility. Setting `OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/out`

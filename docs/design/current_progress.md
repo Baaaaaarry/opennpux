@@ -1501,3 +1501,8 @@ cycle，最终 output checksum `0x4983e4f0` 与 region 1 回读一致。下一�
 `OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH` 加载 overlay，在启动任何 region 前统一校验 binding
 索引、目标范围、payload 范围和 checksum，再覆盖 arena。旧的内嵌 arena 调用保持兼容；GB10
 验收改为清零基础输入并要求两条动态 binding 生效，避免继续依赖打包时残留输入。
+
+动态调用验收继续扩展为同一 Guest 启动内复用同一个清零后的 `.npxgm`，依次加载两份包含不同
+输入的 `.npxmi`。两次运行都必须应用 2 条 binding 并完成相同的 NPU/Host 拓扑，同时导出的
+32-byte 结果必须不同。该检查用于发现 arena 没有被新请求覆盖、错误复用第一次输出或仍从基础
+包读取静态输入的问题；算子数值正确性仍由独立单图 reference 路径负责。

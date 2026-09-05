@@ -1476,3 +1476,15 @@ window 中预置 reference 的假阳性。最终 6 条命令全部完成，设�
 写入指定目录。首个 Host registry 支持 FP32 `relax.nn.relu`，未知算子、dtype 或尺寸不匹配
 均硬失败。该 Python 实现是调度契约和 Host OS 参考 runtime；后续仍需实现等价静态 C Guest
 runtime，不能把 Python 作为最终 checkpoint 依赖。
+
+TVM 端到端验证进一步消除了测试脚本编排。新增 version 1 二进制 module invocation ABI，
+包含 region、direct edge、Host binding/operation、module output 记录以及对齐后的 `.npxg` 与
+arena payload；`build_tvm_byoc_module_package.py` 根据编译 manifest 和 invocation Tensor 构包。
+静态 Guest `coralctl xgraph-module-run` 会校验全部索引与地址范围，自动执行 binding、Host
+pipeline、逐 region 固件提交及设备输出回读，并汇总 command、operation 和 modeled cycle。
+
+全系统脚本同时修正了一个旧验收缺口：原脚本实际使用 dependency-free fixture 的 `module/`
+目录，再手工插入 ReLU；新脚本改为直接打包 TVM Relax 产生的 `multi-region-module/`，Guest
+仅执行一个 module 命令，不再包含固定 region 名、Tensor offset、`dd` 或显式 ReLU 调用。
+本地 22 项 BYOC 测试、package ABI 测试、严格 C11 编译和 shell 语法检查已通过；真实 TVM、
+AArch64 静态链接与 gem5 指令日志闭环等待 GB10 全系统验收。

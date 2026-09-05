@@ -395,6 +395,59 @@ print('xgraph_output_readback=PASS')
             for lhs, rhs in zip(actual, expected):
                 self.assertAlmostEqual(lhs, rhs, places=6)
 
+    def test_builds_static_guest_module_package(self):
+        module = self.load_fixture()
+        module["regions"].reverse()
+        module["edges"] = []
+        module["host_bindings"] = [
+            {
+                "from": {"region": "residual", "tensor": "sum"},
+                "to": {"region": "activation", "tensor": "input"},
+                "pipeline": [{"op": "relax.nn.relu", "attrs": {}}],
+            }
+        ]
+        artifacts, manifest = compile_module(module)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            module_dir = directory / "module"
+            module_dir.mkdir()
+            (module_dir / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            command = [
+                sys.executable,
+                str(ROOT / "tools/models/build_tvm_byoc_module_package.py"),
+                str(module_dir),
+                str(directory / "module.npxgm"),
+            ]
+            for region in manifest["regions"]:
+                binary, metadata = artifacts[region["name"]]
+                artifact_path = module_dir / region["artifact"]
+                artifact_path.write_bytes(binary)
+                Path(f"{artifact_path}.json").write_text(
+                    json.dumps(metadata), encoding="utf-8"
+                )
+                arena_path = directory / f"{region['name']}.arena.bin"
+                arena_path.write_bytes(bytes(region["arena_size"]))
+                command.extend(["--arena", f"{region['name']}={arena_path}"])
+            completed = subprocess.run(
+                command, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("xgraph_module_package=PASS", completed.stdout)
+            package = (directory / "module.npxgm").read_bytes()
+            header = struct.unpack_from("<16I", package)
+            self.assertEqual(header[0], 0x4D47584E)
+            self.assertEqual(header[1], 1)
+            self.assertEqual(header[3], len(package))
+            self.assertEqual(header[4], 2)
+            self.assertEqual(header[5], 0)
+            self.assertEqual(header[6], 1)
+            self.assertEqual(header[7], 1)
+            self.assertEqual(header[8], 1)
+            self.assertEqual(header[9:14], (32, 24, 28, 8, 16))
+            self.assertEqual(header[14] % 64, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

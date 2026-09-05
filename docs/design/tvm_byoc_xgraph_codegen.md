@@ -131,6 +131,26 @@ fail explicitly. This Python runner is a reference scheduler for a Host OS
 with Python; the production Guest path still requires an equivalent static C
 runtime rather than embedding Python in the checkpoint.
 
+The static Guest runtime now consumes a binary module invocation package. The
+package is produced from the compiler manifest and invocation arenas with:
+
+```bash
+python3 tools/models/build_tvm_byoc_module_package.py \
+  build/model-regions build/model-invocation.npxgm \
+  --arena region0=region0.arena.bin \
+  --arena region1=region1.arena.bin
+```
+
+Its versioned ABI contains fixed-size region, direct-edge, Host-binding,
+Host-operation, and module-output tables followed by aligned XGraph and arena
+payloads. `coralctl xgraph-module-run` validates every table and byte range,
+applies incoming bindings, executes Host operations, submits each XGraph
+region, imports only device-readback output, and publishes module outputs. A
+package is an invocation artifact: it contains runtime Tensor values, while
+`module.npxgm.json` plus the region `.npxg` files remain reusable compiled
+artifacts. A later ABI revision can split invocation arenas from the package
+without changing the region command format.
+
 The normalized Codegen boundary already encodes `TOPK`, `ROPE`, and contiguous
 copy commands. The initial automatic Relax pattern table excludes `TOPK`
 because Relax represents its values/indices result as a tuple; tuple result
@@ -239,6 +259,22 @@ Run the complete compiler plus full-system acceptance on the x86/GB10 host:
 . .cache/tvm/env.sh
 ./tools/coralnpu/run_tvm_byoc_xgraph_test.sh
 ```
+
+The full-system test now packages the actual `multi-region-module` emitted
+from the TVM Relax graph and invokes one Guest command:
+
+```bash
+OPENNPUX_CORAL_TRANSPORT=driver \
+OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
+coralctl xgraph-module-run model-invocation.npxgm
+```
+
+There is no test-script `dd`, Tensor offset, region order, or ReLU call in this
+path. Those all come from the compiler-generated module ABI. Acceptance
+requires two completed regions, two completed XGraph commands, one completed
+Host operation, an exported 32-byte output, and the expected XOpenNPUX
+instruction dispatches. The pre-existing six-command single-region path is
+retained as an independent tiling and numerical regression.
 
 The script first computes the host numerical reference and checksum, then
 injects the same `.npxg` and arena into the Linux checkpoint. Acceptance checks

@@ -8,6 +8,7 @@
 #include "opennpux/npu_weight_queue.h"
 #include "opennpux/npu_weight_residency.h"
 #include "opennpux/qwen_model.h"
+#include "opennpux/tvm_byoc_module.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -446,6 +447,7 @@ usage(const char *prog)
             "  %s xopennpux-graph-test [base [poll-count]]\n"
             "  %s xgraph-run <graph.npxg> <arena.bin> "
             "[base [poll-count]]\n"
+            "  %s xgraph-module-run <module.npxgm> [base [poll-count]]\n"
             "  %s host-tensor-unary <relu> <input.bin> <output.bin>\n"
             "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
@@ -456,7 +458,7 @@ usage(const char *prog)
             "features: qwen-run-tcb-v2 qwen-device-run-v1\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog, prog, prog);
+            prog, prog, prog, prog);
 }
 
 static int
@@ -2190,6 +2192,326 @@ print_xgraph_run(struct opennpux_coral_device *dev, uint32_t entry,
 }
 
 static int
+read_binary_file(const char *path, uint8_t **bytes, size_t *size)
+{
+    FILE *file = fopen(path, "rb");
+    if (file == NULL || fseek(file, 0, SEEK_END) != 0) {
+        if (file != NULL) {
+            fclose(file);
+        }
+        return -1;
+    }
+    const long length = ftell(file);
+    if (length <= 0 || (unsigned long)length > UINT32_MAX ||
+        fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        errno = EINVAL;
+        return -1;
+    }
+    uint8_t *data = malloc((size_t)length);
+    if (data == NULL || fread(data, 1, (size_t)length, file) !=
+                            (size_t)length || ferror(file)) {
+        const int saved_errno = data == NULL ? errno : EIO;
+        free(data);
+        fclose(file);
+        errno = saved_errno;
+        return -1;
+    }
+    fclose(file);
+    *bytes = data;
+    *size = (size_t)length;
+    return 0;
+}
+
+static int
+write_binary_file(const char *path, const void *bytes, size_t size)
+{
+    FILE *file = fopen(path, "wb");
+    if (file == NULL) {
+        return -1;
+    }
+    if (fwrite(bytes, 1, size, file) != size) {
+        fclose(file);
+        errno = EIO;
+        return -1;
+    }
+    if (fclose(file) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int
+module_range_valid(uint32_t offset, uint32_t bytes, uint32_t limit)
+{
+    return offset <= limit && bytes <= limit - offset;
+}
+
+static int
+print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
+                        const char *module_path, uint64_t polls)
+{
+    uint8_t *image = NULL;
+    size_t image_size = 0;
+    uint8_t **arenas = NULL;
+    int rc = 1;
+    if (read_binary_file(module_path, &image, &image_size) != 0 ||
+        image_size < sizeof(struct opennpux_tvm_module_header)) {
+        if (image != NULL && image_size <
+                                 sizeof(struct opennpux_tvm_module_header)) {
+            errno = EPROTO;
+        }
+        perror("xgraph-module-run load");
+        goto out;
+    }
+    const struct opennpux_tvm_module_header *header =
+        (const struct opennpux_tvm_module_header *)(const void *)image;
+    const uint64_t table_size =
+        sizeof(*header) +
+        (uint64_t)header->region_count * sizeof(struct opennpux_tvm_module_region) +
+        (uint64_t)header->edge_count * sizeof(struct opennpux_tvm_module_edge) +
+        (uint64_t)header->host_binding_count *
+            sizeof(struct opennpux_tvm_module_host_binding) +
+        (uint64_t)header->host_operation_count *
+            sizeof(struct opennpux_tvm_module_host_operation) +
+        (uint64_t)header->output_count * sizeof(struct opennpux_tvm_module_output);
+    if (header->magic != OPENNPUX_TVM_MODULE_MAGIC ||
+        header->version != OPENNPUX_TVM_MODULE_VERSION ||
+        header->header_size != sizeof(*header) ||
+        header->total_size != image_size || header->region_count == 0 ||
+        header->region_count > 256 || header->edge_count > 4096 ||
+        header->host_binding_count > 4096 ||
+        header->host_operation_count > 4096 ||
+        header->output_count == 0 || header->output_count > 256 ||
+        header->region_record_size != sizeof(struct opennpux_tvm_module_region) ||
+        header->edge_record_size != sizeof(struct opennpux_tvm_module_edge) ||
+        header->host_binding_record_size !=
+            sizeof(struct opennpux_tvm_module_host_binding) ||
+        header->host_operation_record_size !=
+            sizeof(struct opennpux_tvm_module_host_operation) ||
+        header->output_record_size != sizeof(struct opennpux_tvm_module_output) ||
+        table_size > header->payload_offset || header->payload_offset > image_size) {
+        errno = EPROTO;
+        perror("xgraph-module-run header");
+        goto out;
+    }
+    const uint8_t *table = image + sizeof(*header);
+    const struct opennpux_tvm_module_region *regions =
+        (const struct opennpux_tvm_module_region *)(const void *)table;
+    table += (size_t)header->region_count * sizeof(*regions);
+    const struct opennpux_tvm_module_edge *edges =
+        (const struct opennpux_tvm_module_edge *)(const void *)table;
+    table += (size_t)header->edge_count * sizeof(*edges);
+    const struct opennpux_tvm_module_host_binding *host_bindings =
+        (const struct opennpux_tvm_module_host_binding *)(const void *)table;
+    table += (size_t)header->host_binding_count * sizeof(*host_bindings);
+    const struct opennpux_tvm_module_host_operation *host_operations =
+        (const struct opennpux_tvm_module_host_operation *)(const void *)table;
+    table += (size_t)header->host_operation_count * sizeof(*host_operations);
+    const struct opennpux_tvm_module_output *outputs =
+        (const struct opennpux_tvm_module_output *)(const void *)table;
+
+    arenas = calloc(header->region_count, sizeof(*arenas));
+    if (arenas == NULL) {
+        goto out;
+    }
+    for (uint32_t index = 0; index < header->region_count; ++index) {
+        const struct opennpux_tvm_module_region *region = &regions[index];
+        if (region->graph_offset < header->payload_offset ||
+            region->arena_offset < header->payload_offset ||
+            !module_range_valid(region->graph_offset, region->graph_size,
+                                header->total_size) ||
+            !module_range_valid(region->arena_offset, region->arena_size,
+                                header->total_size) ||
+            !module_range_valid(region->output_offset, region->output_bytes,
+                                region->arena_size)) {
+            errno = EPROTO;
+            perror("xgraph-module-run region");
+            goto out;
+        }
+        arenas[index] = malloc(region->arena_size);
+        if (arenas[index] == NULL) {
+            goto out;
+        }
+        memcpy(arenas[index], image + region->arena_offset, region->arena_size);
+    }
+    for (uint32_t index = 0; index < header->edge_count; ++index) {
+        const struct opennpux_tvm_module_edge *edge = &edges[index];
+        if (edge->from_region >= edge->to_region ||
+            edge->to_region >= header->region_count ||
+            !module_range_valid(edge->source_offset, edge->bytes,
+                                regions[edge->from_region].arena_size) ||
+            !module_range_valid(edge->target_offset, edge->bytes,
+                                regions[edge->to_region].arena_size)) {
+            errno = EPROTO;
+            perror("xgraph-module-run edge");
+            goto out;
+        }
+    }
+    for (uint32_t index = 0; index < header->host_binding_count; ++index) {
+        const struct opennpux_tvm_module_host_binding *binding =
+            &host_bindings[index];
+        if (binding->from_region >= binding->to_region ||
+            binding->to_region >= header->region_count ||
+            !module_range_valid(binding->source_offset, binding->bytes,
+                                regions[binding->from_region].arena_size) ||
+            !module_range_valid(binding->target_offset, binding->bytes,
+                                regions[binding->to_region].arena_size) ||
+            binding->first_operation > header->host_operation_count ||
+            binding->operation_count >
+                header->host_operation_count - binding->first_operation) {
+            errno = EPROTO;
+            perror("xgraph-module-run Host binding");
+            goto out;
+        }
+    }
+    for (uint32_t index = 0; index < header->output_count; ++index) {
+        if (outputs[index].region >= header->region_count ||
+            !module_range_valid(outputs[index].offset, outputs[index].bytes,
+                                regions[outputs[index].region].arena_size)) {
+            errno = EPROTO;
+            perror("xgraph-module-run output");
+            goto out;
+        }
+    }
+
+    uint64_t total_operations = 0;
+    uint64_t total_cycles = 0;
+    uint32_t completed_commands = 0;
+    uint32_t completed_host_operations = 0;
+    for (uint32_t region_index = 0; region_index < header->region_count;
+         ++region_index) {
+        for (uint32_t index = 0; index < header->edge_count; ++index) {
+            const struct opennpux_tvm_module_edge *edge = &edges[index];
+            if (edge->to_region == region_index) {
+                memcpy(arenas[region_index] + edge->target_offset,
+                       arenas[edge->from_region] + edge->source_offset,
+                       edge->bytes);
+            }
+        }
+        for (uint32_t index = 0; index < header->host_binding_count; ++index) {
+            const struct opennpux_tvm_module_host_binding *binding =
+                &host_bindings[index];
+            if (binding->to_region != region_index) {
+                continue;
+            }
+            memcpy(arenas[region_index] + binding->target_offset,
+                   arenas[binding->from_region] + binding->source_offset,
+                   binding->bytes);
+            for (uint32_t operation_index = 0;
+                 operation_index < binding->operation_count;
+                 ++operation_index) {
+                const struct opennpux_tvm_module_host_operation *operation =
+                    &host_operations[binding->first_operation + operation_index];
+                if (operation->opcode != OPENNPUX_TVM_MODULE_HOST_RELU ||
+                    operation->flags != 0 ||
+                    (binding->bytes % sizeof(float)) != 0) {
+                    errno = ENOTSUP;
+                    perror("xgraph-module-run Host operation");
+                    goto out;
+                }
+                float *values = (float *)(void *)(
+                    arenas[region_index] + binding->target_offset);
+                const size_t elements = binding->bytes / sizeof(*values);
+                for (size_t element = 0; element < elements; ++element) {
+                    if (values[element] < 0.0f) {
+                        values[element] = 0.0f;
+                    }
+                }
+                ++completed_host_operations;
+            }
+        }
+        char graph_path[96];
+        char arena_path[96];
+        snprintf(graph_path, sizeof(graph_path),
+                 "/tmp/opennpux-module-%" PRIu32 ".npxg", region_index);
+        snprintf(arena_path, sizeof(arena_path),
+                 "/tmp/opennpux-module-%" PRIu32 ".arena.bin", region_index);
+        const struct opennpux_tvm_module_region *region =
+            &regions[region_index];
+        if (write_binary_file(graph_path, image + region->graph_offset,
+                              region->graph_size) != 0 ||
+            write_binary_file(arena_path, arenas[region_index],
+                              region->arena_size) != 0) {
+            perror("xgraph-module-run stage");
+            remove(graph_path);
+            remove(arena_path);
+            goto out;
+        }
+        struct opennpux_coral_xgraph_result result;
+        const int run_result = opennpux_coral_run_xgraph_artifact(
+            dev, entry, graph_path, arena_path, polls, &result);
+        remove(graph_path);
+        remove(arena_path);
+        if (run_result != 0 || result.output_readback_verified == 0) {
+            perror("xgraph-module-run region execute");
+            goto out;
+        }
+        struct opennpux_coral_shared_window window = {0};
+        if (opennpux_coral_open_shared_window(dev, region->arena_size,
+                                              &window) != 0) {
+            perror("xgraph-module-run output map");
+            goto out;
+        }
+        copy_from_device_memory(
+            arenas[region_index] + region->output_offset,
+            window.bytes + region->output_offset, region->output_bytes);
+        opennpux_coral_close_shared_window(&window);
+        completed_commands += result.completed_commands;
+        total_operations += result.operation_count;
+        total_cycles += result.modeled_cycles;
+        printf("xgraph_module_region=%" PRIu32
+               " commands=%" PRIu32 " checksum=0x%08" PRIx32
+               " operations=%" PRIu64 " cycles=%" PRIu64 "\n",
+               region_index, result.completed_commands,
+               result.output_readback_checksum, result.operation_count,
+               result.modeled_cycles);
+    }
+    const char *output_path = getenv("OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH");
+    for (uint32_t index = 0; index < header->output_count; ++index) {
+        const struct opennpux_tvm_module_output *output = &outputs[index];
+        const uint8_t *data = arenas[output->region] + output->offset;
+        printf("xgraph_module_output=%" PRIu32
+               " region=%" PRIu32 " bytes=%" PRIu32
+               " name_checksum=0x%08" PRIx32
+               " checksum=0x%08" PRIx32 "\n",
+               index, output->region, output->bytes, output->name_checksum,
+               byte_checksum(data, output->bytes));
+        if (index == 0 && output_path != NULL && output_path[0] != '\0' &&
+            write_binary_file(output_path, data, output->bytes) != 0) {
+            perror("xgraph-module-run output write");
+            goto out;
+        }
+    }
+    printf("xgraph_module_regions_completed=%" PRIu32 "\n",
+           header->region_count);
+    printf("xgraph_module_commands_completed=%" PRIu32 "\n",
+           completed_commands);
+    printf("xgraph_module_host_operations_completed=%" PRIu32 "\n",
+           completed_host_operations);
+    printf("xgraph_module_operation_count=%" PRIu64 "\n", total_operations);
+    printf("xgraph_module_modeled_cycles=%" PRIu64 "\n", total_cycles);
+    printf("xgraph_module_run=PASS\n");
+    rc = 0;
+
+out:
+    if (arenas != NULL && image != NULL &&
+        image_size >= sizeof(struct opennpux_tvm_module_header)) {
+        const struct opennpux_tvm_module_header *loaded_header =
+            (const struct opennpux_tvm_module_header *)(const void *)image;
+        if (loaded_header->region_count <= UINT16_MAX) {
+            for (uint32_t index = 0; index < loaded_header->region_count;
+                 ++index) {
+                free(arenas[index]);
+            }
+        }
+    }
+    free(arenas);
+    free(image);
+    return rc;
+}
+
+static int
 print_mobilenet_test(struct opennpux_coral_device *dev, uint32_t entry,
                      uint64_t polls)
 {
@@ -2259,6 +2581,8 @@ main(int argc, char **argv)
     const int command_xgraph_test =
         strcmp(argv[1], "xopennpux-graph-test") == 0;
     const int command_xgraph_run = strcmp(argv[1], "xgraph-run") == 0;
+    const int command_xgraph_module_run =
+        strcmp(argv[1], "xgraph-module-run") == 0;
     const int command_host_tensor_unary =
         strcmp(argv[1], "host-tensor-unary") == 0;
     const int command_mobilenet_test =
@@ -2275,6 +2599,7 @@ main(int argc, char **argv)
         !command_qwen_stage_tcb && !command_qwen_run_tcb &&
         !command_qwen_device_run &&
         !command_generic_test && !command_xgraph_test && !command_xgraph_run &&
+        !command_xgraph_module_run &&
         !command_host_tensor_unary &&
         !command_mobilenet_test &&
         !command_mem_info && !command_mem_clear && !command_mem_load &&
@@ -2299,6 +2624,7 @@ main(int argc, char **argv)
         (command_qwen_device_run && (argc < 4 || argc > 6)) ||
         ((command_generic_test || command_xgraph_test) && argc > 4) ||
         (command_xgraph_run && (argc < 4 || argc > 6)) ||
+        (command_xgraph_module_run && (argc < 3 || argc > 5)) ||
         (command_host_tensor_unary && argc != 5) ||
         (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
@@ -2356,6 +2682,12 @@ main(int argc, char **argv)
         xgraph_arena_path = argv[3];
         if (argc >= 5 && opennpux_coral_parse_u64(argv[4], &base) != 0) {
             fprintf(stderr, "invalid base address: %s\n", argv[4]);
+            return 2;
+        }
+    } else if (command_xgraph_module_run) {
+        model_path = argv[2];
+        if (argc >= 4 && opennpux_coral_parse_u64(argv[3], &base) != 0) {
+            fprintf(stderr, "invalid base address: %s\n", argv[3]);
             return 2;
         }
     } else if (command_mem_load) {
@@ -2508,7 +2840,7 @@ main(int argc, char **argv)
         (command_dma_test || command_vector_add || command_vector_add_custom ||
          command_model_run || command_mobilenet_test || command_qwen_run_tcb ||
          command_generic_test || command_xgraph_test ||
-         command_xgraph_run ||
+         command_xgraph_run || command_xgraph_module_run ||
          command_qwen_device_run ||
          command_executable_run) ?
             100000 : 1000;
@@ -2522,6 +2854,7 @@ main(int argc, char **argv)
         command_executable_run ? executable_poll_arg :
         (command_generic_test || command_xgraph_test) ? 3 :
         command_xgraph_run ? 5 :
+        command_xgraph_module_run ? 4 :
         command_mobilenet_test ? 3 :
         command_qwen_run_tcb ? 4 :
         command_qwen_device_run ? 5 :
@@ -2557,6 +2890,9 @@ main(int argc, char **argv)
     } else if (command_xgraph_run) {
         result = print_xgraph_run(&dev, (uint32_t)entry, model_path,
                                   xgraph_arena_path, polls);
+    } else if (command_xgraph_module_run) {
+        result = print_xgraph_module_run(&dev, (uint32_t)entry, model_path,
+                                         polls);
     } else if (command_mobilenet_test) {
         result = print_mobilenet_test(&dev, (uint32_t)entry, polls);
     } else if (command_vector_add || command_vector_add_custom) {

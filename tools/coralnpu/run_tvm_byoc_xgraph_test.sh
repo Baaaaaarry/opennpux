@@ -7,11 +7,8 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 BUILD_DIR="${ROOT_DIR}/build/local-tests/tvm-byoc-xgraph"
 GRAPH="${BUILD_DIR}/relax-model.npxg"
 ARENA="${BUILD_DIR}/relax-model.arena.bin"
-MODULE_DIR="${BUILD_DIR}/module"
-REGION0_GRAPH="${MODULE_DIR}/region-000-residual.npxg"
-REGION1_GRAPH="${MODULE_DIR}/region-001-activation.npxg"
-REGION0_ARENA="${MODULE_DIR}/region-000-residual.arena.bin"
-REGION1_ARENA="${MODULE_DIR}/region-001-activation.arena.bin"
+MODULE_DIR="${BUILD_DIR}/multi-region-module"
+MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 LOCAL_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph-local.log"
 HOST_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph-host.log"
 DEBUG_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph.debug"
@@ -25,18 +22,25 @@ OPENNPUX_REQUIRE_TVM=1 \
     echo "error: TVM BYOC XGraph artifacts were not generated" >&2
     exit 1
 }
-"${TVM_PYTHON:-python3}" - \
-    "${REGION0_GRAPH}.json" "${REGION0_ARENA}" \
-    "${REGION1_GRAPH}.json" "${REGION1_ARENA}" <<'PY'
+MODULE_ARENA_BINDINGS="$("${TVM_PYTHON:-python3}" - \
+    "${MODULE_DIR}" <<'PY'
 import json
 import math
 import struct
 import sys
+from pathlib import Path
 
-metadata0 = json.load(open(sys.argv[1], encoding="utf-8"))
-metadata1 = json.load(open(sys.argv[3], encoding="utf-8"))
+directory = Path(sys.argv[1])
+manifest = json.load(open(directory / "module.npxgm.json", encoding="utf-8"))
+assert len(manifest["regions"]) == 2
+assert len(manifest["host_bindings"]) == 1
+region0, region1 = manifest["regions"]
+metadata0 = json.load(open(directory / f"{region0['artifact']}.json", encoding="utf-8"))
+metadata1 = json.load(open(directory / f"{region1['artifact']}.json", encoding="utf-8"))
 tensors0 = {tensor["name"]: tensor for tensor in metadata0["tensors"]}
 tensors1 = {tensor["name"]: tensor for tensor in metadata1["tensors"]}
+inputs0 = [tensor for tensor in metadata0["tensors"] if tensor["storage"] == "input"]
+assert len(inputs0) == 2
 lhs = [float(value) for value in range(-4, 4)]
 rhs = [1.0] * 8
 summed = [a + b for a, b in zip(lhs, rhs)]
@@ -45,20 +49,33 @@ activated = [value / (1.0 + math.exp(-value)) for value in host_relu]
 arena0 = bytearray(metadata0["arena_size"])
 arena1 = bytearray(metadata1["arena_size"])
 for arena, table, name, values in (
-    (arena0, tensors0, "lhs", lhs),
-    (arena0, tensors0, "rhs", rhs),
-    (arena0, tensors0, "sum", summed),
-    (arena1, tensors1, "output", activated),
+    (arena0, tensors0, inputs0[0]["name"], lhs),
+    (arena0, tensors0, inputs0[1]["name"], rhs),
+    (arena0, tensors0, metadata0["output"], summed),
+    (arena1, tensors1, metadata1["output"], activated),
 ):
     struct.pack_into(f"<{len(values)}f", arena, table[name]["offset"], *values)
-open(sys.argv[2], "wb").write(arena0)
-open(sys.argv[4], "wb").write(arena1)
-print(f"module_region1_input_offset={tensors1['input']['offset']}")
+arena0_path = directory / "region-000.invocation.bin"
+arena1_path = directory / "region-001.invocation.bin"
+arena0_path.write_bytes(arena0)
+arena1_path.write_bytes(arena1)
+print(f"{region0['name']}={arena0_path}")
+print(f"{region1['name']}={arena1_path}")
 PY
-REGION1_INPUT_OFFSET="$("${TVM_PYTHON:-python3}" -c \
-    'import json,sys; print(next(t["offset"] for t in json.load(open(sys.argv[1]))["tensors"] if t["name"] == "input"))' \
-    "${REGION1_GRAPH}.json")"
-REGION1_ARENA_SIZE="$(wc -c <"${REGION1_ARENA}")"
+)"
+set --
+while IFS= read -r binding; do
+    [ -n "${binding}" ] && set -- "$@" --arena "${binding}"
+done <<EOF
+${MODULE_ARENA_BINDINGS}
+EOF
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_module_package.py" \
+    "${MODULE_DIR}" "${MODULE_PACKAGE}" "$@"
+[ -f "${MODULE_PACKAGE}" ] || {
+    echo "error: TVM BYOC module package was not generated" >&2
+    exit 1
+}
 EXPECTED_CHECKSUM="$(sed -n \
     's/^xgraph_output_checksum=\(0x[0-9a-fA-F]*\)$/\1/p' \
     "${LOCAL_LOG}" | tail -n 1)"
@@ -132,26 +149,11 @@ EOF
 base64 "${ARENA}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_ARENA_EOF
-decode_base64 >/tmp/tvm-region0.npxg <<'OPENNPUX_REGION0_GRAPH_EOF'
+decode_base64 >/tmp/tvm-mixed-module.npxgm <<'OPENNPUX_TVM_MODULE_EOF'
 EOF
-base64 "${REGION0_GRAPH}" >>"${TEST_SCRIPT}"
-cat >>"${TEST_SCRIPT}" <<'EOF'
-OPENNPUX_REGION0_GRAPH_EOF
-decode_base64 >/tmp/tvm-region0.arena.bin <<'OPENNPUX_REGION0_ARENA_EOF'
-EOF
-base64 "${REGION0_ARENA}" >>"${TEST_SCRIPT}"
-cat >>"${TEST_SCRIPT}" <<'EOF'
-OPENNPUX_REGION0_ARENA_EOF
-decode_base64 >/tmp/tvm-region1.npxg <<'OPENNPUX_REGION1_GRAPH_EOF'
-EOF
-base64 "${REGION1_GRAPH}" >>"${TEST_SCRIPT}"
-cat >>"${TEST_SCRIPT}" <<'EOF'
-OPENNPUX_REGION1_GRAPH_EOF
-decode_base64 >/tmp/tvm-region1.arena.bin <<'OPENNPUX_REGION1_ARENA_EOF'
-EOF
-base64 "${REGION1_ARENA}" >>"${TEST_SCRIPT}"
+base64 "${MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
-OPENNPUX_REGION1_ARENA_EOF
+OPENNPUX_TVM_MODULE_EOF
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     /tmp/coralctl xgraph-run \
@@ -184,75 +186,23 @@ has_output_line 'xgraph_artifact_run=PASS' ||
     fail 'runtime PASS verdict missing'
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
-    OPENNPUX_XGRAPH_OUTPUT_PATH=/tmp/tvm-region0.output.bin \
-    /tmp/coralctl xgraph-run \
-    /tmp/tvm-region0.npxg /tmp/tvm-region0.arena.bin \
-    0x1d000000 1000000)" || {
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-module.output.bin \
+    /tmp/coralctl xgraph-module-run \
+    /tmp/tvm-mixed-module.npxgm 0x1d000000 1000000)" || {
     printf '%s\n' "\${OUTPUT}"
-    fail 'module region 0 execution failed'
+    fail 'compiled TVM module execution failed'
 }
 printf '%s\n' "\${OUTPUT}"
-has_output_line 'xgraph_completed_commands=1' ||
-    fail 'module region 0 command count mismatch'
-has_output_line 'xgraph_output_readback=PASS' ||
-    fail 'module region 0 readback failed'
-has_output_line 'xgraph_output_reference=PASS' ||
-    fail 'module region 0 reference mismatch'
-[ "\$(wc -c </tmp/tvm-region0.output.bin)" -eq 32 ] ||
-    fail 'module region 0 output size mismatch'
-HOST_OUTPUT="\$(/tmp/coralctl host-tensor-unary relu \
-    /tmp/tvm-region0.output.bin /tmp/tvm-region0.host.bin)" || {
-    printf '%s\n' "\${HOST_OUTPUT}"
-    fail 'module Host ReLU execution failed'
-}
-printf '%s\n' "\${HOST_OUTPUT}"
-case "\${HOST_OUTPUT}" in
-    *'host_tensor_run=PASS'*) ;;
-    *) fail 'module Host ReLU PASS verdict missing' ;;
-esac
-[ "\$(wc -c </tmp/tvm-region0.host.bin)" -eq 32 ] ||
-    fail 'module Host ReLU output size mismatch'
-if command -v dd >/dev/null 2>&1; then
-    DD_BIN="\$(command -v dd)"
-    DD_APPLET=
-elif /tmp/busybox dd --help >/dev/null 2>&1; then
-    DD_BIN=/tmp/busybox
-    DD_APPLET=dd
-else
-    fail 'module Tensor edge copy requires dd'
-fi
-if ! "\${DD_BIN}" \${DD_APPLET} if=/tmp/tvm-region0.host.bin \
-    of=/tmp/tvm-region1.arena.bin bs=32 count=1 \
-    seek=$((REGION1_INPUT_OFFSET / 32)) conv=notrunc \
-    2>/tmp/tvm-edge-copy.err; then
-    [ ! -r /tmp/tvm-edge-copy.err ] ||
-        while IFS= read -r line; do
-            echo "[tvm-byoc-xgraph] edge-copy: \${line}"
-        done </tmp/tvm-edge-copy.err
-    fail 'module Tensor edge copy failed'
-fi
-[ "\$(wc -c </tmp/tvm-region1.arena.bin)" -eq ${REGION1_ARENA_SIZE} ] ||
-    fail 'module region 1 arena size changed during edge copy'
-OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
-    OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
-    OPENNPUX_XGRAPH_OUTPUT_PATH=/tmp/tvm-region1.output.bin \
-    /tmp/coralctl xgraph-run \
-    /tmp/tvm-region1.npxg /tmp/tvm-region1.arena.bin \
-    0x1d000000 1000000)" || {
-    printf '%s\n' "\${OUTPUT}"
-    fail 'module region 1 execution failed'
-}
-printf '%s\n' "\${OUTPUT}"
-has_output_line 'xgraph_completed_commands=1' ||
-    fail 'module region 1 command count mismatch'
-has_output_line 'xgraph_output_readback=PASS' ||
-    fail 'module region 1 readback failed'
-has_output_line 'xgraph_output_reference=PASS' ||
-    fail 'module region 1 reference mismatch'
-echo 'xgraph_module_regions_completed=2'
-echo 'xgraph_module_direct_edges=0'
-echo 'xgraph_module_host_bindings=1'
-echo 'xgraph_module_host_pipeline=relax.nn.relu'
+has_output_line 'xgraph_module_regions_completed=2' ||
+    fail 'module region completion count mismatch'
+has_output_line 'xgraph_module_commands_completed=2' ||
+    fail 'module command completion count mismatch'
+has_output_line 'xgraph_module_host_operations_completed=1' ||
+    fail 'compiled Host pipeline was not executed'
+has_output_line 'xgraph_module_run=PASS' ||
+    fail 'module runtime PASS verdict missing'
+[ "\$(wc -c </tmp/tvm-module.output.bin)" -eq 32 ] ||
+    fail 'module output size mismatch'
 echo 'xgraph_module_chain=PASS'
 echo 'tvm_byoc_xgraph=PASS'
 echo '[tvm-byoc-xgraph] PASS'

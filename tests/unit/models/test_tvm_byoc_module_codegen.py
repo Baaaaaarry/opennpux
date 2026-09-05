@@ -419,7 +419,9 @@ print('xgraph_output_readback=PASS')
                 str(ROOT / "tools/models/build_tvm_byoc_module_package.py"),
                 str(module_dir),
                 str(directory / "module.npxgm"),
+                "--clear-external-bindings",
             ]
+            arena_arguments = []
             for region in manifest["regions"]:
                 binary, metadata = artifacts[region["name"]]
                 artifact_path = module_dir / region["artifact"]
@@ -428,8 +430,12 @@ print('xgraph_output_readback=PASS')
                     json.dumps(metadata), encoding="utf-8"
                 )
                 arena_path = directory / f"{region['name']}.arena.bin"
-                arena_path.write_bytes(bytes(region["arena_size"]))
-                command.extend(["--arena", f"{region['name']}={arena_path}"])
+                arena_data = bytes([region["sequence"] + 1]) * region["arena_size"]
+                arena_path.write_bytes(arena_data)
+                arena_arguments.extend(
+                    ["--arena", f"{region['name']}={arena_path}"]
+                )
+            command.extend(arena_arguments)
             completed = subprocess.run(
                 command, check=False, capture_output=True, text=True
             )
@@ -447,6 +453,40 @@ print('xgraph_output_readback=PASS')
             self.assertEqual(header[8], 1)
             self.assertEqual(header[9:14], (32, 24, 28, 8, 16))
             self.assertEqual(header[14] % 64, 0)
+            first_region = struct.unpack_from("<8I", package, 64)
+            first_arena_offset = first_region[2]
+            first_metadata = artifacts[manifest["regions"][0]["name"]][1]
+            first_tensors = {
+                tensor["name"]: tensor for tensor in first_metadata["tensors"]
+            }
+            for tensor_name in manifest["regions"][0]["external_bindings"]:
+                tensor = first_tensors[tensor_name]
+                begin = first_arena_offset + tensor["offset"]
+                end = begin + tensor["byte_size"]
+                self.assertEqual(package[begin:end], bytes(tensor["byte_size"]))
+
+            invocation_path = directory / "invocation.npxmi"
+            invocation = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools/models/build_tvm_byoc_invocation.py"),
+                    str(module_dir),
+                    str(invocation_path),
+                    *arena_arguments,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(invocation.returncode, 0, invocation.stderr)
+            self.assertIn("xgraph_invocation_bindings=2", invocation.stdout)
+            invocation_image = invocation_path.read_bytes()
+            invocation_header = struct.unpack_from("<8I", invocation_image)
+            self.assertEqual(invocation_header[0], 0x4958504E)
+            self.assertEqual(invocation_header[1], 1)
+            self.assertEqual(invocation_header[3], len(invocation_image))
+            self.assertEqual(invocation_header[4], 2)
+            self.assertEqual(invocation_header[5], 24)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ GRAPH="${BUILD_DIR}/relax-model.npxg"
 ARENA="${BUILD_DIR}/relax-model.arena.bin"
 MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
+MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
 LOCAL_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph-local.log"
 HOST_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph-host.log"
 DEBUG_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph.debug"
@@ -71,9 +72,12 @@ ${MODULE_ARENA_BINDINGS}
 EOF
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_module_package.py" \
-    "${MODULE_DIR}" "${MODULE_PACKAGE}" "$@"
-[ -f "${MODULE_PACKAGE}" ] || {
-    echo "error: TVM BYOC module package was not generated" >&2
+    "${MODULE_DIR}" "${MODULE_PACKAGE}" --clear-external-bindings "$@"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
+    "${MODULE_DIR}" "${MODULE_INVOCATION}" "$@"
+[ -f "${MODULE_PACKAGE}" ] && [ -f "${MODULE_INVOCATION}" ] || {
+    echo "error: TVM BYOC module or invocation was not generated" >&2
     exit 1
 }
 EXPECTED_CHECKSUM="$(sed -n \
@@ -154,6 +158,11 @@ EOF
 base64 "${MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_MODULE_EOF
+decode_base64 >/tmp/tvm-mixed-module.npxmi <<'OPENNPUX_TVM_INVOCATION_EOF'
+EOF
+base64 "${MODULE_INVOCATION}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_INVOCATION_EOF
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     /tmp/coralctl xgraph-run \
@@ -188,6 +197,7 @@ OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-module.output.bin \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/tvm-module-output \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module.npxmi \
     /tmp/coralctl xgraph-module-run \
     /tmp/tvm-mixed-module.npxgm 0x1d000000 1000000)" || {
     printf '%s\n' "\${OUTPUT}"
@@ -200,6 +210,8 @@ has_output_line 'xgraph_module_commands_completed=2' ||
     fail 'module command completion count mismatch'
 has_output_line 'xgraph_module_host_operations_completed=1' ||
     fail 'compiled Host pipeline was not executed'
+has_output_line 'xgraph_module_invocation_bindings=2' ||
+    fail 'dynamic invocation bindings were not applied'
 has_output_line 'xgraph_module_outputs_completed=1' ||
     fail 'module output completion count mismatch'
 has_output_line 'xgraph_module_output_bytes=32' ||

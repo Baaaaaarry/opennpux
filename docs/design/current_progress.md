@@ -1494,3 +1494,10 @@ GB10 随后完成上述静态 Guest runtime 验收：两个 NPU region 和一个
 cycle，最终 output checksum `0x4983e4f0` 与 region 1 回读一致。下一增量补齐多输出导出：
 兼容变量 `OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH` 继续写 output 0，新变量
 `OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX` 按索引写出全部 output，并报告 output 数量和总字节数。
+
+进一步将编译 module 与运行时输入拆分。`build_tvm_byoc_module_package.py
+--clear-external-bindings` 生成可复用基础 `.npxgm`，新 `build_tvm_byoc_invocation.py` 将一次请求
+的 external input/constant/state 打包为版本化 `.npxmi`。Guest 通过
+`OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH` 加载 overlay，在启动任何 region 前统一校验 binding
+索引、目标范围、payload 范围和 checksum，再覆盖 arena。旧的内嵌 arena 调用保持兼容；GB10
+验收改为清零基础输入并要求两条动态 binding 生效，避免继续依赖打包时残留输入。

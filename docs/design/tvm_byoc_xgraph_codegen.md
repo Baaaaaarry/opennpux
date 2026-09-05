@@ -151,6 +151,28 @@ package is an invocation artifact: it contains runtime Tensor values, while
 artifacts. A later ABI revision can split invocation arenas from the package
 without changing the region command format.
 
+That split is now available without changing the XGraph region ABI. Build the
+base module with external Tensor ranges cleared, then create a versioned
+`.npxmi` overlay from one invocation's arenas:
+
+```bash
+python3 tools/models/build_tvm_byoc_module_package.py \
+  build/model-regions build/model.npxgm \
+  --clear-external-bindings \
+  --arena region0=region0.arena.bin --arena region1=region1.arena.bin
+python3 tools/models/build_tvm_byoc_invocation.py \
+  build/model-regions build/request.npxmi \
+  --arena region0=region0.arena.bin --arena region1=region1.arena.bin
+OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=build/request.npxmi \
+  coralctl xgraph-module-run build/model.npxgm
+```
+
+The Guest validates invocation magic/version, binding indices, source and
+destination byte ranges, flags, and payload checksums before modifying any
+region arena. This allows one compiled module package to be reused for
+different requests while preserving the old embedded-arena path when no
+invocation overlay is supplied.
+
 Every module output is reported with its region, byte range, name checksum,
 and data checksum. `OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH` writes output 0 for
 backward compatibility. Setting `OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/out`

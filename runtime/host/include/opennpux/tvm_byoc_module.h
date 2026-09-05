@@ -10,6 +10,8 @@ extern "C" {
 #define OPENNPUX_TVM_MODULE_MAGIC UINT32_C(0x4d47584e)
 #define OPENNPUX_TVM_MODULE_VERSION UINT32_C(1)
 #define OPENNPUX_TVM_MODULE_HOST_RELU UINT32_C(1)
+#define OPENNPUX_TVM_INVOCATION_MAGIC UINT32_C(0x4958504e)
+#define OPENNPUX_TVM_INVOCATION_VERSION UINT32_C(1)
 
 struct opennpux_tvm_module_header {
     uint32_t magic;
@@ -72,6 +74,26 @@ struct opennpux_tvm_module_output {
     uint32_t name_checksum;
 };
 
+struct opennpux_tvm_invocation_header {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t header_size;
+    uint32_t total_size;
+    uint32_t binding_count;
+    uint32_t binding_record_size;
+    uint32_t payload_offset;
+    uint32_t reserved;
+};
+
+struct opennpux_tvm_invocation_binding {
+    uint32_t region;
+    uint32_t target_offset;
+    uint32_t bytes;
+    uint32_t data_offset;
+    uint32_t checksum;
+    uint32_t flags;
+};
+
 #if defined(__cplusplus)
 static_assert(sizeof(struct opennpux_tvm_module_header) == 64,
               "TVM module header ABI changed");
@@ -85,6 +107,10 @@ static_assert(sizeof(struct opennpux_tvm_module_host_operation) == 8,
               "TVM module Host operation ABI changed");
 static_assert(sizeof(struct opennpux_tvm_module_output) == 16,
               "TVM module output ABI changed");
+static_assert(sizeof(struct opennpux_tvm_invocation_header) == 32,
+              "TVM invocation header ABI changed");
+static_assert(sizeof(struct opennpux_tvm_invocation_binding) == 24,
+              "TVM invocation binding ABI changed");
 #else
 _Static_assert(sizeof(struct opennpux_tvm_module_header) == 64,
                "TVM module header ABI changed");
@@ -98,6 +124,10 @@ _Static_assert(sizeof(struct opennpux_tvm_module_host_operation) == 8,
                "TVM module Host operation ABI changed");
 _Static_assert(sizeof(struct opennpux_tvm_module_output) == 16,
                "TVM module output ABI changed");
+_Static_assert(sizeof(struct opennpux_tvm_invocation_header) == 32,
+               "TVM invocation header ABI changed");
+_Static_assert(sizeof(struct opennpux_tvm_invocation_binding) == 24,
+               "TVM invocation binding ABI changed");
 #endif
 
 #ifdef __cplusplus

@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("module", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--arena", action="append", default=[], type=parse_arena)
+    parser.add_argument("--clear-external-bindings", action="store_true")
     args = parser.parse_args()
     try:
         manifest = json.loads(
@@ -76,6 +77,19 @@ def main() -> None:
             image = arenas[name].read_bytes()
             if len(image) != region["arena_size"]:
                 raise CodegenError(f"region {name} arena size mismatch")
+            if args.clear_external_bindings:
+                image = bytearray(image)
+                graph_metadata = metadata[name]
+                tensors = {
+                    tensor["name"]: tensor
+                    for tensor in graph_metadata["tensors"]
+                }
+                for tensor_name in region.get("external_bindings", []):
+                    tensor = tensors[tensor_name]
+                    begin = int(tensor["offset"])
+                    end = begin + int(tensor["byte_size"])
+                    image[begin:end] = bytes(end - begin)
+                image = bytes(image)
             arena_images.append(image)
 
         operations = []

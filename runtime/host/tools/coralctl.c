@@ -2248,6 +2248,71 @@ module_range_valid(uint32_t offset, uint32_t bytes, uint32_t limit)
 }
 
 static int
+apply_module_invocation(
+    const char *path, const struct opennpux_tvm_module_region *regions,
+    uint32_t region_count, uint8_t **arenas, uint32_t *applied_bindings)
+{
+    uint8_t *image = NULL;
+    size_t image_size = 0;
+    int rc = -1;
+    if (read_binary_file(path, &image, &image_size) != 0 ||
+        image_size < sizeof(struct opennpux_tvm_invocation_header)) {
+        if (image != NULL) {
+            errno = EPROTO;
+        }
+        goto out;
+    }
+    const struct opennpux_tvm_invocation_header *header =
+        (const struct opennpux_tvm_invocation_header *)(const void *)image;
+    const uint64_t table_size =
+        sizeof(*header) +
+        (uint64_t)header->binding_count *
+            sizeof(struct opennpux_tvm_invocation_binding);
+    if (header->magic != OPENNPUX_TVM_INVOCATION_MAGIC ||
+        header->version != OPENNPUX_TVM_INVOCATION_VERSION ||
+        header->header_size != sizeof(*header) ||
+        header->total_size != image_size || header->binding_count == 0 ||
+        header->binding_count > 4096 ||
+        header->binding_record_size !=
+            sizeof(struct opennpux_tvm_invocation_binding) ||
+        table_size > header->payload_offset ||
+        header->payload_offset > image_size) {
+        errno = EPROTO;
+        goto out;
+    }
+    const struct opennpux_tvm_invocation_binding *bindings =
+        (const struct opennpux_tvm_invocation_binding *)(const void *)(
+            image + sizeof(*header));
+    for (uint32_t index = 0; index < header->binding_count; ++index) {
+        const struct opennpux_tvm_invocation_binding *binding =
+            &bindings[index];
+        if (binding->region >= region_count || binding->flags != 0 ||
+            binding->data_offset < header->payload_offset ||
+            !module_range_valid(binding->target_offset, binding->bytes,
+                                regions[binding->region].arena_size) ||
+            !module_range_valid(binding->data_offset, binding->bytes,
+                                header->total_size) ||
+            byte_checksum(image + binding->data_offset, binding->bytes) !=
+                binding->checksum) {
+            errno = EPROTO;
+            goto out;
+        }
+    }
+    for (uint32_t index = 0; index < header->binding_count; ++index) {
+        const struct opennpux_tvm_invocation_binding *binding =
+            &bindings[index];
+        memcpy(arenas[binding->region] + binding->target_offset,
+               image + binding->data_offset, binding->bytes);
+    }
+    *applied_bindings = header->binding_count;
+    rc = 0;
+
+out:
+    free(image);
+    return rc;
+}
+
+static int
 print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
                         const char *module_path, uint64_t polls)
 {
@@ -2334,6 +2399,16 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
             goto out;
         }
         memcpy(arenas[index], image + region->arena_offset, region->arena_size);
+    }
+    uint32_t invocation_bindings = 0;
+    const char *invocation_path =
+        getenv("OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH");
+    if (invocation_path != NULL && invocation_path[0] != '\0' &&
+        apply_module_invocation(invocation_path, regions,
+                                header->region_count, arenas,
+                                &invocation_bindings) != 0) {
+        perror("xgraph-module-run invocation");
+        goto out;
     }
     for (uint32_t index = 0; index < header->edge_count; ++index) {
         const struct opennpux_tvm_module_edge *edge = &edges[index];
@@ -2510,6 +2585,8 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
            completed_commands);
     printf("xgraph_module_host_operations_completed=%" PRIu32 "\n",
            completed_host_operations);
+    printf("xgraph_module_invocation_bindings=%" PRIu32 "\n",
+           invocation_bindings);
     printf("xgraph_module_outputs_completed=%" PRIu32 "\n",
            header->output_count);
     printf("xgraph_module_output_bytes=%" PRIu64 "\n", total_output_bytes);

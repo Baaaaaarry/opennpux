@@ -180,6 +180,12 @@ outputs must differ. This separates dynamic rebinding coverage from the
 single-graph numerical-reference test and detects runtimes that accidentally
 retain the first request's input or output.
 
+The package and invocation also carry the same deterministic identity computed
+from canonical compiler-manifest JSON. The Guest rejects a mismatched identity
+before applying any binding. Full-system acceptance first submits an invocation
+whose identity word alone was modified, requires rejection, and then runs both
+valid requests to prove the failed request did not contaminate runtime state.
+
 Every module output is reported with its region, byte range, name checksum,
 and data checksum. `OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH` writes output 0 for
 backward compatibility. Setting `OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/out`

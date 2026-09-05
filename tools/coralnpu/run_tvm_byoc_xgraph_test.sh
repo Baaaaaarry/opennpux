@@ -11,6 +11,7 @@ MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
 MODULE_INVOCATION2="${BUILD_DIR}/tvm-mixed-module-second.npxmi"
+MODULE_MISMATCH="${BUILD_DIR}/tvm-mixed-module-mismatch.npxmi"
 LOCAL_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph-local.log"
 HOST_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph-host.log"
 DEBUG_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph.debug"
@@ -102,8 +103,16 @@ done <"${MODULE_DIR}/invocation2.bindings"
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${MODULE_DIR}" "${MODULE_INVOCATION2}" "$@"
+"${TVM_PYTHON:-python3}" - "${MODULE_INVOCATION}" "${MODULE_MISMATCH}" <<'PY'
+import sys
+
+image = bytearray(open(sys.argv[1], "rb").read())
+assert len(image) >= 32
+image[28] ^= 1
+open(sys.argv[2], "wb").write(image)
+PY
 [ -f "${MODULE_PACKAGE}" ] && [ -f "${MODULE_INVOCATION}" ] &&
-    [ -f "${MODULE_INVOCATION2}" ] || {
+    [ -f "${MODULE_INVOCATION2}" ] && [ -f "${MODULE_MISMATCH}" ] || {
     echo "error: TVM BYOC module or invocation was not generated" >&2
     exit 1
 }
@@ -195,6 +204,11 @@ EOF
 base64 "${MODULE_INVOCATION2}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_INVOCATION2_EOF
+decode_base64 >/tmp/tvm-mixed-module-mismatch.npxmi <<'OPENNPUX_TVM_MISMATCH_EOF'
+EOF
+base64 "${MODULE_MISMATCH}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_MISMATCH_EOF
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     /tmp/coralctl xgraph-run \
@@ -225,6 +239,22 @@ has_output_line 'xgraph_output_reference=PASS' ||
     fail 'output differs numerically from host reference'
 has_output_line 'xgraph_artifact_run=PASS' ||
     fail 'runtime PASS verdict missing'
+if OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-mismatch.npxmi \
+    /tmp/coralctl xgraph-module-run \
+    /tmp/tvm-mixed-module.npxgm 0x1d000000 1000000 \
+    >/tmp/tvm-module-mismatch.log 2>&1; then
+    fail 'module accepted an invocation for a different identity'
+fi
+MISMATCH_OUTPUT="\$(cat /tmp/tvm-module-mismatch.log)"
+case "\${MISMATCH_OUTPUT}" in
+    *'xgraph-module-run invocation'*) ;;
+    *)
+        printf '%s\n' "\${MISMATCH_OUTPUT}"
+        fail 'module identity rejection diagnostic missing'
+        ;;
+esac
+echo 'xgraph_module_identity_rejection=PASS'
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-module.output.bin \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/tvm-module-output \

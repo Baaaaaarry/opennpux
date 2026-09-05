@@ -2250,7 +2250,8 @@ module_range_valid(uint32_t offset, uint32_t bytes, uint32_t limit)
 static int
 apply_module_invocation(
     const char *path, const struct opennpux_tvm_module_region *regions,
-    uint32_t region_count, uint8_t **arenas, uint32_t *applied_bindings)
+    uint32_t region_count, uint32_t module_identity, uint8_t **arenas,
+    uint32_t *applied_bindings)
 {
     uint8_t *image = NULL;
     size_t image_size = 0;
@@ -2275,6 +2276,7 @@ apply_module_invocation(
         header->binding_count > 4096 ||
         header->binding_record_size !=
             sizeof(struct opennpux_tvm_invocation_binding) ||
+        header->module_identity != module_identity ||
         table_size > header->payload_offset ||
         header->payload_offset > image_size) {
         errno = EPROTO;
@@ -2405,7 +2407,8 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
         getenv("OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH");
     if (invocation_path != NULL && invocation_path[0] != '\0' &&
         apply_module_invocation(invocation_path, regions,
-                                header->region_count, arenas,
+                                header->region_count, header->module_identity,
+                                arenas,
                                 &invocation_bindings) != 0) {
         perror("xgraph-module-run invocation");
         goto out;

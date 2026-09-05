@@ -453,6 +453,7 @@ print('xgraph_output_readback=PASS')
             self.assertEqual(header[8], 1)
             self.assertEqual(header[9:14], (32, 24, 28, 8, 16))
             self.assertEqual(header[14] % 64, 0)
+            self.assertNotEqual(header[15], 0)
             first_region = struct.unpack_from("<8I", package, 64)
             first_arena_offset = first_region[2]
             first_metadata = artifacts[manifest["regions"][0]["name"]][1]
@@ -487,6 +488,7 @@ print('xgraph_output_readback=PASS')
             self.assertEqual(invocation_header[3], len(invocation_image))
             self.assertEqual(invocation_header[4], 2)
             self.assertEqual(invocation_header[5], 24)
+            self.assertEqual(invocation_header[7], header[15])
 
 
 if __name__ == "__main__":

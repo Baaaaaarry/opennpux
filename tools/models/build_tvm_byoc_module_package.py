@@ -34,6 +34,11 @@ def checksum(text: str) -> int:
     return value
 
 
+def module_identity(manifest: dict) -> int:
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+    return checksum(canonical)
+
+
 def parse_arena(value: str) -> tuple[str, Path]:
     name, separator, filename = value.partition("=")
     if not separator or not name or not filename:
@@ -166,7 +171,7 @@ def main() -> None:
             MAGIC, VERSION, HEADER.size, len(image), len(regions), len(edges),
             len(host_bindings), len(operations), len(outputs), REGION.size,
             EDGE.size, HOST_BINDING.size, HOST_OPERATION.size, OUTPUT.size,
-            payload_offset, 0,
+            payload_offset, module_identity(manifest),
         )
         offset = HEADER.size
         for record, layout in (
@@ -188,6 +193,7 @@ def main() -> None:
     print(f"xgraph_module_package_bytes={len(image)}")
     print(f"xgraph_module_package_regions={len(regions)}")
     print(f"xgraph_module_package_host_operations={len(operations)}")
+    print(f"xgraph_module_identity=0x{module_identity(manifest):08x}")
     print("xgraph_module_package=PASS")
 
 

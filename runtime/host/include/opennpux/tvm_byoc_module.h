@@ -29,7 +29,7 @@ struct opennpux_tvm_module_header {
     uint32_t host_operation_record_size;
     uint32_t output_record_size;
     uint32_t payload_offset;
-    uint32_t reserved;
+    uint32_t module_identity;
 };
 
 struct opennpux_tvm_module_region {
@@ -82,7 +82,7 @@ struct opennpux_tvm_invocation_header {
     uint32_t binding_count;
     uint32_t binding_record_size;
     uint32_t payload_offset;
-    uint32_t reserved;
+    uint32_t module_identity;
 };
 
 struct opennpux_tvm_invocation_binding {

@@ -137,9 +137,20 @@ EXPECTED_CHECKSUM="$(sed -n \
     echo "error: host reference output checksum missing" >&2
     exit 1
 }
-EXPECTED_COMMANDS="$(sed -n \
-    's/^xgraph_commands=\([0-9][0-9]*\)$/\1/p' \
-    "${LOCAL_LOG}" | tail -n 1)"
+EXPECTED_COMMANDS="$("${TVM_PYTHON:-python3}" - "${GRAPH}" <<'PY'
+import struct
+import sys
+
+with open(sys.argv[1], "rb") as source:
+    header = source.read(96)
+if len(header) != 96:
+    raise SystemExit("compiled XGraph header is truncated")
+fields = struct.unpack("<12I2Q8I", header)
+if fields[0] != 0x5847504E or fields[1] != 2:
+    raise SystemExit("compiled XGraph header has an invalid identity")
+print(fields[4])
+PY
+)"
 [ -n "${EXPECTED_COMMANDS}" ] || {
     echo "error: compiled XGraph command count missing" >&2
     exit 1

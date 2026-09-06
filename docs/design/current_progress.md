@@ -1539,3 +1539,7 @@ Transformer block 子图：新增真实 Relax
 `RMSNorm -> MatMul -> residual Add -> SiLU`，以 `[2,64]` 激活和 `[64,64]` 权重验证 BYOC
 分区、4 条 XGraph command、独立 C reference 与 Guest/NPU 数值执行。旧 6-command artifact 和
 module reuse 门禁保持不变；新门禁等待 GB10 输出 `tvm_transformer_block_xgraph=PASS`。
+
+首次 GB10 运行暴露了测试编排问题：新增 4-command Transformer artifact 后，脚本从聚合日志取
+最后一个 `xgraph_commands`，导致已正确完成的旧 6-command artifact 被误判。命令数现直接从
+被验收 `.npxg` 的 version 2 header 读取并校验 magic/version，不再依赖多个 artifact 的日志顺序。

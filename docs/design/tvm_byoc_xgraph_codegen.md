@@ -461,5 +461,12 @@ execution. The next compiler milestone is to import a real model subgraph,
 expand OpenNPUX BYOC partition/legalization coverage, and execute that generated
 module through this unchanged module/invocation ABI.
 
+The reuse gate additionally computes an independent FP32 result for each input
+set and invokes `coralctl tensor-compare-fp32` on each exported module output.
+Both comparisons must report eight elements, finite values, maximum absolute
+error no greater than `5e-5`, and `tensor_compare_fp32=PASS`. Merely observing
+different checksums between invocations is not accepted as numerical
+correctness.
+
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

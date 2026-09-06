@@ -49,6 +49,9 @@ rhs = [1.0] * 8
 summed = [a + b for a, b in zip(lhs, rhs)]
 host_relu = [max(value, 0.0) for value in summed]
 activated = [value / (1.0 + math.exp(-value)) for value in host_relu]
+(directory / "invocation.expected.bin").write_bytes(
+    struct.pack("<8f", *activated)
+)
 arena0 = bytearray(metadata0["arena_size"])
 arena1 = bytearray(metadata1["arena_size"])
 for arena, table, name, values in (
@@ -67,6 +70,14 @@ print(f"{region1['name']}={arena1_path}")
 
 second_lhs = [float(value) for value in range(4, 12)]
 second_rhs = [2.0] * 8
+second_summed = [a + b for a, b in zip(second_lhs, second_rhs)]
+second_relu = [max(value, 0.0) for value in second_summed]
+second_activated = [
+    value / (1.0 + math.exp(-value)) for value in second_relu
+]
+(directory / "invocation2.expected.bin").write_bytes(
+    struct.pack("<8f", *second_activated)
+)
 second_arena0 = bytearray(metadata0["arena_size"])
 second_arena1 = bytearray(metadata1["arena_size"])
 struct.pack_into("<8f", second_arena0, tensors0[inputs0[0]["name"]]["offset"],
@@ -209,6 +220,16 @@ EOF
 base64 "${MODULE_MISMATCH}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_MISMATCH_EOF
+decode_base64 >/tmp/tvm-module.expected.bin <<'OPENNPUX_TVM_EXPECTED_EOF'
+EOF
+base64 "${MODULE_DIR}/invocation.expected.bin" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_EXPECTED_EOF
+decode_base64 >/tmp/tvm-module-second.expected.bin <<'OPENNPUX_TVM_EXPECTED2_EOF'
+EOF
+base64 "${MODULE_DIR}/invocation2.expected.bin" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_EXPECTED2_EOF
 OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     /tmp/coralctl xgraph-run \
@@ -286,6 +307,9 @@ has_output_line 'xgraph_module_run=PASS' ||
     fail 'indexed module output size mismatch'
 cmp /tmp/tvm-module.output.bin /tmp/tvm-module-output.0.bin ||
     fail 'compatibility and indexed module outputs differ'
+/tmp/coralctl tensor-compare-fp32 /tmp/tvm-module.output.bin \
+    /tmp/tvm-module.expected.bin 0.00005 ||
+    fail 'first module invocation differs from independent reference'
 SECOND_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-module-second.output.bin \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-second.npxmi \
@@ -301,6 +325,9 @@ case "\${SECOND_OUTPUT}" in
 esac
 [ "\$(wc -c </tmp/tvm-module-second.output.bin)" -eq 32 ] ||
     fail 'second module output size mismatch'
+/tmp/coralctl tensor-compare-fp32 /tmp/tvm-module-second.output.bin \
+    /tmp/tvm-module-second.expected.bin 0.00005 ||
+    fail 'second module invocation differs from independent reference'
 if cmp -s /tmp/tvm-module.output.bin /tmp/tvm-module-second.output.bin; then
     fail 'different module invocations produced identical output'
 fi

@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -449,6 +450,8 @@ usage(const char *prog)
             "[base [poll-count]]\n"
             "  %s xgraph-module-run <module.npxgm> [base [poll-count]]\n"
             "  %s host-tensor-unary <relu> <input.bin> <output.bin>\n"
+            "  %s tensor-compare-fp32 <actual.bin> <expected.bin> "
+            "<abs-tolerance>\n"
             "  %s mobilenet-test [base [poll-count]]\n"
             "  %s mem-info [base]\n"
             "  %s mem-clear [base]\n"
@@ -458,7 +461,7 @@ usage(const char *prog)
             "features: qwen-run-tcb-v2 qwen-device-run-v1\n",
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
             prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
-            prog, prog, prog, prog);
+            prog, prog, prog, prog, prog);
 }
 
 static int
@@ -2224,6 +2227,67 @@ read_binary_file(const char *path, uint8_t **bytes, size_t *size)
 }
 
 static int
+print_tensor_compare_fp32(const char *actual_path, const char *expected_path,
+                          const char *tolerance_text)
+{
+    char *end = NULL;
+    errno = 0;
+    const float tolerance = strtof(tolerance_text, &end);
+    if (errno != 0 || end == tolerance_text || *end != '\0' ||
+        !isfinite(tolerance) || tolerance < 0.0f) {
+        fprintf(stderr, "invalid FP32 absolute tolerance: %s\n",
+                tolerance_text);
+        return 2;
+    }
+    uint8_t *actual_bytes = NULL;
+    uint8_t *expected_bytes = NULL;
+    size_t actual_size = 0;
+    size_t expected_size = 0;
+    if (read_binary_file(actual_path, &actual_bytes, &actual_size) != 0) {
+        perror("tensor-compare-fp32 actual");
+        return 1;
+    }
+    if (read_binary_file(expected_path, &expected_bytes, &expected_size) != 0) {
+        const int saved_errno = errno;
+        free(actual_bytes);
+        errno = saved_errno;
+        perror("tensor-compare-fp32 expected");
+        return 1;
+    }
+    if (actual_size != expected_size || actual_size % sizeof(float) != 0) {
+        free(expected_bytes);
+        free(actual_bytes);
+        errno = EINVAL;
+        perror("tensor-compare-fp32 shape");
+        return 1;
+    }
+    const float *actual = (const float *)(const void *)actual_bytes;
+    const float *expected = (const float *)(const void *)expected_bytes;
+    const size_t elements = actual_size / sizeof(*actual);
+    float maximum = 0.0f;
+    for (size_t index = 0; index < elements; ++index) {
+        const float error = fabsf(actual[index] - expected[index]);
+        if (!isfinite(actual[index]) || !isfinite(expected[index]) ||
+            error > tolerance) {
+            fprintf(stderr,
+                    "tensor-compare-fp32 mismatch index=%zu actual=%.9g "
+                    "expected=%.9g error=%.9g tolerance=%.9g\n",
+                    index, actual[index], expected[index], error, tolerance);
+            free(expected_bytes);
+            free(actual_bytes);
+            return 1;
+        }
+        maximum = fmaxf(maximum, error);
+    }
+    printf("tensor_compare_fp32_elements=%zu\n", elements);
+    printf("tensor_compare_fp32_max_abs_error=%.9g\n", maximum);
+    printf("tensor_compare_fp32=PASS\n");
+    free(expected_bytes);
+    free(actual_bytes);
+    return 0;
+}
+
+static int
 write_binary_file(const char *path, const void *bytes, size_t size)
 {
     FILE *file = fopen(path, "wb");
@@ -2689,6 +2753,8 @@ main(int argc, char **argv)
         strcmp(argv[1], "xgraph-module-run") == 0;
     const int command_host_tensor_unary =
         strcmp(argv[1], "host-tensor-unary") == 0;
+    const int command_tensor_compare_fp32 =
+        strcmp(argv[1], "tensor-compare-fp32") == 0;
     const int command_mobilenet_test =
         strcmp(argv[1], "mobilenet-test") == 0;
     const int command_mem_info = strcmp(argv[1], "mem-info") == 0;
@@ -2704,7 +2770,7 @@ main(int argc, char **argv)
         !command_qwen_device_run &&
         !command_generic_test && !command_xgraph_test && !command_xgraph_run &&
         !command_xgraph_module_run &&
-        !command_host_tensor_unary &&
+        !command_host_tensor_unary && !command_tensor_compare_fp32 &&
         !command_mobilenet_test &&
         !command_mem_info && !command_mem_clear && !command_mem_load &&
         !command_mem_read32 &&
@@ -2730,6 +2796,7 @@ main(int argc, char **argv)
         (command_xgraph_run && (argc < 4 || argc > 6)) ||
         (command_xgraph_module_run && (argc < 3 || argc > 5)) ||
         (command_host_tensor_unary && argc != 5) ||
+        (command_tensor_compare_fp32 && argc != 5) ||
         (command_mobilenet_test && argc > 4) ||
         (command_mem_info && argc > 3) ||
         (command_mem_clear && argc > 3) ||
@@ -2751,6 +2818,9 @@ main(int argc, char **argv)
     }
     if (command_host_tensor_unary) {
         return print_host_tensor_unary(argv[2], argv[3], argv[4]);
+    }
+    if (command_tensor_compare_fp32) {
+        return print_tensor_compare_fp32(argv[2], argv[3], argv[4]);
     }
 
     uint64_t base = OPENNPUX_CORAL_DEFAULT_BASE;

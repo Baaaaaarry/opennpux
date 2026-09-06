@@ -1526,3 +1526,9 @@ invocation binding 和 1 个 32-byte module output，累计 operation/cycle 均�
 形成完整功能闭环。该结论只关闭当前 mixed-graph 基础验收；任意模型前端覆盖、更多 BYOC
 legalization/算子、动态 shape/多输出复杂拓扑以及将 C++ 功能 kernel 逐步替换为 NPU RTL，仍属于
 后续阶段。
+
+下一增量已补齐复用测试的独立数值门禁。新增模型无关的
+`coralctl tensor-compare-fp32`，严格校验 Tensor 文件尺寸、FP32 finite 值和可配置绝对误差；
+全系统脚本分别生成两次 invocation 的独立 `TADD -> Host ReLU -> TSILU` 参考输出，并要求两份
+设备回读结果都在 `5e-5` 内，而不再只判断两个 checksum 不同。本地 22 项 BYOC 回归、严格 C11
+编译和 shell 语法已通过；等待 GB10 确认两次 `tensor_compare_fp32=PASS` 后关闭该门禁。

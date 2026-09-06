@@ -430,5 +430,36 @@ an injected `host_executor` before the consumer can run. The real TVM
 `add -> Host relu -> silu` regression must therefore contain zero direct edges
 and exactly one `relax.nn.relu` Host binding.
 
+## Reusable module acceptance
+
+The GB10 full-system gate now validates that a compiled module is immutable and
+that invocation data is supplied independently. Before any valid execution, a
+negative test corrupts the invocation's canonical module identity and requires
+`xgraph_module_identity_rejection=PASS`. The same clear-binding `.npxgm` is then
+executed twice with two distinct `.npxmi` packages in one restored Guest:
+
+```text
+invocation 0: region checksums 0x119b1ae5 -> 0x4983e4f0
+invocation 1: region checksums 0x9ab31725 -> 0xcf783ff6
+xgraph_module_reused_invocations=2
+xgraph_module_reuse=PASS
+xgraph_module_chain=PASS
+tvm_byoc_xgraph=PASS
+```
+
+Each invocation applies two external bindings, completes two NPU regions and
+two device commands around one Host operation, exports one 32-byte module
+output, and reports 32 operations and 32 modeled cycles. The changed output
+checksum is a required assertion: it proves that the second invocation did not
+reuse stale input, arena state, or output from the first invocation. The base
+six-command graph remains the independent numerical gate and reports maximum
+absolute error `1.60336494e-05`.
+
+This closes the compiler/runtime protocol milestone for the current mixed TVM
+graph. It does not claim arbitrary-model coverage or full-RTL numerical
+execution. The next compiler milestone is to import a real model subgraph,
+expand OpenNPUX BYOC partition/legalization coverage, and execute that generated
+module through this unchanged module/invocation ABI.
+
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

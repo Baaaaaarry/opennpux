@@ -1511,3 +1511,18 @@ cycle，最终 output checksum `0x4983e4f0` 与 region 1 回读一致。下一�
 compiler manifest 计算的 32-bit identity，Guest 必须匹配后才能应用任何 binding。全系统负向
 验收先篡改 invocation identity 并要求 `xgraph_module_identity_rejection=PASS`，随后继续执行两次
 合法请求，以确认错误请求既被拒绝也没有污染后续 arena 或设备状态。
+
+GB10 最终验收已通过。篡改 identity 的 invocation 在设备提交前被拒绝并输出
+`xgraph_module_identity_rejection=PASS`；同一个可复用 `.npxgm` 随后连续消费两份合法 `.npxmi`。
+第一次调用的 region 0/1 checksum 分别为 `0x119b1ae5` 和 `0x4983e4f0`，第二次分别变为
+`0x9ab31725` 和 `0xcf783ff6`，证明动态 binding 覆盖了基础 arena，第二次执行没有读取第一次的
+输入或输出残留。两次调用均完成 2 个 NPU region、2 条设备命令、1 个 Host operation、2 条
+invocation binding 和 1 个 32-byte module output，累计 operation/cycle 均为 32；最终输出
+`xgraph_module_reused_invocations=2`、`xgraph_module_reuse=PASS`、
+`xgraph_module_chain=PASS` 和 `tvm_byoc_xgraph=PASS`。
+
+至此，TVM Relax/BYOC 编译、XGraph artifact、静态 Guest module runtime、CPU Host fallback、
+动态 invocation、Shared DMA/Local EXTMEM 同步、设备回读、独立数值参考、身份校验和模块复用已
+形成完整功能闭环。该结论只关闭当前 mixed-graph 基础验收；任意模型前端覆盖、更多 BYOC
+legalization/算子、动态 shape/多输出复杂拓扑以及将 C++ 功能 kernel 逐步替换为 NPU RTL，仍属于
+后续阶段。

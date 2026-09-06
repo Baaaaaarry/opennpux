@@ -7,6 +7,8 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 BUILD_DIR="${ROOT_DIR}/build/local-tests/tvm-byoc-xgraph"
 GRAPH="${BUILD_DIR}/relax-model.npxg"
 ARENA="${BUILD_DIR}/relax-model.arena.bin"
+TRANSFORMER_GRAPH="${BUILD_DIR}/transformer-block.npxg"
+TRANSFORMER_ARENA="${BUILD_DIR}/transformer-block.arena.bin"
 MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
@@ -21,7 +23,8 @@ mkdir -p "${ROOT_DIR}/simout"
 OPENNPUX_REQUIRE_TVM=1 \
     "${ROOT_DIR}/tools/models/test_tvm_byoc_xgraph_codegen.sh" \
     2>&1 | tee "${LOCAL_LOG}"
-[ -f "${GRAPH}" ] && [ -f "${ARENA}" ] || {
+[ -f "${GRAPH}" ] && [ -f "${ARENA}" ] &&
+    [ -f "${TRANSFORMER_GRAPH}" ] && [ -f "${TRANSFORMER_ARENA}" ] || {
     echo "error: TVM BYOC XGraph artifacts were not generated" >&2
     exit 1
 }
@@ -200,6 +203,16 @@ EOF
 base64 "${ARENA}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_ARENA_EOF
+decode_base64 >/tmp/tvm-transformer-block.npxg <<'OPENNPUX_TVM_TRANSFORMER_GRAPH_EOF'
+EOF
+base64 "${TRANSFORMER_GRAPH}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_TRANSFORMER_GRAPH_EOF
+decode_base64 >/tmp/tvm-transformer-block.arena.bin <<'OPENNPUX_TVM_TRANSFORMER_ARENA_EOF'
+EOF
+base64 "${TRANSFORMER_ARENA}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_TRANSFORMER_ARENA_EOF
 decode_base64 >/tmp/tvm-mixed-module.npxgm <<'OPENNPUX_TVM_MODULE_EOF'
 EOF
 base64 "${MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
@@ -260,6 +273,22 @@ has_output_line 'xgraph_output_reference=PASS' ||
     fail 'output differs numerically from host reference'
 has_output_line 'xgraph_artifact_run=PASS' ||
     fail 'runtime PASS verdict missing'
+TRANSFORMER_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
+    /tmp/coralctl xgraph-run /tmp/tvm-transformer-block.npxg \
+    /tmp/tvm-transformer-block.arena.bin 0x1d000000 1000000)" || {
+    printf '%s\n' "\${TRANSFORMER_OUTPUT}"
+    fail 'Transformer block artifact execution failed'
+}
+printf '%s\n' "\${TRANSFORMER_OUTPUT}"
+OUTPUT="\${TRANSFORMER_OUTPUT}"
+has_output_line 'xgraph_completed_commands=4' ||
+    fail 'Transformer block command count mismatch'
+has_output_line 'xgraph_output_reference=PASS' ||
+    fail 'Transformer block output differs from independent reference'
+has_output_line 'xgraph_artifact_run=PASS' ||
+    fail 'Transformer block runtime PASS verdict missing'
+echo 'tvm_transformer_block_xgraph=PASS'
 if OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-mismatch.npxmi \
     /tmp/coralctl xgraph-module-run \
@@ -346,7 +375,7 @@ CORAL_NPU_LAUNCH_HOST_LOG="${HOST_LOG}" \
 CORAL_NPU_LAUNCH_DEBUG_LOG="${DEBUG_LOG}" \
 CORAL_NPU_LAUNCH_XOPENNPUX=1 \
 CORAL_NPU_LAUNCH_EXPECTED_GUEST_VERDICT="tvm_byoc_xgraph=PASS" \
-CORAL_NPU_LAUNCH_EXPECTED_XOPENNPUX_OPS="tmma tadd tsilu tsoftmax" \
+CORAL_NPU_LAUNCH_EXPECTED_XOPENNPUX_OPS="tmma tadd trmsnorm tsilu tsoftmax" \
     "${ROOT_DIR}/tools/coralnpu/run_npu_launch_test.sh"
 
 echo "TVM BYOC Guest -> Coral firmware -> XGraph test: PASS"

@@ -1532,3 +1532,10 @@ legalization/算子、动态 shape/多输出复杂拓扑以及将 C++ 功能 ker
 全系统脚本分别生成两次 invocation 的独立 `TADD -> Host ReLU -> TSILU` 参考输出，并要求两份
 设备回读结果都在 `5e-5` 内，而不再只判断两个 checksum 不同。本地 22 项 BYOC 回归、严格 C11
 编译和 shell 语法已通过；等待 GB10 确认两次 `tensor_compare_fp32=PASS` 后关闭该门禁。
+
+GB10 已确认两次独立比较通过，最大绝对误差分别为 `2.38418579e-07` 和
+`9.53674316e-07`，动态 invocation 数值门禁关闭。后续编译器验证开始从构造算子链升级到
+Transformer block 子图：新增真实 Relax
+`RMSNorm -> MatMul -> residual Add -> SiLU`，以 `[2,64]` 激活和 `[64,64]` 权重验证 BYOC
+分区、4 条 XGraph command、独立 C reference 与 Guest/NPU 数值执行。旧 6-command artifact 和
+module reuse 门禁保持不变；新门禁等待 GB10 输出 `tvm_transformer_block_xgraph=PASS`。

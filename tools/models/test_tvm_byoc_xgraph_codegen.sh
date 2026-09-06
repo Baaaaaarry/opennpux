@@ -76,6 +76,12 @@ if [ -n "${TVM_HOME:-}" ]; then
         --dump-byoc-graph "${BUILD_DIR}/relax-model.byoc.json"
     "${TVM_PYTHON}" "${SCRIPT_DIR}/create_tvm_byoc_multi_region.py" \
         "${BUILD_DIR}/multi-region-model.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/create_tvm_transformer_block.py" \
+        "${BUILD_DIR}/transformer-block.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
+        "${BUILD_DIR}/transformer-block.json" \
+        "${BUILD_DIR}/transformer-block.npxg" \
+        --dump-byoc-graph "${BUILD_DIR}/transformer-block.byoc.json"
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
         "${BUILD_DIR}/multi-region-model.json" \
         "${BUILD_DIR}/multi-region-module" \
@@ -101,6 +107,10 @@ PY
         "${BUILD_DIR}/relax-model.npxg.json" \
         "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_relax_values.json" \
         "${BUILD_DIR}/relax-model.arena.bin"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/build_xgraph_tensor_image.py" \
+        "${BUILD_DIR}/transformer-block.npxg.json" \
+        "${ROOT_DIR}/tests/fixtures/models/tvm_transformer_block_values.json" \
+        "${BUILD_DIR}/transformer-block.arena.bin"
     "${CC}" -std=c11 -Wall -Wextra -Werror -pedantic \
         -I"${ROOT_DIR}/runtime/host/include" \
         "${ROOT_DIR}/tests/unit/models/tvm_byoc_relax_e2e_test.c" \
@@ -110,12 +120,23 @@ PY
         "${BUILD_DIR}/relax-model.arena.bin"
     "${CC}" -std=c11 -Wall -Wextra -Werror -pedantic \
         -I"${ROOT_DIR}/runtime/host/include" \
+        "${ROOT_DIR}/tests/unit/models/tvm_transformer_block_e2e_test.c" \
+        -lm -o "${BUILD_DIR}/tvm_transformer_block_e2e_test"
+    "${BUILD_DIR}/tvm_transformer_block_e2e_test" \
+        "${BUILD_DIR}/transformer-block.npxg" \
+        "${BUILD_DIR}/transformer-block.arena.bin"
+    "${CC}" -std=c11 -Wall -Wextra -Werror -pedantic \
+        -I"${ROOT_DIR}/runtime/host/include" \
         "${ROOT_DIR}/runtime/host/src/xgraph_artifact.c" \
         "${ROOT_DIR}/tests/unit/models/tvm_byoc_xgraph_loader_test.c" \
         -o "${BUILD_DIR}/tvm_byoc_xgraph_loader_test"
     "${BUILD_DIR}/tvm_byoc_xgraph_loader_test" \
         "${BUILD_DIR}/relax-model.npxg" \
         "${BUILD_DIR}/relax-model.arena.bin" 6 64
+    "${BUILD_DIR}/tvm_byoc_xgraph_loader_test" \
+        "${BUILD_DIR}/transformer-block.npxg" \
+        "${BUILD_DIR}/transformer-block.arena.bin" 4 512
+    echo "tvm_transformer_block_byoc_e2e=PASS"
     echo "tvm_relax_byoc_e2e=PASS"
 else
     echo "TVM Relax end-to-end test: SKIP (set TVM_HOME and TVM_PYTHON)"

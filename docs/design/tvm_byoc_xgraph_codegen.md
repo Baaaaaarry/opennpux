@@ -468,5 +468,24 @@ error no greater than `5e-5`, and `tensor_compare_fp32=PASS`. Merely observing
 different checksums between invocations is not accepted as numerical
 correctness.
 
+## Transformer block increment
+
+The next acceptance adds a separate model-like Relax graph without replacing
+the stable six-command graph or reusable mixed-module gate. Its dataflow is:
+
+```text
+hidden [2,64] -> RMSNorm -> MatMul [64,64] -> residual Add -> SiLU
+```
+
+Partitioning must produce one OpenNPUX region and lower it to exactly
+`TRMSNORM`, `TMMA`, `TADD`, and `TSILU`. A standalone C implementation computes
+the same graph from independently staged input, norm weight, projection weight,
+and residual Tensors, then stores the reference output in the invocation arena.
+The Guest executes the generated artifact through the existing driver,
+firmware, Local EXTMEM, and readback path and requires
+`xgraph_output_reference=PASS` with a `5e-5` absolute-error limit. This is the
+first compiler gate shaped like a Transformer block; it is not yet an imported
+complete model or a quantized-weight graph.
+
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

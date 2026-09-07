@@ -23,6 +23,7 @@ OUTPUT = struct.Struct("<4I")
 HOST_OPCODES = {"relax.nn.relu": 1}
 EDGE_STATE_UPDATE = 1
 EDGE_STATE_APPEND = 2
+EDGE_STATE_APPEND_PLANAR2 = 3
 
 
 def align(value: int, alignment: int = 64) -> int:
@@ -56,15 +57,20 @@ def tensor_offset(metadata: dict, name: str) -> int:
 
 
 def state_update_flags(update: dict) -> int:
-    if update.get("mode", "replace") == "replace":
+    update_mode = update.get("mode", "replace")
+    if update_mode == "replace":
         return EDGE_STATE_UPDATE
+    if update_mode not in {"append", "append_planar2"}:
+        raise CodegenError("state update has an invalid mode")
     stride = int(update["stride"])
     capacity = int(update["capacity"])
     if stride <= 0 or stride % 4 != 0 or stride // 4 > 0x3FFF:
         raise CodegenError("state append stride exceeds edge ABI")
     if capacity <= 0 or capacity > 0xFFFF:
         raise CodegenError("state append capacity exceeds edge ABI")
-    return EDGE_STATE_APPEND | ((stride // 4) << 2) | (capacity << 16)
+    mode = (EDGE_STATE_APPEND_PLANAR2
+            if update_mode == "append_planar2" else EDGE_STATE_APPEND)
+    return mode | ((stride // 4) << 2) | (capacity << 16)
 
 
 def main() -> None:

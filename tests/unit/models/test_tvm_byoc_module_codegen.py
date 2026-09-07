@@ -232,6 +232,31 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             self.assertNotEqual(invalid.returncode, 0)
             self.assertIn("outside its declared range", invalid.stderr)
 
+    def test_planar_kv_append_orders_attention_consumer(self):
+        module = json.loads((
+            ROOT / "tests/fixtures/models/tvm_byoc_kv_attention_module.json"
+        ).read_text(encoding="utf-8"))
+        _, manifest = compile_module(module)
+        self.assertEqual(manifest["execution_order"], ["kv_update", "attention"])
+        self.assertEqual(manifest["module_outputs"], [
+            {"region": "kv_update", "tensor": "produced_kv"},
+            {"region": "attention", "tensor": "context"},
+        ])
+        self.assertEqual(manifest["state_updates"], [{
+            "from_region": "kv_update",
+            "from_tensor": "produced_kv",
+            "to_region": "attention",
+            "to_tensor": "kv_cache",
+            "bytes": 16,
+            "mode": "append_planar2",
+            "stride": 8,
+            "capacity": 2,
+        }])
+
+        module["regions"][0]["graph"]["tensors"][1]["shape"] = [1, 1, 2]
+        with self.assertRaisesRegex(CodegenError, "planar append"):
+            compile_module(module)
+
     def test_state_append_rejects_incompatible_state_shape(self):
         module = json.loads(
             (ROOT / "tests/fixtures/models/tvm_byoc_state_append_module.json")

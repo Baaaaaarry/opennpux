@@ -28,6 +28,12 @@ ATTENTION_INVOCATION1="${BUILD_DIR}/dynamic-attention-kv1.npxmi"
 ATTENTION_INVOCATION2="${BUILD_DIR}/dynamic-attention-kv2.npxmi"
 ATTENTION_EXPECTED1="${BUILD_DIR}/dynamic-attention-kv1.expected.bin"
 ATTENTION_EXPECTED2="${BUILD_DIR}/dynamic-attention-kv2.expected.bin"
+KV_ATTENTION_MODULE_DIR="${BUILD_DIR}/kv-attention-module"
+KV_ATTENTION_PACKAGE="${BUILD_DIR}/kv-attention.npxgm"
+KV_ATTENTION_INVOCATION1="${BUILD_DIR}/kv-attention-step1.npxmi"
+KV_ATTENTION_INVOCATION2="${BUILD_DIR}/kv-attention-step2.npxmi"
+KV_ATTENTION_EXPECTED="${BUILD_DIR}/kv-attention.expected.bin"
+KV_ATTENTION_STATE_EXPECTED="${BUILD_DIR}/kv-attention-state.expected.bin"
 MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
@@ -327,6 +333,69 @@ PY
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${ATTENTION_MODULE_DIR}" "${ATTENTION_INVOCATION2}" \
     --arena "${ATTENTION_REGION}" --scalar kv_length=2
+"${TVM_PYTHON:-python3}" - \
+    "${KV_ATTENTION_MODULE_DIR}" "${KV_ATTENTION_EXPECTED}" \
+    "${KV_ATTENTION_STATE_EXPECTED}" <<'PY'
+import json
+import math
+import struct
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+manifest = json.load(open(directory / "module.npxgm.json", encoding="utf-8"))
+regions = {region["name"]: region for region in manifest["regions"]}
+metadata = {
+    name: json.load(open(directory / f"{region['artifact']}.json", encoding="utf-8"))
+    for name, region in regions.items()
+}
+tensors = {
+    name: {tensor["name"]: tensor for tensor in record["tensors"]}
+    for name, record in metadata.items()
+}
+query = [1.0, 0.0, 0.0, 1.0]
+updates = ([1.0, 0.0, 10.0, 20.0], [0.0, 1.0, 30.0, 40.0])
+for step, update in enumerate(updates, 1):
+    writer = bytearray(regions["kv_update"]["arena_size"])
+    attention = bytearray(regions["attention"]["arena_size"])
+    struct.pack_into("<4f", writer, tensors["kv_update"]["token_kv"]["offset"],
+                     *update)
+    struct.pack_into("<4f", attention, tensors["attention"]["query"]["offset"],
+                     *query)
+    (directory / f"kv-update-step{step}.arena.bin").write_bytes(writer)
+    (directory / f"attention-step{step}.arena.bin").write_bytes(attention)
+(directory / "kv-update-base.arena.bin").write_bytes(
+    bytes(regions["kv_update"]["arena_size"]))
+(directory / "attention-base.arena.bin").write_bytes(
+    bytes(regions["attention"]["arena_size"]))
+scale = 1.0 / math.sqrt(2.0)
+p = math.exp(scale) / (math.exp(scale) + 1.0)
+expected = [p * 10.0 + (1.0 - p) * 30.0,
+            p * 20.0 + (1.0 - p) * 40.0,
+            (1.0 - p) * 10.0 + p * 30.0,
+            (1.0 - p) * 20.0 + p * 40.0]
+Path(sys.argv[2]).write_bytes(struct.pack("<4f", *expected))
+Path(sys.argv[3]).write_bytes(struct.pack(
+    "<8f", 1.0, 0.0, 0.0, 1.0, 10.0, 20.0, 30.0, 40.0))
+PY
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_module_package.py" \
+    "${KV_ATTENTION_MODULE_DIR}" "${KV_ATTENTION_PACKAGE}" \
+    --clear-external-bindings \
+    --arena "kv_update=${KV_ATTENTION_MODULE_DIR}/kv-update-base.arena.bin" \
+    --arena "attention=${KV_ATTENTION_MODULE_DIR}/attention-base.arena.bin"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
+    "${KV_ATTENTION_MODULE_DIR}" "${KV_ATTENTION_INVOCATION1}" \
+    --arena "kv_update=${KV_ATTENTION_MODULE_DIR}/kv-update-step1.arena.bin" \
+    --arena "attention=${KV_ATTENTION_MODULE_DIR}/attention-step1.arena.bin" \
+    --scalar kv_length=1
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
+    "${KV_ATTENTION_MODULE_DIR}" "${KV_ATTENTION_INVOCATION2}" \
+    --arena "kv_update=${KV_ATTENTION_MODULE_DIR}/kv-update-step2.arena.bin" \
+    --arena "attention=${KV_ATTENTION_MODULE_DIR}/attention-step2.arena.bin" \
+    --scalar kv_length=2
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_INVOCATION}" \
@@ -364,6 +433,13 @@ PY
     [ -f "${ATTENTION_INVOCATION2}" ] && [ -f "${ATTENTION_EXPECTED1}" ] &&
     [ -f "${ATTENTION_EXPECTED2}" ] || {
     echo "error: dynamic attention module package was not generated" >&2
+    exit 1
+}
+[ -f "${KV_ATTENTION_PACKAGE}" ] && [ -f "${KV_ATTENTION_INVOCATION1}" ] &&
+    [ -f "${KV_ATTENTION_INVOCATION2}" ] &&
+    [ -f "${KV_ATTENTION_EXPECTED}" ] &&
+    [ -f "${KV_ATTENTION_STATE_EXPECTED}" ] || {
+    echo "error: KV append-attention module package was not generated" >&2
     exit 1
 }
 EXPECTED_CHECKSUM="$(sed -n \
@@ -530,6 +606,31 @@ EOF
 base64 "${ATTENTION_EXPECTED2}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_ATTENTION_EXPECTED2_EOF
+decode_base64 >/tmp/tvm-kv-attention.npxgm <<'OPENNPUX_TVM_KV_ATTENTION_MODULE_EOF'
+EOF
+base64 "${KV_ATTENTION_PACKAGE}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_KV_ATTENTION_MODULE_EOF
+decode_base64 >/tmp/tvm-kv-attention-step1.npxmi <<'OPENNPUX_TVM_KV_ATTENTION_INVOCATION1_EOF'
+EOF
+base64 "${KV_ATTENTION_INVOCATION1}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_KV_ATTENTION_INVOCATION1_EOF
+decode_base64 >/tmp/tvm-kv-attention-step2.npxmi <<'OPENNPUX_TVM_KV_ATTENTION_INVOCATION2_EOF'
+EOF
+base64 "${KV_ATTENTION_INVOCATION2}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_KV_ATTENTION_INVOCATION2_EOF
+decode_base64 >/tmp/tvm-kv-attention.expected.bin <<'OPENNPUX_TVM_KV_ATTENTION_EXPECTED_EOF'
+EOF
+base64 "${KV_ATTENTION_EXPECTED}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_KV_ATTENTION_EXPECTED_EOF
+decode_base64 >/tmp/tvm-kv-attention-state.expected.bin <<'OPENNPUX_TVM_KV_ATTENTION_STATE_EXPECTED_EOF'
+EOF
+base64 "${KV_ATTENTION_STATE_EXPECTED}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_KV_ATTENTION_STATE_EXPECTED_EOF
 decode_base64 >/tmp/tvm-mixed-module.npxgm <<'OPENNPUX_TVM_MODULE_EOF'
 EOF
 base64 "${MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
@@ -730,6 +831,33 @@ cmp -s /tmp/tvm-dynamic-attention-kv1.output.bin \
     /tmp/tvm-dynamic-attention-kv2.output.bin &&
     fail 'dynamic attention ignored kv_length relocation'
 echo 'tvm_dynamic_kv_attention=PASS'
+OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX=/tmp/tvm-kv-attention-output \
+    OPENNPUX_XGRAPH_MODULE_STATE_PREFIX=/tmp/tvm-kv-attention-state \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE=/tmp/tvm-kv-attention-step1.npxmi:/tmp/tvm-kv-attention-step2.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-kv-attention.npxgm \
+    0x1d000000 1000000)" || {
+    printf '%s\n' "\${OUTPUT}"
+    fail 'KV append-attention sequence failed'
+}
+printf '%s\n' "\${OUTPUT}"
+has_output_line 'xgraph_module_commands_completed=4' ||
+    fail 'KV append-attention command count mismatch'
+has_output_line 'xgraph_module_scalar_bindings=2' ||
+    fail 'KV append-attention scalar count mismatch'
+has_output_line 'xgraph_module_invocations_completed=2' ||
+    fail 'KV append-attention invocation count mismatch'
+has_output_line 'xgraph_module_state_updates_completed=2' ||
+    fail 'KV append-attention state update count mismatch'
+has_output_line 'xgraph_module_state=0 mode=append_planar2' ||
+    fail 'KV append-attention planar state was not published'
+/tmp/coralctl tensor-compare-fp32 /tmp/tvm-kv-attention-output.1.bin \
+    /tmp/tvm-kv-attention.expected.bin 0.00001 ||
+    fail 'KV append-attention context mismatch'
+/tmp/coralctl tensor-compare-fp32 /tmp/tvm-kv-attention-state.0.bin \
+    /tmp/tvm-kv-attention-state.expected.bin 0 ||
+    fail 'KV append-attention state mismatch'
+echo 'tvm_kv_append_attention_sequence=PASS'
 if OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-mismatch.npxmi \
     /tmp/coralctl xgraph-module-run \

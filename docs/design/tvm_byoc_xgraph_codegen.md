@@ -572,6 +572,20 @@ model frontend or legalization pass chooses the state Tensor shape and update
 Tensor; the module runtime only enforces address, stride, lifetime, ordering,
 and capacity rules.
 
+KV caches with separate K and V planes use `append_planar2`. The produced
+update is `[2,...]`, the persistent state is `[2,capacity,...]`, and one module
+edge atomically scatters the two equal-size source segments into the same slot
+of the K and V planes. The mode uses the previously unused edge mode value 3;
+the existing encoded stride is one plane's token stride and capacity remains
+the number of token slots, so the 24-byte edge ABI does not change.
+
+A cross-region state update is also a data dependency. The module compiler
+orders the producer before the state consumer, and the Guest publishes the
+update immediately after the producer region is read back rather than at the
+end of the invocation. Consequently `KV update -> state append -> attention`
+is visible within one invocation while same-region append retains its original
+next-invocation behavior.
+
 Decode-time command scalars are carried separately from Tensor payloads. A
 module manifest may declare a named `scalar_binding` that identifies a region,
 command index, mutable command field, and uint32 range. The invocation builder
@@ -597,3 +611,9 @@ The dynamic-attention full-system gate compiles one `[2,2,1,2]` state and runs
 it twice with `kv_length=1` and `kv_length=2`. Both outputs are compared with
 independent FP32 references and must differ, proving that relocation affects
 the valid prefix without moving the physical V plane.
+
+The following sequence gate closes the storage/compute connection: invocation
+one appends K0/V0 and executes attention at length 1; invocation two appends
+K1/V1 and executes the same attention command at length 2. It checks two
+completed state updates, the complete planar cache, and the final context
+against independent FP32 references.

@@ -191,7 +191,7 @@ def compile_module(
                 f"state update {index} must bind a produced Tensor to state storage"
             )
         mode = update.get("mode", "replace")
-        if mode not in {"replace", "append"}:
+        if mode not in {"replace", "append", "append_planar2"}:
             raise CodegenError(f"state update {index} has an invalid mode")
         if source.get("dtype") != target.get("dtype"):
             raise CodegenError(f"state update {index} tensor type mismatch")
@@ -201,13 +201,29 @@ def compile_module(
             if source_shape != target_shape:
                 raise CodegenError(f"state update {index} tensor type mismatch")
             capacity = 1
-        else:
+        elif mode == "append":
             if (not isinstance(target_shape, list) or not target_shape or
                     target_shape[1:] != source_shape):
                 raise CodegenError(
                     f"state append {index} requires state shape [capacity, *source]"
                 )
             capacity = target_shape[0]
+            stride = 4 * _product(source_shape)
+        else:
+            if (not isinstance(source_shape, list) or len(source_shape) < 2 or
+                    source_shape[0] != 2 or
+                    not isinstance(target_shape, list) or
+                    len(target_shape) != len(source_shape) + 1 or
+                    target_shape[0] != 2 or
+                    target_shape[2:] != source_shape[1:]):
+                raise CodegenError(
+                    f"state planar append {index} requires source [2,...] "
+                    "and state [2,capacity,...]"
+                )
+            capacity = target_shape[1]
+            stride = 4 * _product(source_shape[1:])
+        if mode == "replace":
+            stride = 4 * _product(source_shape)
         target_key = (target_region, target_tensor)
         if target_key in state_targets:
             raise CodegenError(
@@ -221,9 +237,13 @@ def compile_module(
             "to_tensor": target_tensor,
             "bytes": 4 * _product(source["shape"]),
             "mode": mode,
-            "stride": 4 * _product(source["shape"]),
+            "stride": stride,
             "capacity": capacity,
         })
+        if (source_region != target_region and
+                target_region not in successors[source_region]):
+            successors[source_region].add(target_region)
+            indegree[target_region] += 1
 
     ready = sorted(
         (name for name, degree in indegree.items() if degree == 0),

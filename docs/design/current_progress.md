@@ -1594,3 +1594,11 @@ GB10 已确认 invocation scalar ABI：两次 append invocation 共应用 2 个 
 在不同 decode step 复用时，capacity 通过 `reserved[2] -> scalar_param0` 固定 V plane 基址，
 `flags` 仅改变有效 causal prefix。新增同一 artifact 分别以长度 1/2 执行并与独立 FP32 reference
 比较的全系统门禁；本地回归通过，等待 GB10 输出 `tvm_dynamic_kv_attention=PASS`。
+
+GB10 已关闭动态 Attention 门禁：长度 1/2 分别执行 16/32 modeled cycles，4 个 FP32 输出
+元素的最大绝对误差分别为 0 和 `3.81469727e-06`，且 `tattention` custom-instruction dispatch
+与全部旧回归同时通过。下一增量将 KV 产生、状态发布和 Attention 合并到一次 decode
+invocation。module edge 新增不扩展结构体的 `append_planar2` mode，原子地把 `[K,V]` 两段
+写入 `[2,capacity,...]` 的同一 token slot；跨 region state update 同时成为 DAG 依赖，并在
+生产 region 完成后立即发布。新增两步序列门禁等待 GB10 输出
+`tvm_kv_append_attention_sequence=PASS`。

@@ -2543,17 +2543,22 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
             edge->reserved == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE;
         const int state_append =
             mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND;
+        const int state_append_planar2 =
+            mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND_PLANAR2;
         const uint32_t append_stride =
             ((edge->reserved & OPENNPUX_TVM_MODULE_EDGE_STRIDE_MASK) >>
              OPENNPUX_TVM_MODULE_EDGE_STRIDE_SHIFT) * sizeof(uint32_t);
         const uint32_t append_capacity =
             (edge->reserved & OPENNPUX_TVM_MODULE_EDGE_CAPACITY_MASK) >>
             OPENNPUX_TVM_MODULE_EDGE_CAPACITY_SHIFT;
-        const uint64_t append_end =
-            (uint64_t)edge->target_offset +
-            (append_capacity == 0 ? 0 :
-             (uint64_t)(append_capacity - 1) * append_stride) + edge->bytes;
-        if ((!direct && !state_update && !state_append) ||
+        const uint64_t append_end = (uint64_t)edge->target_offset +
+            (state_append_planar2
+                 ? (uint64_t)2 * append_capacity * append_stride
+                 : (append_capacity == 0 ? 0 :
+                    (uint64_t)(append_capacity - 1) * append_stride) +
+                       edge->bytes);
+        if ((!direct && !state_update && !state_append &&
+             !state_append_planar2) ||
             (direct && edge->from_region >= edge->to_region) ||
             edge->from_region >= header->region_count ||
             edge->to_region >= header->region_count ||
@@ -2561,9 +2566,11 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
                                 regions[edge->from_region].arena_size) ||
             !module_range_valid(edge->target_offset, edge->bytes,
                                 regions[edge->to_region].arena_size) ||
-            (state_append &&
+            ((state_append || state_append_planar2) &&
              (append_stride == 0 || append_capacity == 0 ||
-              edge->bytes > append_stride ||
+              (state_append && edge->bytes > append_stride) ||
+              (state_append_planar2 &&
+               (edge->bytes != 2 * append_stride)) ||
               append_end > regions[edge->to_region].arena_size))) {
             errno = EPROTO;
             perror("xgraph-module-run edge");
@@ -2642,7 +2649,8 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
                 (edge->reserved &
                  OPENNPUX_TVM_MODULE_EDGE_CAPACITY_MASK) >>
                 OPENNPUX_TVM_MODULE_EDGE_CAPACITY_SHIFT;
-            if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND &&
+            if ((mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND ||
+                 mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND_PLANAR2) &&
                 invocations_completed >= capacity) {
                 errno = ENOSPC;
                 perror("xgraph-module-run state capacity");
@@ -2745,7 +2753,8 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
             const uint32_t mode =
                 edge->reserved & OPENNPUX_TVM_MODULE_EDGE_MODE_MASK;
             if ((mode == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE ||
-                 mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) &&
+                 mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND ||
+                 mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND_PLANAR2) &&
                 edge->from_region == region_index) {
                 copy_from_device_memory(
                     arenas[region_index] + edge->source_offset,
@@ -2762,26 +2771,44 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
                region_index, result.completed_commands,
                result.output_readback_checksum, result.operation_count,
                result.modeled_cycles);
-        }
         for (uint32_t index = 0; index < header->edge_count; ++index) {
             const struct opennpux_tvm_module_edge *edge = &edges[index];
             const uint32_t mode =
                 edge->reserved & OPENNPUX_TVM_MODULE_EDGE_MODE_MASK;
-            if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE ||
-                mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) {
-                uint32_t target_offset = edge->target_offset;
-                if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) {
-                    const uint32_t stride =
-                        ((edge->reserved &
-                          OPENNPUX_TVM_MODULE_EDGE_STRIDE_MASK) >>
-                         OPENNPUX_TVM_MODULE_EDGE_STRIDE_SHIFT) *
-                        sizeof(uint32_t);
-                    target_offset += invocations_completed * stride;
-                }
+            if (edge->from_region != region_index ||
+                (mode != OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE &&
+                 mode != OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND &&
+                 mode != OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND_PLANAR2)) {
+                continue;
+            }
+            uint32_t target_offset = edge->target_offset;
+            if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE) {
                 memmove(arenas[edge->to_region] + target_offset,
                         arenas[edge->from_region] + edge->source_offset,
                         edge->bytes);
+                continue;
             }
+            const uint32_t stride =
+                ((edge->reserved & OPENNPUX_TVM_MODULE_EDGE_STRIDE_MASK) >>
+                 OPENNPUX_TVM_MODULE_EDGE_STRIDE_SHIFT) * sizeof(uint32_t);
+            const uint32_t capacity =
+                (edge->reserved & OPENNPUX_TVM_MODULE_EDGE_CAPACITY_MASK) >>
+                OPENNPUX_TVM_MODULE_EDGE_CAPACITY_SHIFT;
+            target_offset += invocations_completed * stride;
+            if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) {
+                memmove(arenas[edge->to_region] + target_offset,
+                        arenas[edge->from_region] + edge->source_offset,
+                        edge->bytes);
+            } else {
+                for (uint32_t plane = 0; plane < 2; ++plane) {
+                    memmove(arenas[edge->to_region] + target_offset +
+                                plane * capacity * stride,
+                            arenas[edge->from_region] + edge->source_offset +
+                                plane * stride,
+                            stride);
+                }
+            }
+        }
         }
         ++invocations_completed;
     } while (sequence_cursor != NULL);
@@ -2831,18 +2858,23 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
         const uint32_t mode =
             edge->reserved & OPENNPUX_TVM_MODULE_EDGE_MODE_MASK;
         if (mode != OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE &&
-            mode != OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) {
+            mode != OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND &&
+            mode != OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND_PLANAR2) {
             continue;
         }
         uint32_t bytes = edge->bytes;
-        if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) {
+        if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND ||
+            mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND_PLANAR2) {
             const uint32_t stride =
                 ((edge->reserved & OPENNPUX_TVM_MODULE_EDGE_STRIDE_MASK) >>
                  OPENNPUX_TVM_MODULE_EDGE_STRIDE_SHIFT) * sizeof(uint32_t);
             const uint32_t capacity =
                 (edge->reserved & OPENNPUX_TVM_MODULE_EDGE_CAPACITY_MASK) >>
                 OPENNPUX_TVM_MODULE_EDGE_CAPACITY_SHIFT;
-            bytes = stride * capacity;
+            bytes = stride * capacity *
+                    (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND_PLANAR2
+                         ? 2u
+                         : 1u);
         }
         const uint8_t *data =
             arenas[edge->to_region] + edge->target_offset;
@@ -2850,8 +2882,11 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
                " mode=%s region=%" PRIu32 " bytes=%" PRIu32
                " checksum=0x%08" PRIx32 "\n",
                state_update_count,
-               mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND ? "append" :
-                                                               "replace",
+               mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND_PLANAR2
+                   ? "append_planar2"
+                   : mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND
+                         ? "append"
+                         : "replace",
                edge->to_region, bytes, byte_checksum(data, bytes));
         state_bytes += bytes;
         if (state_prefix != NULL && state_prefix[0] != '\0') {

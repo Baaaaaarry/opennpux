@@ -2385,6 +2385,7 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
     uint8_t *image = NULL;
     size_t image_size = 0;
     uint8_t **arenas = NULL;
+    char *invocation_sequence = NULL;
     int rc = 1;
     if (read_binary_file(module_path, &image, &image_size) != 0 ||
         image_size < sizeof(struct opennpux_tvm_module_header)) {
@@ -2466,20 +2467,14 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
         }
         memcpy(arenas[index], image + region->arena_offset, region->arena_size);
     }
-    uint32_t invocation_bindings = 0;
-    const char *invocation_path =
-        getenv("OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH");
-    if (invocation_path != NULL && invocation_path[0] != '\0' &&
-        apply_module_invocation(invocation_path, regions,
-                                header->region_count, header->module_identity,
-                                arenas,
-                                &invocation_bindings) != 0) {
-        perror("xgraph-module-run invocation");
-        goto out;
-    }
     for (uint32_t index = 0; index < header->edge_count; ++index) {
         const struct opennpux_tvm_module_edge *edge = &edges[index];
-        if (edge->from_region >= edge->to_region ||
+        const int direct = edge->reserved == OPENNPUX_TVM_MODULE_EDGE_DIRECT;
+        const int state_update =
+            edge->reserved == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE;
+        if ((!direct && !state_update) ||
+            (direct && edge->from_region >= edge->to_region) ||
+            edge->from_region >= header->region_count ||
             edge->to_region >= header->region_count ||
             !module_range_valid(edge->source_offset, edge->bytes,
                                 regions[edge->from_region].arena_size) ||
@@ -2521,11 +2516,54 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
     uint64_t total_cycles = 0;
     uint32_t completed_commands = 0;
     uint32_t completed_host_operations = 0;
-    for (uint32_t region_index = 0; region_index < header->region_count;
-         ++region_index) {
+    uint32_t invocation_bindings = 0;
+    uint32_t invocations_completed = 0;
+    const char *single_invocation =
+        getenv("OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH");
+    const char *sequence_value =
+        getenv("OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE");
+    if (sequence_value != NULL && sequence_value[0] != '\0') {
+        const size_t sequence_size = strlen(sequence_value) + 1;
+        invocation_sequence = malloc(sequence_size);
+        if (invocation_sequence == NULL) {
+            goto out;
+        }
+        memcpy(invocation_sequence, sequence_value, sequence_size);
+    }
+    char *sequence_cursor = invocation_sequence;
+    do {
+        const char *invocation_path = single_invocation;
+        if (sequence_cursor != NULL) {
+            invocation_path = sequence_cursor;
+            char *separator = strchr(sequence_cursor, ':');
+            if (separator != NULL) {
+                *separator = '\0';
+                sequence_cursor = separator + 1;
+            } else {
+                sequence_cursor = NULL;
+            }
+            if (invocation_path == NULL || invocation_path[0] == '\0') {
+                errno = EINVAL;
+                perror("xgraph-module-run invocation sequence");
+                goto out;
+            }
+        }
+        uint32_t step_bindings = 0;
+        if (invocation_path != NULL && invocation_path[0] != '\0' &&
+            apply_module_invocation(invocation_path, regions,
+                                    header->region_count,
+                                    header->module_identity, arenas,
+                                    &step_bindings) != 0) {
+            perror("xgraph-module-run invocation");
+            goto out;
+        }
+        invocation_bindings += step_bindings;
+        for (uint32_t region_index = 0; region_index < header->region_count;
+             ++region_index) {
         for (uint32_t index = 0; index < header->edge_count; ++index) {
             const struct opennpux_tvm_module_edge *edge = &edges[index];
-            if (edge->to_region == region_index) {
+            if (edge->reserved == OPENNPUX_TVM_MODULE_EDGE_DIRECT &&
+                edge->to_region == region_index) {
                 memcpy(arenas[region_index] + edge->target_offset,
                        arenas[edge->from_region] + edge->source_offset,
                        edge->bytes);
@@ -2608,7 +2646,17 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
                region_index, result.completed_commands,
                result.output_readback_checksum, result.operation_count,
                result.modeled_cycles);
-    }
+        }
+        for (uint32_t index = 0; index < header->edge_count; ++index) {
+            const struct opennpux_tvm_module_edge *edge = &edges[index];
+            if (edge->reserved == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE) {
+                memmove(arenas[edge->to_region] + edge->target_offset,
+                        arenas[edge->from_region] + edge->source_offset,
+                        edge->bytes);
+            }
+        }
+        ++invocations_completed;
+    } while (sequence_cursor != NULL);
     const char *output_path = getenv("OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH");
     const char *output_prefix =
         getenv("OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX");
@@ -2654,6 +2702,8 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
            completed_host_operations);
     printf("xgraph_module_invocation_bindings=%" PRIu32 "\n",
            invocation_bindings);
+    printf("xgraph_module_invocations_completed=%" PRIu32 "\n",
+           invocations_completed);
     printf("xgraph_module_outputs_completed=%" PRIu32 "\n",
            header->output_count);
     printf("xgraph_module_output_bytes=%" PRIu64 "\n", total_output_bytes);
@@ -2675,6 +2725,7 @@ out:
         }
     }
     free(arenas);
+    free(invocation_sequence);
     free(image);
     return rc;
 }

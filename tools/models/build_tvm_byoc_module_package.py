@@ -21,6 +21,7 @@ HOST_BINDING = struct.Struct("<7I")
 HOST_OPERATION = struct.Struct("<2I")
 OUTPUT = struct.Struct("<4I")
 HOST_OPCODES = {"relax.nn.relu": 1}
+EDGE_STATE_UPDATE = 1
 
 
 def align(value: int, alignment: int = 64) -> int:
@@ -126,6 +127,13 @@ def main() -> None:
             tensor_offset(metadata[edge["to_region"]], edge["to_tensor"]),
             edge["bytes"], 0,
         ) for edge in manifest.get("edges", [])]
+        edges.extend((
+            region_index[update["from_region"]],
+            region_index[update["to_region"]],
+            tensor_offset(metadata[update["from_region"]], update["from_tensor"]),
+            tensor_offset(metadata[update["to_region"]], update["to_tensor"]),
+            update["bytes"], EDGE_STATE_UPDATE,
+        ) for update in manifest.get("state_updates", []))
         outputs = [(
             region_index[output["region"]],
             tensor_offset(metadata[output["region"]], output["tensor"]),

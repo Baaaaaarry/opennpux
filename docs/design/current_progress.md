@@ -1497,7 +1497,8 @@ cycle，最终 output checksum `0x4983e4f0` 与 region 1 回读一致。下一�
 
 进一步将编译 module 与运行时输入拆分。`build_tvm_byoc_module_package.py
 --clear-external-bindings` 生成可复用基础 `.npxgm`，新 `build_tvm_byoc_invocation.py` 将一次请求
-的 external input/constant/state 打包为版本化 `.npxmi`。Guest 通过
+的 request input 打包为版本化 `.npxmi`；constant 保留在 `.npxgm`，mutable state 由 runtime
+arena 持有。Guest 通过
 `OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH` 加载 overlay，在启动任何 region 前统一校验 binding
 索引、目标范围、payload 范围和 checksum，再覆盖 arena。旧的内嵌 arena 调用保持兼容；GB10
 验收改为清零基础输入并要求两条动态 binding 生效，避免继续依赖打包时残留输入。
@@ -1506,6 +1507,12 @@ cycle，最终 output checksum `0x4983e4f0` 与 region 1 回读一致。下一�
 输入的 `.npxmi`。两次运行都必须应用 2 条 binding 并完成相同的 NPU/Host 拓扑，同时导出的
 32-byte 结果必须不同。该检查用于发现 arena 没有被新请求覆盖、错误复用第一次输出或仍从基础
 包读取静态输入的问题；算子数值正确性仍由独立单图 reference 路径负责。
+
+模块运行时进一步区分 constant、invocation input 与 mutable state 三类生命周期。
+`state_updates` 复用 module edge ABI 的状态标志，在一次 invocation 的全部 region 完成后才把
+graph output 回灌到持久 state arena。Guest 支持在同一 `coralctl` 进程内执行 `.npxmi` 序列；
+最小 decode 门禁连续执行两步，仅逐步覆盖 token input，要求 state 从 `[1,2]` 经两次 `[2,3]`
+更新得到 `[5,8]`，并检查 2 次 invocation、2 条命令和 2 次 input binding 均完成。
 
 端到端协议增加确定性的 module identity：基础 `.npxgm` 与 `.npxmi` 都保存由 canonical
 compiler manifest 计算的 32-bit identity，Guest 必须匹配后才能应用任何 binding。全系统负向

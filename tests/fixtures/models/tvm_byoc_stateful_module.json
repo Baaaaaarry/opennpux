@@ -1,0 +1,27 @@
+{
+  "format": "OPENNPUX_TVM_BYOC_MODULE_V1",
+  "regions": [
+    {
+      "name": "decode",
+      "graph": {
+        "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+        "tensors": [
+          {"name": "token", "shape": [2], "dtype": "float32", "storage": "input"},
+          {"name": "kv_state", "shape": [2], "dtype": "float32", "storage": "state"},
+          {"name": "updated_state", "shape": [2], "dtype": "float32", "storage": "output"}
+        ],
+        "nodes": [
+          {"op": "add", "inputs": ["token", "kv_state"], "outputs": ["updated_state"]}
+        ],
+        "outputs": ["updated_state"]
+      }
+    }
+  ],
+  "edges": [],
+  "state_updates": [
+    {
+      "from": {"region": "decode", "tensor": "updated_state"},
+      "to": {"region": "decode", "tensor": "kv_state"}
+    }
+  ]
+}

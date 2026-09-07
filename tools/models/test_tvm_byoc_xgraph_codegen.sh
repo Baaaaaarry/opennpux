@@ -31,6 +31,9 @@ export OPENNPUX_XGRAPH_LOWERING_LIB="${LOWERING_LIB}"
 "${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
     "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_module.json" \
     "${BUILD_DIR}/module"
+"${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
+    "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_stateful_module.json" \
+    "${BUILD_DIR}/stateful-module"
 "${PYTHON}" - "${BUILD_DIR}/module/module.npxgm.json" <<'PY'
 import json
 import sys
@@ -39,6 +42,18 @@ manifest = json.load(open(sys.argv[1], encoding="utf-8"))
 assert manifest["execution_order"] == ["residual", "activation"]
 assert manifest["region_count"] == 2
 assert manifest["total_commands"] == 2
+PY
+"${PYTHON}" - "${BUILD_DIR}/stateful-module/module.npxgm.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["execution_order"] == ["decode"]
+assert manifest["regions"][0]["invocation_bindings"] == ["token"]
+assert manifest["regions"][0]["state_bindings"] == ["kv_state"]
+assert len(manifest["state_updates"]) == 1
+assert manifest["state_updates"][0]["bytes"] == 8
+print("tvm_stateful_module_contract=PASS")
 PY
 "${PYTHON}" - "${BUILD_DIR}/basic.npxg" <<'PY'
 import struct

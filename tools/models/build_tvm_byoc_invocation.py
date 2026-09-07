@@ -54,7 +54,9 @@ def main() -> None:
         arena_paths = dict(args.arena)
         payload_offset = align(
             HEADER.size
-            + sum(len(region.get("external_bindings", []))
+            + sum(len(region.get(
+                "invocation_bindings", region.get("external_bindings", [])
+            ))
                   for region in manifest["regions"]) * BINDING.size
         )
         cursor = payload_offset

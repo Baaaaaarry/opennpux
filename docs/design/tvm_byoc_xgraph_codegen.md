@@ -185,6 +185,23 @@ outputs must differ. This separates dynamic rebinding coverage from the
 single-graph numerical-reference test and detects runtimes that accidentally
 retain the first request's input or output.
 
+Mutable autoregressive state has a different lifetime from both constants and
+request inputs. A compiled region therefore publishes three disjoint binding
+classes: `constant_bindings` remain in `.npxgm`, `invocation_bindings` are
+overlaid from `.npxmi`, and `state_bindings` remain mutable in the runtime
+arena. Module-level `state_updates` connect a region graph output to a state
+Tensor. They use the state-update flag in the existing edge ABI and run only
+after every region in one invocation has completed; ordinary direct edges are
+still applied before their destination region in the same invocation.
+
+`OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE` accepts a colon-separated list of
+`.npxmi` files and executes them in one `coralctl` process. Region arenas are
+allocated once, constants remain resident, each request input is overlaid at
+the start of its step, and state updates remain available to the next step.
+The minimum stateful gate starts with `state=[1,2]` and `token=[2,3]`; two
+decode steps must produce `[5,8]` and report two applied input bindings, two
+completed commands, and `xgraph_module_invocations_completed=2`.
+
 The package and invocation also carry the same deterministic identity computed
 from canonical compiler-manifest JSON. The Guest rejects a mismatched identity
 before applying any binding. Full-system acceptance first submits an invocation
@@ -495,7 +512,9 @@ The module manifest records three views:
 - `external_bindings`: all unproduced input, constant, and state Tensors for
   audit and reference-runtime binding.
 - `constant_bindings`: immutable weights retained in the reusable `.npxgm`.
-- `invocation_bindings`: input and mutable state copied from each `.npxmi`.
+- `invocation_bindings`: request inputs copied from each `.npxmi`.
+- `state_bindings`: mutable runtime state initialized by `.npxgm` and updated
+  through module `state_updates` without a CPU round trip.
 
 `--clear-external-bindings` now clears only invocation bindings. The GB10 gate
 packages norm and projection weights once, submits only hidden and residual

@@ -159,6 +159,50 @@ def compile_module(
             successors[source_region].add(target_region)
             indegree[target_region] += 1
 
+    state_updates = module.get("state_updates", [])
+    if not isinstance(state_updates, list):
+        raise CodegenError("module state_updates must be an array")
+    normalized_state_updates = []
+    state_targets: set[tuple[str, str]] = set()
+    for index, update in enumerate(state_updates):
+        if not isinstance(update, dict):
+            raise CodegenError(f"state update {index} must be an object")
+        source_region, source_tensor = _endpoint(
+            update.get("from"), f"state update {index} source"
+        )
+        target_region, target_tensor = _endpoint(
+            update.get("to"), f"state update {index} target"
+        )
+        if source_region not in graphs or target_region not in graphs:
+            raise CodegenError(f"state update {index} references an unknown region")
+        source = tensor_tables[source_region].get(source_tensor)
+        target = tensor_tables[target_region].get(target_tensor)
+        if source is None or target is None:
+            raise CodegenError(f"state update {index} references an unknown tensor")
+        if source.get("storage") != "output" or target.get("storage") != "state":
+            raise CodegenError(
+                f"state update {index} must bind output storage to state storage"
+            )
+        if graphs[source_region].get("outputs") != [source_tensor]:
+            raise CodegenError(
+                f"state update {index} source must be the region graph output"
+            )
+        if source.get("shape") != target.get("shape") or source.get("dtype") != target.get("dtype"):
+            raise CodegenError(f"state update {index} tensor type mismatch")
+        target_key = (target_region, target_tensor)
+        if target_key in state_targets:
+            raise CodegenError(
+                f"state {target_region}.{target_tensor} has multiple updates"
+            )
+        state_targets.add(target_key)
+        normalized_state_updates.append({
+            "from_region": source_region,
+            "from_tensor": source_tensor,
+            "to_region": target_region,
+            "to_tensor": target_tensor,
+            "bytes": 4 * _product(source["shape"]),
+        })
+
     ready = sorted(
         (name for name, degree in indegree.items() if degree == 0),
         key=declaration_order.get,
@@ -202,7 +246,7 @@ def compile_module(
         invocation_bindings = [
             tensor_name
             for tensor_name, tensor in tensor_tables[name].items()
-            if tensor.get("storage") in {"input", "state"}
+            if tensor.get("storage") == "input"
             and (name, tensor_name) not in bound_inputs
         ]
         constant_bindings = [
@@ -210,6 +254,11 @@ def compile_module(
             for tensor_name, tensor in tensor_tables[name].items()
             if tensor.get("storage") == "constant"
             and (name, tensor_name) not in bound_inputs
+        ]
+        state_bindings = [
+            tensor_name
+            for tensor_name, tensor in tensor_tables[name].items()
+            if tensor.get("storage") == "state"
         ]
         region_manifest.append({
             "name": name,
@@ -221,6 +270,7 @@ def compile_module(
             "external_bindings": external_bindings,
             "invocation_bindings": invocation_bindings,
             "constant_bindings": constant_bindings,
+            "state_bindings": state_bindings,
             "outputs": list(graphs[name].get("outputs", [])),
         })
 
@@ -231,6 +281,7 @@ def compile_module(
         "regions": region_manifest,
         "edges": normalized_edges,
         "host_bindings": normalized_host_bindings,
+        "state_updates": normalized_state_updates,
         "module_outputs": [
             {"region": name, "tensor": tensor}
             for name in execution_order

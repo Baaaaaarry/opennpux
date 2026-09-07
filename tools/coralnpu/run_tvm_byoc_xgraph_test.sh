@@ -13,6 +13,10 @@ TRANSFORMER_MODULE_DIR="${BUILD_DIR}/transformer-block-module"
 TRANSFORMER_MODULE_PACKAGE="${BUILD_DIR}/transformer-block.npxgm"
 TRANSFORMER_MODULE_INVOCATION="${BUILD_DIR}/transformer-block.npxmi"
 TRANSFORMER_EXPECTED="${BUILD_DIR}/transformer-block.expected.bin"
+STATE_MODULE_DIR="${BUILD_DIR}/stateful-module"
+STATE_MODULE_PACKAGE="${BUILD_DIR}/stateful-module.npxgm"
+STATE_MODULE_INVOCATION="${BUILD_DIR}/stateful-module.npxmi"
+STATE_EXPECTED="${BUILD_DIR}/stateful-module.expected.bin"
 MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
@@ -156,6 +160,43 @@ PY
     "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_PACKAGE}" \
     --clear-external-bindings \
     --arena "${TRANSFORMER_REGION}=${TRANSFORMER_ARENA}"
+STATE_REGION="$("${TVM_PYTHON:-python3}" - \
+    "${STATE_MODULE_DIR}" \
+    "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_stateful_values.json" <<'PY'
+import json
+import struct
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+values_path = Path(sys.argv[2])
+manifest = json.load(open(directory / "module.npxgm.json", encoding="utf-8"))
+region = manifest["regions"][0]
+metadata_path = directory / f"{region['artifact']}.json"
+metadata = json.load(open(metadata_path, encoding="utf-8"))
+values = json.load(open(values_path, encoding="utf-8"))
+tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+arena = bytearray(region["arena_size"])
+for name in ("token", "kv_state"):
+    tensor = tensors[name]
+    struct.pack_into("<2f", arena, tensor["offset"], *values[name])
+arena_path = directory / "decode.arena.bin"
+arena_path.write_bytes(arena)
+# state=[1,2], token=[2,3], two device-resident updates => [5,8].
+(directory.parent / "stateful-module.expected.bin").write_bytes(
+    struct.pack("<2f", 5.0, 8.0)
+)
+print(f"{region['name']}={arena_path}")
+PY
+)"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_module_package.py" \
+    "${STATE_MODULE_DIR}" "${STATE_MODULE_PACKAGE}" \
+    --clear-external-bindings --arena "${STATE_REGION}"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
+    "${STATE_MODULE_DIR}" "${STATE_MODULE_INVOCATION}" \
+    --arena "${STATE_REGION}"
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_INVOCATION}" \
@@ -177,6 +218,11 @@ PY
     [ -f "${TRANSFORMER_MODULE_INVOCATION}" ] &&
     [ -f "${TRANSFORMER_EXPECTED}" ] || {
     echo "error: Transformer module package was not generated" >&2
+    exit 1
+}
+[ -f "${STATE_MODULE_PACKAGE}" ] && [ -f "${STATE_MODULE_INVOCATION}" ] &&
+    [ -f "${STATE_EXPECTED}" ] || {
+    echo "error: stateful module package was not generated" >&2
     exit 1
 }
 EXPECTED_CHECKSUM="$(sed -n \
@@ -288,6 +334,21 @@ EOF
 base64 "${TRANSFORMER_EXPECTED}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_TRANSFORMER_EXPECTED_EOF
+decode_base64 >/tmp/tvm-stateful-module.npxgm <<'OPENNPUX_TVM_STATE_MODULE_EOF'
+EOF
+base64 "${STATE_MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_STATE_MODULE_EOF
+decode_base64 >/tmp/tvm-stateful-module.npxmi <<'OPENNPUX_TVM_STATE_INVOCATION_EOF'
+EOF
+base64 "${STATE_MODULE_INVOCATION}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_STATE_INVOCATION_EOF
+decode_base64 >/tmp/tvm-stateful-module.expected.bin <<'OPENNPUX_TVM_STATE_EXPECTED_EOF'
+EOF
+base64 "${STATE_EXPECTED}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_STATE_EXPECTED_EOF
 decode_base64 >/tmp/tvm-mixed-module.npxgm <<'OPENNPUX_TVM_MODULE_EOF'
 EOF
 base64 "${MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
@@ -387,6 +448,30 @@ has_output_line 'xgraph_module_run=PASS' ||
     /tmp/tvm-transformer-block.expected.bin 0.00005 ||
     fail 'Transformer module output differs from independent reference'
 echo 'tvm_transformer_module_storage=PASS'
+STATE_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-stateful-module.output.bin \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE=/tmp/tvm-stateful-module.npxmi:/tmp/tvm-stateful-module.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-stateful-module.npxgm \
+    0x1d000000 1000000)" || {
+    printf '%s\n' "\${STATE_OUTPUT}"
+    fail 'stateful module sequence failed'
+}
+printf '%s\n' "\${STATE_OUTPUT}"
+OUTPUT="\${STATE_OUTPUT}"
+has_output_line 'xgraph_module_commands_completed=2' ||
+    fail 'stateful module did not execute both decode steps'
+has_output_line 'xgraph_module_invocation_bindings=2' ||
+    fail 'stateful module input bindings were not applied per step'
+has_output_line 'xgraph_module_invocations_completed=2' ||
+    fail 'stateful module invocation count mismatch'
+has_output_line 'xgraph_module_run=PASS' ||
+    fail 'stateful module runtime PASS verdict missing'
+/tmp/coralctl tensor-compare-fp32 \
+    /tmp/tvm-stateful-module.output.bin \
+    /tmp/tvm-stateful-module.expected.bin 0 ||
+    fail 'device-resident state was not preserved across decode steps'
+echo 'xgraph_module_state_updates=2'
+echo 'tvm_stateful_decode_sequence=PASS'
 if OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-mismatch.npxmi \
     /tmp/coralctl xgraph-module-run \

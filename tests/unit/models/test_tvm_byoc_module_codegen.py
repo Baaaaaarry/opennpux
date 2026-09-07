@@ -60,6 +60,97 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         with self.assertRaisesRegex(CodegenError, "both constant and state"):
             apply_parameter_storage(module, ["lhs"], ["lhs"])
 
+    def test_state_update_is_persistent_and_omitted_from_invocation(self):
+        module = {
+            "format": "OPENNPUX_TVM_BYOC_MODULE_V1",
+            "regions": [{
+                "name": "decode",
+                "graph": {
+                    "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+                    "tensors": [
+                        {"name": "token", "shape": [2], "dtype": "float32",
+                         "storage": "input"},
+                        {"name": "kv_state", "shape": [2], "dtype": "float32",
+                         "storage": "state"},
+                        {"name": "updated_state", "shape": [2],
+                         "dtype": "float32", "storage": "output"},
+                    ],
+                    "nodes": [{"op": "add", "inputs": ["token", "kv_state"],
+                               "outputs": ["updated_state"]}],
+                    "outputs": ["updated_state"],
+                },
+            }],
+            "edges": [],
+            "state_updates": [{
+                "from": {"region": "decode", "tensor": "updated_state"},
+                "to": {"region": "decode", "tensor": "kv_state"},
+            }],
+        }
+        artifacts, manifest = compile_module(module)
+        region = manifest["regions"][0]
+        self.assertEqual(region["invocation_bindings"], ["token"])
+        self.assertEqual(region["state_bindings"], ["kv_state"])
+        self.assertEqual(manifest["state_updates"][0]["bytes"], 8)
+        self.assertEqual(manifest["module_outputs"][0]["tensor"], "updated_state")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            module_dir = directory / "module"
+            module_dir.mkdir()
+            (module_dir / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            binary, metadata = artifacts["decode"]
+            artifact = module_dir / region["artifact"]
+            artifact.write_bytes(binary)
+            Path(f"{artifact}.json").write_text(
+                json.dumps(metadata), encoding="utf-8"
+            )
+            arena = bytearray(region["arena_size"])
+            tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+            state = tensors["kv_state"]
+            arena[state["offset"]:state["offset"] + state["byte_size"]] = (
+                struct.pack("<2f", 1.0, 2.0)
+            )
+            arena_path = directory / "decode.arena.bin"
+            arena_path.write_bytes(arena)
+            package_path = directory / "module.npxgm"
+            package = subprocess.run([
+                sys.executable,
+                str(ROOT / "tools/models/build_tvm_byoc_module_package.py"),
+                str(module_dir), str(package_path), "--clear-external-bindings",
+                "--arena", f"decode={arena_path}",
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(package.returncode, 0, package.stderr)
+            image = package_path.read_bytes()
+            header = struct.unpack_from("<16I", image)
+            self.assertEqual(header[5], 1)
+            edge = struct.unpack_from("<6I", image, 64 + 32)
+            self.assertEqual(edge[4:], (8, 1))
+            arena_offset = struct.unpack_from("<8I", image, 64)[2]
+            self.assertEqual(
+                image[arena_offset + state["offset"]:
+                      arena_offset + state["offset"] + state["byte_size"]],
+                struct.pack("<2f", 1.0, 2.0),
+            )
+            invocation = subprocess.run([
+                sys.executable,
+                str(ROOT / "tools/models/build_tvm_byoc_invocation.py"),
+                str(module_dir), str(directory / "request.npxmi"),
+                "--arena", f"decode={arena_path}",
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(invocation.returncode, 0, invocation.stderr)
+            self.assertIn("xgraph_invocation_bindings=1", invocation.stdout)
+
+    def test_state_update_requires_output_to_state(self):
+        module = self.load_fixture()
+        module["state_updates"] = [{
+            "from": {"region": "residual", "tensor": "lhs"},
+            "to": {"region": "activation", "tensor": "input"},
+        }]
+        with self.assertRaisesRegex(CodegenError, "output storage to state storage"):
+            compile_module(module)
+
     def test_package_preserves_constants_and_invocation_omits_them(self):
         module = self.load_fixture()
         apply_parameter_storage(module, ["rhs"], [])

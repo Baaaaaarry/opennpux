@@ -1561,3 +1561,17 @@ module reuse 门禁保持不变；新门禁等待 GB10 输出 `tvm_transformer_b
 constant，`hidden/residual` 标记为 invocation binding。`.npxgm` 清动态输入时不再清常量，`.npxmi`
 不再重复携带常量；完整 external binding 列表继续用于审计和 Python reference runtime。25 项本地
 回归已通过，等待 GB10 验证单 region、4 commands、2 dynamic bindings 及独立数值 reference。
+
+## 2026-09-07 TVM decode 状态有界追加
+
+module state feedback 从整 Tensor `replace` 扩展为模型无关的 `append` 模式。编译器要求目标
+state 形状为 `[capacity, *update_shape]`，并把 mode、slot stride 和 capacity 编码进已有 module
+edge ABI；Guest runtime 在第 `i` 次 invocation 完成后仅将设备产生的 update Tensor 写入
+`state_base + i * stride`，不经 CPU 重传已有 state。容量检查被放在 invocation binding 和 region
+提交之前，超过 capacity 时以 `ENOSPC` 拒绝，保证越界请求没有部分执行或状态副作用。
+
+新增 dependency-free 四槽 FP32 状态门禁：同一个 decode invocation 连续执行两次后导出完整
+32-byte state window，要求前两个 slot 等于独立 SiLU 参考、后两个 slot 保持零；同时连续请求五次
+必须在第 5 次输出 `xgraph-module-run state capacity`。本地 34 项 BYOC 单测、package ABI、严格
+C11 编译和 shell 语法检查通过；GB10 待验证 `tvm_kv_state_append=PASS` 与
+`tvm_kv_state_capacity_rejection=PASS`。

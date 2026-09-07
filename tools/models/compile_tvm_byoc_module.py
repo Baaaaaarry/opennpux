@@ -32,6 +32,9 @@ def main() -> None:
     parser.add_argument(
         "--state-update", action="append", default=[], metavar="OUTPUT=STATE"
     )
+    parser.add_argument(
+        "--state-append", action="append", default=[], metavar="OUTPUT=STATE"
+    )
     args = parser.parse_args()
     try:
         source = json.loads(args.input.read_text(encoding="utf-8"))
@@ -61,7 +64,7 @@ def main() -> None:
         apply_parameter_storage(
             source, args.constant_parameter, args.state_parameter
         )
-        apply_state_updates(source, args.state_update)
+        apply_state_updates(source, args.state_update, args.state_append)
         if args.dump_byoc_module is not None:
             args.dump_byoc_module.write_text(
                 json.dumps(source, indent=2, sort_keys=True) + "\n",

@@ -18,6 +18,10 @@ STATE_MODULE_ARENA="${BUILD_DIR}/stateful-transformer.arena.bin"
 STATE_MODULE_PACKAGE="${BUILD_DIR}/stateful-transformer.npxgm"
 STATE_MODULE_INVOCATION="${BUILD_DIR}/stateful-transformer.npxmi"
 STATE_EXPECTED="${BUILD_DIR}/stateful-transformer.expected.bin"
+APPEND_MODULE_DIR="${BUILD_DIR}/state-append-module"
+APPEND_MODULE_PACKAGE="${BUILD_DIR}/state-append.npxgm"
+APPEND_MODULE_INVOCATION="${BUILD_DIR}/state-append.npxmi"
+APPEND_EXPECTED="${BUILD_DIR}/state-append.expected.bin"
 MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
@@ -240,6 +244,39 @@ PY
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${STATE_MODULE_DIR}" "${STATE_MODULE_INVOCATION}" \
     --arena "${STATE_REGION}"
+APPEND_REGION="$("${TVM_PYTHON:-python3}" - \
+    "${APPEND_MODULE_DIR}" "${APPEND_EXPECTED}" <<'PY'
+import json
+import math
+import struct
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+expected_path = Path(sys.argv[2])
+manifest = json.load(open(directory / "module.npxgm.json", encoding="utf-8"))
+region = manifest["regions"][0]
+metadata = json.load(
+    open(directory / f"{region['artifact']}.json", encoding="utf-8")
+)
+tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+arena = bytearray(region["arena_size"])
+struct.pack_into("<2f", arena, tensors["token"]["offset"], 2.0, 3.0)
+arena_path = directory / "decode.arena.bin"
+arena_path.write_bytes(arena)
+update = [value / (1.0 + math.exp(-value)) for value in (2.0, 3.0)]
+expected_path.write_bytes(struct.pack("<8f", *(update + update + [0.0] * 4)))
+print(f"{region['name']}={arena_path}")
+PY
+)"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_module_package.py" \
+    "${APPEND_MODULE_DIR}" "${APPEND_MODULE_PACKAGE}" \
+    --clear-external-bindings --arena "${APPEND_REGION}"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
+    "${APPEND_MODULE_DIR}" "${APPEND_MODULE_INVOCATION}" \
+    --arena "${APPEND_REGION}"
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_INVOCATION}" \
@@ -266,6 +303,11 @@ PY
 [ -f "${STATE_MODULE_PACKAGE}" ] && [ -f "${STATE_MODULE_INVOCATION}" ] &&
     [ -f "${STATE_EXPECTED}" ] || {
     echo "error: stateful module package was not generated" >&2
+    exit 1
+}
+[ -f "${APPEND_MODULE_PACKAGE}" ] && [ -f "${APPEND_MODULE_INVOCATION}" ] &&
+    [ -f "${APPEND_EXPECTED}" ] || {
+    echo "error: state append module package was not generated" >&2
     exit 1
 }
 EXPECTED_CHECKSUM="$(sed -n \
@@ -392,6 +434,21 @@ EOF
 base64 "${STATE_EXPECTED}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_STATE_EXPECTED_EOF
+decode_base64 >/tmp/tvm-state-append.npxgm <<'OPENNPUX_TVM_APPEND_MODULE_EOF'
+EOF
+base64 "${APPEND_MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_APPEND_MODULE_EOF
+decode_base64 >/tmp/tvm-state-append.npxmi <<'OPENNPUX_TVM_APPEND_INVOCATION_EOF'
+EOF
+base64 "${APPEND_MODULE_INVOCATION}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_APPEND_INVOCATION_EOF
+decode_base64 >/tmp/tvm-state-append.expected.bin <<'OPENNPUX_TVM_APPEND_EXPECTED_EOF'
+EOF
+base64 "${APPEND_EXPECTED}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_APPEND_EXPECTED_EOF
 decode_base64 >/tmp/tvm-mixed-module.npxgm <<'OPENNPUX_TVM_MODULE_EOF'
 EOF
 base64 "${MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
@@ -515,6 +572,45 @@ has_output_line 'xgraph_module_run=PASS' ||
     fail 'device-resident state was not preserved across decode steps'
 echo 'xgraph_module_state_updates=2'
 echo 'tvm_stateful_transformer_decode=PASS'
+APPEND_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_STATE_PREFIX=/tmp/tvm-state-append \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE=/tmp/tvm-state-append.npxmi:/tmp/tvm-state-append.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-state-append.npxgm \
+    0x1d000000 1000000)" || {
+    printf '%s\n' "\${APPEND_OUTPUT}"
+    fail 'state append module sequence failed'
+}
+printf '%s\n' "\${APPEND_OUTPUT}"
+OUTPUT="\${APPEND_OUTPUT}"
+has_output_line 'xgraph_module_state=0 mode=append' ||
+    fail 'state append mode was not reported'
+has_output_line 'xgraph_module_commands_completed=2' ||
+    fail 'state append module did not execute both decode steps'
+has_output_line 'xgraph_module_invocations_completed=2' ||
+    fail 'state append invocation count mismatch'
+has_output_line 'xgraph_module_state_updates_completed=2' ||
+    fail 'state append update count mismatch'
+has_output_line 'xgraph_module_state_bytes=32' ||
+    fail 'state append capacity byte count mismatch'
+/tmp/coralctl tensor-compare-fp32 /tmp/tvm-state-append.0.bin \
+    /tmp/tvm-state-append.expected.bin 0.000001 ||
+    fail 'state append window differs from independent reference'
+echo 'tvm_kv_state_append=PASS'
+if OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE=/tmp/tvm-state-append.npxmi:/tmp/tvm-state-append.npxmi:/tmp/tvm-state-append.npxmi:/tmp/tvm-state-append.npxmi:/tmp/tvm-state-append.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-state-append.npxgm \
+    0x1d000000 1000000 >/tmp/tvm-state-capacity.log 2>&1; then
+    fail 'state append accepted an invocation beyond capacity'
+fi
+CAPACITY_OUTPUT="\$(cat /tmp/tvm-state-capacity.log)"
+case "\${CAPACITY_OUTPUT}" in
+    *'xgraph-module-run state capacity'*) ;;
+    *)
+        printf '%s\n' "\${CAPACITY_OUTPUT}"
+        fail 'state append capacity rejection diagnostic missing'
+        ;;
+esac
+echo 'tvm_kv_state_capacity_rejection=PASS'
 if OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-mismatch.npxmi \
     /tmp/coralctl xgraph-module-run \

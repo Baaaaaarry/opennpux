@@ -2469,17 +2469,35 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
     }
     for (uint32_t index = 0; index < header->edge_count; ++index) {
         const struct opennpux_tvm_module_edge *edge = &edges[index];
+        const uint32_t mode =
+            edge->reserved & OPENNPUX_TVM_MODULE_EDGE_MODE_MASK;
         const int direct = edge->reserved == OPENNPUX_TVM_MODULE_EDGE_DIRECT;
         const int state_update =
             edge->reserved == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE;
-        if ((!direct && !state_update) ||
+        const int state_append =
+            mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND;
+        const uint32_t append_stride =
+            ((edge->reserved & OPENNPUX_TVM_MODULE_EDGE_STRIDE_MASK) >>
+             OPENNPUX_TVM_MODULE_EDGE_STRIDE_SHIFT) * sizeof(uint32_t);
+        const uint32_t append_capacity =
+            (edge->reserved & OPENNPUX_TVM_MODULE_EDGE_CAPACITY_MASK) >>
+            OPENNPUX_TVM_MODULE_EDGE_CAPACITY_SHIFT;
+        const uint64_t append_end =
+            (uint64_t)edge->target_offset +
+            (append_capacity == 0 ? 0 :
+             (uint64_t)(append_capacity - 1) * append_stride) + edge->bytes;
+        if ((!direct && !state_update && !state_append) ||
             (direct && edge->from_region >= edge->to_region) ||
             edge->from_region >= header->region_count ||
             edge->to_region >= header->region_count ||
             !module_range_valid(edge->source_offset, edge->bytes,
                                 regions[edge->from_region].arena_size) ||
             !module_range_valid(edge->target_offset, edge->bytes,
-                                regions[edge->to_region].arena_size)) {
+                                regions[edge->to_region].arena_size) ||
+            (state_append &&
+             (append_stride == 0 || append_capacity == 0 ||
+              edge->bytes > append_stride ||
+              append_end > regions[edge->to_region].arena_size))) {
             errno = EPROTO;
             perror("xgraph-module-run edge");
             goto out;
@@ -2545,6 +2563,21 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
             if (invocation_path == NULL || invocation_path[0] == '\0') {
                 errno = EINVAL;
                 perror("xgraph-module-run invocation sequence");
+                goto out;
+            }
+        }
+        for (uint32_t index = 0; index < header->edge_count; ++index) {
+            const struct opennpux_tvm_module_edge *edge = &edges[index];
+            const uint32_t mode =
+                edge->reserved & OPENNPUX_TVM_MODULE_EDGE_MODE_MASK;
+            const uint32_t capacity =
+                (edge->reserved &
+                 OPENNPUX_TVM_MODULE_EDGE_CAPACITY_MASK) >>
+                OPENNPUX_TVM_MODULE_EDGE_CAPACITY_SHIFT;
+            if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND &&
+                invocations_completed >= capacity) {
+                errno = ENOSPC;
+                perror("xgraph-module-run state capacity");
                 goto out;
             }
         }
@@ -2638,7 +2671,10 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
             window.bytes + region->output_offset, region->output_bytes);
         for (uint32_t index = 0; index < header->edge_count; ++index) {
             const struct opennpux_tvm_module_edge *edge = &edges[index];
-            if (edge->reserved == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE &&
+            const uint32_t mode =
+                edge->reserved & OPENNPUX_TVM_MODULE_EDGE_MODE_MASK;
+            if ((mode == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE ||
+                 mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) &&
                 edge->from_region == region_index) {
                 copy_from_device_memory(
                     arenas[region_index] + edge->source_offset,
@@ -2658,8 +2694,20 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
         }
         for (uint32_t index = 0; index < header->edge_count; ++index) {
             const struct opennpux_tvm_module_edge *edge = &edges[index];
-            if (edge->reserved == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE) {
-                memmove(arenas[edge->to_region] + edge->target_offset,
+            const uint32_t mode =
+                edge->reserved & OPENNPUX_TVM_MODULE_EDGE_MODE_MASK;
+            if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE ||
+                mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) {
+                uint32_t target_offset = edge->target_offset;
+                if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) {
+                    const uint32_t stride =
+                        ((edge->reserved &
+                          OPENNPUX_TVM_MODULE_EDGE_STRIDE_MASK) >>
+                         OPENNPUX_TVM_MODULE_EDGE_STRIDE_SHIFT) *
+                        sizeof(uint32_t);
+                    target_offset += invocations_completed * stride;
+                }
+                memmove(arenas[edge->to_region] + target_offset,
                         arenas[edge->from_region] + edge->source_offset,
                         edge->bytes);
             }
@@ -2669,6 +2717,8 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
     const char *output_path = getenv("OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH");
     const char *output_prefix =
         getenv("OPENNPUX_XGRAPH_MODULE_OUTPUT_PREFIX");
+    const char *state_prefix =
+        getenv("OPENNPUX_XGRAPH_MODULE_STATE_PREFIX");
     uint64_t total_output_bytes = 0;
     for (uint32_t index = 0; index < header->output_count; ++index) {
         const struct opennpux_tvm_module_output *output = &outputs[index];
@@ -2703,6 +2753,49 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
             }
         }
     }
+    uint32_t state_update_count = 0;
+    uint64_t state_bytes = 0;
+    for (uint32_t index = 0; index < header->edge_count; ++index) {
+        const struct opennpux_tvm_module_edge *edge = &edges[index];
+        const uint32_t mode =
+            edge->reserved & OPENNPUX_TVM_MODULE_EDGE_MODE_MASK;
+        if (mode != OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE &&
+            mode != OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) {
+            continue;
+        }
+        uint32_t bytes = edge->bytes;
+        if (mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND) {
+            const uint32_t stride =
+                ((edge->reserved & OPENNPUX_TVM_MODULE_EDGE_STRIDE_MASK) >>
+                 OPENNPUX_TVM_MODULE_EDGE_STRIDE_SHIFT) * sizeof(uint32_t);
+            const uint32_t capacity =
+                (edge->reserved & OPENNPUX_TVM_MODULE_EDGE_CAPACITY_MASK) >>
+                OPENNPUX_TVM_MODULE_EDGE_CAPACITY_SHIFT;
+            bytes = stride * capacity;
+        }
+        const uint8_t *data =
+            arenas[edge->to_region] + edge->target_offset;
+        printf("xgraph_module_state=%" PRIu32
+               " mode=%s region=%" PRIu32 " bytes=%" PRIu32
+               " checksum=0x%08" PRIx32 "\n",
+               state_update_count,
+               mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND ? "append" :
+                                                               "replace",
+               edge->to_region, bytes, byte_checksum(data, bytes));
+        state_bytes += bytes;
+        if (state_prefix != NULL && state_prefix[0] != '\0') {
+            char state_path[256];
+            const int length = snprintf(state_path, sizeof(state_path),
+                                        "%s.%" PRIu32 ".bin", state_prefix,
+                                        state_update_count);
+            if (length < 0 || (size_t)length >= sizeof(state_path) ||
+                write_binary_file(state_path, data, bytes) != 0) {
+                perror("xgraph-module-run state write");
+                goto out;
+            }
+        }
+        ++state_update_count;
+    }
     printf("xgraph_module_regions_completed=%" PRIu32 "\n",
            header->region_count);
     printf("xgraph_module_commands_completed=%" PRIu32 "\n",
@@ -2713,6 +2806,9 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
            invocation_bindings);
     printf("xgraph_module_invocations_completed=%" PRIu32 "\n",
            invocations_completed);
+    printf("xgraph_module_state_updates_completed=%" PRIu64 "\n",
+           (uint64_t)state_update_count * invocations_completed);
+    printf("xgraph_module_state_bytes=%" PRIu64 "\n", state_bytes);
     printf("xgraph_module_outputs_completed=%" PRIu32 "\n",
            header->output_count);
     printf("xgraph_module_output_bytes=%" PRIu64 "\n", total_output_bytes);

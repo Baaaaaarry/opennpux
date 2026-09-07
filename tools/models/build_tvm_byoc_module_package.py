@@ -22,6 +22,7 @@ HOST_OPERATION = struct.Struct("<2I")
 OUTPUT = struct.Struct("<4I")
 HOST_OPCODES = {"relax.nn.relu": 1}
 EDGE_STATE_UPDATE = 1
+EDGE_STATE_APPEND = 2
 
 
 def align(value: int, alignment: int = 64) -> int:
@@ -52,6 +53,18 @@ def tensor_offset(metadata: dict, name: str) -> int:
         if tensor.get("name") == name:
             return int(tensor["offset"])
     raise CodegenError(f"Tensor metadata missing {name}")
+
+
+def state_update_flags(update: dict) -> int:
+    if update.get("mode", "replace") == "replace":
+        return EDGE_STATE_UPDATE
+    stride = int(update["stride"])
+    capacity = int(update["capacity"])
+    if stride <= 0 or stride % 4 != 0 or stride // 4 > 0x3FFF:
+        raise CodegenError("state append stride exceeds edge ABI")
+    if capacity <= 0 or capacity > 0xFFFF:
+        raise CodegenError("state append capacity exceeds edge ABI")
+    return EDGE_STATE_APPEND | ((stride // 4) << 2) | (capacity << 16)
 
 
 def main() -> None:
@@ -132,7 +145,7 @@ def main() -> None:
             region_index[update["to_region"]],
             tensor_offset(metadata[update["from_region"]], update["from_tensor"]),
             tensor_offset(metadata[update["to_region"]], update["to_tensor"]),
-            update["bytes"], EDGE_STATE_UPDATE,
+            update["bytes"], state_update_flags(update),
         ) for update in manifest.get("state_updates", []))
         outputs = [(
             region_index[output["region"]],

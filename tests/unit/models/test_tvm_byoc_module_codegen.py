@@ -154,6 +154,55 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         with self.assertRaisesRegex(CodegenError, "produced Tensor to state storage"):
             compile_module(module)
 
+    def test_state_append_encodes_stride_and_capacity(self):
+        module = json.loads(
+            (ROOT / "tests/fixtures/models/tvm_byoc_state_append_module.json")
+            .read_text(encoding="utf-8")
+        )
+        artifacts, manifest = compile_module(module)
+        update = manifest["state_updates"][0]
+        self.assertEqual(update["mode"], "append")
+        self.assertEqual(update["bytes"], 8)
+        self.assertEqual(update["stride"], 8)
+        self.assertEqual(update["capacity"], 4)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            module_dir = directory / "module"
+            module_dir.mkdir()
+            (module_dir / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            binary, metadata = artifacts["decode"]
+            artifact = module_dir / manifest["regions"][0]["artifact"]
+            artifact.write_bytes(binary)
+            Path(f"{artifact}.json").write_text(
+                json.dumps(metadata), encoding="utf-8"
+            )
+            arena_path = directory / "decode.arena.bin"
+            arena_path.write_bytes(bytes(manifest["regions"][0]["arena_size"]))
+            package_path = directory / "module.npxgm"
+            package = subprocess.run([
+                sys.executable,
+                str(ROOT / "tools/models/build_tvm_byoc_module_package.py"),
+                str(module_dir), str(package_path),
+                "--arena", f"decode={arena_path}",
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(package.returncode, 0, package.stderr)
+            image = package_path.read_bytes()
+            edge = struct.unpack_from("<6I", image, 64 + 32)
+            self.assertEqual(edge[4], 8)
+            self.assertEqual(edge[5], 2 | (2 << 2) | (4 << 16))
+
+    def test_state_append_rejects_incompatible_state_shape(self):
+        module = json.loads(
+            (ROOT / "tests/fixtures/models/tvm_byoc_state_append_module.json")
+            .read_text(encoding="utf-8")
+        )
+        module["regions"][0]["graph"]["tensors"][1]["shape"] = [4, 3]
+        with self.assertRaisesRegex(CodegenError, "shape"):
+            compile_module(module)
+
     def test_state_update_cli_policy_resolves_typed_endpoints(self):
         module = self.load_fixture()
         apply_parameter_storage(module, [], ["lhs"])

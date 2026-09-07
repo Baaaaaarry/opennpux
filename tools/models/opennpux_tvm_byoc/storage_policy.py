@@ -54,9 +54,13 @@ def apply_parameter_storage(
         )
 
 
-def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
+def apply_state_updates(
+    source: dict[str, Any], updates: list[str], appends: list[str] | None = None
+) -> None:
     """Attach explicit graph-output to persistent-state feedback edges."""
-    if not updates:
+    specifications = [(value, "replace") for value in updates]
+    specifications.extend((value, "append") for value in (appends or []))
+    if not specifications:
         return
     if source.get("format") != MODULE_FORMAT:
         raise CodegenError("state updates require a normalized module")
@@ -133,7 +137,7 @@ def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
     records = source.setdefault("state_updates", [])
     if not isinstance(records, list):
         raise CodegenError("module state_updates must be an array")
-    for specification in updates:
+    for specification, mode in specifications:
         output, separator, state = specification.partition("=")
         if not separator or not output or not state:
             raise CodegenError("state update must use OUTPUT=STATE syntax")
@@ -144,4 +148,5 @@ def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
         records.append({
             "from": {"region": source_region, "tensor": source_tensor},
             "to": {"region": target_region, "tensor": target_tensor},
+            "mode": mode,
         })

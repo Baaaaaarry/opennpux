@@ -190,8 +190,24 @@ def compile_module(
             raise CodegenError(
                 f"state update {index} must bind a produced Tensor to state storage"
             )
-        if source.get("shape") != target.get("shape") or source.get("dtype") != target.get("dtype"):
+        mode = update.get("mode", "replace")
+        if mode not in {"replace", "append"}:
+            raise CodegenError(f"state update {index} has an invalid mode")
+        if source.get("dtype") != target.get("dtype"):
             raise CodegenError(f"state update {index} tensor type mismatch")
+        source_shape = source.get("shape")
+        target_shape = target.get("shape")
+        if mode == "replace":
+            if source_shape != target_shape:
+                raise CodegenError(f"state update {index} tensor type mismatch")
+            capacity = 1
+        else:
+            if (not isinstance(target_shape, list) or not target_shape or
+                    target_shape[1:] != source_shape):
+                raise CodegenError(
+                    f"state append {index} requires state shape [capacity, *source]"
+                )
+            capacity = target_shape[0]
         target_key = (target_region, target_tensor)
         if target_key in state_targets:
             raise CodegenError(
@@ -204,6 +220,9 @@ def compile_module(
             "to_region": target_region,
             "to_tensor": target_tensor,
             "bytes": 4 * _product(source["shape"]),
+            "mode": mode,
+            "stride": 4 * _product(source["shape"]),
+            "capacity": capacity,
         })
 
     ready = sorted(

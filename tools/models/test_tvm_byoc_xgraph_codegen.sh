@@ -34,6 +34,9 @@ export OPENNPUX_XGRAPH_LOWERING_LIB="${LOWERING_LIB}"
 "${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
     "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_stateful_module.json" \
     "${BUILD_DIR}/stateful-module"
+"${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
+    "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_state_append_module.json" \
+    "${BUILD_DIR}/state-append-module"
 "${PYTHON}" - "${BUILD_DIR}/module/module.npxgm.json" <<'PY'
 import json
 import sys
@@ -54,6 +57,18 @@ assert manifest["regions"][0]["state_bindings"] == ["kv_state"]
 assert len(manifest["state_updates"]) == 1
 assert manifest["state_updates"][0]["bytes"] == 8
 print("tvm_stateful_module_contract=PASS")
+PY
+"${PYTHON}" - "${BUILD_DIR}/state-append-module/module.npxgm.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+update = manifest["state_updates"][0]
+assert update["mode"] == "append"
+assert update["bytes"] == 8
+assert update["stride"] == 8
+assert update["capacity"] == 4
+print("tvm_state_append_contract=PASS")
 PY
 "${PYTHON}" - "${BUILD_DIR}/basic.npxg" <<'PY'
 import struct

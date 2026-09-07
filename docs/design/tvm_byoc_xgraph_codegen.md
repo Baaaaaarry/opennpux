@@ -536,3 +536,38 @@ Transformer graphs.
 
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).
+
+## Bounded decode-state append
+
+State feedback has two model-independent storage modes. `replace` copies a
+produced Tensor over a same-shaped mutable state Tensor after an invocation;
+it is suitable for recurrent state. `append` writes a produced step Tensor
+into the next fixed-stride slot of a larger state Tensor; it is suitable for
+KV-cache growth without copying the existing cache through the CPU.
+
+The module edge ABI encodes the mode in the low two flag bits. An append edge
+also carries a stride in 32-bit words and a bounded slot capacity. Compilation
+requires the state shape to be `[capacity, *update_shape]`, checks that the
+update fits one stride, and records the full state range. At runtime invocation
+`i` writes `state_base + i * stride`. The capacity check occurs before applying
+invocation bindings or submitting a region, so invocation `capacity` is
+rejected with `ENOSPC` and cannot partially execute or mutate state.
+
+The full-system gate uses a four-slot FP32 state and executes two decode
+invocations. It exports the complete 32-byte state window and independently
+checks that only slots zero and one contain the two generated updates. A second
+negative run requests five invocations and requires the fifth to fail before
+device submission. Required verdicts are:
+
+```text
+xgraph_module_state=0 mode=append ... bytes=32
+xgraph_module_state_updates_completed=2
+tensor_compare_fp32=PASS
+tvm_kv_state_append=PASS
+tvm_kv_state_capacity_rejection=PASS
+```
+
+This is a storage and scheduling contract, not a Qwen-specific KV layout. A
+model frontend or legalization pass chooses the state Tensor shape and update
+Tensor; the module runtime only enforces address, stride, lifetime, ordering,
+and capacity rules.

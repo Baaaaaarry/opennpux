@@ -470,7 +470,7 @@ address validation, state ordering, functional execution and completion.
 `tattention.ttt (rd),(rs1),(rs2)` uses `custom3`, `funct3=000`, and
 `funct7=0100001`. `rd`, `rs1`, and `rs2` carry output, query, and combined KV
 state addresses. Query and output use `[query_rows, heads, head_dim]`; state
-uses `[2, kv_length, kv_heads, head_dim]` with the K plane followed by V.
+uses `[2, capacity, kv_heads, head_dim]` with the K plane followed by V.
 
 The instruction snapshots these RV32 CSRs:
 
@@ -480,6 +480,7 @@ The instruction snapshots these RV32 CSRs:
 | `0x81a` | attention heads | heads `[15:0]`, KV heads `[31:16]` |
 | `0x81b` | attention head dimension and flags | head dimension `[15:0]`, flags `[31:16]`; bit 16 enables sigmoid gating |
 | `0x81c` | KV length | full unsigned 32-bit token count |
+| `0x80b` | KV capacity | physical token capacity of each K/V plane; zero selects KV length for compatibility |
 | `0x818` | optional gate address | contiguous FP32 `[query_rows,heads,head_dim]`; zero when gating is disabled |
 
 NPU L2 validates `heads % kv_heads == 0`, maps query head `h` to
@@ -487,6 +488,10 @@ NPU L2 validates `heads % kv_heads == 0`, maps query head `h` to
 `1/sqrt(head_dim)`, performs stable softmax, and accumulates V. When the gate
 flag is set, NPU L2 also reads the gate tensor snapshotted through `0x818` and
 multiplies each result by `sigmoid(gate)`. Flag and address presence must agree.
+NPU L2 also requires `capacity >= kv_length`: capacity determines the physical
+V-plane base and address bounds, whereas KV length determines visible tokens
+and functional work. XGraph carries capacity in `reserved[2]`; firmware writes
+it to `scalar_param0` before dispatch.
 
 #### Gated recurrent update profile
 

@@ -57,6 +57,29 @@ class XGraphCodegenTest(unittest.TestCase):
             self.assertGreaterEqual(tensor["offset"], prior_end)
             prior_end = tensor["offset"] + tensor["byte_size"]
 
+    def test_lowers_dynamic_attention_contract(self):
+        module = json.loads((
+            ROOT / "tests/fixtures/models/tvm_byoc_dynamic_attention_module.json"
+        ).read_text(encoding="utf-8"))
+        binary, metadata = compile_graph(module["regions"][0]["graph"])
+        command = COMMAND.unpack_from(binary, HEADER.size)
+        tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+        self.assertEqual(command[0], 13)
+        self.assertEqual(command[1], 2)
+        self.assertEqual(command[2], tensors["context"]["offset"])
+        self.assertEqual(command[3], tensors["query"]["offset"])
+        self.assertEqual(command[4], tensors["kv_cache"]["offset"])
+        self.assertEqual(command[5:9], (1, 2, 2, 1))
+        self.assertEqual(command[13], 2)
+
+    def test_rejects_invalid_attention_geometry(self):
+        module = json.loads((
+            ROOT / "tests/fixtures/models/tvm_byoc_dynamic_attention_module.json"
+        ).read_text(encoding="utf-8"))
+        module["regions"][0]["graph"]["tensors"][1]["shape"] = [2, 2, 1, 3]
+        with self.assertRaisesRegex(CodegenError, "geometry"):
+            compile_graph(module["regions"][0]["graph"])
+
     def test_rejects_broadcast_until_semantics_are_explicit(self):
         graph = self.load_fixture()
         graph["tensors"][2]["shape"] = [3]

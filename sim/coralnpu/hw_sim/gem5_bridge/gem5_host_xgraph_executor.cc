@@ -312,15 +312,19 @@ bool ValidateRanges(const opennpux_xgraph_command& command,
       const uint32_t head_dim = command.dim2;
       const uint32_t kv_heads = command.scalar0;
       const uint32_t kv_length = command.flags;
+      const uint32_t kv_capacity = command.reserved[2] == 0
+                                       ? kv_length
+                                       : command.reserved[2];
       const uint32_t attention_flags = command.reserved[1];
       if (heads == 0 || head_dim == 0 || kv_heads == 0 || kv_length == 0 ||
-          command.dim0 > kv_length || heads % kv_heads != 0) {
+          kv_capacity < kv_length || command.dim0 > kv_length ||
+          heads % kv_heads != 0) {
         return false;
       }
       source0_elements =
           static_cast<uint64_t>(command.dim0) * heads * head_dim;
       source1_elements =
-          static_cast<uint64_t>(2) * kv_length * kv_heads * head_dim;
+          static_cast<uint64_t>(2) * kv_capacity * kv_heads * head_dim;
       destination_elements = source0_elements;
       if ((attention_flags & OPENNPUX_XGRAPH_TATTENTION_GATED) != 0 &&
           !RangeInMemory(memory_size, command.reserved[0],
@@ -457,9 +461,13 @@ bool CalculateTraffic(const opennpux_xgraph_command& command,
       const uint32_t head_dim = command.dim2;
       const uint32_t kv_heads = command.scalar0;
       const uint32_t kv_length = command.flags;
+      const uint32_t kv_capacity = command.reserved[2] == 0
+                                       ? kv_length
+                                       : command.reserved[2];
       const uint32_t attention_flags = command.reserved[1];
       if (heads == 0 || head_dim == 0 || kv_heads == 0 || kv_length == 0 ||
-          command.dim0 > kv_length || heads % kv_heads != 0) {
+          kv_capacity < kv_length || command.dim0 > kv_length ||
+          heads % kv_heads != 0) {
         return false;
       }
       source0_elements =
@@ -624,6 +632,9 @@ bool BuildPacket(const opennpux_xgraph_command& command,
     packet->attention_head_dim_flags =
         command.dim2 | (command.reserved[1] << 16);
     packet->attention_kv_length = command.flags;
+    packet->scalar_param0 = command.reserved[2] == 0
+                                ? command.flags
+                                : command.reserved[2];
     if (command.reserved[0] != 0 &&
         !DeviceAddress(memory_base, command.reserved[0],
                        &packet->tensor_aux_source_address)) {

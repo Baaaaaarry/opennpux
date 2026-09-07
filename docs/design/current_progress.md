@@ -1587,3 +1587,10 @@ NAME=VALUE` 携带每次调用的动态值。Guest 只允许重定位 `flags/dim
 opcode、Tensor 地址、dtype 或 command ID，并在任何 region 提交前完成 identity、索引、字段和
 checksum 校验。首个门禁用 `decode_position` 验证该 ABI；下一步将同一机制绑定到
 `TATTENTION.flags=kv_length` 并让 attention 消费已追加 KV cache。
+
+GB10 已确认 invocation scalar ABI：两次 append invocation 共应用 2 个 scalar binding，
+原有 Transformer、state replace/append、identity rejection 和 module reuse 均保持 PASS。
+动态 Attention 增量进一步区分逻辑 `kv_length` 与物理 `kv_capacity`：同一固定容量 KV state
+在不同 decode step 复用时，capacity 通过 `reserved[2] -> scalar_param0` 固定 V plane 基址，
+`flags` 仅改变有效 causal prefix。新增同一 artifact 分别以长度 1/2 执行并与独立 FP32 reference
+比较的全系统门禁；本地回归通过，等待 GB10 输出 `tvm_dynamic_kv_attention=PASS`。

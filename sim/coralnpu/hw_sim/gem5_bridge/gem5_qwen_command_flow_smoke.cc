@@ -209,9 +209,13 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       const uint32_t head_dim = command.dim2;
       const uint32_t kv_heads = command.scalar0;
       const uint32_t kv_length = command.flags;
+      const uint32_t kv_capacity = command.reserved[2] == 0
+                                       ? kv_length
+                                       : command.reserved[2];
       const uint32_t attention_flags = command.reserved[1];
       if (head_dim == 0 || kv_heads == 0 || kv_length == 0 ||
-          command.dim0 > kv_length || heads % kv_heads != 0 ||
+          kv_capacity < kv_length || command.dim0 > kv_length ||
+          heads % kv_heads != 0 ||
           (attention_flags & ~OPENNPUX_XGRAPH_TATTENTION_GATED) != 0 ||
           (((attention_flags & OPENNPUX_XGRAPH_TATTENTION_GATED) != 0) !=
            (command.reserved[0] != 0))) {
@@ -220,7 +224,7 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       source0_elements =
           static_cast<uint64_t>(command.dim0) * heads * head_dim;
       source1_elements =
-          static_cast<uint64_t>(2) * kv_length * kv_heads * head_dim;
+          static_cast<uint64_t>(2) * kv_capacity * kv_heads * head_dim;
       destination_elements = source0_elements;
       if ((attention_flags & OPENNPUX_XGRAPH_TATTENTION_GATED) != 0 &&
           !RangeValid(command.reserved[0],
@@ -448,7 +452,7 @@ bool Execute(const volatile opennpux_xgraph_command& command,
     case OPENNPUX_XGRAPH_OP_TATTENTION: {
       xopennpux_attention_fp32(destination, source0, source1, command.dim0,
                                command.dim1, command.scalar0, command.dim2,
-                               command.flags,
+                               command.flags, command.reserved[2],
                                command.reserved[0] == 0
                                    ? nullptr
                                    : ConstAddress(command.reserved[0]),

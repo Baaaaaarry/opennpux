@@ -613,18 +613,22 @@ bool RunGem5KvCacheUpdateF32(
 bool RunGem5AttentionF32(
     const float* query, const float* state, size_t query_rows,
     size_t heads, size_t kv_heads, size_t head_dim, size_t kv_length,
+    size_t kv_capacity,
     float* output, Gem5TransformerKernelStats* stats) {
   size_t query_features = 0;
   size_t kv_features = 0;
   size_t query_elements = 0;
   size_t plane_elements = 0;
+  size_t valid_plane_elements = 0;
   if (!ProductFits(heads, head_dim, &query_features) ||
       !ProductFits(kv_heads, head_dim, &kv_features) ||
       !ProductFits(query_rows, query_features, &query_elements) ||
-      !ProductFits(kv_length, kv_features, &plane_elements) ||
+      !ProductFits(kv_capacity, kv_features, &plane_elements) ||
+      !ProductFits(kv_length, kv_features, &valid_plane_elements) ||
       query == nullptr || state == nullptr || output == nullptr ||
       stats == nullptr || heads == 0 || kv_heads == 0 || head_dim == 0 ||
-      kv_length == 0 || query_rows > kv_length || heads % kv_heads != 0) {
+      kv_length == 0 || kv_capacity < kv_length || query_rows > kv_length ||
+      heads % kv_heads != 0) {
     return false;
   }
   const float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
@@ -675,7 +679,7 @@ bool RunGem5AttentionF32(
       static_cast<uint64_t>(query_rows) * (query_start + 1) +
       static_cast<uint64_t>(query_rows) * (query_rows - 1) / 2;
   const uint64_t operations = visible_position_count * heads * head_dim * 4;
-  return FinishStats(operations, query_elements + plane_elements * 2,
+  return FinishStats(operations, query_elements + valid_plane_elements * 2,
                      query_elements, stats);
 }
 

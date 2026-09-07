@@ -256,6 +256,7 @@ void TestCausalGqaAttention() {
                               2u | (1u << 16)));
   assert(coprocessor.WriteCsr(xopennpux::kCsrAttentionHeadDimFlags, 2));
   assert(coprocessor.WriteCsr(xopennpux::kCsrAttentionKvLength, 3));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 4));
 
   Gem5TmmaDispatchPacket packet = Packet(32);
   packet.instruction = xopennpux::EncodeTattention(12, 10, 11);
@@ -267,13 +268,13 @@ void TestCausalGqaAttention() {
   std::vector<uint8_t> memory(4096, 0);
   const float query[] = {1, 0, 0, 1, 1, 1, 1, -1};
   const float state[] = {
-      1, 0, 0, 1, 1, 1,  // K plane
-      1, 2, 3, 4, 5, 6,  // V plane
+      1, 0, 0, 1, 1, 1, 99, 99,  // K plane with capacity 4
+      1, 2, 3, 4, 5, 6, 99, 99,  // V plane with capacity 4
   };
   for (size_t index = 0; index < 8; ++index) {
     WriteFloat(&memory, 0x100 + index * 4, query[index]);
   }
-  for (size_t index = 0; index < 12; ++index) {
+  for (size_t index = 0; index < 16; ++index) {
     WriteFloat(&memory, 0x200 + index * 4, state[index]);
   }
 

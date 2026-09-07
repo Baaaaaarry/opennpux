@@ -75,7 +75,16 @@ bool RunGem5KvCacheUpdateF32(
 bool RunGem5AttentionF32(
     const float* query, const float* state, size_t query_rows,
     size_t heads, size_t kv_heads, size_t head_dim, size_t kv_length,
+    size_t kv_capacity,
     float* output, Gem5TransformerKernelStats* stats);
+
+inline bool RunGem5AttentionF32(
+    const float* query, const float* state, size_t query_rows,
+    size_t heads, size_t kv_heads, size_t head_dim, size_t kv_length,
+    float* output, Gem5TransformerKernelStats* stats) {
+  return RunGem5AttentionF32(query, state, query_rows, heads, kv_heads,
+                             head_dim, kv_length, kv_length, output, stats);
+}
 
 bool RunGem5RecurrentUpdateF32(
     const float* input, size_t rows, size_t features, float* output,

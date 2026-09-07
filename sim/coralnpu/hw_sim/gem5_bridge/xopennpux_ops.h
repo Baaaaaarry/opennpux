@@ -162,7 +162,8 @@ static inline void xopennpux_causal_depthwise_conv_fp32(
 static inline void xopennpux_attention_fp32(
     void* destination, const void* query, const void* kv_state,
     uint32_t query_rows, uint32_t heads, uint32_t kv_heads,
-    uint32_t head_dim, uint32_t kv_length, const void* gate,
+    uint32_t head_dim, uint32_t kv_length, uint32_t kv_capacity,
+    const void* gate,
     uint32_t flags) {
   xopennpux_configure_tensor_fp32(query_rows, heads * head_dim);
   xopennpux_write_attention_heads((heads & 0xffffu) |
@@ -170,6 +171,7 @@ static inline void xopennpux_attention_fp32(
   xopennpux_write_attention_head_dim_flags(
       (head_dim & 0xffffu) | ((flags & 0xffffu) << 16));
   xopennpux_write_attention_kv_length(kv_length);
+  xopennpux_write_scalar_param0(kv_capacity == 0 ? kv_length : kv_capacity);
   xopennpux_write_tensor_aux_source_address((uint32_t)(uintptr_t)gate);
   xopennpux_tattention_fp32(destination, query, kv_state);
   xopennpux_tfence();

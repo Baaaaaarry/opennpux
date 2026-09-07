@@ -22,6 +22,12 @@ APPEND_MODULE_DIR="${BUILD_DIR}/state-append-module"
 APPEND_MODULE_PACKAGE="${BUILD_DIR}/state-append.npxgm"
 APPEND_MODULE_INVOCATION="${BUILD_DIR}/state-append.npxmi"
 APPEND_EXPECTED="${BUILD_DIR}/state-append.expected.bin"
+ATTENTION_MODULE_DIR="${BUILD_DIR}/dynamic-attention-module"
+ATTENTION_MODULE_PACKAGE="${BUILD_DIR}/dynamic-attention.npxgm"
+ATTENTION_INVOCATION1="${BUILD_DIR}/dynamic-attention-kv1.npxmi"
+ATTENTION_INVOCATION2="${BUILD_DIR}/dynamic-attention-kv2.npxmi"
+ATTENTION_EXPECTED1="${BUILD_DIR}/dynamic-attention-kv1.expected.bin"
+ATTENTION_EXPECTED2="${BUILD_DIR}/dynamic-attention-kv2.expected.bin"
 MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
@@ -277,6 +283,50 @@ PY
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${APPEND_MODULE_DIR}" "${APPEND_MODULE_INVOCATION}" \
     --arena "${APPEND_REGION}" --scalar decode_position=0
+ATTENTION_REGION="$("${TVM_PYTHON:-python3}" - \
+    "${ATTENTION_MODULE_DIR}" "${ATTENTION_EXPECTED1}" \
+    "${ATTENTION_EXPECTED2}" <<'PY'
+import json
+import math
+import struct
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+manifest = json.load(open(directory / "module.npxgm.json", encoding="utf-8"))
+region = manifest["regions"][0]
+metadata = json.load(open(directory / f"{region['artifact']}.json", encoding="utf-8"))
+tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+query = [1.0, 0.0, 0.0, 1.0]
+state = [1.0, 0.0, 0.0, 1.0, 10.0, 20.0, 30.0, 40.0]
+arena = bytearray(region["arena_size"])
+struct.pack_into("<4f", arena, tensors["query"]["offset"], *query)
+struct.pack_into("<8f", arena, tensors["kv_cache"]["offset"], *state)
+arena_path = directory / "decode-attention.arena.bin"
+arena_path.write_bytes(arena)
+Path(sys.argv[2]).write_bytes(struct.pack("<4f", 10.0, 20.0, 10.0, 20.0))
+scale = 1.0 / math.sqrt(2.0)
+p = math.exp(scale) / (math.exp(scale) + 1.0)
+expected = [p * 10.0 + (1.0 - p) * 30.0,
+            p * 20.0 + (1.0 - p) * 40.0,
+            (1.0 - p) * 10.0 + p * 30.0,
+            (1.0 - p) * 20.0 + p * 40.0]
+Path(sys.argv[3]).write_bytes(struct.pack("<4f", *expected))
+print(f"{region['name']}={arena_path}")
+PY
+)"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_module_package.py" \
+    "${ATTENTION_MODULE_DIR}" "${ATTENTION_MODULE_PACKAGE}" \
+    --clear-external-bindings --arena "${ATTENTION_REGION}"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
+    "${ATTENTION_MODULE_DIR}" "${ATTENTION_INVOCATION1}" \
+    --arena "${ATTENTION_REGION}" --scalar kv_length=1
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
+    "${ATTENTION_MODULE_DIR}" "${ATTENTION_INVOCATION2}" \
+    --arena "${ATTENTION_REGION}" --scalar kv_length=2
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_INVOCATION}" \
@@ -308,6 +358,12 @@ PY
 [ -f "${APPEND_MODULE_PACKAGE}" ] && [ -f "${APPEND_MODULE_INVOCATION}" ] &&
     [ -f "${APPEND_EXPECTED}" ] || {
     echo "error: state append module package was not generated" >&2
+    exit 1
+}
+[ -f "${ATTENTION_MODULE_PACKAGE}" ] && [ -f "${ATTENTION_INVOCATION1}" ] &&
+    [ -f "${ATTENTION_INVOCATION2}" ] && [ -f "${ATTENTION_EXPECTED1}" ] &&
+    [ -f "${ATTENTION_EXPECTED2}" ] || {
+    echo "error: dynamic attention module package was not generated" >&2
     exit 1
 }
 EXPECTED_CHECKSUM="$(sed -n \
@@ -449,6 +505,31 @@ EOF
 base64 "${APPEND_EXPECTED}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_APPEND_EXPECTED_EOF
+decode_base64 >/tmp/tvm-dynamic-attention.npxgm <<'OPENNPUX_TVM_ATTENTION_MODULE_EOF'
+EOF
+base64 "${ATTENTION_MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ATTENTION_MODULE_EOF
+decode_base64 >/tmp/tvm-dynamic-attention-kv1.npxmi <<'OPENNPUX_TVM_ATTENTION_INVOCATION1_EOF'
+EOF
+base64 "${ATTENTION_INVOCATION1}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ATTENTION_INVOCATION1_EOF
+decode_base64 >/tmp/tvm-dynamic-attention-kv2.npxmi <<'OPENNPUX_TVM_ATTENTION_INVOCATION2_EOF'
+EOF
+base64 "${ATTENTION_INVOCATION2}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ATTENTION_INVOCATION2_EOF
+decode_base64 >/tmp/tvm-dynamic-attention-kv1.expected.bin <<'OPENNPUX_TVM_ATTENTION_EXPECTED1_EOF'
+EOF
+base64 "${ATTENTION_EXPECTED1}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ATTENTION_EXPECTED1_EOF
+decode_base64 >/tmp/tvm-dynamic-attention-kv2.expected.bin <<'OPENNPUX_TVM_ATTENTION_EXPECTED2_EOF'
+EOF
+base64 "${ATTENTION_EXPECTED2}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_ATTENTION_EXPECTED2_EOF
 decode_base64 >/tmp/tvm-mixed-module.npxgm <<'OPENNPUX_TVM_MODULE_EOF'
 EOF
 base64 "${MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
@@ -613,6 +694,42 @@ case "\${CAPACITY_OUTPUT}" in
         ;;
 esac
 echo 'tvm_kv_state_capacity_rejection=PASS'
+ATTENTION_OUTPUT1="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-dynamic-attention-kv1.output.bin \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-dynamic-attention-kv1.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-dynamic-attention.npxgm \
+    0x1d000000 1000000)" || {
+    printf '%s\n' "\${ATTENTION_OUTPUT1}"
+    fail 'dynamic attention kv_length=1 execution failed'
+}
+printf '%s\n' "\${ATTENTION_OUTPUT1}"
+OUTPUT="\${ATTENTION_OUTPUT1}"
+has_output_line 'xgraph_module_scalar_bindings=1' ||
+    fail 'dynamic attention kv_length=1 scalar was not applied'
+/tmp/coralctl tensor-compare-fp32 \
+    /tmp/tvm-dynamic-attention-kv1.output.bin \
+    /tmp/tvm-dynamic-attention-kv1.expected.bin 0.00001 ||
+    fail 'dynamic attention kv_length=1 output mismatch'
+ATTENTION_OUTPUT2="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-dynamic-attention-kv2.output.bin \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-dynamic-attention-kv2.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-dynamic-attention.npxgm \
+    0x1d000000 1000000)" || {
+    printf '%s\n' "\${ATTENTION_OUTPUT2}"
+    fail 'dynamic attention kv_length=2 execution failed'
+}
+printf '%s\n' "\${ATTENTION_OUTPUT2}"
+OUTPUT="\${ATTENTION_OUTPUT2}"
+has_output_line 'xgraph_module_scalar_bindings=1' ||
+    fail 'dynamic attention kv_length=2 scalar was not applied'
+/tmp/coralctl tensor-compare-fp32 \
+    /tmp/tvm-dynamic-attention-kv2.output.bin \
+    /tmp/tvm-dynamic-attention-kv2.expected.bin 0.00001 ||
+    fail 'dynamic attention kv_length=2 output mismatch'
+cmp -s /tmp/tvm-dynamic-attention-kv1.output.bin \
+    /tmp/tvm-dynamic-attention-kv2.output.bin &&
+    fail 'dynamic attention ignored kv_length relocation'
+echo 'tvm_dynamic_kv_attention=PASS'
 if OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-mismatch.npxmi \
     /tmp/coralctl xgraph-module-run \
@@ -699,7 +816,7 @@ CORAL_NPU_LAUNCH_HOST_LOG="${HOST_LOG}" \
 CORAL_NPU_LAUNCH_DEBUG_LOG="${DEBUG_LOG}" \
 CORAL_NPU_LAUNCH_XOPENNPUX=1 \
 CORAL_NPU_LAUNCH_EXPECTED_GUEST_VERDICT="tvm_byoc_xgraph=PASS" \
-CORAL_NPU_LAUNCH_EXPECTED_XOPENNPUX_OPS="tmma tadd trmsnorm tsilu tsoftmax" \
+CORAL_NPU_LAUNCH_EXPECTED_XOPENNPUX_OPS="tmma tadd trmsnorm tsilu tsoftmax tattention" \
     "${ROOT_DIR}/tools/coralnpu/run_npu_launch_test.sh"
 
 echo "TVM BYOC Guest -> Coral firmware -> XGraph test: PASS"

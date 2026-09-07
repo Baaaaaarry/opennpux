@@ -583,3 +583,17 @@ opcode, Tensor addresses, dtype, and command ID cannot be patched. This lets a
 single compiled attention graph accept a per-step `kv_length` without creating
 one artifact per sequence length. Declared min/max ranges are enforced by the
 invocation builder; the Guest independently enforces ABI and field safety.
+
+Attention separates logical length from physical layout. `TATTENTION.flags`
+is the number of valid KV tokens for the current invocation, while
+`reserved[2]` is the fixed capacity of each K/V plane. The NPU receives that
+capacity through the existing `scalar_param0` CSR and computes the V base as
+`state + capacity * kv_heads * head_dim`; causal masking and modeled traffic
+still use only `kv_length`. This distinction is required when one compiled
+decode graph is reused while the cache grows. A zero `reserved[2]` retains the
+old compact-state meaning `capacity=kv_length`.
+
+The dynamic-attention full-system gate compiles one `[2,2,1,2]` state and runs
+it twice with `kv_length=1` and `kv_length=2`. Both outputs are compared with
+independent FP32 references and must differ, proving that relocation affects
+the valid prefix without moving the physical V plane.

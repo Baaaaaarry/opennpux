@@ -617,10 +617,14 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
     const uint32_t kv_heads = packed_heads >> 16;
     const uint32_t head_dim = head_dim_flags & 0xffffu;
     const uint32_t flags = head_dim_flags >> 16;
+    const uint32_t kv_capacity = scalar_param0 == 0
+                                     ? kv_length
+                                     : scalar_param0;
     const uint32_t gate_address = packet.csr_epoch == 0
                                       ? tensor_aux_source_address_
                                       : packet.tensor_aux_source_address;
     if (heads == 0 || kv_heads == 0 || head_dim == 0 || kv_length == 0 ||
+        kv_capacity < kv_length ||
         (flags & ~1u) != 0 || heads % kv_heads != 0 ||
         (((flags & 1u) != 0) != (gate_address != 0)) ||
         tensor_shape.rows > kv_length ||
@@ -984,8 +988,11 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
                     (command.recurrent_heads >> 16)
               : command.operation == xopennpux::Operation::kTrmsnorm
               ? command.tensor_shape.features
-              : command.operation == xopennpux::Operation::kTattention
-              ? static_cast<uint64_t>(2) * command.attention_kv_length *
+          : command.operation == xopennpux::Operation::kTattention
+              ? static_cast<uint64_t>(2) *
+                    (command.scalar_param0 == 0
+                         ? command.attention_kv_length
+                         : command.scalar_param0) *
                     (command.attention_heads >> 16) *
                     (command.attention_head_dim_flags & 0xffffu)
               : command.operation == xopennpux::Operation::kTcausalconv
@@ -1640,10 +1647,13 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
     const uint32_t kv_heads = command.attention_heads >> 16;
     const uint32_t head_dim = command.attention_head_dim_flags & 0xffffu;
     const uint32_t kv_length = command.attention_kv_length;
+    const uint32_t kv_capacity = command.scalar_param0 == 0
+                                     ? kv_length
+                                     : command.scalar_param0;
     const uint32_t query_start = kv_length - rows;
     const uint32_t heads_per_kv_head = heads / kv_heads;
     const uint64_t kv_plane_elements =
-        static_cast<uint64_t>(kv_length) * kv_heads * head_dim;
+        static_cast<uint64_t>(kv_capacity) * kv_heads * head_dim;
     const size_t values_base =
         rhs_base + static_cast<size_t>(kv_plane_elements) * sizeof(float);
     const float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));

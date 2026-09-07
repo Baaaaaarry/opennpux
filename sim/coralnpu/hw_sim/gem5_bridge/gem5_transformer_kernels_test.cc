@@ -177,6 +177,16 @@ int main() {
   assert(attention_output[0] > 1.0f && attention_output[0] < 2.0f);
   assert(attention_output[1] > 0.0f && attention_output[1] < 2.0f);
 
+  const float fixed_capacity_state[] = {
+      1.0f, 0.0f, 0.0f, 1.0f,
+      10.0f, 20.0f, 30.0f, 40.0f,
+  };
+  float short_attention_output[2] = {};
+  assert(RunGem5AttentionF32(query, fixed_capacity_state, 1, 1, 1, 2, 1,
+                             2, short_attention_output, &stats));
+  assert(short_attention_output[0] == 10.0f &&
+         short_attention_output[1] == 20.0f);
+
   const float causal_query[] = {1.0f, 0.0f, 1.0f, 0.0f};
   float causal_output[4] = {};
   assert(RunGem5AttentionF32(causal_query, kv_state, 2, 1, 1, 2, 2,

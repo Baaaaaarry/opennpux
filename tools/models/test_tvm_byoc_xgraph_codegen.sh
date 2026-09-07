@@ -37,6 +37,9 @@ export OPENNPUX_XGRAPH_LOWERING_LIB="${LOWERING_LIB}"
 "${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
     "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_state_append_module.json" \
     "${BUILD_DIR}/state-append-module"
+"${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
+    "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_dynamic_attention_module.json" \
+    "${BUILD_DIR}/dynamic-attention-module"
 "${PYTHON}" - "${BUILD_DIR}/module/module.npxgm.json" <<'PY'
 import json
 import sys
@@ -78,6 +81,22 @@ assert scalar == {
     "maximum": 3,
 }
 print("tvm_state_append_contract=PASS")
+PY
+"${PYTHON}" - "${BUILD_DIR}/dynamic-attention-module/module.npxgm.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["total_commands"] == 1
+assert manifest["scalar_bindings"] == [{
+    "name": "kv_length",
+    "region": "decode_attention",
+    "command": 0,
+    "field": "flags",
+    "minimum": 1,
+    "maximum": 2,
+}]
+print("tvm_dynamic_attention_contract=PASS")
 PY
 "${PYTHON}" - "${BUILD_DIR}/basic.npxg" <<'PY'
 import struct

@@ -32,6 +32,7 @@ OP_TSILU = 7
 OP_TGATHER = 8
 OP_TTOPK = 9
 OP_TDMA = 11
+OP_TATTENTION = 13
 
 TMMA_TRANSPOSE_RHS = 1
 TTOPK_SPLIT_OUTPUT = 1
@@ -62,6 +63,8 @@ OP_ALIASES = {
     "opennpux.rope": "rope",
     "copy": "copy",
     "opennpux.copy": "copy",
+    "attention": "attention",
+    "opennpux.attention": "attention",
 }
 
 
@@ -525,6 +528,41 @@ def _lower_node(
             1,
             int(layout == "half_split"),
             command_id,
+        )]
+
+    if op == "attention":
+        names = _expect_count(inputs, 2, "inputs", node_index)
+        output_names = _expect_count(outputs, 1, "outputs", node_index)
+        query = _tensor(tensors, names[0], node_index)
+        state = _tensor(tensors, names[1], node_index)
+        output = _tensor(tensors, output_names[0], node_index)
+        if (query.dtype != "float32" or state.dtype != "float32" or
+                output.dtype != "float32" or len(query.shape) != 3 or
+                len(state.shape) != 4 or state.shape[0] != 2 or
+                output.shape != query.shape):
+            raise CodegenError(
+                "attention expects query/output [rows,heads,head_dim] and "
+                "FP32 state [2,capacity,kv_heads,head_dim]"
+            )
+        rows, heads, head_dim = query.shape
+        _, capacity, kv_heads, state_head_dim = state.shape
+        kv_length = attrs.get("kv_length", capacity)
+        if (state_head_dim != head_dim or heads % kv_heads != 0 or
+                not isinstance(kv_length, int) or isinstance(kv_length, bool) or
+                kv_length <= 0 or kv_length > capacity or rows > kv_length):
+            raise CodegenError("attention geometry or kv_length is inconsistent")
+        return [CommandRecord(
+            OP_TATTENTION,
+            kv_length,
+            output.offset,
+            query.offset,
+            state.offset,
+            rows,
+            heads,
+            head_dim,
+            kv_heads,
+            command_id,
+            reserved=(0, 0, capacity, 0, 0),
         )]
 
     names = _expect_count(inputs, 1, "inputs", node_index)

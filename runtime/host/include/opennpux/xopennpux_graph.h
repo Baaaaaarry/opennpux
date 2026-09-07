@@ -111,10 +111,12 @@ struct opennpux_xgraph_command {
  * next-state offsets. The state has shape [kernel_width - 1, features].
  *
  * TATTENTION uses dim0/dim1/dim2 as query rows, query heads, and head
- * dimension. scalar0 is the KV-head count and flags is the KV length.
- * source1 contains K followed by V, each [kv_length, kv_heads, head_dim].
- * reserved[0] is an optional FP32 sigmoid-gate tensor and reserved[1] carries
- * OPENNPUX_XGRAPH_TATTENTION_* flags.
+ * dimension. scalar0 is the KV-head count and flags is the valid KV length.
+ * source1 contains K followed by V, each [capacity, kv_heads, head_dim].
+ * reserved[0] is an optional FP32 sigmoid-gate tensor, reserved[1] carries
+ * OPENNPUX_XGRAPH_TATTENTION_* flags, and reserved[2] is the physical KV
+ * capacity. A zero capacity preserves compatibility with older artifacts by
+ * selecting capacity=flags.
  *
  * TRECURRENT uses dim0/dim1/dim2 as rows, key heads and key dimension.
  * scalar0 packs value heads [15:0] and value dimension [31:16]. source0/source1

@@ -165,6 +165,14 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         self.assertEqual(update["bytes"], 8)
         self.assertEqual(update["stride"], 8)
         self.assertEqual(update["capacity"], 4)
+        self.assertEqual(manifest["scalar_bindings"], [{
+            "name": "decode_position",
+            "region": "decode",
+            "command": 0,
+            "field": "reserved4",
+            "minimum": 0,
+            "maximum": 3,
+        }])
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -193,6 +201,36 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             edge = struct.unpack_from("<6I", image, 64 + 32)
             self.assertEqual(edge[4], 8)
             self.assertEqual(edge[5], 2 | (2 << 2) | (4 << 16))
+            invocation_path = directory / "request.npxmi"
+            invocation = subprocess.run([
+                sys.executable,
+                str(ROOT / "tools/models/build_tvm_byoc_invocation.py"),
+                str(module_dir), str(invocation_path),
+                "--arena", f"decode={arena_path}",
+                "--scalar", "decode_position=2",
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(invocation.returncode, 0, invocation.stderr)
+            invocation_image = invocation_path.read_bytes()
+            header = struct.unpack_from("<8I", invocation_image)
+            self.assertEqual(header[4], 2)
+            scalar = struct.unpack_from("<6I", invocation_image, 32 + 24)
+            self.assertEqual(scalar[0], 0)
+            self.assertEqual(scalar[1], 96 + 60)
+            self.assertEqual(scalar[2], 4)
+            self.assertEqual(scalar[5], 1)
+            self.assertEqual(
+                struct.unpack_from("<I", invocation_image, scalar[3])[0], 2
+            )
+
+            invalid = subprocess.run([
+                sys.executable,
+                str(ROOT / "tools/models/build_tvm_byoc_invocation.py"),
+                str(module_dir), str(directory / "invalid.npxmi"),
+                "--arena", f"decode={arena_path}",
+                "--scalar", "decode_position=4",
+            ], check=False, capture_output=True, text=True)
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertIn("outside its declared range", invalid.stderr)
 
     def test_state_append_rejects_incompatible_state_shape(self):
         module = json.loads(

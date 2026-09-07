@@ -9,10 +9,12 @@
 #include "opennpux/npu_weight_residency.h"
 #include "opennpux/qwen_model.h"
 #include "opennpux/tvm_byoc_module.h"
+#include "opennpux/xopennpux_graph.h"
 
 #include <errno.h>
 #include <inttypes.h>
 #include <math.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2312,10 +2314,59 @@ module_range_valid(uint32_t offset, uint32_t bytes, uint32_t limit)
 }
 
 static int
+module_command_binding_valid(
+    const uint8_t *module_image,
+    const struct opennpux_tvm_module_region *region,
+    const struct opennpux_tvm_invocation_binding *binding)
+{
+    if (binding->bytes != sizeof(uint32_t) ||
+        !module_range_valid(binding->target_offset, binding->bytes,
+                            region->graph_size) ||
+        region->graph_size < sizeof(struct opennpux_xgraph_header)) {
+        return 0;
+    }
+    const struct opennpux_xgraph_header *header =
+        (const struct opennpux_xgraph_header *)(const void *)(
+            module_image + region->graph_offset);
+    const uint64_t command_end = sizeof(*header) +
+        (uint64_t)header->command_count *
+            sizeof(struct opennpux_xgraph_command);
+    if (header->magic != OPENNPUX_XGRAPH_MAGIC ||
+        header->version != OPENNPUX_XGRAPH_VERSION ||
+        header->header_size != sizeof(*header) ||
+        header->command_size != sizeof(struct opennpux_xgraph_command) ||
+        command_end > region->graph_size ||
+        binding->target_offset < sizeof(*header)) {
+        return 0;
+    }
+    const uint32_t relative = binding->target_offset - sizeof(*header);
+    const uint32_t command_index =
+        relative / sizeof(struct opennpux_xgraph_command);
+    const uint32_t field_offset =
+        relative % sizeof(struct opennpux_xgraph_command);
+    if (command_index >= header->command_count) {
+        return 0;
+    }
+    return field_offset == offsetof(struct opennpux_xgraph_command, flags) ||
+        field_offset == offsetof(struct opennpux_xgraph_command, dim0) ||
+        field_offset == offsetof(struct opennpux_xgraph_command, dim1) ||
+        field_offset == offsetof(struct opennpux_xgraph_command, dim2) ||
+        field_offset == offsetof(struct opennpux_xgraph_command, scalar0) ||
+        (field_offset >=
+             offsetof(struct opennpux_xgraph_command, reserved[0]) &&
+         field_offset <=
+             offsetof(struct opennpux_xgraph_command, reserved[4]) &&
+         (field_offset -
+              offsetof(struct opennpux_xgraph_command, reserved[0])) %
+                 sizeof(uint32_t) == 0);
+}
+
+static int
 apply_module_invocation(
     const char *path, const struct opennpux_tvm_module_region *regions,
-    uint32_t region_count, uint32_t module_identity, uint8_t **arenas,
-    uint32_t *applied_bindings)
+    uint32_t region_count, uint32_t module_identity, uint8_t *module_image,
+    uint8_t **arenas, uint32_t *applied_bindings,
+    uint32_t *applied_scalar_bindings)
 {
     uint8_t *image = NULL;
     size_t image_size = 0;
@@ -2352,12 +2403,21 @@ apply_module_invocation(
     for (uint32_t index = 0; index < header->binding_count; ++index) {
         const struct opennpux_tvm_invocation_binding *binding =
             &bindings[index];
-        if (binding->region >= region_count || binding->flags != 0 ||
+        if (binding->region >= region_count ||
+            (binding->flags != OPENNPUX_TVM_INVOCATION_BINDING_TENSOR &&
+             binding->flags !=
+                 OPENNPUX_TVM_INVOCATION_BINDING_COMMAND_U32) ||
             binding->data_offset < header->payload_offset ||
-            !module_range_valid(binding->target_offset, binding->bytes,
-                                regions[binding->region].arena_size) ||
             !module_range_valid(binding->data_offset, binding->bytes,
                                 header->total_size) ||
+            (binding->flags == OPENNPUX_TVM_INVOCATION_BINDING_TENSOR &&
+             !module_range_valid(binding->target_offset, binding->bytes,
+                                 regions[binding->region].arena_size)) ||
+            (binding->flags ==
+                 OPENNPUX_TVM_INVOCATION_BINDING_COMMAND_U32 &&
+             !module_command_binding_valid(module_image,
+                                           &regions[binding->region],
+                                           binding)) ||
             byte_checksum(image + binding->data_offset, binding->bytes) !=
                 binding->checksum) {
             errno = EPROTO;
@@ -2367,10 +2427,17 @@ apply_module_invocation(
     for (uint32_t index = 0; index < header->binding_count; ++index) {
         const struct opennpux_tvm_invocation_binding *binding =
             &bindings[index];
-        memcpy(arenas[binding->region] + binding->target_offset,
-               image + binding->data_offset, binding->bytes);
+        if (binding->flags == OPENNPUX_TVM_INVOCATION_BINDING_TENSOR) {
+            memcpy(arenas[binding->region] + binding->target_offset,
+                   image + binding->data_offset, binding->bytes);
+            ++*applied_bindings;
+        } else {
+            memcpy(module_image + regions[binding->region].graph_offset +
+                       binding->target_offset,
+                   image + binding->data_offset, binding->bytes);
+            ++*applied_scalar_bindings;
+        }
     }
-    *applied_bindings = header->binding_count;
     rc = 0;
 
 out:
@@ -2535,6 +2602,7 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
     uint32_t completed_commands = 0;
     uint32_t completed_host_operations = 0;
     uint32_t invocation_bindings = 0;
+    uint32_t scalar_bindings = 0;
     uint32_t invocations_completed = 0;
     const char *single_invocation =
         getenv("OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH");
@@ -2582,15 +2650,18 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
             }
         }
         uint32_t step_bindings = 0;
+        uint32_t step_scalar_bindings = 0;
         if (invocation_path != NULL && invocation_path[0] != '\0' &&
             apply_module_invocation(invocation_path, regions,
                                     header->region_count,
-                                    header->module_identity, arenas,
-                                    &step_bindings) != 0) {
+                                    header->module_identity, image, arenas,
+                                    &step_bindings,
+                                    &step_scalar_bindings) != 0) {
             perror("xgraph-module-run invocation");
             goto out;
         }
         invocation_bindings += step_bindings;
+        scalar_bindings += step_scalar_bindings;
         for (uint32_t region_index = 0; region_index < header->region_count;
              ++region_index) {
         for (uint32_t index = 0; index < header->edge_count; ++index) {
@@ -2804,6 +2875,8 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
            completed_host_operations);
     printf("xgraph_module_invocation_bindings=%" PRIu32 "\n",
            invocation_bindings);
+    printf("xgraph_module_scalar_bindings=%" PRIu32 "\n",
+           scalar_bindings);
     printf("xgraph_module_invocations_completed=%" PRIu32 "\n",
            invocations_completed);
     printf("xgraph_module_state_updates_completed=%" PRIu64 "\n",

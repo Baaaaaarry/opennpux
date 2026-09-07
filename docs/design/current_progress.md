@@ -1575,3 +1575,15 @@ edge ABI；Guest runtime 在第 `i` 次 invocation 完成后仅将设备产生�
 必须在第 5 次输出 `xgraph-module-run state capacity`。本地 34 项 BYOC 单测、package ABI、严格
 C11 编译和 shell 语法检查通过；GB10 待验证 `tvm_kv_state_append=PASS` 与
 `tvm_kv_state_capacity_rejection=PASS`。
+
+GB10 已完成该门禁：两次 append invocation 各执行 1 条命令和 6 次 operation，完整 32-byte
+state checksum 为 `0xf4b5bb85`，8 个 FP32 元素相对独立参考的最大绝对误差为
+`2.38418579e-07`；第 5 次 invocation 在四槽容量边界前置拒绝。原有 4-command Transformer、
+10-command state replace、identity rejection 和两次 mixed-module reuse 同时保持 PASS。
+
+下一增量开始消除 decode 长度的编译期固化。module manifest 新增模型无关 named command
+scalar binding，记录 region、command、可变字段和 uint32 范围；`.npxmi` 通过 `--scalar
+NAME=VALUE` 携带每次调用的动态值。Guest 只允许重定位 `flags/dim*/scalar0/reserved*`，禁止修改
+opcode、Tensor 地址、dtype 或 command ID，并在任何 region 提交前完成 identity、索引、字段和
+checksum 校验。首个门禁用 `decode_position` 验证该 ABI；下一步将同一机制绑定到
+`TATTENTION.flags=kv_length` 并让 attention 消费已追加 KV cache。

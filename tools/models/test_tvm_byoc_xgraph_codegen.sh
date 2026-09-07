@@ -68,6 +68,15 @@ assert update["mode"] == "append"
 assert update["bytes"] == 8
 assert update["stride"] == 8
 assert update["capacity"] == 4
+scalar = manifest["scalar_bindings"][0]
+assert scalar == {
+    "name": "decode_position",
+    "region": "decode",
+    "command": 0,
+    "field": "reserved4",
+    "minimum": 0,
+    "maximum": 3,
+}
 print("tvm_state_append_contract=PASS")
 PY
 "${PYTHON}" - "${BUILD_DIR}/basic.npxg" <<'PY'

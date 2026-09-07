@@ -571,3 +571,15 @@ This is a storage and scheduling contract, not a Qwen-specific KV layout. A
 model frontend or legalization pass chooses the state Tensor shape and update
 Tensor; the module runtime only enforces address, stride, lifetime, ordering,
 and capacity rules.
+
+Decode-time command scalars are carried separately from Tensor payloads. A
+module manifest may declare a named `scalar_binding` that identifies a region,
+command index, mutable command field, and uint32 range. The invocation builder
+requires exactly those named values and emits checked command-u32 binding
+records in `.npxmi`. The Guest validates graph identity, command bounds,
+payload checksum and a strict field allowlist before applying any relocation.
+Only `flags`, dimensions, `scalar0`, and reserved parameter words are mutable;
+opcode, Tensor addresses, dtype, and command ID cannot be patched. This lets a
+single compiled attention graph accept a per-step `kv_length` without creating
+one artifact per sequence length. Declared min/max ranges are enforced by the
+invocation builder; the Guest independently enforces ABI and field safety.

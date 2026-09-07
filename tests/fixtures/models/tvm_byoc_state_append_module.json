@@ -24,5 +24,15 @@
       "to": {"region": "decode", "tensor": "kv_cache"},
       "mode": "append"
     }
+  ],
+  "scalar_bindings": [
+    {
+      "name": "decode_position",
+      "region": "decode",
+      "command": 0,
+      "field": "reserved4",
+      "minimum": 0,
+      "maximum": 3
+    }
   ]
 }

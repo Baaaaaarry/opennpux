@@ -276,7 +276,7 @@ PY
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${APPEND_MODULE_DIR}" "${APPEND_MODULE_INVOCATION}" \
-    --arena "${APPEND_REGION}"
+    --arena "${APPEND_REGION}" --scalar decode_position=0
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_INVOCATION}" \
@@ -588,6 +588,8 @@ has_output_line 'xgraph_module_commands_completed=2' ||
     fail 'state append module did not execute both decode steps'
 has_output_line 'xgraph_module_invocations_completed=2' ||
     fail 'state append invocation count mismatch'
+has_output_line 'xgraph_module_scalar_bindings=2' ||
+    fail 'state append dynamic scalar binding count mismatch'
 has_output_line 'xgraph_module_state_updates_completed=2' ||
     fail 'state append update count mismatch'
 has_output_line 'xgraph_module_state_bytes=32' ||

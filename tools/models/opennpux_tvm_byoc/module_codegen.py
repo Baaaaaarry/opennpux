@@ -296,6 +296,50 @@ def compile_module(
             "outputs": list(graphs[name].get("outputs", [])),
         })
 
+    scalar_bindings = module.get("scalar_bindings", [])
+    if not isinstance(scalar_bindings, list):
+        raise CodegenError("module scalar_bindings must be an array")
+    allowed_scalar_fields = {
+        "flags", "dim0", "dim1", "dim2", "scalar0",
+        "reserved0", "reserved1", "reserved2", "reserved3", "reserved4",
+    }
+    region_records = {region["name"]: region for region in region_manifest}
+    normalized_scalar_bindings = []
+    scalar_names: set[str] = set()
+    for index, binding in enumerate(scalar_bindings):
+        if not isinstance(binding, dict):
+            raise CodegenError(f"scalar binding {index} must be an object")
+        name = binding.get("name")
+        region = binding.get("region")
+        command = binding.get("command")
+        field = binding.get("field")
+        minimum = binding.get("minimum", 0)
+        maximum = binding.get("maximum", 0xFFFFFFFF)
+        if (not isinstance(name, str) or
+                not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", name) or
+                name in scalar_names):
+            raise CodegenError(f"scalar binding {index} has an invalid name")
+        if region not in region_records:
+            raise CodegenError(f"scalar binding {name} references an unknown region")
+        if (not isinstance(command, int) or isinstance(command, bool) or
+                command < 0 or command >= region_records[region]["command_count"]):
+            raise CodegenError(f"scalar binding {name} has an invalid command")
+        if field not in allowed_scalar_fields:
+            raise CodegenError(f"scalar binding {name} has an invalid field")
+        if (not isinstance(minimum, int) or isinstance(minimum, bool) or
+                not isinstance(maximum, int) or isinstance(maximum, bool) or
+                minimum < 0 or maximum > 0xFFFFFFFF or minimum > maximum):
+            raise CodegenError(f"scalar binding {name} has an invalid range")
+        scalar_names.add(name)
+        normalized_scalar_bindings.append({
+            "name": name,
+            "region": region,
+            "command": command,
+            "field": field,
+            "minimum": minimum,
+            "maximum": maximum,
+        })
+
     manifest = {
         "format": MODULE_FORMAT,
         "region_count": len(region_manifest),
@@ -304,6 +348,7 @@ def compile_module(
         "edges": normalized_edges,
         "host_bindings": normalized_host_bindings,
         "state_updates": normalized_state_updates,
+        "scalar_bindings": normalized_scalar_bindings,
         "module_outputs": [
             {"region": name, "tensor": tensor}
             for name in execution_order

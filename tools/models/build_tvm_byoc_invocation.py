@@ -16,6 +16,21 @@ MAGIC = 0x4958504E
 VERSION = 1
 HEADER = struct.Struct("<8I")
 BINDING = struct.Struct("<6I")
+COMMAND_SIZE = 64
+COMMAND_OFFSET = 96
+COMMAND_FIELDS = {
+    "flags": 4,
+    "dim0": 20,
+    "dim1": 24,
+    "dim2": 28,
+    "scalar0": 32,
+    "reserved0": 44,
+    "reserved1": 48,
+    "reserved2": 52,
+    "reserved3": 56,
+    "reserved4": 60,
+}
+COMMAND_U32 = 1
 
 
 def align(value: int, alignment: int = 64) -> int:
@@ -41,23 +56,49 @@ def parse_arena(value: str) -> tuple[str, Path]:
     return name, Path(filename)
 
 
+def parse_scalar(value: str) -> tuple[str, int]:
+    name, separator, raw_value = value.partition("=")
+    if not separator or not name or not raw_value:
+        raise argparse.ArgumentTypeError("scalar must use NAME=VALUE syntax")
+    try:
+        parsed = int(raw_value, 0)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("scalar value must be an integer") from error
+    if not 0 <= parsed <= 0xFFFFFFFF:
+        raise argparse.ArgumentTypeError("scalar value must be a uint32")
+    return name, parsed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("module", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--arena", action="append", default=[], type=parse_arena)
+    parser.add_argument("--scalar", action="append", default=[], type=parse_scalar)
     args = parser.parse_args()
     try:
         manifest = json.loads(
             (args.module / "module.npxgm.json").read_text(encoding="utf-8")
         )
         arena_paths = dict(args.arena)
+        scalar_values = dict(args.scalar)
+        if len(scalar_values) != len(args.scalar):
+            raise CodegenError("duplicate scalar binding value")
+        scalar_bindings = manifest.get("scalar_bindings", [])
+        declared_scalars = {binding["name"] for binding in scalar_bindings}
+        if set(scalar_values) != declared_scalars:
+            missing = sorted(declared_scalars - set(scalar_values))
+            unexpected = sorted(set(scalar_values) - declared_scalars)
+            raise CodegenError(
+                f"scalar bindings mismatch missing={missing} unexpected={unexpected}"
+            )
         payload_offset = align(
             HEADER.size
             + sum(len(region.get(
                 "invocation_bindings", region.get("external_bindings", [])
             ))
                   for region in manifest["regions"]) * BINDING.size
+            + len(scalar_bindings) * BINDING.size
         )
         cursor = payload_offset
         records: list[tuple[int, int, int, int, int, int]] = []
@@ -87,6 +128,25 @@ def main() -> None:
                                 data_offset, checksum(data), 0))
                 payloads.append((data_offset, data))
                 cursor = align(cursor + byte_size)
+        region_indices = {
+            region["name"]: index for index, region in enumerate(manifest["regions"])
+        }
+        for binding in scalar_bindings:
+            value = scalar_values[binding["name"]]
+            if not binding["minimum"] <= value <= binding["maximum"]:
+                raise CodegenError(
+                    f"scalar {binding['name']} is outside its declared range"
+                )
+            data = struct.pack("<I", value)
+            data_offset = cursor
+            target_offset = (
+                COMMAND_OFFSET + binding["command"] * COMMAND_SIZE
+                + COMMAND_FIELDS[binding["field"]]
+            )
+            records.append((region_indices[binding["region"]], target_offset,
+                            len(data), data_offset, checksum(data), COMMAND_U32))
+            payloads.append((data_offset, data))
+            cursor = align(cursor + len(data))
         if not records:
             raise CodegenError("module invocation has no external bindings")
         if cursor > 0xFFFFFFFF:

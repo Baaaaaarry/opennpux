@@ -162,6 +162,15 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         self.assertEqual(update["from"], {"region": "residual", "tensor": "sum"})
         self.assertEqual(update["to"], {"region": "residual", "tensor": "lhs"})
 
+    def test_state_update_cli_policy_resolves_unique_graph_output(self):
+        module = self.load_fixture()
+        apply_parameter_storage(module, [], ["lhs"])
+        apply_state_updates(module, ["@output=lhs"])
+        self.assertEqual(
+            module["state_updates"][0]["from"],
+            {"region": "activation", "tensor": "output"},
+        )
+
     def test_state_update_cli_policy_rejects_ambiguous_endpoint(self):
         module = self.load_fixture()
         apply_parameter_storage(module, [], ["lhs"])

@@ -29,9 +29,14 @@ DEBUG_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph.debug"
 FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_qwen_command_flow_smoke.elf"
 
 mkdir -p "${ROOT_DIR}/simout"
-OPENNPUX_REQUIRE_TVM=1 \
+if ! OPENNPUX_REQUIRE_TVM=1 \
     "${ROOT_DIR}/tools/models/test_tvm_byoc_xgraph_codegen.sh" \
-    2>&1 | tee "${LOCAL_LOG}"
+    >"${LOCAL_LOG}" 2>&1; then
+    cat "${LOCAL_LOG}"
+    echo "error: TVM BYOC local generation failed" >&2
+    exit 1
+fi
+cat "${LOCAL_LOG}"
 [ -f "${GRAPH}" ] && [ -f "${ARENA}" ] &&
     [ -f "${TRANSFORMER_GRAPH}" ] && [ -f "${TRANSFORMER_ARENA}" ] || {
     echo "error: TVM BYOC XGraph artifacts were not generated" >&2

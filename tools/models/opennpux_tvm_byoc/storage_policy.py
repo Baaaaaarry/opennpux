@@ -63,6 +63,26 @@ def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
     regions = source.get("regions", [])
 
     def resolve(selector: str, expected_storage: str) -> tuple[str, str]:
+        if selector == "@output" and expected_storage == "output":
+            consumed = {
+                (record.get("from", {}).get("region"),
+                 record.get("from", {}).get("tensor"))
+                for key in ("edges", "host_bindings")
+                for record in source.get(key, [])
+                if isinstance(record, dict)
+            }
+            matches = []
+            for region in regions:
+                name = region.get("name")
+                graph = region.get("graph", {})
+                for tensor_name in graph.get("outputs", []):
+                    if (name, tensor_name) not in consumed:
+                        matches.append((name, tensor_name))
+            if len(matches) != 1:
+                raise CodegenError(
+                    "state update @output must resolve to exactly one graph output"
+                )
+            return matches[0]
         region_name, separator, tensor_name = selector.partition(".")
         if not separator:
             tensor_name = region_name

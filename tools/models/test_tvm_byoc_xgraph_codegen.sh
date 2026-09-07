@@ -111,8 +111,12 @@ if [ -n "${TVM_HOME:-}" ]; then
         --constant-parameter norm_weight \
         --constant-parameter projection_weight \
         --state-parameter recurrent_state \
-        --state-update output=recurrent_state \
+        --state-update @output=recurrent_state \
         --dump-byoc-module "${BUILD_DIR}/stateful-transformer-module.json"
+    [ -f "${BUILD_DIR}/stateful-transformer-module/module.npxgm.json" ] || {
+        echo "TVM stateful Transformer module generation: FAIL" >&2
+        exit 1
+    }
     "${TVM_PYTHON}" - \
         "${BUILD_DIR}/transformer-block-module/module.npxgm.json" <<'PY'
 import json

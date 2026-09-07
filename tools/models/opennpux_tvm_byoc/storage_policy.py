@@ -108,6 +108,28 @@ def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
             )
         return matches[0]
 
+    def resolve_state_update_source(
+        selector: str, target_region: str, target_tensor: str
+    ) -> tuple[str, str]:
+        if selector != "@update":
+            return resolve(selector, "produced")
+        matches = []
+        for region in regions:
+            if region.get("name") != target_region:
+                continue
+            for node in region.get("graph", {}).get("nodes", []):
+                if target_tensor not in node.get("inputs", []):
+                    continue
+                outputs = node.get("outputs", [])
+                if len(outputs) == 1:
+                    matches.append((target_region, outputs[0]))
+        if len(matches) != 1:
+            raise CodegenError(
+                "state update @update must resolve to exactly one direct "
+                "consumer output"
+            )
+        return matches[0]
+
     records = source.setdefault("state_updates", [])
     if not isinstance(records, list):
         raise CodegenError("module state_updates must be an array")
@@ -115,8 +137,10 @@ def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
         output, separator, state = specification.partition("=")
         if not separator or not output or not state:
             raise CodegenError("state update must use OUTPUT=STATE syntax")
-        source_region, source_tensor = resolve(output, "produced")
         target_region, target_tensor = resolve(state, "state")
+        source_region, source_tensor = resolve_state_update_source(
+            output, target_region, target_tensor
+        )
         records.append({
             "from": {"region": source_region, "tensor": source_tensor},
             "to": {"region": target_region, "tensor": target_tensor},

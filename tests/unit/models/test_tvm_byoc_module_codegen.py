@@ -171,6 +171,29 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             {"region": "activation", "tensor": "output"},
         )
 
+    def test_state_update_cli_policy_resolves_state_consumer(self):
+        module = self.load_fixture()
+        apply_parameter_storage(module, [], ["lhs"])
+        apply_state_updates(module, ["@update=lhs"])
+        self.assertEqual(
+            module["state_updates"][0]["from"],
+            {"region": "residual", "tensor": "sum"},
+        )
+
+    def test_state_update_cli_policy_rejects_multiple_state_consumers(self):
+        module = self.load_fixture()
+        apply_parameter_storage(module, [], ["lhs"])
+        graph = module["regions"][1]["graph"]
+        graph["nodes"].append({
+            "op": "add", "inputs": ["lhs", "rhs"], "outputs": ["sum2"]
+        })
+        graph["tensors"].append({
+            "name": "sum2", "shape": [2, 4], "dtype": "float32",
+            "storage": "scratch",
+        })
+        with self.assertRaisesRegex(CodegenError, "one direct consumer output"):
+            apply_state_updates(module, ["@update=lhs"])
+
     def test_state_update_cli_policy_rejects_ambiguous_endpoint(self):
         module = self.load_fixture()
         apply_parameter_storage(module, [], ["lhs"])

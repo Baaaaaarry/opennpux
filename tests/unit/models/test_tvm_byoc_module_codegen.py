@@ -151,7 +151,7 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             "from": {"region": "residual", "tensor": "lhs"},
             "to": {"region": "activation", "tensor": "input"},
         }]
-        with self.assertRaisesRegex(CodegenError, "output storage to state storage"):
+        with self.assertRaisesRegex(CodegenError, "produced Tensor to state storage"):
             compile_module(module)
 
     def test_state_update_cli_policy_resolves_typed_endpoints(self):
@@ -176,7 +176,7 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         apply_parameter_storage(module, [], ["lhs"])
         module["regions"][0]["graph"]["tensors"][1]["name"] = "sum"
         module["regions"][0]["graph"]["tensors"][1]["storage"] = "output"
-        with self.assertRaisesRegex(CodegenError, "exactly one output"):
+        with self.assertRaisesRegex(CodegenError, "exactly one produced Tensor"):
             apply_state_updates(module, ["sum=lhs"])
 
     def test_package_preserves_constants_and_invocation_omits_them(self):

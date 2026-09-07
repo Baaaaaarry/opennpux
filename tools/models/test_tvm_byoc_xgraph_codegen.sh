@@ -111,7 +111,7 @@ if [ -n "${TVM_HOME:-}" ]; then
         --constant-parameter norm_weight \
         --constant-parameter projection_weight \
         --state-parameter recurrent_state \
-        --state-update @output=recurrent_state \
+        --state-update state_mixed=recurrent_state \
         --dump-byoc-module "${BUILD_DIR}/stateful-transformer-module.json"
     [ -f "${BUILD_DIR}/stateful-transformer-module/module.npxgm.json" ] || {
         echo "TVM stateful Transformer module generation: FAIL" >&2
@@ -145,6 +145,8 @@ assert region["invocation_bindings"] == ["hidden", "residual"]
 assert region["constant_bindings"] == ["norm_weight", "projection_weight"]
 assert region["state_bindings"] == ["recurrent_state"]
 assert len(manifest["state_updates"]) == 1
+assert manifest["state_updates"][0]["from_tensor"] == "state_mixed"
+assert manifest["state_updates"][0]["from_tensor"] != region["outputs"][0]
 print("tvm_stateful_transformer_commands=5")
 print("tvm_stateful_transformer_state_updates=1")
 print("tvm_stateful_transformer_storage_policy=PASS")

@@ -2636,6 +2636,15 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
         copy_from_device_memory(
             arenas[region_index] + region->output_offset,
             window.bytes + region->output_offset, region->output_bytes);
+        for (uint32_t index = 0; index < header->edge_count; ++index) {
+            const struct opennpux_tvm_module_edge *edge = &edges[index];
+            if (edge->reserved == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE &&
+                edge->from_region == region_index) {
+                copy_from_device_memory(
+                    arenas[region_index] + edge->source_offset,
+                    window.bytes + edge->source_offset, edge->bytes);
+            }
+        }
         opennpux_coral_close_shared_window(&window);
         completed_commands += result.completed_commands;
         total_operations += result.operation_count;

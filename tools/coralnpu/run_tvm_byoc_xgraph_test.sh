@@ -198,6 +198,7 @@ state = read("recurrent_state")
 norm_weight = read("norm_weight")
 weight = read("projection_weight")
 residual = read("residual")
+output = []
 for _ in range(2):
     normalized = []
     for row in range(2):
@@ -219,12 +220,15 @@ for _ in range(2):
                           * weight[inner * 64 + column])
                 )
             projected.append(accumulator)
-    state = [
-        f32(f32(projected[index] + state[index]) + residual[index])
+    state = [f32(projected[index] + state[index]) for index in range(128)]
+    residual_sum = [
+        f32(state[index] + residual[index])
         for index in range(128)
     ]
-    state = [f32(value / (1.0 + math.exp(-value))) for value in state]
-expected_path.write_bytes(struct.pack("<128f", *state))
+    output = [
+        f32(value / (1.0 + math.exp(-value))) for value in residual_sum
+    ]
+expected_path.write_bytes(struct.pack("<128f", *output))
 print(f"{region['name']}={arena_path}")
 PY
 )"

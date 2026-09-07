@@ -63,7 +63,7 @@ def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
     regions = source.get("regions", [])
 
     def resolve(selector: str, expected_storage: str) -> tuple[str, str]:
-        if selector == "@output" and expected_storage == "output":
+        if selector == "@output" and expected_storage == "produced":
             consumed = {
                 (record.get("from", {}).get("region"),
                  record.get("from", {}).get("tensor"))
@@ -93,8 +93,13 @@ def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
             if region_name and name != region_name:
                 continue
             for tensor in region.get("graph", {}).get("tensors", []):
-                if (tensor.get("name") == tensor_name and
-                        tensor.get("storage") == expected_storage):
+                storage = tensor.get("storage")
+                storage_matches = (
+                    storage in {"scratch", "output"}
+                    if expected_storage == "produced"
+                    else storage == expected_storage
+                )
+                if tensor.get("name") == tensor_name and storage_matches:
                     matches.append((name, tensor_name))
         if len(matches) != 1:
             raise CodegenError(
@@ -110,7 +115,7 @@ def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
         output, separator, state = specification.partition("=")
         if not separator or not output or not state:
             raise CodegenError("state update must use OUTPUT=STATE syntax")
-        source_region, source_tensor = resolve(output, "output")
+        source_region, source_tensor = resolve(output, "produced")
         target_region, target_tensor = resolve(state, "state")
         records.append({
             "from": {"region": source_region, "tensor": source_tensor},

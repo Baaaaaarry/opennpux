@@ -1515,6 +1515,8 @@ dependency-free ABI 门禁连续执行两步，仅逐步覆盖 token input，要
 `[2,3]` 更新得到 `[5,8]`。全系统门禁进一步改为 TVM Relax 生成的真实 Transformer decode
 子图，覆盖 RMSNorm、MatMul、recurrent-state Add、residual Add 和 SiLU；两轮执行必须完成 10 条
 命令、4 次 request-input binding、2 次 invocation，并将 128 个 FP32 结果与独立两步参考比较。
+状态源现已与公开 graph output 解耦：`state_mixed` 在设备执行后仅按 manifest 声明的范围同步并
+回灌 `recurrent_state`，而 residual+SiLU 结果独立返回调用方；runtime 不复制整个 arena。
 
 端到端协议增加确定性的 module identity：基础 `.npxgm` 与 `.npxmi` 都保存由 canonical
 compiler manifest 计算的 32-bit identity，Guest 必须匹配后才能应用任何 binding。全系统负向

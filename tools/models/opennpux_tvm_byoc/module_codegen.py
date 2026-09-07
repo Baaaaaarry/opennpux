@@ -179,13 +179,16 @@ def compile_module(
         target = tensor_tables[target_region].get(target_tensor)
         if source is None or target is None:
             raise CodegenError(f"state update {index} references an unknown tensor")
-        if source.get("storage") != "output" or target.get("storage") != "state":
+        produced_tensors = {
+            tensor_name
+            for node in graphs[source_region].get("nodes", [])
+            for tensor_name in node.get("outputs", [])
+        }
+        if (source_tensor not in produced_tensors or
+                source.get("storage") not in {"scratch", "output"} or
+                target.get("storage") != "state"):
             raise CodegenError(
-                f"state update {index} must bind output storage to state storage"
-            )
-        if graphs[source_region].get("outputs") != [source_tensor]:
-            raise CodegenError(
-                f"state update {index} source must be the region graph output"
+                f"state update {index} must bind a produced Tensor to state storage"
             )
         if source.get("shape") != target.get("shape") or source.get("dtype") != target.get("dtype"):
             raise CodegenError(f"state update {index} tensor type mismatch")

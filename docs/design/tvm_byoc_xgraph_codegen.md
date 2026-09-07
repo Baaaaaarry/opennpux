@@ -202,8 +202,11 @@ The dependency-free ABI gate starts with `state=[1,2]` and `token=[2,3]` and
 requires two decode steps to produce `[5,8]`. The full TVM gate then generates
 a stateful Transformer block containing RMSNorm, MatMul, recurrent-state Add,
 residual Add, and SiLU. The CLI options `--state-parameter recurrent_state`
-and `--state-update @output=recurrent_state` turn the Relax parameter and terminal graph
-result into the persistent feedback contract. Two executions must report 10
+and `--state-update state_mixed=recurrent_state` turn the Relax parameter and
+the internal recurrent-update result into the persistent feedback contract.
+The public graph output remains the post-residual SiLU Tensor returned to the
+caller. The Guest reads back that public output plus only the declared state
+source range, rather than copying the entire region arena. Two executions must report 10
 completed commands, four request-input bindings, two completed invocations,
 and 128 FP32 outputs matching an independent two-step reference within
 `5e-5`.

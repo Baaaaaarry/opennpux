@@ -199,6 +199,18 @@ def compile_module(
             if tensor.get("storage") in {"input", "constant", "state"}
             and (name, tensor_name) not in bound_inputs
         ]
+        invocation_bindings = [
+            tensor_name
+            for tensor_name, tensor in tensor_tables[name].items()
+            if tensor.get("storage") in {"input", "state"}
+            and (name, tensor_name) not in bound_inputs
+        ]
+        constant_bindings = [
+            tensor_name
+            for tensor_name, tensor in tensor_tables[name].items()
+            if tensor.get("storage") == "constant"
+            and (name, tensor_name) not in bound_inputs
+        ]
         region_manifest.append({
             "name": name,
             "sequence": sequence,
@@ -207,6 +219,8 @@ def compile_module(
             "arena_size": metadata["arena_size"],
             "external_inputs": external_inputs,
             "external_bindings": external_bindings,
+            "invocation_bindings": invocation_bindings,
+            "constant_bindings": constant_bindings,
             "outputs": list(graphs[name].get("outputs", [])),
         })
 

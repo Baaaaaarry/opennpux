@@ -487,5 +487,22 @@ firmware, Local EXTMEM, and readback path and requires
 first compiler gate shaped like a Transformer block; it is not yet an imported
 complete model or a quantized-weight graph.
 
+The Transformer module gate also separates deployment-time constants from
+per-request data. Compiler options `--constant-parameter` and
+`--state-parameter` assign explicit storage policy after Relax partitioning.
+The module manifest records three views:
+
+- `external_bindings`: all unproduced input, constant, and state Tensors for
+  audit and reference-runtime binding.
+- `constant_bindings`: immutable weights retained in the reusable `.npxgm`.
+- `invocation_bindings`: input and mutable state copied from each `.npxmi`.
+
+`--clear-external-bindings` now clears only invocation bindings. The GB10 gate
+packages norm and projection weights once, submits only hidden and residual
+Tensors, executes the same four commands, and compares the exported 512-byte
+result against the independent C reference. This establishes the minimum
+model-load versus inference-submit boundary required before importing larger
+Transformer graphs.
+
 The partition sequence follows the upstream
 [Apache TVM BYOC documentation](https://tvm.apache.org/docs/how_to/tutorials/bring_your_own_codegen.html).

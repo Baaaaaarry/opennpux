@@ -9,6 +9,10 @@ GRAPH="${BUILD_DIR}/relax-model.npxg"
 ARENA="${BUILD_DIR}/relax-model.arena.bin"
 TRANSFORMER_GRAPH="${BUILD_DIR}/transformer-block.npxg"
 TRANSFORMER_ARENA="${BUILD_DIR}/transformer-block.arena.bin"
+TRANSFORMER_MODULE_DIR="${BUILD_DIR}/transformer-block-module"
+TRANSFORMER_MODULE_PACKAGE="${BUILD_DIR}/transformer-block.npxgm"
+TRANSFORMER_MODULE_INVOCATION="${BUILD_DIR}/transformer-block.npxmi"
+TRANSFORMER_EXPECTED="${BUILD_DIR}/transformer-block.expected.bin"
 MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
@@ -117,6 +121,45 @@ done <"${MODULE_DIR}/invocation2.bindings"
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${MODULE_DIR}" "${MODULE_INVOCATION2}" "$@"
+TRANSFORMER_REGION="$("${TVM_PYTHON:-python3}" - \
+    "${TRANSFORMER_MODULE_DIR}/module.npxgm.json" \
+    "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_ARENA}" \
+    "${TRANSFORMER_EXPECTED}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+module_dir = Path(sys.argv[2])
+arena_path = Path(sys.argv[3])
+expected_path = Path(sys.argv[4])
+manifest = json.load(open(manifest_path, encoding="utf-8"))
+assert manifest["region_count"] == 1
+region = manifest["regions"][0]
+assert len(region["invocation_bindings"]) == 2
+assert len(region["constant_bindings"]) == 2
+metadata = json.load(
+    open(module_dir / f"{region['artifact']}.json", encoding="utf-8")
+)
+output = next(
+    tensor for tensor in metadata["tensors"]
+    if tensor["name"] == metadata["output"]
+)
+arena = arena_path.read_bytes()
+begin = output["offset"]
+expected_path.write_bytes(arena[begin:begin + output["byte_size"]])
+print(region["name"])
+PY
+)"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_module_package.py" \
+    "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_PACKAGE}" \
+    --clear-external-bindings \
+    --arena "${TRANSFORMER_REGION}=${TRANSFORMER_ARENA}"
+"${TVM_PYTHON:-python3}" \
+    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
+    "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_INVOCATION}" \
+    --arena "${TRANSFORMER_REGION}=${TRANSFORMER_ARENA}"
 "${TVM_PYTHON:-python3}" - "${MODULE_INVOCATION}" "${MODULE_MISMATCH}" <<'PY'
 import sys
 
@@ -128,6 +171,12 @@ PY
 [ -f "${MODULE_PACKAGE}" ] && [ -f "${MODULE_INVOCATION}" ] &&
     [ -f "${MODULE_INVOCATION2}" ] && [ -f "${MODULE_MISMATCH}" ] || {
     echo "error: TVM BYOC module or invocation was not generated" >&2
+    exit 1
+}
+[ -f "${TRANSFORMER_MODULE_PACKAGE}" ] &&
+    [ -f "${TRANSFORMER_MODULE_INVOCATION}" ] &&
+    [ -f "${TRANSFORMER_EXPECTED}" ] || {
+    echo "error: Transformer module package was not generated" >&2
     exit 1
 }
 EXPECTED_CHECKSUM="$(sed -n \
@@ -224,6 +273,21 @@ EOF
 base64 "${TRANSFORMER_ARENA}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_TRANSFORMER_ARENA_EOF
+decode_base64 >/tmp/tvm-transformer-block.npxgm <<'OPENNPUX_TVM_TRANSFORMER_MODULE_EOF'
+EOF
+base64 "${TRANSFORMER_MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_TRANSFORMER_MODULE_EOF
+decode_base64 >/tmp/tvm-transformer-block.npxmi <<'OPENNPUX_TVM_TRANSFORMER_INVOCATION_EOF'
+EOF
+base64 "${TRANSFORMER_MODULE_INVOCATION}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_TRANSFORMER_INVOCATION_EOF
+decode_base64 >/tmp/tvm-transformer-block.expected.bin <<'OPENNPUX_TVM_TRANSFORMER_EXPECTED_EOF'
+EOF
+base64 "${TRANSFORMER_EXPECTED}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_TRANSFORMER_EXPECTED_EOF
 decode_base64 >/tmp/tvm-mixed-module.npxgm <<'OPENNPUX_TVM_MODULE_EOF'
 EOF
 base64 "${MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
@@ -300,6 +364,29 @@ has_output_line 'xgraph_output_reference=PASS' ||
 has_output_line 'xgraph_artifact_run=PASS' ||
     fail 'Transformer block runtime PASS verdict missing'
 echo 'tvm_transformer_block_xgraph=PASS'
+TRANSFORMER_MODULE_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-transformer-module.output.bin \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-transformer-block.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-transformer-block.npxgm \
+    0x1d000000 1000000)" || {
+    printf '%s\n' "\${TRANSFORMER_MODULE_OUTPUT}"
+    fail 'Transformer module execution failed'
+}
+printf '%s\n' "\${TRANSFORMER_MODULE_OUTPUT}"
+OUTPUT="\${TRANSFORMER_MODULE_OUTPUT}"
+has_output_line 'xgraph_module_regions_completed=1' ||
+    fail 'Transformer module region count mismatch'
+has_output_line 'xgraph_module_commands_completed=4' ||
+    fail 'Transformer module command count mismatch'
+has_output_line 'xgraph_module_invocation_bindings=2' ||
+    fail 'Transformer module dynamic binding count mismatch'
+has_output_line 'xgraph_module_run=PASS' ||
+    fail 'Transformer module runtime PASS verdict missing'
+/tmp/coralctl tensor-compare-fp32 \
+    /tmp/tvm-transformer-module.output.bin \
+    /tmp/tvm-transformer-block.expected.bin 0.00005 ||
+    fail 'Transformer module output differs from independent reference'
+echo 'tvm_transformer_module_storage=PASS'
 if OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-mismatch.npxmi \
     /tmp/coralctl xgraph-module-run \

@@ -1543,3 +1543,10 @@ module reuse 门禁保持不变；新门禁等待 GB10 输出 `tvm_transformer_b
 首次 GB10 运行暴露了测试编排问题：新增 4-command Transformer artifact 后，脚本从聚合日志取
 最后一个 `xgraph_commands`，导致已正确完成的旧 6-command artifact 被误判。命令数现直接从
 被验收 `.npxg` 的 version 2 header 读取并校验 magic/version，不再依赖多个 artifact 的日志顺序。
+
+修正后 GB10 已完成 Transformer block 验收：4 条 command 全部完成，512-byte 输出的 firmware、
+回读和 reference checksum 均为 `0x465b22c5`，最大绝对误差为 0，operation/cycle 均为 9216。
+下一增量将 Relax 参数存储策略显式化：`norm_weight/projection_weight` 标记为 module-resident
+constant，`hidden/residual` 标记为 invocation binding。`.npxgm` 清动态输入时不再清常量，`.npxmi`
+不再重复携带常量；完整 external binding 列表继续用于审计和 Python reference runtime。25 项本地
+回归已通过，等待 GB10 验证单 region、4 commands、2 dynamic bindings 及独立数值 reference。

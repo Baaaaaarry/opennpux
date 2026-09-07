@@ -73,7 +73,9 @@ def main() -> None:
                 )
             )
             tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
-            for tensor_name in region.get("external_bindings", []):
+            for tensor_name in region.get(
+                "invocation_bindings", region.get("external_bindings", [])
+            ):
                 tensor = tensors[tensor_name]
                 target_offset = int(tensor["offset"])
                 byte_size = int(tensor["byte_size"])

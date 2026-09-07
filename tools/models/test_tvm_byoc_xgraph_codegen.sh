@@ -83,6 +83,27 @@ if [ -n "${TVM_HOME:-}" ]; then
         "${BUILD_DIR}/transformer-block.npxg" \
         --dump-byoc-graph "${BUILD_DIR}/transformer-block.byoc.json"
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
+        "${BUILD_DIR}/transformer-block.json" \
+        "${BUILD_DIR}/transformer-block-module" \
+        --constant-parameter norm_weight \
+        --constant-parameter projection_weight \
+        --dump-byoc-module "${BUILD_DIR}/transformer-block-module.json"
+    "${TVM_PYTHON}" - \
+        "${BUILD_DIR}/transformer-block-module/module.npxgm.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["region_count"] == 1
+region = manifest["regions"][0]
+assert region["command_count"] == 4
+assert region["invocation_bindings"] == ["hidden", "residual"]
+assert region["constant_bindings"] == ["norm_weight", "projection_weight"]
+print("tvm_transformer_module_constants=2")
+print("tvm_transformer_invocation_bindings=2")
+print("tvm_transformer_storage_policy=PASS")
+PY
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
         "${BUILD_DIR}/multi-region-model.json" \
         "${BUILD_DIR}/multi-region-module" \
         --dump-byoc-module "${BUILD_DIR}/multi-region-module.json"

@@ -19,6 +19,7 @@ from opennpux_tvm_byoc.module_runtime import (  # noqa: E402
     HostPipelineExecutor,
     ModuleRuntime,
 )
+from opennpux_tvm_byoc.storage_policy import apply_parameter_storage  # noqa: E402
 
 
 class XGraphModuleCodegenTest(unittest.TestCase):
@@ -36,8 +37,121 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         self.assertEqual(manifest["total_commands"], 2)
         self.assertEqual(set(artifacts), {"residual", "activation"})
         self.assertEqual(manifest["regions"][0]["external_inputs"], ["lhs", "rhs"])
+        self.assertEqual(
+            manifest["regions"][0]["invocation_bindings"], ["lhs", "rhs"]
+        )
+        self.assertEqual(manifest["regions"][0]["constant_bindings"], [])
         self.assertEqual(manifest["regions"][1]["external_inputs"], [])
         self.assertEqual(manifest["edges"][0]["bytes"], 32)
+
+    def test_separates_module_constants_from_invocation_bindings(self):
+        module = self.load_fixture()
+        apply_parameter_storage(module, ["rhs"], [])
+        _, manifest = compile_module(module)
+        region = manifest["regions"][0]
+        self.assertEqual(region["external_bindings"], ["lhs", "rhs"])
+        self.assertEqual(region["invocation_bindings"], ["lhs"])
+        self.assertEqual(region["constant_bindings"], ["rhs"])
+
+    def test_storage_policy_rejects_unknown_and_conflicting_parameters(self):
+        module = self.load_fixture()
+        with self.assertRaisesRegex(CodegenError, "were not found"):
+            apply_parameter_storage(module, ["missing"], [])
+        with self.assertRaisesRegex(CodegenError, "both constant and state"):
+            apply_parameter_storage(module, ["lhs"], ["lhs"])
+
+    def test_package_preserves_constants_and_invocation_omits_them(self):
+        module = self.load_fixture()
+        apply_parameter_storage(module, ["rhs"], [])
+        artifacts, manifest = compile_module(module)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            module_dir = directory / "module"
+            module_dir.mkdir()
+            (module_dir / "module.npxgm.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            arena_arguments = []
+            first_arena = None
+            first_metadata = None
+            for region in manifest["regions"]:
+                binary, metadata = artifacts[region["name"]]
+                artifact = module_dir / region["artifact"]
+                artifact.write_bytes(binary)
+                Path(f"{artifact}.json").write_text(
+                    json.dumps(metadata), encoding="utf-8"
+                )
+                arena = bytearray(region["arena_size"])
+                tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+                if region["name"] == "residual":
+                    lhs = tensors["lhs"]
+                    rhs = tensors["rhs"]
+                    arena[lhs["offset"]:lhs["offset"] + lhs["byte_size"]] = (
+                        bytes([0x11]) * lhs["byte_size"]
+                    )
+                    arena[rhs["offset"]:rhs["offset"] + rhs["byte_size"]] = (
+                        bytes([0x22]) * rhs["byte_size"]
+                    )
+                    first_arena = arena
+                    first_metadata = metadata
+                arena_path = directory / f"{region['name']}.arena.bin"
+                arena_path.write_bytes(arena)
+                arena_arguments.extend(["--arena", f"{region['name']}={arena_path}"])
+
+            package_path = directory / "module.npxgm"
+            package = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools/models/build_tvm_byoc_module_package.py"),
+                    str(module_dir),
+                    str(package_path),
+                    "--clear-external-bindings",
+                    *arena_arguments,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(package.returncode, 0, package.stderr)
+            image = package_path.read_bytes()
+            first_region = struct.unpack_from("<8I", image, 64)
+            arena_offset = first_region[2]
+            self.assertIsNotNone(first_arena)
+            self.assertIsNotNone(first_metadata)
+            tensors = {
+                tensor["name"]: tensor for tensor in first_metadata["tensors"]
+            }
+            lhs = tensors["lhs"]
+            rhs = tensors["rhs"]
+            self.assertEqual(
+                image[arena_offset + lhs["offset"]:
+                      arena_offset + lhs["offset"] + lhs["byte_size"]],
+                bytes(lhs["byte_size"]),
+            )
+            self.assertEqual(
+                image[arena_offset + rhs["offset"]:
+                      arena_offset + rhs["offset"] + rhs["byte_size"]],
+                bytes([0x22]) * rhs["byte_size"],
+            )
+
+            invocation_path = directory / "module.npxmi"
+            invocation = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools/models/build_tvm_byoc_invocation.py"),
+                    str(module_dir),
+                    str(invocation_path),
+                    *arena_arguments,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(invocation.returncode, 0, invocation.stderr)
+            invocation_header = struct.unpack_from(
+                "<8I", invocation_path.read_bytes()
+            )
+            self.assertEqual(invocation_header[4], 1)
 
     def test_rejects_incompatible_edge_types(self):
         module = self.load_fixture()

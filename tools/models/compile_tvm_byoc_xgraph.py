@@ -51,6 +51,8 @@ def main() -> None:
         default=os.environ.get("OPENNPUX_XGRAPH_LOWERING_LIB"),
         help="runtime C lowering shared library for tiled/composite operations",
     )
+    parser.add_argument("--constant-parameter", action="append", default=[])
+    parser.add_argument("--state-parameter", action="append", default=[])
     args = parser.parse_args()
     metadata_path = args.metadata or Path(f"{args.output}.json")
     try:
@@ -73,6 +75,11 @@ def main() -> None:
             if not args.partitioned:
                 module = partition_for_opennpux(module)
             graph = normalized_graph_from_relax(module)
+        from opennpux_tvm_byoc.storage_policy import apply_parameter_storage
+
+        apply_parameter_storage(
+            graph, args.constant_parameter, args.state_parameter
+        )
         if args.dump_byoc_graph is not None:
             args.dump_byoc_graph.write_text(
                 json.dumps(graph, indent=2, sort_keys=True) + "\n"

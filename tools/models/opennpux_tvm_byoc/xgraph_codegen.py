@@ -63,6 +63,8 @@ OP_ALIASES = {
     "opennpux.rope": "rope",
     "copy": "copy",
     "opennpux.copy": "copy",
+    "kv_pack": "kv_pack",
+    "opennpux.kv_pack": "kv_pack",
     "attention": "attention",
     "opennpux.attention": "attention",
 }
@@ -564,6 +566,32 @@ def _lower_node(
             command_id,
             reserved=(0, 0, capacity, 0, 0),
         )]
+
+    if op == "kv_pack":
+        names = _expect_count(inputs, 2, "inputs", node_index)
+        output_names = _expect_count(outputs, 1, "outputs", node_index)
+        key = _tensor(tensors, names[0], node_index)
+        value = _tensor(tensors, names[1], node_index)
+        output = _tensor(tensors, output_names[0], node_index)
+        if (key.dtype != "float32" or value.dtype != "float32" or
+                output.dtype != "float32" or key.shape != value.shape or
+                len(key.shape) < 2 or key.shape[0] != 1 or
+                output.shape != (2,) + key.shape[1:]):
+            raise CodegenError(
+                "kv_pack expects equal single-token FP32 K/V tensors "
+                "[1,...] and output [2,...]"
+            )
+        elements = _product(key.shape)
+        return [
+            CommandRecord(
+                OP_TDMA, 0, output.offset, key.offset, 0,
+                elements, 1, 1, key.byte_size, command_id,
+            ),
+            CommandRecord(
+                OP_TDMA, 0, output.offset + key.byte_size, value.offset, 0,
+                elements, 1, 1, value.byte_size, command_id + 1,
+            ),
+        ]
 
     names = _expect_count(inputs, 1, "inputs", node_index)
     output_names = _expect_count(outputs, 1, "outputs", node_index)

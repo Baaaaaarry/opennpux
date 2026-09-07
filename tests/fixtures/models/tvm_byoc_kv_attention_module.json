@@ -2,15 +2,24 @@
   "format": "OPENNPUX_TVM_BYOC_MODULE_V1",
   "regions": [
     {
-      "name": "kv_update",
+      "name": "qkv_projection",
       "graph": {
         "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
         "tensors": [
-          {"name": "token_kv", "shape": [2, 1, 2], "dtype": "float32", "storage": "input"},
-          {"name": "produced_kv", "shape": [2, 1, 2], "dtype": "float32", "storage": "output"}
+          {"name": "hidden", "shape": [1, 2, 2], "dtype": "float32", "storage": "input"},
+          {"name": "q_weight", "shape": [2, 2], "dtype": "float32", "storage": "constant"},
+          {"name": "k_weight", "shape": [2, 2], "dtype": "float32", "storage": "constant"},
+          {"name": "v_weight", "shape": [2, 2], "dtype": "float32", "storage": "constant"},
+          {"name": "projected_q", "shape": [1, 2, 2], "dtype": "float32", "storage": "output"},
+          {"name": "projected_k", "shape": [1, 2, 2], "dtype": "float32", "storage": "scratch"},
+          {"name": "projected_v", "shape": [1, 2, 2], "dtype": "float32", "storage": "scratch"},
+          {"name": "produced_kv", "shape": [2, 2, 2], "dtype": "float32", "storage": "output"}
         ],
         "nodes": [
-          {"op": "copy", "inputs": ["token_kv"], "outputs": ["produced_kv"]}
+          {"op": "matmul", "inputs": ["hidden", "q_weight"], "outputs": ["projected_q"]},
+          {"op": "matmul", "inputs": ["hidden", "k_weight"], "outputs": ["projected_k"]},
+          {"op": "matmul", "inputs": ["hidden", "v_weight"], "outputs": ["projected_v"]},
+          {"op": "opennpux.kv_pack", "inputs": ["projected_k", "projected_v"], "outputs": ["produced_kv"]}
         ],
         "outputs": ["produced_kv"]
       }
@@ -21,7 +30,7 @@
         "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
         "tensors": [
           {"name": "query", "shape": [1, 2, 2], "dtype": "float32", "storage": "input"},
-          {"name": "kv_cache", "shape": [2, 2, 1, 2], "dtype": "float32", "storage": "state"},
+          {"name": "kv_cache", "shape": [2, 2, 2, 2], "dtype": "float32", "storage": "state"},
           {"name": "context", "shape": [1, 2, 2], "dtype": "float32", "storage": "output"}
         ],
         "nodes": [
@@ -36,10 +45,15 @@
       }
     }
   ],
-  "edges": [],
+  "edges": [
+    {
+      "from": {"region": "qkv_projection", "tensor": "projected_q"},
+      "to": {"region": "attention", "tensor": "query"}
+    }
+  ],
   "state_updates": [
     {
-      "from": {"region": "kv_update", "tensor": "produced_kv"},
+      "from": {"region": "qkv_projection", "tensor": "produced_kv"},
       "to": {"region": "attention", "tensor": "kv_cache"},
       "mode": "append_planar2"
     }

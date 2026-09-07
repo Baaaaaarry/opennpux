@@ -1602,3 +1602,10 @@ invocation。module edge 新增不扩展结构体的 `append_planar2` mode，原
 写入 `[2,capacity,...]` 的同一 token slot；跨 region state update 同时成为 DAG 依赖，并在
 生产 region 完成后立即发布。新增两步序列门禁等待 GB10 输出
 `tvm_kv_append_attention_sequence=PASS`。
+
+GB10 已关闭 KV 生产/发布/消费串联门禁：2 个 region、2 次 invocation 共完成 4 条原始
+命令，2 次 `append_planar2` 更新后的 16 个 KV FP32 元素零误差，Attention 输出最大绝对
+误差 `3.81469727e-06`。下一增量移除 CPU 预制 `token_kv`：新增模型无关 `kv_pack`
+规范化算子，以两条 TDMA 将单 token K/V 打包成双平面 update；producer 改为 Q/K/V 三路
+TMMA 投影，Q 走普通 Tensor edge，K/V 走 state edge。更新后的两步门禁预计完成 12 条
+device commands，等待 GB10 输出 `tvm_kv_append_attention_sequence=PASS`。

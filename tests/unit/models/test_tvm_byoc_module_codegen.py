@@ -237,23 +237,23 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             ROOT / "tests/fixtures/models/tvm_byoc_kv_attention_module.json"
         ).read_text(encoding="utf-8"))
         _, manifest = compile_module(module)
-        self.assertEqual(manifest["execution_order"], ["kv_update", "attention"])
+        self.assertEqual(manifest["execution_order"], ["qkv_projection", "attention"])
         self.assertEqual(manifest["module_outputs"], [
-            {"region": "kv_update", "tensor": "produced_kv"},
+            {"region": "qkv_projection", "tensor": "produced_kv"},
             {"region": "attention", "tensor": "context"},
         ])
         self.assertEqual(manifest["state_updates"], [{
-            "from_region": "kv_update",
+            "from_region": "qkv_projection",
             "from_tensor": "produced_kv",
             "to_region": "attention",
             "to_tensor": "kv_cache",
-            "bytes": 16,
+            "bytes": 32,
             "mode": "append_planar2",
-            "stride": 8,
+            "stride": 16,
             "capacity": 2,
         }])
 
-        module["regions"][0]["graph"]["tensors"][1]["shape"] = [1, 1, 2]
+        module["regions"][0]["graph"]["tensors"][7]["shape"] = [1, 2, 2]
         with self.assertRaisesRegex(CodegenError, "planar append"):
             compile_module(module)
 

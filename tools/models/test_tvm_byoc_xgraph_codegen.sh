@@ -106,11 +106,19 @@ import json
 import sys
 
 manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-assert manifest["execution_order"] == ["kv_update", "attention"]
+assert manifest["execution_order"] == ["qkv_projection", "attention"]
+assert manifest["total_commands"] == 6
+assert manifest["edges"] == [{
+    "from_region": "qkv_projection",
+    "from_tensor": "projected_q",
+    "to_region": "attention",
+    "to_tensor": "query",
+    "bytes": 16,
+}]
 update = manifest["state_updates"][0]
 assert update["mode"] == "append_planar2"
-assert update["bytes"] == 16
-assert update["stride"] == 8
+assert update["bytes"] == 32
+assert update["stride"] == 16
 assert update["capacity"] == 2
 print("tvm_kv_attention_contract=PASS")
 PY

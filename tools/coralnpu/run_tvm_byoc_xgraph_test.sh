@@ -353,47 +353,51 @@ tensors = {
     name: {tensor["name"]: tensor for tensor in record["tensors"]}
     for name, record in metadata.items()
 }
-query = [1.0, 0.0, 0.0, 1.0]
-updates = ([1.0, 0.0, 10.0, 20.0], [0.0, 1.0, 30.0, 40.0])
-for step, update in enumerate(updates, 1):
-    writer = bytearray(regions["kv_update"]["arena_size"])
+hidden_steps = ([1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 1.0, 0.0])
+for step, hidden in enumerate(hidden_steps, 1):
+    writer = bytearray(regions["qkv_projection"]["arena_size"])
     attention = bytearray(regions["attention"]["arena_size"])
-    struct.pack_into("<4f", writer, tensors["kv_update"]["token_kv"]["offset"],
-                     *update)
-    struct.pack_into("<4f", attention, tensors["attention"]["query"]["offset"],
-                     *query)
-    (directory / f"kv-update-step{step}.arena.bin").write_bytes(writer)
+    struct.pack_into("<4f", writer,
+                     tensors["qkv_projection"]["hidden"]["offset"], *hidden)
+    (directory / f"qkv-step{step}.arena.bin").write_bytes(writer)
     (directory / f"attention-step{step}.arena.bin").write_bytes(attention)
-(directory / "kv-update-base.arena.bin").write_bytes(
-    bytes(regions["kv_update"]["arena_size"]))
+writer = bytearray(regions["qkv_projection"]["arena_size"])
+for weight in ("q_weight", "k_weight"):
+    struct.pack_into("<4f", writer,
+                     tensors["qkv_projection"][weight]["offset"],
+                     1.0, 0.0, 0.0, 1.0)
+struct.pack_into("<4f", writer,
+                 tensors["qkv_projection"]["v_weight"]["offset"],
+                 10.0, 0.0, 0.0, 20.0)
+(directory / "qkv-base.arena.bin").write_bytes(writer)
 (directory / "attention-base.arena.bin").write_bytes(
     bytes(regions["attention"]["arena_size"]))
 scale = 1.0 / math.sqrt(2.0)
 p = math.exp(scale) / (math.exp(scale) + 1.0)
-expected = [p * 10.0 + (1.0 - p) * 30.0,
-            p * 20.0 + (1.0 - p) * 40.0,
-            (1.0 - p) * 10.0 + p * 30.0,
-            (1.0 - p) * 20.0 + p * 40.0]
+expected = [(1.0 - p) * 10.0, p * 20.0,
+            p * 10.0, (1.0 - p) * 20.0]
 Path(sys.argv[2]).write_bytes(struct.pack("<4f", *expected))
 Path(sys.argv[3]).write_bytes(struct.pack(
-    "<8f", 1.0, 0.0, 0.0, 1.0, 10.0, 20.0, 30.0, 40.0))
+    "<16f",
+    1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0,
+    10.0, 0.0, 0.0, 20.0, 0.0, 20.0, 10.0, 0.0))
 PY
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_module_package.py" \
     "${KV_ATTENTION_MODULE_DIR}" "${KV_ATTENTION_PACKAGE}" \
     --clear-external-bindings \
-    --arena "kv_update=${KV_ATTENTION_MODULE_DIR}/kv-update-base.arena.bin" \
+    --arena "qkv_projection=${KV_ATTENTION_MODULE_DIR}/qkv-base.arena.bin" \
     --arena "attention=${KV_ATTENTION_MODULE_DIR}/attention-base.arena.bin"
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${KV_ATTENTION_MODULE_DIR}" "${KV_ATTENTION_INVOCATION1}" \
-    --arena "kv_update=${KV_ATTENTION_MODULE_DIR}/kv-update-step1.arena.bin" \
+    --arena "qkv_projection=${KV_ATTENTION_MODULE_DIR}/qkv-step1.arena.bin" \
     --arena "attention=${KV_ATTENTION_MODULE_DIR}/attention-step1.arena.bin" \
     --scalar kv_length=1
 "${TVM_PYTHON:-python3}" \
     "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
     "${KV_ATTENTION_MODULE_DIR}" "${KV_ATTENTION_INVOCATION2}" \
-    --arena "kv_update=${KV_ATTENTION_MODULE_DIR}/kv-update-step2.arena.bin" \
+    --arena "qkv_projection=${KV_ATTENTION_MODULE_DIR}/qkv-step2.arena.bin" \
     --arena "attention=${KV_ATTENTION_MODULE_DIR}/attention-step2.arena.bin" \
     --scalar kv_length=2
 "${TVM_PYTHON:-python3}" \
@@ -719,7 +723,7 @@ printf '%s\n' "\${TRANSFORMER_MODULE_OUTPUT}"
 OUTPUT="\${TRANSFORMER_MODULE_OUTPUT}"
 has_output_line 'xgraph_module_regions_completed=1' ||
     fail 'Transformer module region count mismatch'
-has_output_line 'xgraph_module_commands_completed=4' ||
+has_output_line 'xgraph_module_commands_completed=12' ||
     fail 'Transformer module command count mismatch'
 has_output_line 'xgraph_module_invocation_bindings=2' ||
     fail 'Transformer module dynamic binding count mismatch'

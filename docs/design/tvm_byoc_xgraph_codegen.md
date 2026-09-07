@@ -617,3 +617,12 @@ one appends K0/V0 and executes attention at length 1; invocation two appends
 K1/V1 and executes the same attention command at length 2. It checks two
 completed state updates, the complete planar cache, and the final context
 against independent FP32 references.
+
+The KV producer is compiled rather than supplied as precomputed Host data.
+Three ordinary MatMul nodes emit Q, K, and V through TMMA. The normalized,
+model-independent `opennpux.kv_pack` node requires single-token K/V inputs
+`[1,...]` and emits `[2,...]`; it lowers to two TDMA copies rather than a new
+model-specific opcode. Q follows a normal inter-region Tensor edge while the
+packed K/V follows `append_planar2`. The two-invocation gate therefore executes
+12 device commands and validates the complete path
+`hidden -> QKV projection -> KV publish -> attention`.

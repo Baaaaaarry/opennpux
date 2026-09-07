@@ -80,6 +80,27 @@ class XGraphCodegenTest(unittest.TestCase):
         with self.assertRaisesRegex(CodegenError, "geometry"):
             compile_graph(module["regions"][0]["graph"])
 
+    def test_lowers_kv_pack_to_two_dma_commands(self):
+        module = json.loads((
+            ROOT / "tests/fixtures/models/tvm_byoc_kv_attention_module.json"
+        ).read_text(encoding="utf-8"))
+        binary, metadata = compile_graph(module["regions"][0]["graph"])
+        commands = [
+            COMMAND.unpack_from(binary, HEADER.size + index * COMMAND.size)
+            for index in range(metadata["command_count"])
+        ]
+        tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+        packed = tensors["produced_kv"]
+        key = tensors["projected_k"]
+        value = tensors["projected_v"]
+        self.assertEqual([command[0] for command in commands], [1, 1, 1, 11, 11])
+        self.assertEqual(commands[3][2:4], (packed["offset"], key["offset"]))
+        self.assertEqual(
+            commands[4][2:4],
+            (packed["offset"] + key["byte_size"], value["offset"]),
+        )
+        self.assertEqual([command[10] for command in commands], list(range(5)))
+
     def test_rejects_broadcast_until_semantics_are_explicit(self):
         graph = self.load_fixture()
         graph["tensors"][2]["shape"] = [3]

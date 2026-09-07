@@ -29,6 +29,9 @@ def main() -> None:
     )
     parser.add_argument("--constant-parameter", action="append", default=[])
     parser.add_argument("--state-parameter", action="append", default=[])
+    parser.add_argument(
+        "--state-update", action="append", default=[], metavar="OUTPUT=STATE"
+    )
     args = parser.parse_args()
     try:
         source = json.loads(args.input.read_text(encoding="utf-8"))
@@ -50,11 +53,15 @@ def main() -> None:
             if not args.partitioned:
                 tvm_module = partition_for_opennpux(tvm_module)
             source = normalized_module_from_relax(tvm_module)
-        from opennpux_tvm_byoc.storage_policy import apply_parameter_storage
+        from opennpux_tvm_byoc.storage_policy import (
+            apply_parameter_storage,
+            apply_state_updates,
+        )
 
         apply_parameter_storage(
             source, args.constant_parameter, args.state_parameter
         )
+        apply_state_updates(source, args.state_update)
         if args.dump_byoc_module is not None:
             args.dump_byoc_module.write_text(
                 json.dumps(source, indent=2, sort_keys=True) + "\n",

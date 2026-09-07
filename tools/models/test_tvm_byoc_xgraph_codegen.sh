@@ -93,6 +93,8 @@ if [ -n "${TVM_HOME:-}" ]; then
         "${BUILD_DIR}/multi-region-model.json"
     "${TVM_PYTHON}" "${SCRIPT_DIR}/create_tvm_transformer_block.py" \
         "${BUILD_DIR}/transformer-block.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/create_tvm_stateful_transformer_block.py" \
+        "${BUILD_DIR}/stateful-transformer-block.json"
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
         "${BUILD_DIR}/transformer-block.json" \
         "${BUILD_DIR}/transformer-block.npxg" \
@@ -103,6 +105,14 @@ if [ -n "${TVM_HOME:-}" ]; then
         --constant-parameter norm_weight \
         --constant-parameter projection_weight \
         --dump-byoc-module "${BUILD_DIR}/transformer-block-module.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
+        "${BUILD_DIR}/stateful-transformer-block.json" \
+        "${BUILD_DIR}/stateful-transformer-module" \
+        --constant-parameter norm_weight \
+        --constant-parameter projection_weight \
+        --state-parameter recurrent_state \
+        --state-update output=recurrent_state \
+        --dump-byoc-module "${BUILD_DIR}/stateful-transformer-module.json"
     "${TVM_PYTHON}" - \
         "${BUILD_DIR}/transformer-block-module/module.npxgm.json" <<'PY'
 import json
@@ -117,6 +127,23 @@ assert region["constant_bindings"] == ["norm_weight", "projection_weight"]
 print("tvm_transformer_module_constants=2")
 print("tvm_transformer_invocation_bindings=2")
 print("tvm_transformer_storage_policy=PASS")
+PY
+    "${TVM_PYTHON}" - \
+        "${BUILD_DIR}/stateful-transformer-module/module.npxgm.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["region_count"] == 1
+region = manifest["regions"][0]
+assert region["command_count"] == 5
+assert region["invocation_bindings"] == ["hidden", "residual"]
+assert region["constant_bindings"] == ["norm_weight", "projection_weight"]
+assert region["state_bindings"] == ["recurrent_state"]
+assert len(manifest["state_updates"]) == 1
+print("tvm_stateful_transformer_commands=5")
+print("tvm_stateful_transformer_state_updates=1")
+print("tvm_stateful_transformer_storage_policy=PASS")
 PY
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
         "${BUILD_DIR}/multi-region-model.json" \
@@ -147,6 +174,17 @@ PY
         "${BUILD_DIR}/transformer-block.npxg.json" \
         "${ROOT_DIR}/tests/fixtures/models/tvm_transformer_block_values.json" \
         "${BUILD_DIR}/transformer-block.arena.bin"
+    STATEFUL_ARTIFACT="$("${TVM_PYTHON}" - \
+        "${BUILD_DIR}/stateful-transformer-module/module.npxgm.json" <<'PY'
+import json
+import sys
+print(json.load(open(sys.argv[1], encoding="utf-8"))["regions"][0]["artifact"])
+PY
+)"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/build_xgraph_tensor_image.py" \
+        "${BUILD_DIR}/stateful-transformer-module/${STATEFUL_ARTIFACT}.json" \
+        "${ROOT_DIR}/tests/fixtures/models/tvm_stateful_transformer_values.json" \
+        "${BUILD_DIR}/stateful-transformer.arena.bin"
     "${CC}" -std=c11 -Wall -Wextra -Werror -pedantic \
         -I"${ROOT_DIR}/runtime/host/include" \
         "${ROOT_DIR}/tests/unit/models/tvm_byoc_relax_e2e_test.c" \

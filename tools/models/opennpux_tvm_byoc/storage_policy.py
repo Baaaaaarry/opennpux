@@ -52,3 +52,47 @@ def apply_parameter_storage(
             "storage policy parameters were not found: "
             + ", ".join(sorted(missing))
         )
+
+
+def apply_state_updates(source: dict[str, Any], updates: list[str]) -> None:
+    """Attach explicit graph-output to persistent-state feedback edges."""
+    if not updates:
+        return
+    if source.get("format") != MODULE_FORMAT:
+        raise CodegenError("state updates require a normalized module")
+    regions = source.get("regions", [])
+
+    def resolve(selector: str, expected_storage: str) -> tuple[str, str]:
+        region_name, separator, tensor_name = selector.partition(".")
+        if not separator:
+            tensor_name = region_name
+            region_name = ""
+        matches = []
+        for region in regions:
+            name = region.get("name")
+            if region_name and name != region_name:
+                continue
+            for tensor in region.get("graph", {}).get("tensors", []):
+                if (tensor.get("name") == tensor_name and
+                        tensor.get("storage") == expected_storage):
+                    matches.append((name, tensor_name))
+        if len(matches) != 1:
+            raise CodegenError(
+                f"state update endpoint {selector} must resolve to exactly one "
+                f"{expected_storage} Tensor"
+            )
+        return matches[0]
+
+    records = source.setdefault("state_updates", [])
+    if not isinstance(records, list):
+        raise CodegenError("module state_updates must be an array")
+    for specification in updates:
+        output, separator, state = specification.partition("=")
+        if not separator or not output or not state:
+            raise CodegenError("state update must use OUTPUT=STATE syntax")
+        source_region, source_tensor = resolve(output, "output")
+        target_region, target_tensor = resolve(state, "state")
+        records.append({
+            "from": {"region": source_region, "tensor": source_tensor},
+            "to": {"region": target_region, "tensor": target_tensor},
+        })

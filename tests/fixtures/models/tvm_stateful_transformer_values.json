@@ -1,0 +1,7 @@
+{
+  "hidden": {"fill": 0.01},
+  "recurrent_state": {"fill": 0.05},
+  "norm_weight": {"fill": 1.0},
+  "projection_weight": {"repeat": [0.01, -0.01, 0.02, -0.02, 0.03, -0.03, 0.04, -0.04]},
+  "residual": {"fill": 0.1}
+}

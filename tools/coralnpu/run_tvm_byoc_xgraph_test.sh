@@ -13,10 +13,11 @@ TRANSFORMER_MODULE_DIR="${BUILD_DIR}/transformer-block-module"
 TRANSFORMER_MODULE_PACKAGE="${BUILD_DIR}/transformer-block.npxgm"
 TRANSFORMER_MODULE_INVOCATION="${BUILD_DIR}/transformer-block.npxmi"
 TRANSFORMER_EXPECTED="${BUILD_DIR}/transformer-block.expected.bin"
-STATE_MODULE_DIR="${BUILD_DIR}/stateful-module"
-STATE_MODULE_PACKAGE="${BUILD_DIR}/stateful-module.npxgm"
-STATE_MODULE_INVOCATION="${BUILD_DIR}/stateful-module.npxmi"
-STATE_EXPECTED="${BUILD_DIR}/stateful-module.expected.bin"
+STATE_MODULE_DIR="${BUILD_DIR}/stateful-transformer-module"
+STATE_MODULE_ARENA="${BUILD_DIR}/stateful-transformer.arena.bin"
+STATE_MODULE_PACKAGE="${BUILD_DIR}/stateful-transformer.npxgm"
+STATE_MODULE_INVOCATION="${BUILD_DIR}/stateful-transformer.npxmi"
+STATE_EXPECTED="${BUILD_DIR}/stateful-transformer.expected.bin"
 MODULE_DIR="${BUILD_DIR}/multi-region-module"
 MODULE_PACKAGE="${BUILD_DIR}/tvm-mixed-module.npxgm"
 MODULE_INVOCATION="${BUILD_DIR}/tvm-mixed-module.npxmi"
@@ -162,30 +163,63 @@ PY
     --arena "${TRANSFORMER_REGION}=${TRANSFORMER_ARENA}"
 STATE_REGION="$("${TVM_PYTHON:-python3}" - \
     "${STATE_MODULE_DIR}" \
-    "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_stateful_values.json" <<'PY'
+    "${STATE_MODULE_ARENA}" "${STATE_EXPECTED}" <<'PY'
 import json
+import math
 import struct
 import sys
 from pathlib import Path
 
 directory = Path(sys.argv[1])
-values_path = Path(sys.argv[2])
+arena_path = Path(sys.argv[2])
+expected_path = Path(sys.argv[3])
 manifest = json.load(open(directory / "module.npxgm.json", encoding="utf-8"))
 region = manifest["regions"][0]
 metadata_path = directory / f"{region['artifact']}.json"
 metadata = json.load(open(metadata_path, encoding="utf-8"))
-values = json.load(open(values_path, encoding="utf-8"))
 tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
-arena = bytearray(region["arena_size"])
-for name in ("token", "kv_state"):
+arena = arena_path.read_bytes()
+
+def read(name):
     tensor = tensors[name]
-    struct.pack_into("<2f", arena, tensor["offset"], *values[name])
-arena_path = directory / "decode.arena.bin"
-arena_path.write_bytes(arena)
-# state=[1,2], token=[2,3], two device-resident updates => [5,8].
-(directory.parent / "stateful-module.expected.bin").write_bytes(
-    struct.pack("<2f", 5.0, 8.0)
-)
+    count = tensor["byte_size"] // 4
+    return list(struct.unpack_from(f"<{count}f", arena, tensor["offset"]))
+
+def f32(value):
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+hidden = read("hidden")
+state = read("recurrent_state")
+norm_weight = read("norm_weight")
+weight = read("projection_weight")
+residual = read("residual")
+for _ in range(2):
+    normalized = []
+    for row in range(2):
+        values = hidden[row * 64:(row + 1) * 64]
+        mean_square = sum(value * value for value in values) / 64
+        scale = 1.0 / math.sqrt(mean_square + 1.0e-5)
+        normalized.extend(
+            f32(value * scale * norm_weight[column])
+            for column, value in enumerate(values)
+        )
+    projected = []
+    for row in range(2):
+        for column in range(64):
+            accumulator = 0.0
+            for inner in range(64):
+                accumulator = f32(
+                    accumulator
+                    + f32(normalized[row * 64 + inner]
+                          * weight[inner * 64 + column])
+                )
+            projected.append(accumulator)
+    state = [
+        f32(f32(projected[index] + state[index]) + residual[index])
+        for index in range(128)
+    ]
+    state = [f32(value / (1.0 + math.exp(-value))) for value in state]
+expected_path.write_bytes(struct.pack("<128f", *state))
 print(f"{region['name']}={arena_path}")
 PY
 )"
@@ -458,9 +492,9 @@ STATE_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
 }
 printf '%s\n' "\${STATE_OUTPUT}"
 OUTPUT="\${STATE_OUTPUT}"
-has_output_line 'xgraph_module_commands_completed=2' ||
+has_output_line 'xgraph_module_commands_completed=10' ||
     fail 'stateful module did not execute both decode steps'
-has_output_line 'xgraph_module_invocation_bindings=2' ||
+has_output_line 'xgraph_module_invocation_bindings=4' ||
     fail 'stateful module input bindings were not applied per step'
 has_output_line 'xgraph_module_invocations_completed=2' ||
     fail 'stateful module invocation count mismatch'
@@ -468,10 +502,10 @@ has_output_line 'xgraph_module_run=PASS' ||
     fail 'stateful module runtime PASS verdict missing'
 /tmp/coralctl tensor-compare-fp32 \
     /tmp/tvm-stateful-module.output.bin \
-    /tmp/tvm-stateful-module.expected.bin 0 ||
+    /tmp/tvm-stateful-module.expected.bin 0.00005 ||
     fail 'device-resident state was not preserved across decode steps'
 echo 'xgraph_module_state_updates=2'
-echo 'tvm_stateful_decode_sequence=PASS'
+echo 'tvm_stateful_transformer_decode=PASS'
 if OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-mixed-module-mismatch.npxmi \
     /tmp/coralctl xgraph-module-run \

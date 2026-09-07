@@ -19,7 +19,10 @@ from opennpux_tvm_byoc.module_runtime import (  # noqa: E402
     HostPipelineExecutor,
     ModuleRuntime,
 )
-from opennpux_tvm_byoc.storage_policy import apply_parameter_storage  # noqa: E402
+from opennpux_tvm_byoc.storage_policy import (  # noqa: E402
+    apply_parameter_storage,
+    apply_state_updates,
+)
 
 
 class XGraphModuleCodegenTest(unittest.TestCase):
@@ -150,6 +153,22 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         }]
         with self.assertRaisesRegex(CodegenError, "output storage to state storage"):
             compile_module(module)
+
+    def test_state_update_cli_policy_resolves_typed_endpoints(self):
+        module = self.load_fixture()
+        apply_parameter_storage(module, [], ["lhs"])
+        apply_state_updates(module, ["sum=lhs"])
+        update = module["state_updates"][0]
+        self.assertEqual(update["from"], {"region": "residual", "tensor": "sum"})
+        self.assertEqual(update["to"], {"region": "residual", "tensor": "lhs"})
+
+    def test_state_update_cli_policy_rejects_ambiguous_endpoint(self):
+        module = self.load_fixture()
+        apply_parameter_storage(module, [], ["lhs"])
+        module["regions"][0]["graph"]["tensors"][1]["name"] = "sum"
+        module["regions"][0]["graph"]["tensors"][1]["storage"] = "output"
+        with self.assertRaisesRegex(CodegenError, "exactly one output"):
+            apply_state_updates(module, ["sum=lhs"])
 
     def test_package_preserves_constants_and_invocation_omits_them(self):
         module = self.load_fixture()

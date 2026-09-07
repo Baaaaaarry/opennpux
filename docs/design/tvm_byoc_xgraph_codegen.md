@@ -198,9 +198,15 @@ still applied before their destination region in the same invocation.
 `.npxmi` files and executes them in one `coralctl` process. Region arenas are
 allocated once, constants remain resident, each request input is overlaid at
 the start of its step, and state updates remain available to the next step.
-The minimum stateful gate starts with `state=[1,2]` and `token=[2,3]`; two
-decode steps must produce `[5,8]` and report two applied input bindings, two
-completed commands, and `xgraph_module_invocations_completed=2`.
+The dependency-free ABI gate starts with `state=[1,2]` and `token=[2,3]` and
+requires two decode steps to produce `[5,8]`. The full TVM gate then generates
+a stateful Transformer block containing RMSNorm, MatMul, recurrent-state Add,
+residual Add, and SiLU. The CLI options `--state-parameter recurrent_state`
+and `--state-update output=recurrent_state` turn the Relax parameter and graph
+result into the persistent feedback contract. Two executions must report 10
+completed commands, four request-input bindings, two completed invocations,
+and 128 FP32 outputs matching an independent two-step reference within
+`5e-5`.
 
 The package and invocation also carry the same deterministic identity computed
 from canonical compiler-manifest JSON. The Guest rejects a mismatched identity

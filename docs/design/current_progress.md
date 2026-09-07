@@ -1511,8 +1511,10 @@ arena 持有。Guest 通过
 模块运行时进一步区分 constant、invocation input 与 mutable state 三类生命周期。
 `state_updates` 复用 module edge ABI 的状态标志，在一次 invocation 的全部 region 完成后才把
 graph output 回灌到持久 state arena。Guest 支持在同一 `coralctl` 进程内执行 `.npxmi` 序列；
-最小 decode 门禁连续执行两步，仅逐步覆盖 token input，要求 state 从 `[1,2]` 经两次 `[2,3]`
-更新得到 `[5,8]`，并检查 2 次 invocation、2 条命令和 2 次 input binding 均完成。
+dependency-free ABI 门禁连续执行两步，仅逐步覆盖 token input，要求 state 从 `[1,2]` 经两次
+`[2,3]` 更新得到 `[5,8]`。全系统门禁进一步改为 TVM Relax 生成的真实 Transformer decode
+子图，覆盖 RMSNorm、MatMul、recurrent-state Add、residual Add 和 SiLU；两轮执行必须完成 10 条
+命令、4 次 request-input binding、2 次 invocation，并将 128 个 FP32 结果与独立两步参考比较。
 
 端到端协议增加确定性的 module identity：基础 `.npxgm` 与 `.npxmi` 都保存由 canonical
 compiler manifest 计算的 32-bit identity，Guest 必须匹配后才能应用任何 binding。全系统负向

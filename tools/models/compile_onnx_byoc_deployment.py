@@ -106,12 +106,39 @@ def main() -> None:
         if args.lowering_library:
             command.extend(["--lowering-library", args.lowering_library])
         run(command)
+        module_manifest = load_object(
+            args.output / "deployment/compiled/module.npxgm.json"
+        )
+        host_operations = sum(
+            len(binding.get("pipeline", []))
+            for binding in module_manifest.get("host_bindings", [])
+            if isinstance(binding, dict)
+        )
+        onnx_operators = {}
+        for node in model.graph.node:
+            onnx_operators[node.op_type] = onnx_operators.get(node.op_type, 0) + 1
+        audit = {
+            "format": "OPENNPUX_TVM_ONNX_PARTITION_AUDIT_V1",
+            "onnx_nodes": len(model.graph.node),
+            "onnx_operators": onnx_operators,
+            "npu_regions": module_manifest["region_count"],
+            "npu_commands": module_manifest["total_commands"],
+            "host_bindings": len(module_manifest.get("host_bindings", [])),
+            "host_operations": host_operations,
+        }
+        (args.output / "partition-audit.json").write_text(
+            json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
     except (ImportError, OSError, KeyError, TypeError, ValueError) as error:
         print(f"onnx_byoc_deployment=FAIL: {error}", file=sys.stderr)
         raise SystemExit(1) from error
     print(f"onnx_byoc_constants={len(constant_names)}")
     print(f"onnx_byoc_invocations={len(invocations)}")
+    print(f"onnx_byoc_npu_regions={audit['npu_regions']}")
+    print(f"onnx_byoc_npu_commands={audit['npu_commands']}")
+    print(f"onnx_byoc_host_operations={audit['host_operations']}")
     print(f"onnx_byoc_module={args.output / 'deployment/model.npxgm'}")
+    print("onnx_byoc_partition_audit=PASS")
     print("onnx_byoc_deployment=PASS")
 
 

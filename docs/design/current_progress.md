@@ -1658,3 +1658,8 @@ ONNX `MatMul -> Add` 图把 `state` 输入通过部署策略标记为 module-res
 设备输出，不由 CPU 重传 state。预期统计为 4 device commands、2 invocations、2 state updates，
 最终输出与 `initial_state + 2 * projected_token` 的独立 FP32 reference 比较，验收标志为
 `tvm_onnx_stateful_decode=PASS`。
+
+为避免最终旧 `tvm_byoc_xgraph=PASS` 掩盖前端子门禁未执行，ONNX 编译入口新增
+`partition-audit.json`，记录 ONNX operator、NPU region/command 和 Host binding/operation 数量；
+系统脚本仅在异构 ONNX 与 stateful decode 都通过后输出
+`tvm_frontend_to_xopennpux=PASS`，并把该标志设为 gem5 Guest 必须出现的验收 verdict。

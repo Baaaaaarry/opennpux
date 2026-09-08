@@ -738,3 +738,10 @@ round trip. The gate requires four completed device commands, two completed
 invocations, two state updates, and an independent comparison against
 `initial_state + 2 * projected_token`. Its verdict is
 `tvm_onnx_stateful_decode=PASS`.
+
+Every ONNX deployment writes `partition-audit.json`. It records source ONNX
+operator counts and the resulting NPU region, XGraph command, Host binding,
+and Host operation counts. The system test only emits the aggregate
+`tvm_frontend_to_xopennpux=PASS` after both the heterogeneous ONNX graph and
+stateful decode graph have passed, so a legacy XGraph-only verdict cannot mask
+a skipped frontend gate.

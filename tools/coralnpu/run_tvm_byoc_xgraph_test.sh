@@ -1031,6 +1031,8 @@ echo 'xgraph_module_reused_invocations=2'
 echo 'xgraph_module_reuse=PASS'
 echo 'xgraph_module_chain=PASS'
 echo 'tvm_onnx_relax_byoc_xgraph=PASS'
+echo 'tvm_onnx_stateful_decode=PASS'
+echo 'tvm_frontend_to_xopennpux=PASS'
 echo 'tvm_byoc_xgraph=PASS'
 echo '[tvm-byoc-xgraph] PASS'
 command -v m5 >/dev/null 2>&1 && m5 --inst exit
@@ -1042,7 +1044,7 @@ CORAL_NPU_LAUNCH_TEST_SCRIPT="${TEST_SCRIPT}" \
 CORAL_NPU_LAUNCH_HOST_LOG="${HOST_LOG}" \
 CORAL_NPU_LAUNCH_DEBUG_LOG="${DEBUG_LOG}" \
 CORAL_NPU_LAUNCH_XOPENNPUX=1 \
-CORAL_NPU_LAUNCH_EXPECTED_GUEST_VERDICT="tvm_byoc_xgraph=PASS" \
+CORAL_NPU_LAUNCH_EXPECTED_GUEST_VERDICT="tvm_frontend_to_xopennpux=PASS" \
 CORAL_NPU_LAUNCH_EXPECTED_XOPENNPUX_OPS="tmma tadd trmsnorm tsilu tsoftmax tattention" \
     "${ROOT_DIR}/tools/coralnpu/run_npu_launch_test.sh"
 

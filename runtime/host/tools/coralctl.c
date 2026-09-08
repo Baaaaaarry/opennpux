@@ -2752,7 +2752,8 @@ print_xgraph_module_run(struct opennpux_coral_device *dev, uint32_t entry,
             const struct opennpux_tvm_module_edge *edge = &edges[index];
             const uint32_t mode =
                 edge->reserved & OPENNPUX_TVM_MODULE_EDGE_MODE_MASK;
-            if ((mode == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE ||
+            if ((mode == OPENNPUX_TVM_MODULE_EDGE_DIRECT ||
+                 mode == OPENNPUX_TVM_MODULE_EDGE_STATE_UPDATE ||
                  mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND ||
                  mode == OPENNPUX_TVM_MODULE_EDGE_STATE_APPEND_PLANAR2) &&
                 edge->from_region == region_index) {

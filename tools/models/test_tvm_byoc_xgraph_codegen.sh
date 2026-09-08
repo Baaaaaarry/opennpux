@@ -153,6 +153,23 @@ if [ -n "${TVM_HOME:-}" ]; then
     export DYLD_LIBRARY_PATH="${TVM_BUILD_DIR}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
     "${TVM_PYTHON}" "${SCRIPT_DIR}/create_tvm_byoc_relax_e2e.py" \
         "${BUILD_DIR}/relax-model.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/create_onnx_projection_residual.py" \
+        "${BUILD_DIR}/projection-residual.onnx" \
+        "${BUILD_DIR}/projection-residual.deployment.json" \
+        "${BUILD_DIR}/projection-residual.expected.bin"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/import_onnx_to_relax.py" \
+        "${BUILD_DIR}/projection-residual.onnx" \
+        "${BUILD_DIR}/projection-residual.relax.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_deployment.py" \
+        "${BUILD_DIR}/projection-residual.relax.json" \
+        "${BUILD_DIR}/projection-residual.deployment.json" \
+        "${BUILD_DIR}/projection-residual-deployment" \
+        --lowering-library "${LOWERING_LIB}"
+    [ -f "${BUILD_DIR}/projection-residual-deployment/model.npxgm" ] &&
+        [ -f "${BUILD_DIR}/projection-residual-deployment/request-000.npxmi" ] || {
+        echo "ONNX Relax deployment generation: FAIL" >&2
+        exit 1
+    }
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
         "${BUILD_DIR}/relax-model.json" "${BUILD_DIR}/relax-model.npxg" \
         --dump-byoc-graph "${BUILD_DIR}/relax-model.byoc.json"

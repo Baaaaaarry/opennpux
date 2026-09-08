@@ -14,6 +14,10 @@ TRANSFORMER_DEPLOYMENT_DIR="${BUILD_DIR}/transformer-deployment"
 TRANSFORMER_MODULE_PACKAGE="${TRANSFORMER_DEPLOYMENT_DIR}/model.npxgm"
 TRANSFORMER_MODULE_INVOCATION="${TRANSFORMER_DEPLOYMENT_DIR}/decode-000.npxmi"
 TRANSFORMER_EXPECTED="${BUILD_DIR}/transformer-block.expected.bin"
+ONNX_DEPLOYMENT_DIR="${BUILD_DIR}/projection-residual-deployment"
+ONNX_MODULE_PACKAGE="${ONNX_DEPLOYMENT_DIR}/model.npxgm"
+ONNX_MODULE_INVOCATION="${ONNX_DEPLOYMENT_DIR}/request-000.npxmi"
+ONNX_EXPECTED="${BUILD_DIR}/projection-residual.expected.bin"
 STATE_MODULE_DIR="${BUILD_DIR}/stateful-transformer-module"
 STATE_MODULE_ARENA="${BUILD_DIR}/stateful-transformer.arena.bin"
 STATE_MODULE_PACKAGE="${BUILD_DIR}/stateful-transformer.npxgm"
@@ -415,6 +419,11 @@ PY
     echo "error: Transformer module package was not generated" >&2
     exit 1
 }
+[ -f "${ONNX_MODULE_PACKAGE}" ] && [ -f "${ONNX_MODULE_INVOCATION}" ] &&
+    [ -f "${ONNX_EXPECTED}" ] || {
+    echo "error: ONNX frontend deployment was not generated" >&2
+    exit 1
+}
 [ -f "${STATE_MODULE_PACKAGE}" ] && [ -f "${STATE_MODULE_INVOCATION}" ] &&
     [ -f "${STATE_EXPECTED}" ] || {
     echo "error: stateful module package was not generated" >&2
@@ -547,6 +556,21 @@ EOF
 base64 "${TRANSFORMER_EXPECTED}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_TRANSFORMER_EXPECTED_EOF
+decode_base64 >/tmp/tvm-onnx-projection.npxgm <<'OPENNPUX_TVM_ONNX_MODULE_EOF'
+EOF
+base64 "${ONNX_MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ONNX_MODULE_EOF
+decode_base64 >/tmp/tvm-onnx-projection.npxmi <<'OPENNPUX_TVM_ONNX_INVOCATION_EOF'
+EOF
+base64 "${ONNX_MODULE_INVOCATION}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ONNX_INVOCATION_EOF
+decode_base64 >/tmp/tvm-onnx-projection.expected.bin <<'OPENNPUX_TVM_ONNX_EXPECTED_EOF'
+EOF
+base64 "${ONNX_EXPECTED}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_ONNX_EXPECTED_EOF
 decode_base64 >/tmp/tvm-stateful-module.npxgm <<'OPENNPUX_TVM_STATE_MODULE_EOF'
 EOF
 base64 "${STATE_MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
@@ -726,6 +750,29 @@ has_output_line 'xgraph_module_run=PASS' ||
     /tmp/tvm-transformer-block.expected.bin 0.00005 ||
     fail 'Transformer module output differs from independent reference'
 echo 'tvm_transformer_module_storage=PASS'
+ONNX_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-onnx-projection.output.bin \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_PATH=/tmp/tvm-onnx-projection.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-onnx-projection.npxgm \
+    0x1d000000 1000000)" || {
+    printf '%s\n' "\${ONNX_OUTPUT}"
+    fail 'ONNX frontend module execution failed'
+}
+printf '%s\n' "\${ONNX_OUTPUT}"
+OUTPUT="\${ONNX_OUTPUT}"
+has_output_line 'xgraph_module_regions_completed=1' ||
+    fail 'ONNX frontend module region count mismatch'
+has_output_line 'xgraph_module_commands_completed=2' ||
+    fail 'ONNX frontend module command count mismatch'
+has_output_line 'xgraph_module_invocation_bindings=2' ||
+    fail 'ONNX frontend invocation binding count mismatch'
+has_output_line 'xgraph_module_run=PASS' ||
+    fail 'ONNX frontend module runtime PASS verdict missing'
+/tmp/coralctl tensor-compare-fp32 \
+    /tmp/tvm-onnx-projection.output.bin \
+    /tmp/tvm-onnx-projection.expected.bin 0.00001 ||
+    fail 'ONNX frontend output differs from independent reference'
+echo 'tvm_onnx_relax_byoc_xgraph=PASS'
 STATE_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-stateful-module.output.bin \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE=/tmp/tvm-stateful-module.npxmi:/tmp/tvm-stateful-module.npxmi \

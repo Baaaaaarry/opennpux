@@ -1631,3 +1631,10 @@ edge Tensor，再复制到 consumer arena；修复后完整输出包含
 Python 语法、Shell 语法和 C artifact ABI 回归通过；GB10 下一次验收必须同时出现
 `tvm_transformer_deployment=PASS`、`tvm_transformer_block_xgraph=PASS` 和最终
 `tvm_byoc_xgraph=PASS`，以确认 Relax 前端输出到 XOpenNPUX Modeling 的连续路径。
+
+下一增量增加标准 ONNX 文件入口，而不是继续用 Python 手工构造 Relax。新增
+`import_onnx_to_relax.py` 调用 TVM 公共 ONNX frontend，保留权重为 Relax 参数并输出可审计
+signature；storage policy 随后把 initializer 分类为 `.npxgm` 常量，把请求输入分类为 `.npxmi`
+binding。系统门禁新增 ONNX `MatMul -> Add` 投影残差图，要求从 ONNX、Relax、BYOC、XGraph、
+driver 到 XOpenNPUX modeling 连续执行，并以独立 FP32 reference 验证输出。目标 verdict 为
+`tvm_onnx_relax_byoc_xgraph=PASS`；该增量验证文件前端接通，不代表任意 ONNX/LLM 算子覆盖完成。

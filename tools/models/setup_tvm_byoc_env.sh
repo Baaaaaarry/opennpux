@@ -78,7 +78,7 @@ fi
 CMAKE_PREFIX_PATH="${TVM_BUILD_DIR}" \
     "${TVM_VENV}/bin/python" -m pip install -e "${TVM_HOME}/3rdparty/tvm-ffi"
 "${TVM_VENV}/bin/python" -m pip install \
-    numpy cloudpickle psutil scipy tornado typing_extensions pytest
+    numpy onnx cloudpickle psutil scipy tornado typing_extensions pytest
 
 cat >"${TVM_ROOT}/env.sh" <<EOF
 export TVM_HOME="${TVM_HOME}"

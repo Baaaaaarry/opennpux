@@ -668,3 +668,38 @@ The Transformer full-system gate now consumes `model.npxgm` and
 same package and invocation in the Coral test script. Therefore its Guest
 verdict covers one continuous path from a Relax frontend IRModule through BYOC
 and OpenNPUX code generation to XOpenNPUX device execution.
+
+## ONNX frontend boundary
+
+`import_onnx_to_relax.py` is the first file-based model frontend. It validates a
+standard ONNX model, imports it with TVM's public Relax ONNX frontend while
+keeping weights as function parameters, canonicalizes the IRModule, and writes
+both TVM IR JSON and an auditable input signature. It has no OpenNPUX operator
+or Qwen-specific rewrite rules.
+
+The storage policy is intentionally applied after import. ONNX initializers
+such as projection weights become module-resident constants in `.npxgm`, while
+request data becomes invocation bindings in `.npxmi`. This separation keeps
+the same compiled module reusable and leaves future large-model weight paging
+behind the existing module storage interface.
+
+The system gate uses a standard ONNX `MatMul -> Add` projection-residual graph
+and requires this complete path:
+
+```text
+ONNX model
+  -> TVM Relax IRModule
+  -> BYOC pattern partition
+  -> normalized OpenNPUX regions
+  -> XGraph commands
+  -> .npxgm module + .npxmi invocation
+  -> Linux driver submission
+  -> XOpenNPUX modeling
+  -> device output readback
+  -> independent FP32 comparison
+```
+
+Its required final verdict is `tvm_onnx_relax_byoc_xgraph=PASS`. This gate
+proves a real frontend file reaches the device model; it does not yet claim
+coverage for arbitrary ONNX operators, dynamic shapes, control flow, or full
+LLM model families.

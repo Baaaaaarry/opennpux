@@ -1,0 +1,32 @@
+{
+  "constant_parameters": [
+    "norm_weight",
+    "projection_weight"
+  ],
+  "format": "OPENNPUX_TVM_BYOC_DEPLOYMENT_V1",
+  "invocations": [
+    {
+      "name": "decode-000",
+      "scalars": {},
+      "values": {
+        "hidden": {
+          "repeat": [-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, -2.0]
+        },
+        "residual": {
+          "repeat": [0.25, -0.5, 0.75, -1.0]
+        }
+      }
+    }
+  ],
+  "module_values": {
+    "norm_weight": {
+      "fill": 1.0
+    },
+    "projection_weight": {
+      "repeat": [0.01, -0.02, 0.03, -0.04, 0.05, -0.06, 0.07, -0.08]
+    }
+  },
+  "state_appends": [],
+  "state_parameters": [],
+  "state_updates": []
+}

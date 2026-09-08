@@ -10,8 +10,9 @@ ARENA="${BUILD_DIR}/relax-model.arena.bin"
 TRANSFORMER_GRAPH="${BUILD_DIR}/transformer-block.npxg"
 TRANSFORMER_ARENA="${BUILD_DIR}/transformer-block.arena.bin"
 TRANSFORMER_MODULE_DIR="${BUILD_DIR}/transformer-block-module"
-TRANSFORMER_MODULE_PACKAGE="${BUILD_DIR}/transformer-block.npxgm"
-TRANSFORMER_MODULE_INVOCATION="${BUILD_DIR}/transformer-block.npxmi"
+TRANSFORMER_DEPLOYMENT_DIR="${BUILD_DIR}/transformer-deployment"
+TRANSFORMER_MODULE_PACKAGE="${TRANSFORMER_DEPLOYMENT_DIR}/model.npxgm"
+TRANSFORMER_MODULE_INVOCATION="${TRANSFORMER_DEPLOYMENT_DIR}/decode-000.npxmi"
 TRANSFORMER_EXPECTED="${BUILD_DIR}/transformer-block.expected.bin"
 STATE_MODULE_DIR="${BUILD_DIR}/stateful-transformer-module"
 STATE_MODULE_ARENA="${BUILD_DIR}/stateful-transformer.arena.bin"
@@ -177,11 +178,6 @@ expected_path.write_bytes(arena[begin:begin + output["byte_size"]])
 print(region["name"])
 PY
 )"
-"${TVM_PYTHON:-python3}" \
-    "${ROOT_DIR}/tools/models/build_tvm_byoc_module_package.py" \
-    "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_PACKAGE}" \
-    --clear-external-bindings \
-    --arena "${TRANSFORMER_REGION}=${TRANSFORMER_ARENA}"
 STATE_REGION="$("${TVM_PYTHON:-python3}" - \
     "${STATE_MODULE_DIR}" \
     "${STATE_MODULE_ARENA}" "${STATE_EXPECTED}" <<'PY'
@@ -400,10 +396,6 @@ PY
     --arena "qkv_projection=${KV_ATTENTION_MODULE_DIR}/qkv-step2.arena.bin" \
     --arena "attention=${KV_ATTENTION_MODULE_DIR}/attention-step2.arena.bin" \
     --scalar kv_length=2
-"${TVM_PYTHON:-python3}" \
-    "${ROOT_DIR}/tools/models/build_tvm_byoc_invocation.py" \
-    "${TRANSFORMER_MODULE_DIR}" "${TRANSFORMER_MODULE_INVOCATION}" \
-    --arena "${TRANSFORMER_REGION}=${TRANSFORMER_ARENA}"
 "${TVM_PYTHON:-python3}" - "${MODULE_INVOCATION}" "${MODULE_MISMATCH}" <<'PY'
 import sys
 

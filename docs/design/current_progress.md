@@ -1619,3 +1619,15 @@ edge Tensor，再复制到 consumer arena；修复后完整输出包含
 `tvm_kv_append_attention_sequence=PASS`、`xgraph_module_chain=PASS` 和
 `tvm_byoc_xgraph=PASS`。基础 Transformer module 仍为 4 commands，12 commands 仅属于
 两步 QKV projection -> KV pack -> Attention 序列，两个门禁的统计不得混用。
+
+前端到部署产物的编排进一步收敛为模型无关
+`compile_tvm_byoc_deployment.py`。该入口接收 TVM Relax IRModule JSON 与版本化 deployment
+描述，一次完成 BYOC 分区、region/module 编译、constant/state arena 初始化、可复用 `.npxgm`
+打包和一个或多个 `.npxmi` invocation 生成。编译器严格要求所有声明的 constant、初始 state
+和 invocation input 都有值，缺失时在设备提交前失败，避免零权重或零输入假通过。
+
+现有 4-command Transformer system gate 已切换为直接使用统一入口生成的
+`model.npxgm` 和 `decode-000.npxmi`，Coral 测试脚本不再手工重建这两个产物。本地 38 项测试、
+Python 语法、Shell 语法和 C artifact ABI 回归通过；GB10 下一次验收必须同时出现
+`tvm_transformer_deployment=PASS`、`tvm_transformer_block_xgraph=PASS` 和最终
+`tvm_byoc_xgraph=PASS`，以确认 Relax 前端输出到 XOpenNPUX Modeling 的连续路径。

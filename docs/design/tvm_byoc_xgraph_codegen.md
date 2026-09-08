@@ -636,3 +636,35 @@ query to Attention, produced uniform probabilities, and returned 5 instead of
 the independent reference value 3.30238461. Direct edges and state-update
 edges now share the same producer readback rule before their distinct publish
 operations.
+
+## Unified deployment compiler
+
+`compile_tvm_byoc_deployment.py` is the model-independent deployment entry
+point above the existing region and module compilers. It accepts either a TVM
+Relax IRModule JSON or the normalized module boundary plus a versioned
+deployment description. In one invocation it performs BYOC partitioning,
+region extraction, storage-policy assignment, XGraph lowering, reusable module
+packaging, and dynamic invocation generation.
+
+The deployment description separates immutable module values from per-request
+values and command scalars. Constants and initial state are required in
+`module_values`; every declared invocation input is required in its invocation
+`values`. Missing values fail compilation instead of silently generating zero
+weights or inputs. Produced Tensors and inter-region inputs remain compiler and
+runtime managed.
+
+The output directory contains:
+
+```text
+compiled/                 inspectable region artifacts and metadata
+model.npxgm               reusable Guest module package
+INVOCATION.npxmi          one checked dynamic request package
+deployment.json           region/command/invocation deployment summary
+arenas/                   auditable intermediate Tensor images
+```
+
+The Transformer full-system gate now consumes `model.npxgm` and
+`decode-000.npxmi` produced by this entry point. It no longer reconstructs the
+same package and invocation in the Coral test script. Therefore its Guest
+verdict covers one continuous path from a Relax frontend IRModule through BYOC
+and OpenNPUX code generation to XOpenNPUX device execution.

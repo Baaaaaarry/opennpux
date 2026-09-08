@@ -24,7 +24,7 @@ fi
 export OPENNPUX_XGRAPH_LOWERING_LIB="${LOWERING_LIB}"
 "${PYTHON}" -m unittest discover \
     -s "${ROOT_DIR}/tests/unit/models" \
-    -p 'test_tvm_byoc*_codegen.py'
+    -p 'test_tvm_byoc*.py'
 "${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
     "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_basic.json" \
     "${BUILD_DIR}/basic.npxg"
@@ -172,6 +172,16 @@ if [ -n "${TVM_HOME:-}" ]; then
         --constant-parameter norm_weight \
         --constant-parameter projection_weight \
         --dump-byoc-module "${BUILD_DIR}/transformer-block-module.json"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_deployment.py" \
+        "${BUILD_DIR}/transformer-block.json" \
+        "${ROOT_DIR}/tests/fixtures/models/tvm_transformer_deployment.json" \
+        "${BUILD_DIR}/transformer-deployment" \
+        --lowering-library "${LOWERING_LIB}"
+    [ -f "${BUILD_DIR}/transformer-deployment/model.npxgm" ] &&
+        [ -f "${BUILD_DIR}/transformer-deployment/decode-000.npxmi" ] || {
+        echo "TVM Transformer deployment generation: FAIL" >&2
+        exit 1
+    }
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
         "${BUILD_DIR}/stateful-transformer-block.json" \
         "${BUILD_DIR}/stateful-transformer-module" \
@@ -198,6 +208,20 @@ assert region["constant_bindings"] == ["norm_weight", "projection_weight"]
 print("tvm_transformer_module_constants=2")
 print("tvm_transformer_invocation_bindings=2")
 print("tvm_transformer_storage_policy=PASS")
+PY
+    "${TVM_PYTHON}" - \
+        "${BUILD_DIR}/transformer-deployment/deployment.json" <<'PY'
+import json
+import sys
+
+deployment = json.load(open(sys.argv[1], encoding="utf-8"))
+assert deployment["region_count"] == 1
+assert deployment["command_count"] == 4
+assert deployment["invocations"] == [{
+    "artifact": "decode-000.npxmi",
+    "name": "decode-000",
+}]
+print("tvm_transformer_deployment=PASS")
 PY
     "${TVM_PYTHON}" - \
         "${BUILD_DIR}/stateful-transformer-module/module.npxgm.json" <<'PY'

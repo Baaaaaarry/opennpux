@@ -760,10 +760,12 @@ ONNX_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
 }
 printf '%s\n' "\${ONNX_OUTPUT}"
 OUTPUT="\${ONNX_OUTPUT}"
-has_output_line 'xgraph_module_regions_completed=1' ||
+has_output_line 'xgraph_module_regions_completed=2' ||
     fail 'ONNX frontend module region count mismatch'
 has_output_line 'xgraph_module_commands_completed=2' ||
     fail 'ONNX frontend module command count mismatch'
+has_output_line 'xgraph_module_host_operations_completed=1' ||
+    fail 'ONNX frontend Host partition was not executed'
 has_output_line 'xgraph_module_invocation_bindings=2' ||
     fail 'ONNX frontend invocation binding count mismatch'
 has_output_line 'xgraph_module_run=PASS' ||
@@ -975,6 +977,7 @@ fi
 echo 'xgraph_module_reused_invocations=2'
 echo 'xgraph_module_reuse=PASS'
 echo 'xgraph_module_chain=PASS'
+echo 'tvm_onnx_relax_byoc_xgraph=PASS'
 echo 'tvm_byoc_xgraph=PASS'
 echo '[tvm-byoc-xgraph] PASS'
 command -v m5 >/dev/null 2>&1 && m5 --inst exit

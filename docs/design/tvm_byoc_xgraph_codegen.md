@@ -683,7 +683,8 @@ request data becomes invocation bindings in `.npxmi`. This separation keeps
 the same compiled module reusable and leaves future large-model weight paging
 behind the existing module storage interface.
 
-The system gate uses a standard ONNX `MatMul -> Add` projection-residual graph
+The system gate uses a standard ONNX
+`MatMul -> ReLU (Host) -> Add` projection-residual graph
 and requires this complete path:
 
 ```text
@@ -703,6 +704,15 @@ Its required final verdict is `tvm_onnx_relax_byoc_xgraph=PASS`. This gate
 proves a real frontend file reaches the device model; it does not yet claim
 coverage for arbitrary ONNX operators, dynamic shapes, control flow, or full
 LLM model families.
+
+`ReLU` is intentionally excluded from the OpenNPUX pattern table in this gate.
+TVM must therefore form two accelerator regions around one Host operation. The
+module runtime reads back the first region output, executes ReLU on the CPU,
+binds that Tensor to the second region, and returns to XOpenNPUX for Add. The
+gate requires two completed regions, two device commands, one Host operation,
+and an exact independent output comparison. This proves partitioning and the
+heterogeneous Tensor boundary from a real model file rather than only proving
+a fully supported single-region graph.
 
 `compile_onnx_byoc_deployment.py` removes the remaining hand-authored weight
 step. Its inputs are `model.onnx` and a request description containing runtime

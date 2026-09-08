@@ -23,14 +23,15 @@ def main() -> None:
     residual = np.arange(16, dtype=np.float32).reshape(2, 8) / 16.0
     weight = np.eye(8, dtype=np.float32) * 1.5
     weight += np.fliplr(np.eye(8, dtype=np.float32)) * 0.25
-    expected = hidden @ weight + residual
+    expected = np.maximum(hidden @ weight, 0.0) + residual
 
     graph = helper.make_graph(
         [
             helper.make_node("MatMul", ["hidden", "projection_weight"], ["projected"]),
-            helper.make_node("Add", ["projected", "residual"], ["output"]),
+            helper.make_node("Relu", ["projected"], ["activated"]),
+            helper.make_node("Add", ["activated", "residual"], ["output"]),
         ],
-        "opennpux_projection_residual",
+        "opennpux_projection_host_relu_residual",
         [
             helper.make_tensor_value_info("hidden", TensorProto.FLOAT, [2, 8]),
             helper.make_tensor_value_info("residual", TensorProto.FLOAT, [2, 8]),

@@ -1645,3 +1645,9 @@ JSON 的限制：新增 `compile_onnx_byoc_deployment.py`，输入仅为标准 `
 Relax/BYOC/XGraph/`.npxgm`/`.npxmi` 链路。Tensor arena 新增严格 binary source 支持，字节数不符
 立即拒绝，避免大模型权重被低效展开为 JSON 数组。下一次 GB10 门禁应额外出现
 `onnx_byoc_deployment=PASS` 与 `tvm_onnx_relax_byoc_xgraph=PASS`。
+
+ONNX 系统门禁进一步从全卸载 `MatMul -> Add` 改为异构
+`MatMul -> ReLU(Host) -> Add`。ReLU 故意不加入 OpenNPUX pattern，要求 TVM 自动形成两个 NPU
+region；module runtime 必须完成第一段输出回读、CPU ReLU、第二段输入绑定并重新提交 NPU。
+验收统计固定为 2 regions、2 device commands、1 Host operation，并继续与独立 FP32 reference
+比较。这关闭了真实模型文件经过 BYOC 部分卸载和 CPU/NPU Tensor 边界的功能路径。

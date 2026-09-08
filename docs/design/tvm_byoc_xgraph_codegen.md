@@ -749,11 +749,22 @@ QK^T MatMul -> Softmax -> PV MatMul -> Residual Add
 The current TMMA contract flattens the higher-rank left operand into rows and
 requires a rank-2 right operand, so this first gate uses one static batch with
 explicit `[K,N]` K-transpose and V constants. TVM must lower the graph to
-`TMMA -> TSOFTMAX -> TMMA -> TADD`, complete four device commands, and match an
+`TDMA reshape -> TMMA -> TSOFTMAX -> TMMA -> TADD`, complete five device
+commands, and match an
 independent NumPy softmax/attention result. The gate deliberately does not use
 an `opennpux.attention` frontend operator; it proves standard model operations
 can reach the instruction-level backend. Its verdict is
 `tvm_onnx_attention_block=PASS`.
+
+Static `relax.reshape` is a layout-preserving legalization rather than a new
+compute instruction. The current backend materializes it as one TDMA copy and
+requires equal source/destination dtype and byte size. This keeps separate
+Tensor arena allocations correct and makes movement cost visible; a future
+buffer-alias analysis may remove the copy. ONNX shape initializers consumed by
+TVM during import are recorded as folded compile-time inputs and are not
+incorrectly packaged as device constants. The attention gate now starts from
+`query_flat[2,4]` plus an ONNX int64 shape initializer instead of requiring the
+frontend to supply a pre-shaped `[1,2,4]` Tensor.
 
 Every ONNX deployment writes `partition-audit.json`. It records source ONNX
 operator counts and the resulting NPU region, XGraph command, Host binding,

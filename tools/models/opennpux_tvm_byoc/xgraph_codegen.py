@@ -57,6 +57,8 @@ OP_ALIASES = {
     "relax.nn.silu": "silu",
     "take": "take",
     "relax.take": "take",
+    "reshape": "copy",
+    "relax.reshape": "copy",
     "topk": "topk",
     "relax.topk": "topk",
     "rope": "rope",
@@ -597,8 +599,8 @@ def _lower_node(
     output_names = _expect_count(outputs, 1, "outputs", node_index)
     source = _tensor(tensors, names[0], node_index)
     output = _tensor(tensors, output_names[0], node_index)
-    if source.shape != output.shape or source.dtype != output.dtype:
-        raise CodegenError("copy input/output tensor types must match")
+    if source.byte_size != output.byte_size or source.dtype != output.dtype:
+        raise CodegenError("copy input/output tensor byte sizes and dtypes must match")
     return [CommandRecord(
         OP_TDMA,
         0,

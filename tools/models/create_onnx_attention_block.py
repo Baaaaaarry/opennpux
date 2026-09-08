@@ -38,6 +38,7 @@ def main() -> None:
 
     graph = helper.make_graph(
         [
+            helper.make_node("Reshape", ["query_flat", "query_shape"], ["query"]),
             helper.make_node("MatMul", ["query", "key_transposed"], ["scores"]),
             helper.make_node("Softmax", ["scores"], ["probabilities"], axis=-1),
             helper.make_node("MatMul", ["probabilities", "value"], ["context"]),
@@ -45,11 +46,12 @@ def main() -> None:
         ],
         "opennpux_decomposed_attention",
         [
-            helper.make_tensor_value_info("query", TensorProto.FLOAT, [1, 2, 4]),
+            helper.make_tensor_value_info("query_flat", TensorProto.FLOAT, [2, 4]),
             helper.make_tensor_value_info("residual", TensorProto.FLOAT, [1, 2, 4]),
         ],
         [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 2, 4])],
         [
+            numpy_helper.from_array(np.array([1, 2, 4], dtype=np.int64), "query_shape"),
             numpy_helper.from_array(key_transposed, "key_transposed"),
             numpy_helper.from_array(value, "value"),
         ],
@@ -70,7 +72,7 @@ def main() -> None:
         "invocations": [{
             "name": "prefill-000",
             "values": {
-                "query": query.reshape(-1).tolist(),
+                "query_flat": query.reshape(-1).tolist(),
                 "residual": residual.reshape(-1).tolist(),
             },
             "scalars": {},

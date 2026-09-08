@@ -63,13 +63,13 @@ def main() -> None:
         model = onnx.load(str(args.model), load_external_data=True)
         constant_values = {}
         constant_names = []
+        folded_initializers = []
         constants_dir = args.output / "constants"
         constants_dir.mkdir(exist_ok=True)
         for index, initializer in enumerate(model.graph.initializer):
             if initializer.name not in parameter_names:
-                raise ValueError(
-                    f"ONNX initializer {initializer.name} was not preserved as a Relax parameter"
-                )
+                folded_initializers.append(initializer.name)
+                continue
             array = np.asarray(numpy_helper.to_array(initializer))
             if array.dtype not in (np.dtype("float32"), np.dtype("int32")):
                 raise ValueError(
@@ -125,6 +125,7 @@ def main() -> None:
             "npu_commands": module_manifest["total_commands"],
             "host_bindings": len(module_manifest.get("host_bindings", [])),
             "host_operations": host_operations,
+            "folded_initializers": folded_initializers,
         }
         (args.output / "partition-audit.json").write_text(
             json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -133,6 +134,7 @@ def main() -> None:
         print(f"onnx_byoc_deployment=FAIL: {error}", file=sys.stderr)
         raise SystemExit(1) from error
     print(f"onnx_byoc_constants={len(constant_names)}")
+    print(f"onnx_byoc_folded_initializers={len(folded_initializers)}")
     print(f"onnx_byoc_invocations={len(invocations)}")
     print(f"onnx_byoc_npu_regions={audit['npu_regions']}")
     print(f"onnx_byoc_npu_commands={audit['npu_commands']}")

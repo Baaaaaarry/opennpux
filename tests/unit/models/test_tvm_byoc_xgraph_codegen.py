@@ -81,6 +81,27 @@ class XGraphCodegenTest(unittest.TestCase):
                     bytes([index + 1]) * tensor["byte_size"],
                 )
 
+    def test_reshape_lowers_to_byte_preserving_dma(self):
+        graph = {
+            "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+            "tensors": [
+                {"name": "flat", "shape": [2, 4], "dtype": "float32",
+                 "storage": "input"},
+                {"name": "view", "shape": [1, 2, 4], "dtype": "float32",
+                 "storage": "output"},
+            ],
+            "nodes": [{"op": "relax.reshape", "inputs": ["flat"],
+                       "outputs": ["view"]}],
+            "outputs": ["view"],
+        }
+        binary, metadata = compile_graph(graph)
+        command = COMMAND.unpack_from(binary, HEADER.size)
+        tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+        self.assertEqual(metadata["command_count"], 1)
+        self.assertEqual(command[0], 11)
+        self.assertEqual(command[2], tensors["view"]["offset"])
+        self.assertEqual(command[3], tensors["flat"]["offset"])
+
     def test_lowers_dynamic_attention_contract(self):
         module = json.loads((
             ROOT / "tests/fixtures/models/tvm_byoc_dynamic_attention_module.json"

@@ -20,6 +20,7 @@ PATTERN_OPS = {
     "opennpux.softmax": "relax.nn.softmax",
     "opennpux.silu": "relax.nn.silu",
     "opennpux.take": "relax.take",
+    "opennpux.reshape": "relax.reshape",
 }
 
 PATTERN_ARITY = {
@@ -30,6 +31,7 @@ PATTERN_ARITY = {
     "relax.nn.softmax": 1,
     "relax.nn.silu": 1,
     "relax.take": 2,
+    "relax.reshape": 2,
 }
 
 

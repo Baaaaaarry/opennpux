@@ -794,7 +794,7 @@ printf '%s\n' "\${TRANSFORMER_MODULE_OUTPUT}"
 OUTPUT="\${TRANSFORMER_MODULE_OUTPUT}"
 has_output_line 'xgraph_module_regions_completed=1' ||
     fail 'Transformer module region count mismatch'
-has_output_line 'xgraph_module_commands_completed=5' ||
+has_output_line 'xgraph_module_commands_completed=4' ||
     fail 'Transformer module command count mismatch'
 has_output_line 'xgraph_module_invocation_bindings=2' ||
     fail 'Transformer module dynamic binding count mismatch'
@@ -862,7 +862,7 @@ ONNX_ATTENTION_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
 }
 printf '%s\n' "\${ONNX_ATTENTION_OUTPUT}"
 OUTPUT="\${ONNX_ATTENTION_OUTPUT}"
-has_output_line 'xgraph_module_commands_completed=4' ||
+has_output_line 'xgraph_module_commands_completed=5' ||
     fail 'ONNX attention block command count mismatch'
 has_output_line 'xgraph_module_run=PASS' ||
     fail 'ONNX attention block runtime PASS verdict missing'

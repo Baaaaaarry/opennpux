@@ -13,7 +13,7 @@ from .xgraph_codegen import CodegenError, FORMAT
 
 
 PATTERN_OPS = {
-    "opennpux.matmul_transposed_rhs": "relax.matmul",
+    "opennpux.permute_dims": "relax.permute_dims",
     "opennpux.matmul": "relax.matmul",
     "opennpux.add": "relax.add",
     "opennpux.multiply": "relax.multiply",
@@ -33,6 +33,7 @@ PATTERN_ARITY = {
     "relax.nn.silu": 1,
     "relax.take": 2,
     "relax.reshape": 2,
+    "relax.permute_dims": 1,
 }
 
 
@@ -51,17 +52,8 @@ def _tvm_modules():
 def opennpux_patterns() -> list[tuple[str, Any]]:
     """Return the stage-one OpenNPUX Relax BYOC pattern table."""
     _, _, is_op, wildcard = _tvm_modules()
-    # Match the larger layout-fused form first so the standalone MatMul
-    # pattern cannot hide a RHS transpose that TMMA can consume directly.
-    patterns = [(
-        "opennpux.matmul_transposed_rhs",
-        is_op("relax.matmul")(
-            wildcard(), is_op("relax.permute_dims")(wildcard())
-        ),
-    )]
+    patterns = []
     for composite, op_name in PATTERN_OPS.items():
-        if composite == "opennpux.matmul_transposed_rhs":
-            continue
         arity = PATTERN_ARITY[op_name]
         pattern = is_op(op_name)(*(wildcard() for _ in range(arity)))
         patterns.append((composite, pattern))
@@ -142,8 +134,6 @@ def _call_operator(call: Any, local_functions: dict[Any, Any]) -> tuple[str, Any
     if composite is not None:
         if composite not in PATTERN_OPS:
             raise CodegenError(f"unsupported OpenNPUX composite {composite}")
-        if composite == "opennpux.matmul_transposed_rhs":
-            return "relax.matmul", {"transpose_rhs": True}
         primitive = _find_primitive_call(operator.body)
         if primitive is None:
             raise CodegenError(f"composite {composite} has no primitive call")
@@ -155,8 +145,13 @@ def _call_operator(call: Any, local_functions: dict[Any, Any]) -> tuple[str, Any
 
 
 def _call_attrs(op_name: str, attrs: Any) -> dict[str, Any]:
-    if op_name == "relax.matmul" and isinstance(attrs, dict):
-        return {"transpose_rhs": bool(attrs.get("transpose_rhs", False))}
+    if op_name == "relax.permute_dims":
+        axes = _attr(attrs, "axes", None)
+        return {
+            "axes": None if axes is None else [
+                int(getattr(axis, "value", axis)) for axis in axes
+            ]
+        }
     if op_name == "relax.nn.rms_norm":
         return {"epsilon": float(_attr(attrs, "epsilon", 1.0e-5))}
     if op_name == "relax.nn.softmax":

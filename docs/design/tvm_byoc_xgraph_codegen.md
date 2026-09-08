@@ -770,10 +770,14 @@ and module-resident NPU constants. The attention gate now starts from
 frontend to supply a pre-shaped `[1,2,4]` Tensor.
 
 The attention gate also keeps K in the standard `[N,K]` layout and expresses
-`Q x K^T` with an ONNX `Transpose` feeding `MatMul`. BYOC recognizes the
-`MatMul(lhs, permute_dims(rhs))` composite and folds it into the TMMA
-`transpose_rhs` flag. The NPU therefore reads RHS with transposed strides and
-does not materialize a separate transposed Tensor or issue an extra TDMA.
+`Q x K^T` with an ONNX `Transpose` feeding `MatMul`. BYOC captures
+`permute_dims` and `MatMul` as ordinary supported operations; an OpenNPUX
+normalized-graph peephole then verifies the transpose has one consumer and is
+the rank-2 MatMul RHS before folding it into the TMMA `transpose_rhs` flag.
+The NPU therefore reads RHS with transposed strides and does not materialize a
+separate transposed Tensor or issue an extra TDMA. Keeping this legalization
+outside TVM's composite-pattern internals also makes it independent of
+generated composite-function parameter ordering.
 
 Every ONNX deployment writes `partition-audit.json`. It records source ONNX
 operator counts and the resulting NPU region, XGraph command, Host binding,

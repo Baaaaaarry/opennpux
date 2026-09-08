@@ -125,6 +125,36 @@ class XGraphCodegenTest(unittest.TestCase):
         self.assertEqual(command[1] & 1, 1)
         self.assertEqual(command[5:8], (2, 2, 4))
 
+    def test_permute_matmul_is_fused_without_a_copy_command(self):
+        graph = {
+            "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+            "tensors": [
+                {"name": "query", "shape": [1, 2, 4], "dtype": "float32",
+                 "storage": "input"},
+                {"name": "key", "shape": [2, 4], "dtype": "float32",
+                 "storage": "constant"},
+                {"name": "key_t", "shape": [4, 2], "dtype": "float32",
+                 "storage": "scratch"},
+                {"name": "scores", "shape": [1, 2, 2], "dtype": "float32",
+                 "storage": "output"},
+            ],
+            "nodes": [
+                {"op": "relax.permute_dims", "inputs": ["key"],
+                 "outputs": ["key_t"], "attrs": {"axes": [1, 0]}},
+                {"op": "relax.matmul", "inputs": ["query", "key_t"],
+                 "outputs": ["scores"]},
+            ],
+            "outputs": ["scores"],
+        }
+        binary, metadata = compile_graph(graph)
+        command = COMMAND.unpack_from(binary, HEADER.size)
+        self.assertEqual(metadata["source_node_count"], 2)
+        self.assertEqual(metadata["node_count"], 1)
+        self.assertEqual(metadata["layout_fusions"], 1)
+        self.assertEqual(metadata["command_count"], 1)
+        self.assertEqual(command[0], 1)
+        self.assertEqual(command[1] & 1, 1)
+
     def test_lowers_dynamic_attention_contract(self):
         module = json.loads((
             ROOT / "tests/fixtures/models/tvm_byoc_dynamic_attention_module.json"

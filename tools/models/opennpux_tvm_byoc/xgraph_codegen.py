@@ -72,6 +72,61 @@ OP_ALIASES = {
 }
 
 
+def _fuse_transposed_rhs(nodes: Any) -> tuple[list[dict[str, Any]], int]:
+    if not isinstance(nodes, list):
+        raise CodegenError("nodes must be an array")
+    consumers: dict[str, list[tuple[int, int]]] = {}
+    for node_index, node in enumerate(nodes):
+        if not isinstance(node, dict):
+            raise CodegenError(f"node {node_index} must be an object")
+        for input_index, name in enumerate(node.get("inputs", [])):
+            consumers.setdefault(name, []).append((node_index, input_index))
+
+    fused_inputs: dict[str, str] = {}
+    skipped: set[int] = set()
+    for node_index, node in enumerate(nodes):
+        if node.get("op") != "relax.permute_dims":
+            continue
+        inputs = node.get("inputs")
+        outputs = node.get("outputs")
+        attrs = node.get("attrs", {})
+        if not isinstance(inputs, list) or len(inputs) != 1 or not isinstance(
+            outputs, list
+        ) or len(outputs) != 1 or not isinstance(attrs, dict):
+            raise CodegenError(f"node {node_index} has invalid permute_dims operands")
+        uses = consumers.get(outputs[0], [])
+        axes = attrs.get("axes")
+        if axes not in (None, [1, 0]) or len(uses) != 1:
+            raise CodegenError(
+                "permute_dims is only supported as a rank-2 MatMul RHS transpose"
+            )
+        consumer_index, input_index = uses[0]
+        consumer = nodes[consumer_index]
+        if input_index != 1 or OP_ALIASES.get(consumer.get("op")) != "matmul":
+            raise CodegenError(
+                "permute_dims is only supported as a rank-2 MatMul RHS transpose"
+            )
+        fused_inputs[outputs[0]] = inputs[0]
+        skipped.add(node_index)
+
+    result = []
+    for node_index, node in enumerate(nodes):
+        if node_index in skipped:
+            continue
+        rewritten = dict(node)
+        inputs = list(node.get("inputs", []))
+        if OP_ALIASES.get(node.get("op")) == "matmul" and len(inputs) == 2:
+            source = fused_inputs.get(inputs[1])
+            if source is not None:
+                inputs[1] = source
+                attrs = dict(node.get("attrs", {}))
+                attrs["transpose_rhs"] = True
+                rewritten["attrs"] = attrs
+        rewritten["inputs"] = inputs
+        result.append(rewritten)
+    return result, len(skipped)
+
+
 class CodegenError(ValueError):
     """The BYOC graph cannot be represented by the current XGraph ABI."""
 
@@ -629,8 +684,9 @@ def compile_graph(
         max(tensor.offset + tensor.byte_size for tensor in tensors.values())
     )
     c_lowering = CLowering(lowering_library) if lowering_library else None
-    nodes = graph.get("nodes")
-    if not isinstance(nodes, list) or not nodes:
+    source_nodes = graph.get("nodes")
+    nodes, layout_fusions = _fuse_transposed_rhs(source_nodes)
+    if not nodes:
         raise CodegenError("nodes must be a non-empty array")
     if len(nodes) > MAX_COMMANDS:
         raise CodegenError(f"graph exceeds the {MAX_COMMANDS}-command XGraph batch limit")
@@ -693,6 +749,8 @@ def compile_graph(
         "binary_size": len(binary),
         "arena_size": arena_size,
         "node_count": len(nodes),
+        "source_node_count": len(source_nodes),
+        "layout_fusions": layout_fusions,
         "lowering_backend": "runtime-c" if c_lowering else "direct",
         "output": output.name,
         "tensors": [

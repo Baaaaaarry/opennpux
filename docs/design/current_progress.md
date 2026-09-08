@@ -1680,6 +1680,7 @@ RHS，因此首版采用静态单 batch 和显式 K 转置；输出与 NumPy 独
 更新为 `TDMA -> TMMA -> TSOFTMAX -> TMMA -> TADD` 共 5 commands。
 
 下一项 layout legalization 消除了 Attention 测试预先准备 `key_transposed` 的假设。标准 ONNX
-图现在显式包含 `Transpose(K) -> MatMul(Q, K^T)`；BYOC 以优先复合模式识别
-`MatMul(lhs, permute_dims(rhs))`，将其折叠为 TMMA 的 `transpose_rhs` flag。K 保持 `[N,K]`
-模型布局，NPU 按转置 stride 读取，不生成中间转置 Tensor，也不增加 TDMA，因此完整命令数仍为 5。
+图现在显式包含 `Transpose(K) -> MatMul(Q, K^T)`；BYOC 分别捕获 `permute_dims` 与 MatMul，
+OpenNPUX normalized-graph peephole 验证前者是单消费者、二维 MatMul RHS 后，将其折叠为 TMMA
+的 `transpose_rhs` flag。该实现不依赖 TVM 生成的复合函数参数顺序。K 保持 `[N,K]` 模型布局，
+NPU 按转置 stride 读取，不生成中间转置 Tensor，也不增加 TDMA，因此完整命令数仍为 5。

@@ -626,3 +626,13 @@ model-specific opcode. Q follows a normal inter-region Tensor edge while the
 packed K/V follows `append_planar2`. The two-invocation gate therefore executes
 12 device commands and validates the complete path
 `hidden -> QKV projection -> KV publish -> attention`.
+
+The GB10 system gate passes this path numerically. Module execution must read
+back every outbound direct-edge Tensor after its producer region completes,
+even when that Tensor is not listed as the region's public module output.
+Otherwise the Host-side module scheduler copies stale arena contents into the
+consumer. This was exposed by `projected_q`: a missing readback supplied a zero
+query to Attention, produced uniform probabilities, and returned 5 instead of
+the independent reference value 3.30238461. Direct edges and state-update
+edges now share the same producer readback rule before their distinct publish
+operations.

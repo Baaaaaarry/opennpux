@@ -1609,3 +1609,13 @@ GB10 已关闭 KV 生产/发布/消费串联门禁：2 个 region、2 次 invoca
 规范化算子，以两条 TDMA 将单 token K/V 打包成双平面 update；producer 改为 Q/K/V 三路
 TMMA 投影，Q 走普通 Tensor edge，K/V 走 state edge。更新后的两步门禁预计完成 12 条
 device commands，等待 GB10 输出 `tvm_kv_append_attention_sequence=PASS`。
+
+GB10 已关闭更新后的 QKV/KV/Attention 门禁：两个 invocation 共完成 12 条设备命令，
+`append_planar2` 完成 2 次状态更新并导出 64-byte KV state，最终 Attention context 与
+独立 FP32 reference 一致。验收过程中发现 module runtime 只回读公开 output 和 state-update
+source，遗漏普通跨 region direct-edge source，导致 `projected_q` 保持为零、Attention softmax
+退化为均匀权重并输出 5。Runtime 现会在 producer region 完成后回读所有 outbound direct
+edge Tensor，再复制到 consumer arena；修复后完整输出包含
+`tvm_kv_append_attention_sequence=PASS`、`xgraph_module_chain=PASS` 和
+`tvm_byoc_xgraph=PASS`。基础 Transformer module 仍为 4 commands，12 commands 仅属于
+两步 QKV projection -> KV pack -> Attention 序列，两个门禁的统计不得混用。

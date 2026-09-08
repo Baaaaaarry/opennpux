@@ -739,6 +739,22 @@ invocations, two state updates, and an independent comparison against
 `initial_state + 2 * projected_token`. Its verdict is
 `tvm_onnx_stateful_decode=PASS`.
 
+A decomposed attention gate covers a Transformer compute chain expressed only
+with standard ONNX operators:
+
+```text
+QK^T MatMul -> Softmax -> PV MatMul -> Residual Add
+```
+
+The current TMMA contract flattens the higher-rank left operand into rows and
+requires a rank-2 right operand, so this first gate uses one static batch with
+explicit `[K,N]` K-transpose and V constants. TVM must lower the graph to
+`TMMA -> TSOFTMAX -> TMMA -> TADD`, complete four device commands, and match an
+independent NumPy softmax/attention result. The gate deliberately does not use
+an `opennpux.attention` frontend operator; it proves standard model operations
+can reach the instruction-level backend. Its verdict is
+`tvm_onnx_attention_block=PASS`.
+
 Every ONNX deployment writes `partition-audit.json`. It records source ONNX
 operator counts and the resulting NPU region, XGraph command, Host binding,
 and Host operation counts. The system test only emits the aggregate

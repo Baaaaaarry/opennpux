@@ -182,6 +182,20 @@ if [ -n "${TVM_HOME:-}" ]; then
         echo "ONNX stateful decode deployment generation: FAIL" >&2
         exit 1
     }
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/create_onnx_attention_block.py" \
+        "${BUILD_DIR}/attention-block.onnx" \
+        "${BUILD_DIR}/attention-block.requests.json" \
+        "${BUILD_DIR}/attention-block.expected.bin"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_onnx_byoc_deployment.py" \
+        "${BUILD_DIR}/attention-block.onnx" \
+        "${BUILD_DIR}/attention-block.requests.json" \
+        "${BUILD_DIR}/attention-block-deployment" \
+        --lowering-library "${LOWERING_LIB}"
+    [ -f "${BUILD_DIR}/attention-block-deployment/deployment/model.npxgm" ] &&
+        [ -f "${BUILD_DIR}/attention-block-deployment/deployment/prefill-000.npxmi" ] || {
+        echo "ONNX attention block deployment generation: FAIL" >&2
+        exit 1
+    }
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
         "${BUILD_DIR}/relax-model.json" "${BUILD_DIR}/relax-model.npxg" \
         --dump-byoc-graph "${BUILD_DIR}/relax-model.byoc.json"

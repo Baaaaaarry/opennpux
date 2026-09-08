@@ -1663,3 +1663,10 @@ ONNX `MatMul -> Add` 图把 `state` 输入通过部署策略标记为 module-res
 `partition-audit.json`，记录 ONNX operator、NPU region/command 和 Host binding/operation 数量；
 系统脚本仅在异构 ONNX 与 stateful decode 都通过后输出
 `tvm_frontend_to_xopennpux=PASS`，并把该标志设为 gem5 Guest 必须出现的验收 verdict。
+
+新增标准 ONNX 分解 Attention 门禁：`QK^T MatMul -> Softmax -> PV MatMul -> Residual Add`，
+前端不使用 `opennpux.attention` 自定义算子，要求 TVM/BYOC 直接生成
+`TMMA -> TSOFTMAX -> TMMA -> TADD` 四条设备命令。当前 TMMA 允许高阶 LHS 展平但要求二维
+RHS，因此首版采用静态单 batch 和显式 K 转置；输出与 NumPy 独立 attention reference 比较，
+验收标志为 `tvm_onnx_attention_block=PASS`。后续需增加 layout legalization 才能覆盖动态 batch、
+标准 Q/K/V reshape/transpose 和 causal mask。

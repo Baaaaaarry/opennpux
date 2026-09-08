@@ -1651,3 +1651,10 @@ ONNX 系统门禁进一步从全卸载 `MatMul -> Add` 改为异构
 region；module runtime 必须完成第一段输出回读、CPU ReLU、第二段输入绑定并重新提交 NPU。
 验收统计固定为 2 regions、2 device commands、1 Host operation，并继续与独立 FP32 reference
 比较。这关闭了真实模型文件经过 BYOC 部分卸载和 CPU/NPU Tensor 边界的功能路径。
+
+新增 ONNX stateful decode 门禁验证文件前端能够携带 LLM decode 所需的持久状态语义。标准
+ONNX `MatMul -> Add` 图把 `state` 输入通过部署策略标记为 module-resident state，并用
+`@output=state` 建立回写边；两个独立 `.npxmi` 连续复用同一个 `.npxgm`，第二步直接消费第一步
+设备输出，不由 CPU 重传 state。预期统计为 4 device commands、2 invocations、2 state updates，
+最终输出与 `initial_state + 2 * projected_token` 的独立 FP32 reference 比较，验收标志为
+`tvm_onnx_stateful_decode=PASS`。

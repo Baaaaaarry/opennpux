@@ -167,6 +167,21 @@ if [ -n "${TVM_HOME:-}" ]; then
         echo "ONNX Relax deployment generation: FAIL" >&2
         exit 1
     }
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/create_onnx_stateful_decode.py" \
+        "${BUILD_DIR}/stateful-decode.onnx" \
+        "${BUILD_DIR}/stateful-decode.requests.json" \
+        "${BUILD_DIR}/stateful-decode.expected.bin"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_onnx_byoc_deployment.py" \
+        "${BUILD_DIR}/stateful-decode.onnx" \
+        "${BUILD_DIR}/stateful-decode.requests.json" \
+        "${BUILD_DIR}/stateful-decode-deployment" \
+        --lowering-library "${LOWERING_LIB}"
+    [ -f "${BUILD_DIR}/stateful-decode-deployment/deployment/model.npxgm" ] &&
+        [ -f "${BUILD_DIR}/stateful-decode-deployment/deployment/decode-000.npxmi" ] &&
+        [ -f "${BUILD_DIR}/stateful-decode-deployment/deployment/decode-001.npxmi" ] || {
+        echo "ONNX stateful decode deployment generation: FAIL" >&2
+        exit 1
+    }
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
         "${BUILD_DIR}/relax-model.json" "${BUILD_DIR}/relax-model.npxg" \
         --dump-byoc-graph "${BUILD_DIR}/relax-model.byoc.json"

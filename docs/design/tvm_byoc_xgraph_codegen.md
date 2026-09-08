@@ -728,3 +728,13 @@ ONNX importer classifies model inputs and constants, while BYOC recognizes
 supported Relax operations and the XGraph lowering selects hardware commands.
 Adding another model format therefore replaces the import/classification layer
 without changing the XOpenNPUX command ABI or runtime.
+
+The ONNX frontend also has a stateful decode gate. A model-independent
+`MatMul -> Add` graph takes a token Tensor and persistent state Tensor, then
+declares `@output=state` in the deployment policy. The generated module is
+invoked twice with separate `.npxmi` requests. State remains module resident;
+the second invocation consumes the first invocation's output without a CPU
+round trip. The gate requires four completed device commands, two completed
+invocations, two state updates, and an independent comparison against
+`initial_state + 2 * projected_token`. Its verdict is
+`tvm_onnx_stateful_decode=PASS`.

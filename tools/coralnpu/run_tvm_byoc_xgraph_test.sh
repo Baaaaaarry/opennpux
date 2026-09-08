@@ -18,6 +18,11 @@ ONNX_DEPLOYMENT_DIR="${BUILD_DIR}/projection-residual-deployment"
 ONNX_MODULE_PACKAGE="${ONNX_DEPLOYMENT_DIR}/deployment/model.npxgm"
 ONNX_MODULE_INVOCATION="${ONNX_DEPLOYMENT_DIR}/deployment/request-000.npxmi"
 ONNX_EXPECTED="${BUILD_DIR}/projection-residual.expected.bin"
+ONNX_STATE_DEPLOYMENT_DIR="${BUILD_DIR}/stateful-decode-deployment/deployment"
+ONNX_STATE_MODULE_PACKAGE="${ONNX_STATE_DEPLOYMENT_DIR}/model.npxgm"
+ONNX_STATE_INVOCATION0="${ONNX_STATE_DEPLOYMENT_DIR}/decode-000.npxmi"
+ONNX_STATE_INVOCATION1="${ONNX_STATE_DEPLOYMENT_DIR}/decode-001.npxmi"
+ONNX_STATE_EXPECTED="${BUILD_DIR}/stateful-decode.expected.bin"
 STATE_MODULE_DIR="${BUILD_DIR}/stateful-transformer-module"
 STATE_MODULE_ARENA="${BUILD_DIR}/stateful-transformer.arena.bin"
 STATE_MODULE_PACKAGE="${BUILD_DIR}/stateful-transformer.npxgm"
@@ -424,6 +429,12 @@ PY
     echo "error: ONNX frontend deployment was not generated" >&2
     exit 1
 }
+[ -f "${ONNX_STATE_MODULE_PACKAGE}" ] &&
+    [ -f "${ONNX_STATE_INVOCATION0}" ] &&
+    [ -f "${ONNX_STATE_INVOCATION1}" ] && [ -f "${ONNX_STATE_EXPECTED}" ] || {
+    echo "error: ONNX stateful deployment was not generated" >&2
+    exit 1
+}
 [ -f "${STATE_MODULE_PACKAGE}" ] && [ -f "${STATE_MODULE_INVOCATION}" ] &&
     [ -f "${STATE_EXPECTED}" ] || {
     echo "error: stateful module package was not generated" >&2
@@ -571,6 +582,26 @@ EOF
 base64 "${ONNX_EXPECTED}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_ONNX_EXPECTED_EOF
+decode_base64 >/tmp/tvm-onnx-state.npxgm <<'OPENNPUX_TVM_ONNX_STATE_MODULE_EOF'
+EOF
+base64 "${ONNX_STATE_MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ONNX_STATE_MODULE_EOF
+decode_base64 >/tmp/tvm-onnx-state-0.npxmi <<'OPENNPUX_TVM_ONNX_STATE_INVOCATION0_EOF'
+EOF
+base64 "${ONNX_STATE_INVOCATION0}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ONNX_STATE_INVOCATION0_EOF
+decode_base64 >/tmp/tvm-onnx-state-1.npxmi <<'OPENNPUX_TVM_ONNX_STATE_INVOCATION1_EOF'
+EOF
+base64 "${ONNX_STATE_INVOCATION1}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ONNX_STATE_INVOCATION1_EOF
+decode_base64 >/tmp/tvm-onnx-state.expected.bin <<'OPENNPUX_TVM_ONNX_STATE_EXPECTED_EOF'
+EOF
+base64 "${ONNX_STATE_EXPECTED}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_ONNX_STATE_EXPECTED_EOF
 decode_base64 >/tmp/tvm-stateful-module.npxgm <<'OPENNPUX_TVM_STATE_MODULE_EOF'
 EOF
 base64 "${STATE_MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
@@ -775,6 +806,28 @@ has_output_line 'xgraph_module_run=PASS' ||
     /tmp/tvm-onnx-projection.expected.bin 0.00001 ||
     fail 'ONNX frontend output differs from independent reference'
 echo 'tvm_onnx_relax_byoc_xgraph=PASS'
+ONNX_STATE_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-onnx-state.output.bin \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE=/tmp/tvm-onnx-state-0.npxmi:/tmp/tvm-onnx-state-1.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-onnx-state.npxgm \
+    0x1d000000 1000000)" || {
+    printf '%s\n' "\${ONNX_STATE_OUTPUT}"
+    fail 'ONNX stateful decode execution failed'
+}
+printf '%s\n' "\${ONNX_STATE_OUTPUT}"
+OUTPUT="\${ONNX_STATE_OUTPUT}"
+has_output_line 'xgraph_module_commands_completed=4' ||
+    fail 'ONNX stateful decode command count mismatch'
+has_output_line 'xgraph_module_invocations_completed=2' ||
+    fail 'ONNX stateful decode invocation count mismatch'
+has_output_line 'xgraph_module_state_updates_completed=2' ||
+    fail 'ONNX stateful decode update count mismatch'
+has_output_line 'xgraph_module_run=PASS' ||
+    fail 'ONNX stateful decode runtime PASS verdict missing'
+/tmp/coralctl tensor-compare-fp32 /tmp/tvm-onnx-state.output.bin \
+    /tmp/tvm-onnx-state.expected.bin 0.00001 ||
+    fail 'ONNX stateful decode output differs from independent reference'
+echo 'tvm_onnx_stateful_decode=PASS'
 STATE_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-stateful-module.output.bin \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE=/tmp/tvm-stateful-module.npxmi:/tmp/tvm-stateful-module.npxmi \

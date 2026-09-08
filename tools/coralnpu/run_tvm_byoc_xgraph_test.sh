@@ -845,7 +845,7 @@ OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     fail 'KV append-attention sequence failed'
 }
 printf '%s\n' "\${OUTPUT}"
-has_output_line 'xgraph_module_commands_completed=4' ||
+has_output_line 'xgraph_module_commands_completed=12' ||
     fail 'KV append-attention command count mismatch'
 has_output_line 'xgraph_module_scalar_bindings=2' ||
     fail 'KV append-attention scalar count mismatch'

@@ -517,6 +517,14 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
       return Gem5TmmaSubmitResult::kInvalidCsrState;
     }
   }
+  if (operation == xopennpux::Operation::kTadd ||
+      operation == xopennpux::Operation::kTmul) {
+    const uint32_t flags =
+        packet.csr_epoch == 0 ? tensor_flags_ : packet.tensor_flags;
+    if ((flags & ~xopennpux::kTensorFlagBroadcastRhsScalar) != 0) {
+      return Gem5TmmaSubmitResult::kInvalidCsrState;
+    }
+  }
   if (operation == xopennpux::Operation::kTdequant) {
     const uint32_t config_value = packet.csr_epoch == 0
                                       ? quant_config_
@@ -1360,18 +1368,26 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
       }
     }
   } else if (command.operation == xopennpux::Operation::kTadd) {
+    const bool rhs_scalar =
+        (command.tensor_flags &
+         xopennpux::kTensorFlagBroadcastRhsScalar) != 0;
     for (uint64_t index = 0; index < tensor_elements; ++index) {
       const size_t offset = static_cast<size_t>(index) * sizeof(float);
+      const size_t rhs_offset = rhs_scalar ? 0 : offset;
       StoreFloat(memory, dst_base + offset,
                  LoadFloat(*memory, lhs_base + offset) +
-                     LoadFloat(*memory, rhs_base + offset));
+                     LoadFloat(*memory, rhs_base + rhs_offset));
     }
   } else if (command.operation == xopennpux::Operation::kTmul) {
+    const bool rhs_scalar =
+        (command.tensor_flags &
+         xopennpux::kTensorFlagBroadcastRhsScalar) != 0;
     for (uint64_t index = 0; index < tensor_elements; ++index) {
       const size_t offset = static_cast<size_t>(index) * sizeof(float);
+      const size_t rhs_offset = rhs_scalar ? 0 : offset;
       StoreFloat(memory, dst_base + offset,
                  LoadFloat(*memory, lhs_base + offset) *
-                     LoadFloat(*memory, rhs_base + offset));
+                     LoadFloat(*memory, rhs_base + rhs_offset));
     }
   } else if (command.operation == xopennpux::Operation::kTrowScale) {
     for (uint32_t row = 0; row < command.tensor_shape.rows; ++row) {

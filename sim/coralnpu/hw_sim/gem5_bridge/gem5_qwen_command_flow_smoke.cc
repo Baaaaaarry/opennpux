@@ -315,6 +315,14 @@ bool ValidateCommand(const volatile opennpux_xgraph_command& command) {
       break;
     case OPENNPUX_XGRAPH_OP_TADD:
     case OPENNPUX_XGRAPH_OP_TMUL:
+      if ((command.flags &
+           ~OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR) != 0) {
+        return false;
+      }
+      if ((command.flags &
+           OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR) != 0) {
+        source1_elements = 1;
+      }
       break;
     default:
       return false;
@@ -358,14 +366,14 @@ bool Execute(const volatile opennpux_xgraph_command& command,
       *cycles += elements * command.dim2;
       return true;
     case OPENNPUX_XGRAPH_OP_TADD:
-      xopennpux_add_fp32(destination, source0, source1, command.dim0,
-                         command.dim1, 1);
+      xopennpux_add_fp32_flags(destination, source0, source1, command.dim0,
+                              command.dim1, 1, command.flags);
       *operations += elements;
       *cycles += elements;
       return true;
     case OPENNPUX_XGRAPH_OP_TMUL:
-      xopennpux_mul_fp32(destination, source0, source1, command.dim0,
-                         command.dim1, 1);
+      xopennpux_mul_fp32_flags(destination, source0, source1, command.dim0,
+                              command.dim1, 1, command.flags);
       *operations += elements;
       *cycles += elements;
       return true;

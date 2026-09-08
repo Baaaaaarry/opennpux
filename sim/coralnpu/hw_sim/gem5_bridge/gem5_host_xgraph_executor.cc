@@ -335,6 +335,14 @@ bool ValidateRanges(const opennpux_xgraph_command& command,
     }
     case OPENNPUX_XGRAPH_OP_TADD:
     case OPENNPUX_XGRAPH_OP_TMUL:
+      if ((command.flags &
+           ~OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR) != 0) {
+        return false;
+      }
+      if ((command.flags &
+           OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR) != 0) {
+        source1_elements = 1;
+      }
       break;
     default:
       return false;
@@ -483,6 +491,14 @@ bool CalculateTraffic(const opennpux_xgraph_command& command,
     }
     case OPENNPUX_XGRAPH_OP_TADD:
     case OPENNPUX_XGRAPH_OP_TMUL:
+      if ((command.flags &
+           ~OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR) != 0) {
+        return false;
+      }
+      if ((command.flags &
+           OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR) != 0) {
+        source1_elements = 1;
+      }
       break;
     default:
       return false;

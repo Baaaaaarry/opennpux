@@ -199,10 +199,18 @@ class XGraphCodegenTest(unittest.TestCase):
         )
         self.assertEqual([command[10] for command in commands], list(range(5)))
 
-    def test_rejects_broadcast_until_semantics_are_explicit(self):
+    def test_lowers_rhs_scalar_broadcast(self):
+        graph = self.load_fixture()
+        graph["tensors"][2]["shape"] = [1]
+        binary, metadata = compile_graph(graph)
+        command = COMMAND.unpack_from(binary, HEADER.size + COMMAND.size)
+        self.assertEqual(metadata["command_count"], 5)
+        self.assertEqual(command[1], 0x100)
+
+    def test_rejects_implicit_vector_broadcast(self):
         graph = self.load_fixture()
         graph["tensors"][2]["shape"] = [3]
-        with self.assertRaisesRegex(CodegenError, "non-broadcast"):
+        with self.assertRaisesRegex(CodegenError, "one FP32 RHS scalar"):
             compile_graph(graph)
 
     def test_rejects_matmul_requiring_tiled_lowering(self):

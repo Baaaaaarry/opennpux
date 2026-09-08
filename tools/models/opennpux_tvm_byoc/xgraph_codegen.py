@@ -36,6 +36,7 @@ OP_TATTENTION = 13
 
 TMMA_TRANSPOSE_RHS = 1
 TTOPK_SPLIT_OUTPUT = 1
+TENSOR_BROADCAST_RHS_SCALAR = 0x100
 
 DTYPE_BYTES = {
     "float32": 4,
@@ -426,18 +427,21 @@ def _lower_node(
         lhs = _tensor(tensors, names[0], node_index)
         rhs = _tensor(tensors, names[1], node_index)
         output = _tensor(tensors, output_names[0], node_index)
+        rhs_scalar = _product(rhs.shape) == 1
         if (
-            lhs.shape != rhs.shape
-            or lhs.shape != output.shape
+            lhs.shape != output.shape
+            or (rhs.shape != output.shape and not rhs_scalar)
             or lhs.dtype != "float32"
             or rhs.dtype != "float32"
             or output.dtype != "float32"
         ):
-            raise CodegenError(f"{op} currently requires equal, non-broadcast shapes")
+            raise CodegenError(
+                f"{op} requires equal shapes or one FP32 RHS scalar"
+            )
         rows, features = _elementwise_shape(output)
         return [CommandRecord(
             OP_TADD if op == "add" else OP_TMUL,
-            0,
+            TENSOR_BROADCAST_RHS_SCALAR if rhs_scalar else 0,
             output.offset,
             lhs.offset,
             rhs.offset,

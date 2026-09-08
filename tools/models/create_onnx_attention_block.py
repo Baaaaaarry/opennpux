@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +32,11 @@ def main() -> None:
         [[1.0, 2.0, 3.0, 4.0], [-2.0, 1.0, 0.5, 3.0]], dtype=np.float32
     )
     residual = np.arange(8, dtype=np.float32).reshape(1, 2, 4) / 16.0
-    scores = query @ np.swapaxes(key, -1, -2)
+    scale = np.array([1.0 / math.sqrt(query.shape[-1])], dtype=np.float32)
+    causal_mask = np.array(
+        [[[0.0, -10000.0], [0.0, 0.0]]], dtype=np.float32
+    )
+    scores = (query @ np.swapaxes(key, -1, -2)) * scale + causal_mask
     shifted = scores - np.max(scores, axis=-1, keepdims=True)
     probabilities = np.exp(shifted) / np.sum(np.exp(shifted), axis=-1, keepdims=True)
     expected = probabilities @ value + residual
@@ -41,7 +46,9 @@ def main() -> None:
             helper.make_node("Reshape", ["query_flat", "query_shape"], ["query"]),
             helper.make_node("Transpose", ["key"], ["key_transposed"], perm=[1, 0]),
             helper.make_node("MatMul", ["query", "key_transposed"], ["scores"]),
-            helper.make_node("Softmax", ["scores"], ["probabilities"], axis=-1),
+            helper.make_node("Mul", ["scores", "attention_scale"], ["scaled_scores"]),
+            helper.make_node("Add", ["scaled_scores", "causal_mask"], ["masked_scores"]),
+            helper.make_node("Softmax", ["masked_scores"], ["probabilities"], axis=-1),
             helper.make_node("MatMul", ["probabilities", "value"], ["context"]),
             helper.make_node("Add", ["context", "residual"], ["output"]),
         ],
@@ -55,6 +62,8 @@ def main() -> None:
             numpy_helper.from_array(np.array([1, 2, 4], dtype=np.int64), "query_shape"),
             numpy_helper.from_array(key, "key"),
             numpy_helper.from_array(value, "value"),
+            numpy_helper.from_array(scale, "attention_scale"),
+            numpy_helper.from_array(causal_mask, "causal_mask"),
         ],
     )
     model = helper.make_model(

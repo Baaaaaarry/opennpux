@@ -42,20 +42,34 @@ static inline void xopennpux_matmul_fp32(void* destination, const void* lhs,
   xopennpux_matmul_fp32_strided(destination, lhs, rhs, m, n, k, 0, 0, 0, 0);
 }
 
+static inline void xopennpux_add_fp32_flags(
+    void* destination, const void* lhs, const void* rhs, uint32_t dim0,
+    uint32_t dim1, uint32_t dim2, uint32_t flags) {
+  xopennpux_configure_tensor_fp32(dim0, dim1 * dim2);
+  xopennpux_write_tensor_flags(flags);
+  xopennpux_tadd_fp32(destination, lhs, rhs);
+  xopennpux_tfence();
+}
+
 static inline void xopennpux_add_fp32(void* destination, const void* lhs,
                                       const void* rhs, uint32_t dim0,
                                       uint32_t dim1, uint32_t dim2) {
+  xopennpux_add_fp32_flags(destination, lhs, rhs, dim0, dim1, dim2, 0);
+}
+
+static inline void xopennpux_mul_fp32_flags(
+    void* destination, const void* lhs, const void* rhs, uint32_t dim0,
+    uint32_t dim1, uint32_t dim2, uint32_t flags) {
   xopennpux_configure_tensor_fp32(dim0, dim1 * dim2);
-  xopennpux_tadd_fp32(destination, lhs, rhs);
+  xopennpux_write_tensor_flags(flags);
+  xopennpux_tmul_fp32(destination, lhs, rhs);
   xopennpux_tfence();
 }
 
 static inline void xopennpux_mul_fp32(void* destination, const void* lhs,
                                       const void* rhs, uint32_t dim0,
                                       uint32_t dim1, uint32_t dim2) {
-  xopennpux_configure_tensor_fp32(dim0, dim1 * dim2);
-  xopennpux_tmul_fp32(destination, lhs, rhs);
-  xopennpux_tfence();
+  xopennpux_mul_fp32_flags(destination, lhs, rhs, dim0, dim1, dim2, 0);
 }
 
 static inline void xopennpux_row_scale_fp32(void* destination,

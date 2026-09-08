@@ -590,6 +590,31 @@ void TestFp32TensorMul() {
   }
 }
 
+void TestFp32TensorScalarBroadcast() {
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 2, 3);
+  assert(coprocessor.WriteCsr(
+      xopennpux::kCsrTensorFlags,
+      xopennpux::kTensorFlagBroadcastRhsScalar));
+  Gem5TmmaDispatchPacket packet = Packet(10);
+  packet.instruction = xopennpux::EncodeTmul(12, 10, 11);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(4096, 0);
+  for (size_t index = 0; index < 6; ++index) {
+    WriteFloat(&memory, index * sizeof(float),
+               static_cast<float>(index + 1));
+  }
+  WriteFloat(&memory, 0x100, 0.5f);
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  for (size_t index = 0; index < 6; ++index) {
+    assert(ReadFloat(memory, 0x200 + index * sizeof(float)) ==
+           static_cast<float>(index + 1) * 0.5f);
+  }
+}
+
 void TestFp32Sigmoid() {
   Gem5XOpenNpuFunctionalCoprocessor coprocessor;
   ConfigureTensorFp32(&coprocessor, 1, 3);
@@ -1175,6 +1200,7 @@ int main() {
   TestInt4DequantThenFp32Matmul();
   TestFp32TensorAdd();
   TestFp32TensorMul();
+  TestFp32TensorScalarBroadcast();
   TestFp32Sigmoid();
   TestFp32RowScale();
   TestFp32Dma();

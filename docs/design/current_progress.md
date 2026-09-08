@@ -1683,4 +1683,10 @@ RHS，因此首版采用静态单 batch 和显式 K 转置；输出与 NumPy 独
 图现在显式包含 `Transpose(K) -> MatMul(Q, K^T)`；BYOC 分别捕获 `permute_dims` 与 MatMul，
 OpenNPUX normalized-graph peephole 验证前者是单消费者、二维 MatMul RHS 后，将其折叠为 TMMA
 的 `transpose_rhs` flag。该实现不依赖 TVM 生成的复合函数参数顺序。K 保持 `[N,K]` 模型布局，
-NPU 按转置 stride 读取，不生成中间转置 Tensor，也不增加 TDMA，因此完整命令数仍为 5。
+NPU 按转置 stride 读取，不生成中间转置 Tensor，也不增加 TDMA，因此当时完整命令数仍为 5。
+
+标准 ONNX Attention 门禁现已扩展为 `QK^T -> scalar scale -> causal mask -> Softmax ->
+AV -> residual`，对应 7 条设备命令。TADD/TMUL 新增操作专属 RHS scalar broadcast 标志；
+codegen 仅对单元素 FP32 RHS 生成该位，range check、traffic accounting、Guest CSR 下发和 C++
+functional pipe 均采用一致语义。causal mask 在当前门禁中是与 score 等形的 Tensor，其他未明确
+定义的隐式广播继续在编译期拒绝，避免将 ONNX/NumPy 规则误当成硬件 ISA 规则。

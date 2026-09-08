@@ -743,18 +743,25 @@ A decomposed attention gate covers a Transformer compute chain expressed only
 with standard ONNX operators:
 
 ```text
-QK^T MatMul -> Softmax -> PV MatMul -> Residual Add
+QK^T MatMul -> scalar scale -> causal-mask Add -> Softmax -> PV MatMul -> Residual Add
 ```
 
 The current TMMA contract flattens the higher-rank left operand into rows and
-requires a rank-2 right operand, so this first gate uses one static batch with
-explicit `[K,N]` K-transpose and V constants. TVM must lower the graph to
-`TDMA reshape -> TMMA -> TSOFTMAX -> TMMA -> TADD`, complete five device
-commands, and match an
+requires a rank-2 right operand, so this first gate uses one static batch and
+V constants. TVM must lower the graph to `TDMA reshape -> TMMA -> TMUL ->
+TADD -> TSOFTMAX -> TMMA -> TADD`, complete seven device commands, and match an
 independent NumPy softmax/attention result. The gate deliberately does not use
 an `opennpux.attention` frontend operator; it proves standard model operations
 can reach the instruction-level backend. Its verdict is
 `tvm_onnx_attention_block=PASS`.
+
+The score scale uses the operation-specific
+`OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR` flag. Codegen emits it only for
+an exactly one-element FP32 RHS; range validation, traffic accounting, Guest
+CSR materialization, and the functional coprocessor all interpret the same
+flag. The causal mask is equal-shaped in this gate. Unsupported implicit
+vector or multidimensional broadcasts remain compile-time errors rather than
+becoming framework-dependent hardware behavior.
 
 Static `relax.reshape` is a layout-preserving legalization rather than a new
 compute instruction. The current backend materializes it as one TDMA copy and

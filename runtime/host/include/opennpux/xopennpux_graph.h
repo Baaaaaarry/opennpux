@@ -66,6 +66,7 @@ enum opennpux_xgraph_opcode {
 #define OPENNPUX_XGRAPH_TRMSNORM_BFLOAT16_NORMALIZED UINT32_C(4)
 #define OPENNPUX_XGRAPH_TSILU_BFLOAT16_INPUT UINT32_C(2)
 #define OPENNPUX_XGRAPH_TROUTED_EXPERT_WEIGHT_PLAN UINT32_C(1)
+#define OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR UINT32_C(0x100)
 
 enum opennpux_xgraph_data_type {
     OPENNPUX_XGRAPH_DTYPE_FP32 = 2,
@@ -105,6 +106,9 @@ struct opennpux_xgraph_command {
  * Zero selects the contiguous stride implied by dim2/dim1. The transpose-RHS
  * flag interprets source1 as row-major [N,K], and accumulate initializes each
  * output accumulator from its current destination value.
+ *
+ * TADD/TMUL use OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR when source1 is
+ * one FP32 scalar broadcast over the dim0-by-dim1 destination tensor.
  *
  * TCAUSALCONV uses dim0/dim1/dim2 as rows/features/kernel width. For a
  * stateful command, reserved[0] and reserved[1] contain previous-state and

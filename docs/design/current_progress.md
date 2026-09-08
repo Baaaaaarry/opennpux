@@ -1673,6 +1673,8 @@ RHS，因此首版采用静态单 batch 和显式 K 转置；输出与 NumPy 独
 
 首个 layout legalization 已完成：静态 `relax.reshape` 在输入输出 dtype 和总字节数一致时 lowering
 为一条 TDMA copy，保证当前独立 arena 分配下的数据正确，并显式计入搬运成本；后续 alias analysis
-可消除该 copy。ONNX importer 已折叠的 int64 shape initializer 记录为 compile-time initializer，
-不再要求作为运行时 constant。Attention 门禁输入改为 `query_flat[2,4] + shape[1,2,4]`，预期命令链
+可消除该 copy。ONNX importer 现在显式绑定仅用于图结构的 int64 `Reshape` shape initializer，
+执行 Relax `BindParams + FoldConstant` 后将其记录为 compile-time initializer；权重 initializer
+仍保留为 Relax 参数并进入 NPU 常量存储。Attention 门禁输入改为
+`query_flat[2,4] + shape[1,2,4]`，预期命令链
 更新为 `TDMA -> TMMA -> TSOFTMAX -> TMMA -> TADD` 共 5 commands。

@@ -9,6 +9,24 @@ import sys
 from pathlib import Path
 
 
+# These ONNX inputs describe graph structure rather than device-resident Tensor
+# data. Bind only these initializers before BYOC partitioning; weights must stay
+# as Relax parameters so the deployment compiler can place them in NPU storage.
+COMPILE_TIME_INITIALIZER_INPUTS = {
+    "Reshape": frozenset({1}),
+}
+
+
+def compile_time_initializer_names(model) -> list[str]:
+    initializer_names = {value.name for value in model.graph.initializer}
+    selected = set()
+    for node in model.graph.node:
+        for index in COMPILE_TIME_INITIALIZER_INPUTS.get(node.op_type, ()):
+            if index < len(node.input) and node.input[index] in initializer_names:
+                selected.add(node.input[index])
+    return sorted(selected)
+
+
 def parse_shape(value: str) -> tuple[str, list[int]]:
     name, separator, dimensions = value.partition("=")
     if not separator or not name or not dimensions:
@@ -67,6 +85,7 @@ def main() -> None:
     try:
         import onnx
         import tvm
+        from onnx import numpy_helper
         from tvm import relax
         from tvm.relax.frontend.onnx import from_onnx
 
@@ -82,6 +101,17 @@ def main() -> None:
         if args.opset is not None:
             kwargs["opset"] = args.opset
         module = from_onnx(model, **kwargs)
+        compile_time_names = compile_time_initializer_names(model)
+        initializer_values = {
+            value.name: numpy_helper.to_array(value)
+            for value in model.graph.initializer
+        }
+        if compile_time_names:
+            module = relax.transform.BindParams(
+                "main",
+                {name: initializer_values[name] for name in compile_time_names},
+            )(module)
+            module = relax.transform.FoldConstant()(module)
         module = relax.transform.CanonicalizeBindings()(module)
         main_function = module["main"]
         signature = {
@@ -89,6 +119,7 @@ def main() -> None:
             "source": str(args.input),
             "parameters": [tensor_signature(value) for value in main_function.params],
             "onnx_initializers": [value.name for value in model.graph.initializer],
+            "compile_time_initializers": compile_time_names,
             "outputs": [value.name for value in model.graph.output],
         }
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -103,6 +134,7 @@ def main() -> None:
     print(f"onnx_model={args.input}")
     print(f"onnx_relax_module={args.output}")
     print(f"onnx_relax_parameters={len(signature['parameters'])}")
+    print(f"onnx_relax_compile_time_initializers={len(compile_time_names)}")
     print("onnx_relax_import=PASS")
 
 

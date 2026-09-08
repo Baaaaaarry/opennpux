@@ -2,6 +2,7 @@ import argparse
 import importlib.util
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -23,6 +24,38 @@ class TvmByocOnnxFrontendTest(unittest.TestCase):
     def test_rejects_duplicate_overrides(self):
         with self.assertRaisesRegex(ValueError, "duplicate shape"):
             MODULE.unique_map([("tokens", [1]), ("tokens", [2])], "shape")
+
+    def test_classifies_only_reshape_shape_as_compile_time(self):
+        model = SimpleNamespace(
+            graph=SimpleNamespace(
+                initializer=[
+                    SimpleNamespace(name="query_shape"),
+                    SimpleNamespace(name="weight"),
+                ],
+                node=[
+                    SimpleNamespace(
+                        op_type="Reshape", input=["query_flat", "query_shape"]
+                    ),
+                    SimpleNamespace(op_type="MatMul", input=["query", "weight"]),
+                ],
+            )
+        )
+        self.assertEqual(
+            MODULE.compile_time_initializer_names(model), ["query_shape"]
+        )
+
+    def test_ignores_runtime_reshape_shape(self):
+        model = SimpleNamespace(
+            graph=SimpleNamespace(
+                initializer=[SimpleNamespace(name="weight")],
+                node=[
+                    SimpleNamespace(
+                        op_type="Reshape", input=["query_flat", "runtime_shape"]
+                    )
+                ],
+            )
+        )
+        self.assertEqual(MODULE.compile_time_initializer_names(model), [])
 
 
 if __name__ == "__main__":

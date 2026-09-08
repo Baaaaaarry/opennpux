@@ -47,12 +47,11 @@ def main() -> None:
     onnx.checker.check_model(model)
 
     deployment = {
-        "format": "OPENNPUX_TVM_BYOC_DEPLOYMENT_V1",
-        "constant_parameters": ["projection_weight"],
+        "format": "OPENNPUX_TVM_ONNX_REQUESTS_V1",
         "state_parameters": [],
         "state_updates": [],
         "state_appends": [],
-        "module_values": {"projection_weight": weight.reshape(-1).tolist()},
+        "module_values": {},
         "invocations": [{
             "name": "request-000",
             "values": {

@@ -57,6 +57,30 @@ class XGraphCodegenTest(unittest.TestCase):
             self.assertGreaterEqual(tensor["offset"], prior_end)
             prior_end = tensor["offset"] + tensor["byte_size"]
 
+    def test_arena_accepts_exact_binary_tensor_values(self):
+        import tempfile
+
+        _, metadata = compile_graph(self.load_fixture())
+        runtime = [
+            tensor for tensor in metadata["tensors"]
+            if tensor["storage"] in {"input", "constant", "state"}
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            values = {}
+            for index, tensor in enumerate(runtime):
+                path = Path(directory) / f"{index}.bin"
+                path.write_bytes(bytes([index + 1]) * tensor["byte_size"])
+                values[tensor["name"]] = {
+                    "binary": str(path), "bytes": tensor["byte_size"]
+                }
+            image = build_image(metadata, values)
+            for index, tensor in enumerate(runtime):
+                begin = tensor["offset"]
+                self.assertEqual(
+                    image[begin:begin + tensor["byte_size"]],
+                    bytes([index + 1]) * tensor["byte_size"],
+                )
+
     def test_lowers_dynamic_attention_contract(self):
         module = json.loads((
             ROOT / "tests/fixtures/models/tvm_byoc_dynamic_attention_module.json"

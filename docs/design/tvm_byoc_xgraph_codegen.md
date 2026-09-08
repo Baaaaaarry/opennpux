@@ -703,3 +703,18 @@ Its required final verdict is `tvm_onnx_relax_byoc_xgraph=PASS`. This gate
 proves a real frontend file reaches the device model; it does not yet claim
 coverage for arbitrary ONNX operators, dynamic shapes, control flow, or full
 LLM model families.
+
+`compile_onnx_byoc_deployment.py` removes the remaining hand-authored weight
+step. Its inputs are `model.onnx` and a request description containing runtime
+Tensor values and optional state policy. The compiler discovers ONNX
+initializers, verifies that TVM preserved each as a Relax parameter, writes
+exact little-endian binary constant images, and generates the lower-level
+deployment description automatically. Binary sources are length checked when
+copied into an XGraph arena; large weights are no longer expanded into JSON
+number arrays.
+
+This frontend orchestration remains separate from device code generation. An
+ONNX importer classifies model inputs and constants, while BYOC recognizes
+supported Relax operations and the XGraph lowering selects hardware commands.
+Adding another model format therefore replaces the import/classification layer
+without changing the XOpenNPUX command ABI or runtime.

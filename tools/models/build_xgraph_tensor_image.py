@@ -34,6 +34,31 @@ def _expand_values(value: Any, count: int, name: str) -> list[Any]:
     raise ValueError(f"tensor {name}: unsupported value generator")
 
 
+def _encode_values(value: Any, count: int, name: str, dtype: str) -> bytes:
+    if isinstance(value, dict) and "binary" in value:
+        allowed = {"binary", "offset", "bytes"}
+        if set(value) - allowed or not isinstance(value["binary"], str):
+            raise ValueError(f"tensor {name}: invalid binary value source")
+        offset = value.get("offset", 0)
+        byte_count = value.get("bytes", count * struct.calcsize("<" + PACKERS[dtype]))
+        if not isinstance(offset, int) or offset < 0 or not isinstance(byte_count, int):
+            raise ValueError(f"tensor {name}: invalid binary range")
+        with open(value["binary"], "rb") as source:
+            source.seek(offset)
+            encoded = source.read(byte_count)
+        expected = count * struct.calcsize("<" + PACKERS[dtype])
+        if len(encoded) != expected or byte_count != expected:
+            raise ValueError(
+                f"tensor {name}: expected {expected} binary bytes, got {len(encoded)}"
+            )
+        return encoded
+    tensor_values = _expand_values(value, count, name)
+    element_size = struct.calcsize("<" + PACKERS[dtype])
+    if len(tensor_values) * element_size != count * element_size:
+        raise ValueError(f"tensor {name}: expected {count} values, got {len(tensor_values)}")
+    return struct.pack(f"<{len(tensor_values)}{PACKERS[dtype]}", *tensor_values)
+
+
 def _load_object(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
@@ -71,18 +96,13 @@ def build_image(metadata: dict[str, Any], values: dict[str, Any]) -> bytes:
         ):
             raise ValueError(f"tensor {name}: invalid metadata")
         element_size = struct.calcsize("<" + PACKERS[dtype])
-        tensor_values = _expand_values(values[name], byte_size // element_size, name)
-        if len(tensor_values) * element_size != byte_size:
-            raise ValueError(
-                f"tensor {name}: expected {byte_size // element_size} values, "
-                f"got {len(tensor_values)}"
-            )
+        encoded = _encode_values(
+            values[name], byte_size // element_size, name, dtype
+        )
         end = offset + byte_size
         if offset < 0x20000 or end > arena_size:
             raise ValueError(f"tensor {name}: range is outside the Tensor arena")
-        image[offset:end] = struct.pack(
-            f"<{len(tensor_values)}{PACKERS[dtype]}", *tensor_values
-        )
+        image[offset:end] = encoded
         consumed.add(name)
     unknown = set(values) - consumed
     if unknown:

@@ -157,16 +157,13 @@ if [ -n "${TVM_HOME:-}" ]; then
         "${BUILD_DIR}/projection-residual.onnx" \
         "${BUILD_DIR}/projection-residual.deployment.json" \
         "${BUILD_DIR}/projection-residual.expected.bin"
-    "${TVM_PYTHON}" "${SCRIPT_DIR}/import_onnx_to_relax.py" \
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_onnx_byoc_deployment.py" \
         "${BUILD_DIR}/projection-residual.onnx" \
-        "${BUILD_DIR}/projection-residual.relax.json"
-    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_deployment.py" \
-        "${BUILD_DIR}/projection-residual.relax.json" \
         "${BUILD_DIR}/projection-residual.deployment.json" \
         "${BUILD_DIR}/projection-residual-deployment" \
         --lowering-library "${LOWERING_LIB}"
-    [ -f "${BUILD_DIR}/projection-residual-deployment/model.npxgm" ] &&
-        [ -f "${BUILD_DIR}/projection-residual-deployment/request-000.npxmi" ] || {
+    [ -f "${BUILD_DIR}/projection-residual-deployment/deployment/model.npxgm" ] &&
+        [ -f "${BUILD_DIR}/projection-residual-deployment/deployment/request-000.npxmi" ] || {
         echo "ONNX Relax deployment generation: FAIL" >&2
         exit 1
     }

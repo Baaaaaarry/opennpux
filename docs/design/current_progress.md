@@ -1638,3 +1638,10 @@ signature；storage policy 随后把 initializer 分类为 `.npxgm` 常量，把
 binding。系统门禁新增 ONNX `MatMul -> Add` 投影残差图，要求从 ONNX、Relax、BYOC、XGraph、
 driver 到 XOpenNPUX modeling 连续执行，并以独立 FP32 reference 验证输出。目标 verdict 为
 `tvm_onnx_relax_byoc_xgraph=PASS`；该增量验证文件前端接通，不代表任意 ONNX/LLM 算子覆盖完成。
+
+GB10 已确认原有完整系统门禁继续 PASS。随后消除 ONNX initializer 仍需手工展开到 deployment
+JSON 的限制：新增 `compile_onnx_byoc_deployment.py`，输入仅为标准 `model.onnx` 和运行时 requests，
+自动发现并校验 initializer、生成 little-endian 二进制 constant、构造 storage policy，并复用现有
+Relax/BYOC/XGraph/`.npxgm`/`.npxmi` 链路。Tensor arena 新增严格 binary source 支持，字节数不符
+立即拒绝，避免大模型权重被低效展开为 JSON 数组。下一次 GB10 门禁应额外出现
+`onnx_byoc_deployment=PASS` 与 `tvm_onnx_relax_byoc_xgraph=PASS`。

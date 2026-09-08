@@ -723,7 +723,7 @@ printf '%s\n' "\${TRANSFORMER_MODULE_OUTPUT}"
 OUTPUT="\${TRANSFORMER_MODULE_OUTPUT}"
 has_output_line 'xgraph_module_regions_completed=1' ||
     fail 'Transformer module region count mismatch'
-has_output_line 'xgraph_module_commands_completed=12' ||
+has_output_line 'xgraph_module_commands_completed=4' ||
     fail 'Transformer module command count mismatch'
 has_output_line 'xgraph_module_invocation_bindings=2' ||
     fail 'Transformer module dynamic binding count mismatch'

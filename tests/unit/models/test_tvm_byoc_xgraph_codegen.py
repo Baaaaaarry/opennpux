@@ -102,6 +102,29 @@ class XGraphCodegenTest(unittest.TestCase):
         self.assertEqual(command[2], tensors["view"]["offset"])
         self.assertEqual(command[3], tensors["flat"]["offset"])
 
+    def test_matmul_consumes_transposed_rhs_layout(self):
+        graph = {
+            "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+            "tensors": [
+                {"name": "query", "shape": [1, 2, 4], "dtype": "float32",
+                 "storage": "input"},
+                {"name": "key", "shape": [2, 4], "dtype": "float32",
+                 "storage": "constant"},
+                {"name": "scores", "shape": [1, 2, 2], "dtype": "float32",
+                 "storage": "output"},
+            ],
+            "nodes": [{"op": "relax.matmul", "inputs": ["query", "key"],
+                       "outputs": ["scores"],
+                       "attrs": {"transpose_rhs": True}}],
+            "outputs": ["scores"],
+        }
+        binary, metadata = compile_graph(graph)
+        command = COMMAND.unpack_from(binary, HEADER.size)
+        self.assertEqual(metadata["command_count"], 1)
+        self.assertEqual(command[0], 1)
+        self.assertEqual(command[1] & 1, 1)
+        self.assertEqual(command[5:8], (2, 2, 4))
+
     def test_lowers_dynamic_attention_contract(self):
         module = json.loads((
             ROOT / "tests/fixtures/models/tvm_byoc_dynamic_attention_module.json"

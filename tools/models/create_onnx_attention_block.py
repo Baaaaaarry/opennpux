@@ -23,15 +23,15 @@ def main() -> None:
         [[[-1.0, 0.5, 1.0, 2.0], [0.25, 1.5, -0.5, 1.0]]],
         dtype=np.float32,
     )
-    key_transposed = np.array(
-        [[0.5, -1.0], [1.0, 0.25], [-0.5, 1.5], [0.75, 0.5]],
+    key = np.array(
+        [[0.5, 1.0, -0.5, 0.75], [-1.0, 0.25, 1.5, 0.5]],
         dtype=np.float32,
     )
     value = np.array(
         [[1.0, 2.0, 3.0, 4.0], [-2.0, 1.0, 0.5, 3.0]], dtype=np.float32
     )
     residual = np.arange(8, dtype=np.float32).reshape(1, 2, 4) / 16.0
-    scores = query @ key_transposed
+    scores = query @ np.swapaxes(key, -1, -2)
     shifted = scores - np.max(scores, axis=-1, keepdims=True)
     probabilities = np.exp(shifted) / np.sum(np.exp(shifted), axis=-1, keepdims=True)
     expected = probabilities @ value + residual
@@ -39,6 +39,7 @@ def main() -> None:
     graph = helper.make_graph(
         [
             helper.make_node("Reshape", ["query_flat", "query_shape"], ["query"]),
+            helper.make_node("Transpose", ["key"], ["key_transposed"], perm=[1, 0]),
             helper.make_node("MatMul", ["query", "key_transposed"], ["scores"]),
             helper.make_node("Softmax", ["scores"], ["probabilities"], axis=-1),
             helper.make_node("MatMul", ["probabilities", "value"], ["context"]),
@@ -52,7 +53,7 @@ def main() -> None:
         [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 2, 4])],
         [
             numpy_helper.from_array(np.array([1, 2, 4], dtype=np.int64), "query_shape"),
-            numpy_helper.from_array(key_transposed, "key_transposed"),
+            numpy_helper.from_array(key, "key"),
             numpy_helper.from_array(value, "value"),
         ],
     )

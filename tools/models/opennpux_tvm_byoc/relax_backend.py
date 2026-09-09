@@ -16,6 +16,7 @@ PATTERN_OPS = {
     "opennpux.permute_dims": "relax.permute_dims",
     "opennpux.matmul": "relax.matmul",
     "opennpux.add": "relax.add",
+    "opennpux.silu_decomposed": "relax.nn.silu",
     "opennpux.multiply": "relax.multiply",
     "opennpux.rms_norm": "relax.nn.rms_norm",
     "opennpux.softmax": "relax.nn.softmax",
@@ -54,6 +55,13 @@ def opennpux_patterns() -> list[tuple[str, Any]]:
     _, _, is_op, wildcard = _tvm_modules()
     patterns = []
     for composite, op_name in PATTERN_OPS.items():
+        if composite == "opennpux.silu_decomposed":
+            value = wildcard()
+            pattern = is_op("relax.multiply")(
+                value, is_op("relax.sigmoid")(value)
+            )
+            patterns.append((composite, pattern))
+            continue
         arity = PATTERN_ARITY[op_name]
         pattern = is_op(op_name)(*(wildcard() for _ in range(arity)))
         patterns.append((composite, pattern))

@@ -756,6 +756,18 @@ operators, model parameters, intermediate tensors, and residual dependencies
 can reach the instruction-level backend. Its verdict is
 `tvm_onnx_attention_block=PASS`.
 
+The next gate composes those primitives into one stateful decoder block rather
+than testing attention and state in isolation. A standard ONNX graph contains
+Q/K/V/O projection, causal attention, a persistent attention-state update,
+two residual additions, and a gated SiLU MLP. ONNX exports SiLU as
+`x * sigmoid(x)`; the BYOC pattern table recognizes that decomposition before
+the generic multiply pattern and emits one `TSILU`. The resulting region has
+17 XGraph commands and is invoked twice without rebuilding the module. The
+acceptance test therefore requires 34 completed commands, two invocation
+overlays, two device-resident state updates, and a final Tensor matching an
+independent two-step NumPy reference. Its verdict is
+`tvm_onnx_stateful_decoder_block=PASS`.
+
 The score scale uses the operation-specific
 `OPENNPUX_XGRAPH_TENSOR_BROADCAST_RHS_SCALAR` flag. Codegen emits it only for
 an exactly one-element FP32 RHS; range validation, traffic accounting, Guest
@@ -802,3 +814,7 @@ Relax/ONNX parameter. Storage classification and invocation materialization
 consume source names through that map. A caller supplies `hidden_states` once;
 the deployment compiler replicates its bytes into every internal binding that
 TVM generated, without exposing temporary TVM names to the runtime API.
+The ONNX signature additionally records both each Relax-internal parameter
+name and its original ONNX source name. Explicit aliases are applied before
+constant/state classification, so frontend renaming cannot turn a model weight
+into a required request input.

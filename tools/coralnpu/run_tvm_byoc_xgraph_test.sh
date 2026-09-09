@@ -27,6 +27,11 @@ ONNX_ATTENTION_DIR="${BUILD_DIR}/attention-block-deployment/deployment"
 ONNX_ATTENTION_MODULE="${ONNX_ATTENTION_DIR}/model.npxgm"
 ONNX_ATTENTION_INVOCATION="${ONNX_ATTENTION_DIR}/prefill-000.npxmi"
 ONNX_ATTENTION_EXPECTED="${BUILD_DIR}/attention-block.expected.bin"
+ONNX_DECODER_DIR="${BUILD_DIR}/stateful-decoder-block-deployment/deployment"
+ONNX_DECODER_MODULE="${ONNX_DECODER_DIR}/model.npxgm"
+ONNX_DECODER_INVOCATION0="${ONNX_DECODER_DIR}/decode-000.npxmi"
+ONNX_DECODER_INVOCATION1="${ONNX_DECODER_DIR}/decode-001.npxmi"
+ONNX_DECODER_EXPECTED="${BUILD_DIR}/stateful-decoder-block.expected.bin"
 STATE_MODULE_DIR="${BUILD_DIR}/stateful-transformer-module"
 STATE_MODULE_ARENA="${BUILD_DIR}/stateful-transformer.arena.bin"
 STATE_MODULE_PACKAGE="${BUILD_DIR}/stateful-transformer.npxgm"
@@ -448,6 +453,12 @@ PY
     echo "error: ONNX attention deployment was not generated" >&2
     exit 1
 }
+[ -f "${ONNX_DECODER_MODULE}" ] && [ -f "${ONNX_DECODER_INVOCATION0}" ] &&
+    [ -f "${ONNX_DECODER_INVOCATION1}" ] &&
+    [ -f "${ONNX_DECODER_EXPECTED}" ] || {
+    echo "error: ONNX stateful decoder deployment was not generated" >&2
+    exit 1
+}
 [ -f "${STATE_MODULE_PACKAGE}" ] && [ -f "${STATE_MODULE_INVOCATION}" ] &&
     [ -f "${STATE_EXPECTED}" ] || {
     echo "error: stateful module package was not generated" >&2
@@ -630,6 +641,26 @@ EOF
 base64 "${ONNX_ATTENTION_EXPECTED}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_ONNX_ATTENTION_EXPECTED_EOF
+decode_base64 >/tmp/tvm-onnx-decoder.npxgm <<'OPENNPUX_TVM_ONNX_DECODER_MODULE_EOF'
+EOF
+base64 "${ONNX_DECODER_MODULE}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ONNX_DECODER_MODULE_EOF
+decode_base64 >/tmp/tvm-onnx-decoder-0.npxmi <<'OPENNPUX_TVM_ONNX_DECODER_INVOCATION0_EOF'
+EOF
+base64 "${ONNX_DECODER_INVOCATION0}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ONNX_DECODER_INVOCATION0_EOF
+decode_base64 >/tmp/tvm-onnx-decoder-1.npxmi <<'OPENNPUX_TVM_ONNX_DECODER_INVOCATION1_EOF'
+EOF
+base64 "${ONNX_DECODER_INVOCATION1}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_TVM_ONNX_DECODER_INVOCATION1_EOF
+decode_base64 >/tmp/tvm-onnx-decoder.expected.bin <<'OPENNPUX_TVM_ONNX_DECODER_EXPECTED_EOF'
+EOF
+base64 "${ONNX_DECODER_EXPECTED}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_TVM_ONNX_DECODER_EXPECTED_EOF
 decode_base64 >/tmp/tvm-stateful-module.npxgm <<'OPENNPUX_TVM_STATE_MODULE_EOF'
 EOF
 base64 "${STATE_MODULE_PACKAGE}" >>"${TEST_SCRIPT}"
@@ -874,6 +905,28 @@ has_output_line 'xgraph_module_run=PASS' ||
     /tmp/tvm-onnx-attention.expected.bin 0.00001 ||
     fail 'ONNX attention block output differs from independent reference'
 echo 'tvm_onnx_attention_block=PASS'
+ONNX_DECODER_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-onnx-decoder.output.bin \
+    OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE=/tmp/tvm-onnx-decoder-0.npxmi:/tmp/tvm-onnx-decoder-1.npxmi \
+    /tmp/coralctl xgraph-module-run /tmp/tvm-onnx-decoder.npxgm \
+    0x1d000000 1000000)" || {
+    printf '%s\n' "\${ONNX_DECODER_OUTPUT}"
+    fail 'ONNX stateful decoder block execution failed'
+}
+printf '%s\n' "\${ONNX_DECODER_OUTPUT}"
+OUTPUT="\${ONNX_DECODER_OUTPUT}"
+has_output_line 'xgraph_module_commands_completed=34' ||
+    fail 'ONNX stateful decoder command count mismatch'
+has_output_line 'xgraph_module_invocations_completed=2' ||
+    fail 'ONNX stateful decoder invocation count mismatch'
+has_output_line 'xgraph_module_state_updates_completed=2' ||
+    fail 'ONNX stateful decoder state update count mismatch'
+has_output_line 'xgraph_module_run=PASS' ||
+    fail 'ONNX stateful decoder runtime PASS verdict missing'
+/tmp/coralctl tensor-compare-fp32 /tmp/tvm-onnx-decoder.output.bin \
+    /tmp/tvm-onnx-decoder.expected.bin 0.00005 ||
+    fail 'ONNX stateful decoder output differs from independent reference'
+echo 'tvm_onnx_stateful_decoder_block=PASS'
 STATE_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_MODULE_OUTPUT_PATH=/tmp/tvm-stateful-module.output.bin \
     OPENNPUX_XGRAPH_MODULE_INVOCATION_SEQUENCE=/tmp/tvm-stateful-module.npxmi:/tmp/tvm-stateful-module.npxmi \
@@ -1079,6 +1132,7 @@ echo 'xgraph_module_chain=PASS'
 echo 'tvm_onnx_relax_byoc_xgraph=PASS'
 echo 'tvm_onnx_stateful_decode=PASS'
 echo 'tvm_onnx_attention_block=PASS'
+echo 'tvm_onnx_stateful_decoder_block=PASS'
 echo 'tvm_frontend_to_xopennpux=PASS'
 echo 'tvm_byoc_xgraph=PASS'
 echo '[tvm-byoc-xgraph] PASS'

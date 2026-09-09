@@ -19,6 +19,7 @@ from opennpux_tvm_byoc.module_runtime import (  # noqa: E402
     HostPipelineExecutor,
     ModuleRuntime,
 )
+from opennpux_tvm_byoc.relax_backend import PATTERN_OPS  # noqa: E402
 from opennpux_tvm_byoc.storage_policy import (  # noqa: E402
     apply_parameter_aliases,
     apply_parameter_storage,
@@ -32,6 +33,13 @@ class XGraphModuleCodegenTest(unittest.TestCase):
             (ROOT / "tests/fixtures/models/tvm_byoc_module.json").read_text(
                 encoding="utf-8"
             )
+        )
+
+    def test_decomposed_silu_pattern_precedes_generic_multiply(self):
+        patterns = list(PATTERN_OPS)
+        self.assertLess(
+            patterns.index("opennpux.silu_decomposed"),
+            patterns.index("opennpux.multiply"),
         )
 
     def test_compiles_regions_in_dependency_order(self):

@@ -241,6 +241,14 @@ Qwen3.5 lowering, paged GPTQ weights, attention state and MoE routing are the
 first workload adapter on this architecture. Future model families must not
 require changes to the queue or driver ABI.
 
+The TVM frontend path now includes a standard ONNX stateful decoder block as
+one reusable deployment. Its projected causal attention, persistent state,
+residual path and gated MLP lower to 17 XGraph commands per invocation. Two
+decode invocations reuse module constants, apply independent input overlays,
+retain state on the device, and compare the final output against an independent
+NumPy reference. ONNX-to-Relax parameter aliases are explicit, preventing TVM
+temporary names from changing constant, state or invocation storage classes.
+
 ### RTL bridge baseline
 
 - The single-outstanding asynchronous AXI-to-gem5 DMA transport is verified.

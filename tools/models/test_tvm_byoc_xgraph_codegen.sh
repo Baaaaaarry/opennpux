@@ -196,6 +196,34 @@ if [ -n "${TVM_HOME:-}" ]; then
         echo "ONNX attention block deployment generation: FAIL" >&2
         exit 1
     }
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/create_onnx_stateful_decoder_block.py" \
+        "${BUILD_DIR}/stateful-decoder-block.onnx" \
+        "${BUILD_DIR}/stateful-decoder-block.requests.json" \
+        "${BUILD_DIR}/stateful-decoder-block.expected.bin"
+    "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_onnx_byoc_deployment.py" \
+        "${BUILD_DIR}/stateful-decoder-block.onnx" \
+        "${BUILD_DIR}/stateful-decoder-block.requests.json" \
+        "${BUILD_DIR}/stateful-decoder-block-deployment" \
+        --lowering-library "${LOWERING_LIB}"
+    [ -f "${BUILD_DIR}/stateful-decoder-block-deployment/deployment/model.npxgm" ] &&
+        [ -f "${BUILD_DIR}/stateful-decoder-block-deployment/deployment/decode-000.npxmi" ] &&
+        [ -f "${BUILD_DIR}/stateful-decoder-block-deployment/deployment/decode-001.npxmi" ] || {
+        echo "ONNX stateful decoder block deployment generation: FAIL" >&2
+        exit 1
+    }
+    "${TVM_PYTHON}" - \
+        "${BUILD_DIR}/stateful-decoder-block-deployment/deployment/compiled/module.npxgm.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["region_count"] == 1
+assert manifest["total_commands"] == 17
+assert manifest["regions"][0]["invocation_bindings"] == ["hidden"]
+assert manifest["regions"][0]["state_bindings"] == ["state"]
+assert len(manifest["state_updates"]) == 1
+print("tvm_onnx_stateful_decoder_contract=PASS")
+PY
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
         "${BUILD_DIR}/relax-model.json" "${BUILD_DIR}/relax-model.npxg" \
         --dump-byoc-graph "${BUILD_DIR}/relax-model.byoc.json"

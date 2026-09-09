@@ -438,6 +438,27 @@ native sampler, and uses `TRITON_ATTN` plus eager execution to avoid known
 SM121 FlashInfer/CUDA-graph failures. These defaults can be overridden with
 `OPENNPUX_VLLM_ATTENTION_BACKEND` and `OPENNPUX_VLLM_ENFORCE_EAGER=0` only after
 the installed wheel combination has been validated.
+
+If vLLM fails in `worker.init_device()`, the Python stack above that call is
+only the EngineCore wrapper and is not the root cause. Use the default safe
+configuration, capture stderr, and inspect the final exception emitted by the
+worker:
+
+```sh
+unset OPENNPUX_VLLM_ATTENTION_BACKEND OPENNPUX_VLLM_ENFORCE_EAGER
+unset VLLM_USE_FLASHINFER_SAMPLER
+CORAL_QWEN_MODEL_LOADER=vllm \
+CORAL_REBUILD_SIM_HOST_RESULT=1 \
+./tools/coralnpu/run_qwen35b_real_weights_test.sh \
+  2>&1 | tee simout/qwen35b-vllm-startup.log
+tail -n 80 simout/qwen35b-vllm-startup.log
+```
+
+The generator prints its effective versions, CUDA capability, available GPU
+memory, quantization backend and attention backend before creating EngineCore.
+Do not diagnose an EngineCore failure from a traceback truncated at
+`worker.init_device()`; the actionable error is the final `RuntimeError`, CUDA
+error, or out-of-memory line below it.
 PyTorch 2.10.0 has a known Python 3.12 TorchInductor `CSE` generic annotation
 regression and has no 2.10.1 bug-fix release. The generator detects that exact
 API mismatch and applies a process-local second-parameter default before

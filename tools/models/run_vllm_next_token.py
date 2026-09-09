@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import importlib.metadata
 import json
 import os
 import struct
@@ -19,6 +20,53 @@ from run_hf_next_token import (
     executable_id,
     fnv1a,
 )
+
+
+def _package_version(name: str) -> str:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _print_runtime_preflight(
+    *, quantization: str, attention_backend: str, enforce_eager: bool
+) -> None:
+    """Emit startup configuration before vLLM creates its worker process."""
+    import torch
+
+    print(f"hf_numerical_python={sys.executable}", flush=True)
+    print(f"hf_numerical_torch={torch.__version__}", flush=True)
+    print(f"hf_numerical_torch_cuda={torch.version.cuda}", flush=True)
+    print(f"hf_numerical_vllm={_package_version('vllm')}", flush=True)
+    print(f"hf_numerical_vllm_quantization={quantization}", flush=True)
+    print(
+        f"hf_numerical_vllm_attention_backend={attention_backend}", flush=True
+    )
+    print(
+        f"hf_numerical_vllm_enforce_eager={int(enforce_eager)}", flush=True
+    )
+    print(
+        "hf_numerical_vllm_flashinfer_sampler="
+        + os.environ["VLLM_USE_FLASHINFER_SAMPLER"],
+        flush=True,
+    )
+    available = torch.cuda.is_available()
+    print(f"hf_numerical_cuda_available={int(available)}", flush=True)
+    if not available:
+        raise RuntimeError("vLLM reference generation requires an available CUDA device")
+    device = torch.cuda.current_device()
+    free_bytes, total_bytes = torch.cuda.mem_get_info(device)
+    print(f"hf_numerical_cuda_device={device}", flush=True)
+    print(f"hf_numerical_cuda_name={torch.cuda.get_device_name(device)}", flush=True)
+    print(
+        "hf_numerical_cuda_capability="
+        + ".".join(str(value) for value in torch.cuda.get_device_capability(device)),
+        flush=True,
+    )
+    print(f"hf_numerical_cuda_memory_free={free_bytes}", flush=True)
+    print(f"hf_numerical_cuda_memory_total={total_bytes}", flush=True)
+    print("hf_numerical_vllm_preflight=PASS", flush=True)
 
 
 def vocabulary_size(config: dict) -> int:
@@ -333,6 +381,11 @@ def main() -> None:
         # Callable RPC serialization is opt-in in current vLLM releases and
         # must be enabled before worker processes are created.
         os.environ.setdefault("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
+    _print_runtime_preflight(
+        quantization=quantization,
+        attention_backend=attention_backend,
+        enforce_eager=enforce_eager,
+    )
     llm = LLM(
         model=str(args.model_dir),
         trust_remote_code=True,

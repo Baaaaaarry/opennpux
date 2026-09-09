@@ -2,7 +2,9 @@ import importlib.util
 import json
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -62,6 +64,19 @@ def qwen_graph():
 
 
 class TvmByocExecutionGraphTest(unittest.TestCase):
+    def test_tvm_024_tirx_namespace_is_supported(self):
+        from opennpux_tvm_byoc.execution_graph import _tvm_modules
+
+        fake_tvm = types.ModuleType("tvm")
+        fake_tvm.__version__ = "0.24.0"
+        fake_tvm.relax = object()
+        fake_tvm.tirx = types.SimpleNamespace(Var=object())
+        with mock.patch.dict(sys.modules, {"tvm": fake_tvm}):
+            tvm, relax, tir_module = _tvm_modules()
+        self.assertIs(tvm, fake_tvm)
+        self.assertIs(relax, fake_tvm.relax)
+        self.assertIs(tir_module, fake_tvm.tirx)
+
     def test_real_qwen_shape_forms_closed_relocatable_byoc_graph(self):
         from opennpux_tvm_byoc.execution_graph import build_execution_graph
 

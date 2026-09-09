@@ -27,6 +27,26 @@ def _dense_ids(records: list[dict[str, Any]], field: str, label: str) -> None:
         raise CodegenError(f"{label} {field}s must be dense and ordered")
 
 
+def _tvm_modules():
+    try:
+        import tvm
+    except ImportError as error:
+        raise CodegenError(f"Apache TVM import failed: {error}") from error
+    relax = getattr(tvm, "relax", None)
+    # TVM 0.24 renamed the extended TIR Python namespace to tirx. Keep the
+    # older spelling for source-compatible development environments.
+    tir_module = getattr(tvm, "tirx", None) or getattr(tvm, "tir", None)
+    if relax is None:
+        raise CodegenError(
+            f"Apache TVM {getattr(tvm, '__version__', 'unknown')} has no Relax API"
+        )
+    if tir_module is None or not hasattr(tir_module, "Var"):
+        raise CodegenError(
+            f"Apache TVM {getattr(tvm, '__version__', 'unknown')} has no TIR Var API"
+        )
+    return tvm, relax, tir_module
+
+
 def build_execution_graph(
     executable: dict[str, Any], tensor_plan: dict[str, Any]
 ) -> dict[str, Any]:
@@ -173,10 +193,7 @@ def validate_execution_graph(
 
 def build_relax_execution_module(graph: dict[str, Any]):
     """Materialize the complete request DAG as a TVM Relax external-codegen graph."""
-    try:
-        from tvm import relax, tir
-    except ImportError as error:
-        raise CodegenError("Apache TVM with Relax is required") from error
+    _, relax, tir_module = _tvm_modules()
     if graph.get("format") != EXECUTION_GRAPH_FORMAT:
         raise CodegenError(f"expected {EXECUTION_GRAPH_FORMAT}")
 
@@ -188,7 +205,10 @@ def build_relax_execution_module(graph: dict[str, Any]):
             if isinstance(dimension, int) and dimension > 0:
                 dimensions.append(dimension)
             elif isinstance(dimension, str) and dimension in graph["runtime_symbols"]:
-                symbols.setdefault(dimension, tir.Var(dimension.replace(".", "_"), "int64"))
+                symbols.setdefault(
+                    dimension,
+                    tir_module.Var(dimension.replace(".", "_"), "int64"),
+                )
                 dimensions.append(symbols[dimension])
             else:
                 raise CodegenError(
@@ -253,10 +273,7 @@ def build_relax_execution_module(graph: dict[str, Any]):
 
 def save_relax_execution_module(graph: dict[str, Any], output: Path) -> str:
     """Write canonical TVM JSON and return its SHA-256 identity."""
-    try:
-        import tvm
-    except ImportError as error:
-        raise CodegenError("Apache TVM with Relax is required") from error
+    tvm, _, _ = _tvm_modules()
     encoded = tvm.ir.save_json(build_relax_execution_module(graph))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(encoded, encoding="utf-8")

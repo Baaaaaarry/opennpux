@@ -42,6 +42,8 @@ RANGE_NAME="${CORAL_NPU_RANGE_NAME:-model.npxr}"
 TENSOR_PLAN_NAME="${CORAL_NPU_TENSOR_PLAN_NAME:-model.npxtb}"
 TVM_BYOC_GRAPH_NAME="${CORAL_TVM_BYOC_GRAPH_NAME:-model.npxtvm}"
 TVM_BYOC_RELAX_NAME="${CORAL_TVM_BYOC_RELAX_NAME:-model.relax.json}"
+TVM_BYOC_COMMAND_NAME="${CORAL_TVM_BYOC_COMMAND_NAME:-model.tvm.npxc}"
+TVM_BYOC_TENSOR_PLAN_NAME="${CORAL_TVM_BYOC_TENSOR_PLAN_NAME:-model.tvm.npxtb}"
 TVM_BYOC_FULL_GRAPH="${CORAL_TVM_BYOC_FULL_GRAPH:-1}"
 EXECUTION_PLAN_NAME="${CORAL_NPU_EXECUTION_PLAN_NAME:-execution-plan.npxp}"
 POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
@@ -495,7 +497,11 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
             "$MODEL_DIR/$TVM_BYOC_GRAPH_NAME" \
             --require-node-count 524 \
             --relax-output "$MODEL_DIR/$TVM_BYOC_RELAX_NAME" \
+            --command-template-output "$MODEL_DIR/$TVM_BYOC_COMMAND_NAME" \
+            --tensor-plan-binary-output "$MODEL_DIR/$TVM_BYOC_TENSOR_PLAN_NAME" \
             --require-tvm >&2
+        EXECUTABLE_NAME=$TVM_BYOC_COMMAND_NAME
+        TENSOR_PLAN_NAME=$TVM_BYOC_TENSOR_PLAN_NAME
     else
         "$TVM_BYOC_PYTHON" \
             "${ROOT_DIR}/tools/models/compile_tvm_byoc_execution_graph.py" \

@@ -99,6 +99,8 @@ class TvmByocExecutionGraphTest(unittest.TestCase):
             executable_path = directory / "model.npxe"
             tensor_plan_path = directory / "model.npxt"
             output = directory / "model.npxtvm"
+            command_template = directory / "model.tvm.npxc"
+            tensor_plan_binary = directory / "model.tvm.npxtb"
             executable_path.write_text(json.dumps(executable), encoding="utf-8")
             tensor_plan_path.write_text(json.dumps(tensor_plan), encoding="utf-8")
             result = subprocess.run([
@@ -106,12 +108,16 @@ class TvmByocExecutionGraphTest(unittest.TestCase):
                 str(ROOT / "tools/models/compile_tvm_byoc_execution_graph.py"),
                 str(executable_path), str(tensor_plan_path), str(output),
                 "--require-node-count", "524",
+                "--command-template-output", str(command_template),
+                "--tensor-plan-binary-output", str(tensor_plan_binary),
             ], check=False, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("tvm_byoc_execution_graph=PASS", result.stdout)
             graph = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(graph["node_count"], 524)
             self.assertEqual(len(graph["source_digests"]["executable_sha256"]), 64)
+            self.assertGreater(command_template.stat().st_size, 0)
+            self.assertGreater(tensor_plan_binary.stat().st_size, 0)
 
     def test_require_tvm_requires_relax_output(self):
         import subprocess

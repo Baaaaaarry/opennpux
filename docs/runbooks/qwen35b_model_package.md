@@ -682,7 +682,10 @@ The compiler joins `model.npxe` and `model.npxt` into a relocatable 524-node
 execution graph, materializes the complete SSA dependency DAG as
 `model.relax.json`, and records both source hashes in `model.npxtvm`. Runtime
 addresses remain unresolved until invocation so weight paging, KV state and
-dynamic MoE routing are not frozen into the compiler artifact.
+dynamic MoE routing are not frozen into the compiler artifact. After Relax
+construction succeeds, the same compiler invocation emits `model.tvm.npxc`
+and `model.tvm.npxtb`; these are the files loaded by the strict runtime path,
+not the legacy command and tensor-plan binaries.
 
 Full-graph mode defaults to `xopennpux-primitives` and rejects Host C++
 fallback. Besides strict token equivalence, acceptance requires these markers:

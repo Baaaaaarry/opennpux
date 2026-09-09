@@ -12,6 +12,7 @@ from opennpux_tvm_byoc.execution_graph import (
     build_execution_graph, save_relax_execution_module,
 )
 from opennpux_tvm_byoc.xgraph_codegen import CodegenError
+from compile_npu_executable import write_binary, write_tensor_plan_binary
 
 
 def _load(path: Path) -> dict:
@@ -29,9 +30,13 @@ def main() -> None:
     parser.add_argument("--require-node-count", type=int)
     parser.add_argument("--relax-output", type=Path)
     parser.add_argument("--require-tvm", action="store_true")
+    parser.add_argument("--command-template-output", type=Path)
+    parser.add_argument("--tensor-plan-binary-output", type=Path)
     args = parser.parse_args()
     try:
-        graph = build_execution_graph(_load(args.executable), _load(args.tensor_plan))
+        executable = _load(args.executable)
+        tensor_plan = _load(args.tensor_plan)
+        graph = build_execution_graph(executable, tensor_plan)
         if (args.require_node_count is not None and
                 graph["node_count"] != args.require_node_count):
             raise CodegenError(
@@ -44,6 +49,18 @@ def main() -> None:
             }
         elif args.require_tvm:
             raise CodegenError("--require-tvm requires --relax-output")
+        binary_outputs = (
+            args.command_template_output, args.tensor_plan_binary_output
+        )
+        if any(binary_outputs) and not all(binary_outputs):
+            raise CodegenError(
+                "command-template and tensor-plan binary outputs must be specified together"
+            )
+        if all(binary_outputs):
+            args.command_template_output.parent.mkdir(parents=True, exist_ok=True)
+            args.tensor_plan_binary_output.parent.mkdir(parents=True, exist_ok=True)
+            write_binary(executable, args.command_template_output)
+            write_tensor_plan_binary(tensor_plan, args.tensor_plan_binary_output)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(graph, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -60,6 +77,9 @@ def main() -> None:
     if "relax_ir" in graph:
         print(f"tvm_byoc_relax_module={args.relax_output}")
         print(f"tvm_byoc_relax_sha256={graph['relax_ir']['sha256']}")
+    if args.command_template_output is not None:
+        print(f"tvm_byoc_command_template={args.command_template_output}")
+        print(f"tvm_byoc_tensor_plan_binary={args.tensor_plan_binary_output}")
     print("tvm_byoc_execution_graph=PASS")
 
 

@@ -42,6 +42,19 @@ The Python API is `opennpux_backend.compiler`. The standalone contract tool is:
 python3 tools/models/compile_opennpux_backend.py backend.json output
 ```
 
+Adapters query the same backend-owned operation table with
+`opennpux_backend.supports_operation()` or as machine-readable JSON:
+
+```bash
+python3 tools/models/inspect_opennpux_backend.py
+```
+
+The capability table uses canonical operations such as `matmul` and
+`attention`, not TVM or MAX spellings. It reports the hardware command family,
+accepted dtypes, and whether backend tiling is required. Detailed shape and
+layout validation still runs during compilation; a name-level match alone does
+not make an unsupported Tensor contract legal.
+
 Graph input produces `.npxg` and inspection metadata. Module input produces one
 `.npxg` per region and `module.npxgm.json`. This entry point deliberately does
 not import TVM and can consume IR emitted by TVM, MAX/Mojo, or another adapter.

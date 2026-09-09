@@ -8,6 +8,7 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
+from opennpux_backend.capabilities import normalize_operation
 from opennpux_backend.ir import GRAPH_FORMAT, GRAPH_FORMATS
 
 
@@ -45,36 +46,6 @@ DTYPE_BYTES = {
     "int32": 4,
 }
 
-OP_ALIASES = {
-    "add": "add",
-    "relax.add": "add",
-    "multiply": "multiply",
-    "relax.multiply": "multiply",
-    "matmul": "matmul",
-    "relax.matmul": "matmul",
-    "rms_norm": "rms_norm",
-    "relax.nn.rms_norm": "rms_norm",
-    "softmax": "softmax",
-    "relax.nn.softmax": "softmax",
-    "silu": "silu",
-    "relax.nn.silu": "silu",
-    "take": "take",
-    "relax.take": "take",
-    "reshape": "copy",
-    "relax.reshape": "copy",
-    "topk": "topk",
-    "relax.topk": "topk",
-    "rope": "rope",
-    "opennpux.rope": "rope",
-    "copy": "copy",
-    "opennpux.copy": "copy",
-    "kv_pack": "kv_pack",
-    "opennpux.kv_pack": "kv_pack",
-    "attention": "attention",
-    "opennpux.attention": "attention",
-}
-
-
 def _fuse_transposed_rhs(nodes: Any) -> tuple[list[dict[str, Any]], int]:
     if not isinstance(nodes, list):
         raise CodegenError("nodes must be an array")
@@ -105,7 +76,7 @@ def _fuse_transposed_rhs(nodes: Any) -> tuple[list[dict[str, Any]], int]:
             )
         consumer_index, input_index = uses[0]
         consumer = nodes[consumer_index]
-        if input_index != 1 or OP_ALIASES.get(consumer.get("op")) != "matmul":
+        if input_index != 1 or normalize_operation(consumer.get("op")) != "matmul":
             raise CodegenError(
                 "permute_dims is only supported as a rank-2 MatMul RHS transpose"
             )
@@ -118,7 +89,7 @@ def _fuse_transposed_rhs(nodes: Any) -> tuple[list[dict[str, Any]], int]:
             continue
         rewritten = dict(node)
         inputs = list(node.get("inputs", []))
-        if OP_ALIASES.get(node.get("op")) == "matmul" and len(inputs) == 2:
+        if normalize_operation(node.get("op")) == "matmul" and len(inputs) == 2:
             source = fused_inputs.get(inputs[1])
             if source is not None:
                 inputs[1] = source
@@ -379,7 +350,7 @@ def _lower_node(
     node_index: int, c_lowering: CLowering | None, arena_size: int,
 ) -> list[CommandRecord]:
     raw_op = node.get("op")
-    op = OP_ALIASES.get(raw_op)
+    op = normalize_operation(raw_op)
     if op is None:
         raise CodegenError(f"node {node_index} has unsupported BYOC op {raw_op!r}")
     attrs = node.get("attrs", {})

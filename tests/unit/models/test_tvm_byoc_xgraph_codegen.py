@@ -15,7 +15,13 @@ from opennpux_tvm_byoc.xgraph_codegen import (  # noqa: E402
     CodegenError,
     compile_graph,
 )
-from opennpux_backend.ir import GRAPH_FORMAT  # noqa: E402
+from opennpux_backend import (  # noqa: E402
+    CAPABILITY_FORMAT,
+    GRAPH_FORMAT,
+    capability_manifest,
+    normalize_operation,
+    supports_operation,
+)
 from build_xgraph_tensor_image import build_image  # noqa: E402
 
 
@@ -55,6 +61,15 @@ class XGraphCodegenTest(unittest.TestCase):
         graph["format"] = GRAPH_FORMAT
         _, metadata = compile_graph(graph)
         self.assertEqual(metadata["format"], GRAPH_FORMAT)
+
+    def test_backend_capabilities_are_frontend_neutral(self):
+        self.assertEqual(normalize_operation("relax.matmul"), "matmul")
+        self.assertEqual(normalize_operation("matmul"), "matmul")
+        self.assertTrue(supports_operation("opennpux.attention"))
+        self.assertFalse(supports_operation("frontend.unknown"))
+        manifest = capability_manifest()
+        self.assertEqual(manifest["format"], CAPABILITY_FORMAT)
+        self.assertEqual(manifest["operations"]["matmul"]["commands"], ["TMMA"])
 
     def test_arena_is_aligned_and_non_overlapping(self):
         _, metadata = compile_graph(self.load_fixture())

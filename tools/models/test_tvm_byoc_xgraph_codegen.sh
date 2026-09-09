@@ -22,6 +22,8 @@ fi
     "${ROOT_DIR}/runtime/host/src/npu_gptq_tile_plan.c" \
     -lm -o "${LOWERING_LIB}"
 export OPENNPUX_XGRAPH_LOWERING_LIB="${LOWERING_LIB}"
+"${PYTHON}" "${SCRIPT_DIR}/inspect_opennpux_backend.py" \
+    > "${BUILD_DIR}/backend-capabilities.json"
 "${PYTHON}" -m unittest discover \
     -s "${ROOT_DIR}/tests/unit/models" \
     -p 'test_tvm_byoc*.py'

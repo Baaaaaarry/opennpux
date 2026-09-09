@@ -7,6 +7,7 @@ import argparse
 import functools
 import importlib.metadata
 import json
+import math
 import os
 import struct
 import sys
@@ -30,7 +31,12 @@ def _package_version(name: str) -> str:
 
 
 def _print_runtime_preflight(
-    *, quantization: str, attention_backend: str, enforce_eager: bool
+    *,
+    quantization: str,
+    attention_backend: str,
+    enforce_eager: bool,
+    gpu_memory_utilization: float,
+    gpu_memory_policy: str,
 ) -> None:
     """Emit startup configuration before vLLM creates its worker process."""
     import torch
@@ -46,6 +52,11 @@ def _print_runtime_preflight(
     print(
         f"hf_numerical_vllm_enforce_eager={int(enforce_eager)}", flush=True
     )
+    print(
+        f"hf_numerical_vllm_gpu_memory_utilization={gpu_memory_utilization}",
+        flush=True,
+    )
+    print(f"hf_numerical_vllm_gpu_memory_policy={gpu_memory_policy}", flush=True)
     print(
         "hf_numerical_vllm_flashinfer_sampler="
         + os.environ["VLLM_USE_FLASHINFER_SAMPLER"],
@@ -67,6 +78,43 @@ def _print_runtime_preflight(
     print(f"hf_numerical_cuda_memory_free={free_bytes}", flush=True)
     print(f"hf_numerical_cuda_memory_total={total_bytes}", flush=True)
     print("hf_numerical_vllm_preflight=PASS", flush=True)
+
+
+def _safe_gpu_memory_utilization(free_bytes: int, total_bytes: int) -> float:
+    """Choose a vLLM budget below currently available device memory."""
+    if free_bytes <= 0 or total_bytes <= 0 or free_bytes > total_bytes:
+        raise ValueError("CUDA reported an invalid memory snapshot")
+    reserve = max(2 * 1024**3, int(total_bytes * 0.02))
+    safe = (free_bytes - reserve) / total_bytes
+    utilization = min(0.9, math.floor(safe * 100.0) / 100.0)
+    if utilization < 0.1:
+        raise RuntimeError(
+            "insufficient free GPU memory for vLLM after reserving startup headroom"
+        )
+    return utilization
+
+
+def _gpu_memory_utilization() -> tuple[float, str]:
+    configured = os.environ.get("OPENNPUX_VLLM_GPU_MEMORY_UTILIZATION")
+    if configured is not None:
+        try:
+            utilization = float(configured)
+        except ValueError as error:
+            raise ValueError(
+                "OPENNPUX_VLLM_GPU_MEMORY_UTILIZATION must be numeric"
+            ) from error
+        if not 0.0 < utilization <= 1.0:
+            raise ValueError(
+                "OPENNPUX_VLLM_GPU_MEMORY_UTILIZATION must be in (0, 1]"
+            )
+        return utilization, "explicit"
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("vLLM reference generation requires an available CUDA device")
+    free_bytes, total_bytes = torch.cuda.mem_get_info(torch.cuda.current_device())
+    return _safe_gpu_memory_utilization(free_bytes, total_bytes), "auto-free-memory"
 
 
 def vocabulary_size(config: dict) -> int:
@@ -377,6 +425,7 @@ def main() -> None:
         "OPENNPUX_VLLM_ATTENTION_BACKEND", "TRITON_ATTN"
     )
     enforce_eager = os.environ.get("OPENNPUX_VLLM_ENFORCE_EAGER", "1") != "0"
+    gpu_memory_utilization, gpu_memory_policy = _gpu_memory_utilization()
     if args.layer_trace is not None:
         # Callable RPC serialization is opt-in in current vLLM releases and
         # must be enabled before worker processes are created.
@@ -385,6 +434,8 @@ def main() -> None:
         quantization=quantization,
         attention_backend=attention_backend,
         enforce_eager=enforce_eager,
+        gpu_memory_utilization=gpu_memory_utilization,
+        gpu_memory_policy=gpu_memory_policy,
     )
     llm = LLM(
         model=str(args.model_dir),
@@ -394,9 +445,7 @@ def main() -> None:
         attention_backend=attention_backend,
         enforce_eager=enforce_eager,
         max_model_len=int(os.environ.get("OPENNPUX_VLLM_MAX_MODEL_LEN", "4096")),
-        gpu_memory_utilization=float(
-            os.environ.get("OPENNPUX_VLLM_GPU_MEMORY_UTILIZATION", "0.9")
-        ),
+        gpu_memory_utilization=gpu_memory_utilization,
     )
     if args.layer_trace is not None:
         args.layer_trace.parent.mkdir(parents=True, exist_ok=True)

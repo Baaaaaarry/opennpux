@@ -456,6 +456,11 @@ tail -n 80 simout/qwen35b-vllm-startup.log
 
 The generator prints its effective versions, CUDA capability, available GPU
 memory, quantization backend and attention backend before creating EngineCore.
+When `OPENNPUX_VLLM_GPU_MEMORY_UTILIZATION` is unset, it also derives the vLLM
+budget from currently free memory and reserves at least 2 GiB for startup. For
+example, 39.32 GiB free out of 83.05 GiB selects approximately `0.44`, rather
+than requesting the impossible default of `0.9` (74.74 GiB). Set the variable
+explicitly only when a fixed, validated deployment budget is required.
 Do not diagnose an EngineCore failure from a traceback truncated at
 `worker.init_device()`; the actionable error is the final `RuntimeError`, CUDA
 error, or out-of-memory line below it.

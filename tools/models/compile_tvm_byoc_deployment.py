@@ -80,9 +80,12 @@ def run(command: list[str]) -> None:
     result = subprocess.run(command, check=False, text=True, capture_output=True)
     if result.stdout:
         print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
     if result.returncode != 0:
-        detail = result.stderr.strip() or "command failed"
-        raise CodegenError(f"{Path(command[1]).name}: {detail}")
+        raise CodegenError(
+            f"{Path(command[1]).name} exited with status {result.returncode}"
+        )
 
 
 def main() -> None:
@@ -98,6 +101,7 @@ def main() -> None:
         default=os.environ.get("OPENNPUX_XGRAPH_LOWERING_LIB"),
     )
     args = parser.parse_args()
+    stage = "load-deployment"
     try:
         spec = load_object(args.deployment)
         if spec.get("format") != FORMAT:
@@ -133,8 +137,11 @@ def main() -> None:
             compile_command.extend(["--state-update", value])
         for value in state_appends:
             compile_command.extend(["--state-append", value])
+        stage = "compile-module"
+        print(f"tvm_byoc_deployment_stage={stage}")
         run(compile_command)
 
+        stage = "load-module-manifest"
         manifest = load_object(compiled / "module.npxgm.json")
         metadata = {
             region["name"]: load_object(compiled / f"{region['artifact']}.json")
@@ -144,6 +151,8 @@ def main() -> None:
         arena_dir = args.output / "arenas"
         arena_dir.mkdir(exist_ok=True)
         for region in manifest["regions"]:
+            stage = f"build-module-arena:{region['name']}"
+            print(f"tvm_byoc_deployment_stage={stage}")
             path = arena_dir / f"{region['name']}.module.bin"
             path.write_bytes(build_region_arena(
                 metadata[region["name"]], region, module_values, invocation=False
@@ -160,6 +169,8 @@ def main() -> None:
         ]
         for region, path in base_arenas:
             package_command.extend(["--arena", f"{region}={path}"])
+        stage = "build-module-package"
+        print(f"tvm_byoc_deployment_stage={stage}")
         run(package_command)
 
         invocation_records = []
@@ -181,6 +192,8 @@ def main() -> None:
                 str(args.output / f"{name}.npxmi"),
             ]
             for region in manifest["regions"]:
+                stage = f"build-invocation-arena:{name}:{region['name']}"
+                print(f"tvm_byoc_deployment_stage={stage}")
                 path = arena_dir / f"{name}.{region['name']}.bin"
                 path.write_bytes(build_region_arena(
                     metadata[region["name"]], region, values, invocation=True
@@ -192,6 +205,8 @@ def main() -> None:
                 invocation_command.extend([
                     "--scalar", f"{scalar_name}={scalar_value}"
                 ])
+            stage = f"build-invocation:{name}"
+            print(f"tvm_byoc_deployment_stage={stage}")
             run(invocation_command)
             invocation_records.append({
                 "name": name,
@@ -206,12 +221,14 @@ def main() -> None:
             "invocations": invocation_records,
         }
         manifest_path = args.output / "deployment.json"
+        stage = "write-deployment-manifest"
+        print(f"tvm_byoc_deployment_stage={stage}")
         manifest_path.write_text(
             json.dumps(deployment_manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
     except (OSError, KeyError, ValueError, struct.error, CodegenError) as error:
-        print(f"tvm_byoc_deployment=FAIL: {error}", file=sys.stderr)
+        print(f"tvm_byoc_deployment=FAIL stage={stage}: {error}", file=sys.stderr)
         raise SystemExit(1) from error
     print(f"tvm_byoc_deployment_manifest={manifest_path}")
     print(f"tvm_byoc_deployment_module={package}")

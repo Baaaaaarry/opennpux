@@ -290,6 +290,11 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
     invocation_order: list[Any] = []
     extracted_graphs: dict[Any, dict[str, Any]] = {}
     binding_sources: dict[Any, dict[str, str]] = {}
+    source_parameters = {
+        parameter: str(parameter.name_hint)
+        for parameter in main.params
+        if getattr(parameter, "name_hint", None)
+    }
     producer: dict[Any, tuple[str, str]] = {}
     host_value: dict[Any, tuple[str, str, list[dict[str, Any]]]] = {}
     edges = []
@@ -300,7 +305,12 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
         for block in body.blocks:
             bindings.extend(block.bindings)
     for binding in bindings:
-        if not isinstance(binding, relax.VarBinding) or not isinstance(binding.value, relax.Call):
+        if not isinstance(binding, relax.VarBinding):
+            continue
+        source_name = source_parameters.get(binding.value)
+        if source_name is not None:
+            source_parameters[binding.var] = source_name
+        if not isinstance(binding.value, relax.Call):
             continue
         call = binding.value
         if call.op not in regions:
@@ -355,7 +365,9 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
                     "pipeline": pipeline,
                 })
             else:
-                source_name = getattr(argument, "name_hint", None)
+                source_name = source_parameters.get(argument)
+                if source_name is None:
+                    source_name = getattr(argument, "name_hint", None)
                 if source_name:
                     sources[parameter_name] = str(source_name)
         extracted_graphs[call.op] = graph

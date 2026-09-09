@@ -96,6 +96,7 @@ class TvmByocDeploymentTest(unittest.TestCase):
         with temporary:
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("module values missing residual.rhs", result.stderr)
+            self.assertIn("stage=build-module-arena:residual", result.stderr)
 
     def test_rejects_missing_invocation_input(self):
         spec = deployment()
@@ -104,6 +105,10 @@ class TvmByocDeploymentTest(unittest.TestCase):
         with temporary:
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("invocation values missing residual.lhs", result.stderr)
+            self.assertIn(
+                "stage=build-invocation-arena:request-000:residual",
+                result.stderr,
+            )
 
 
 if __name__ == "__main__":

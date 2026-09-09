@@ -24,8 +24,12 @@ def run(command: list[str]) -> None:
     result = subprocess.run(command, check=False, text=True, capture_output=True)
     if result.stdout:
         print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
     if result.returncode != 0:
-        raise ValueError(result.stderr.strip() or f"{Path(command[1]).name} failed")
+        raise ValueError(
+            f"{Path(command[1]).name} exited with status {result.returncode}"
+        )
 
 
 def main() -> None:
@@ -37,6 +41,7 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("--lowering-library")
     args = parser.parse_args()
+    stage = "load-request"
     try:
         import numpy as np
         import onnx
@@ -52,6 +57,8 @@ def main() -> None:
         args.output.mkdir(parents=True, exist_ok=True)
         relax_path = args.output / "model.relax.json"
         signature_path = args.output / "model.signature.json"
+        stage = "import-onnx-to-relax"
+        print(f"onnx_byoc_deployment_stage={stage}")
         run([
             sys.executable,
             str(Path(__file__).with_name("import_onnx_to_relax.py")),
@@ -105,7 +112,10 @@ def main() -> None:
         ]
         if args.lowering_library:
             command.extend(["--lowering-library", args.lowering_library])
+        stage = "compile-tvm-byoc-deployment"
+        print(f"onnx_byoc_deployment_stage={stage}")
         run(command)
+        stage = "write-partition-audit"
         module_manifest = load_object(
             args.output / "deployment/compiled/module.npxgm.json"
         )
@@ -131,7 +141,7 @@ def main() -> None:
             json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
     except (ImportError, OSError, KeyError, TypeError, ValueError) as error:
-        print(f"onnx_byoc_deployment=FAIL: {error}", file=sys.stderr)
+        print(f"onnx_byoc_deployment=FAIL stage={stage}: {error}", file=sys.stderr)
         raise SystemExit(1) from error
     print(f"onnx_byoc_constants={len(constant_names)}")
     print(f"onnx_byoc_folded_initializers={len(folded_initializers)}")

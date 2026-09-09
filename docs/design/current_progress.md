@@ -1696,3 +1696,9 @@ GB10 已验证上述 7-command scaled causal Attention 全链路。随后门禁�
 标准 ONNX 图应生成 6 条 TMMA、1 条 TMUL、2 条 TADD 和 1 条 TSOFTMAX，共 10 commands；
 K transpose 继续融合进 QK TMMA。该增量验证模型参数、中间 Tensor 依赖和 residual，而不是仅验证
 预制 Attention 输入。
+
+完整 projection Attention 首次部署暴露了 source-name 稳定性问题：module package 可对 runtime
+input 填零而先通过，但 invocation 随后无法用 ONNX 名称匹配 TVM MergeCompositeFunctions 生成的
+内部参数名。Relax BYOC 提取现记录 `binding_sources`，storage policy 和 invocation materializer
+均通过源模型参数名解析；同一个 `hidden_states` 即使被 TVM 展开为多个 region binding，也只要求
+CPU runtime 提交一次源 Tensor。缺失绑定错误同时打印内部名、源名称和可用输入列表。

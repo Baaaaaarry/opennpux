@@ -28,13 +28,17 @@ def deployment() -> dict:
 
 
 class TvmByocDeploymentTest(unittest.TestCase):
-    def run_compiler(self, spec: dict):
+    def run_compiler(self, spec: dict, model=None):
         temporary = tempfile.TemporaryDirectory()
         directory = Path(temporary.name)
         spec_path = directory / "deployment.json"
         spec_path.write_text(json.dumps(spec), encoding="utf-8")
+        model_path = MODEL
+        if model is not None:
+            model_path = directory / "model.json"
+            model_path.write_text(json.dumps(model), encoding="utf-8")
         result = subprocess.run(
-            [sys.executable, str(COMPILER), str(MODEL), str(spec_path),
+            [sys.executable, str(COMPILER), str(model_path), str(spec_path),
              str(directory / "output")],
             check=False, capture_output=True, text=True,
         )
@@ -56,6 +60,34 @@ class TvmByocDeploymentTest(unittest.TestCase):
                 "name": "request-000", "artifact": "request-000.npxmi"
             }])
             self.assertIn("tvm_byoc_deployment=PASS", result.stdout)
+
+    def test_source_names_bind_renamed_region_parameters(self):
+        model = json.loads(MODEL.read_text(encoding="utf-8"))
+        residual = next(
+            region for region in model["regions"] if region["name"] == "residual"
+        )
+        residual["binding_sources"] = {
+            "lhs": "hidden_states",
+            "rhs": "residual_bias",
+        }
+        spec = deployment()
+        spec["constant_parameters"] = ["residual_bias"]
+        spec["module_values"] = {"residual_bias": {"fill": 1.0}}
+        spec["invocations"][0]["values"] = {
+            "hidden_states": {"repeat": [-1.0, 0.0, 1.0, 2.0]}
+        }
+        temporary, directory, result = self.run_compiler(spec, model)
+        with temporary:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest = json.loads(
+                (directory / "output/compiled/module.npxgm.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            region = manifest["regions"][0]
+            self.assertEqual(region["binding_sources"]["lhs"], "hidden_states")
+            self.assertEqual(region["binding_sources"]["rhs"], "residual_bias")
+            self.assertTrue((directory / "output/request-000.npxmi").is_file())
 
     def test_rejects_missing_constant(self):
         spec = deployment()

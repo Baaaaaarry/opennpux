@@ -23,20 +23,26 @@ def apply_parameter_storage(
             + ", ".join(sorted(overlap))
         )
     if source.get("format") == FORMAT:
-        graphs = [source]
+        regions = [{"graph": source, "binding_sources": {}}]
     elif source.get("format") == MODULE_FORMAT:
-        graphs = [region.get("graph") for region in source.get("regions", [])]
+        regions = source.get("regions", [])
     else:
         raise CodegenError("storage policy requires a normalized graph or module")
     matched: set[str] = set()
-    for graph in graphs:
+    for region in regions:
+        graph = region.get("graph") if isinstance(region, dict) else None
         if not isinstance(graph, dict):
             raise CodegenError("storage policy encountered an invalid region graph")
+        aliases = region.get("binding_sources", {})
+        if not isinstance(aliases, dict):
+            raise CodegenError("storage policy encountered invalid binding_sources")
         for tensor in graph.get("tensors", []):
             if not isinstance(tensor, dict):
                 continue
             name = tensor.get("name")
-            target = "constant" if name in constants else "state" if name in states else None
+            source_name = aliases.get(name, name)
+            target = ("constant" if source_name in constants else
+                      "state" if source_name in states else None)
             if target is None:
                 continue
             if tensor.get("storage") not in {"input", target}:
@@ -45,7 +51,7 @@ def apply_parameter_storage(
                     f"cannot become {target}"
                 )
             tensor["storage"] = target
-            matched.add(name)
+            matched.add(source_name)
     missing = (constants | states) - matched
     if missing:
         raise CodegenError(

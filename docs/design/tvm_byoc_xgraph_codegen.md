@@ -793,3 +793,12 @@ and Host operation counts. The system test only emits the aggregate
 `tvm_frontend_to_xopennpux=PASS` after both the heterogeneous ONNX graph and
 stateful decode graph have passed, so a legacy XGraph-only verdict cannot mask
 a skipped frontend gate.
+
+Region parameter names are not a deployment ABI. TVM may rename or duplicate
+parameters while merging per-operator composite functions, especially when one
+source Tensor feeds Q, K, V, and a residual edge. BYOC extraction therefore
+records `binding_sources` from each internal region parameter back to the main
+Relax/ONNX parameter. Storage classification and invocation materialization
+consume source names through that map. A caller supplies `hidden_states` once;
+the deployment compiler replicates its bytes into every internal binding that
+TVM generated, without exposing temporary TVM names to the runtime API.

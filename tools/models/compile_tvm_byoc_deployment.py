@@ -55,17 +55,22 @@ def build_region_arena(
 ) -> bytes:
     selected: dict[str, Any] = {}
     invocation_bindings = set(region.get("invocation_bindings", []))
+    binding_sources = region.get("binding_sources", {})
+    if not isinstance(binding_sources, dict):
+        raise CodegenError(f"region {region['name']} has invalid binding_sources")
     for tensor in metadata["tensors"]:
         if tensor["storage"] not in {"input", "constant", "state"}:
             continue
         name = tensor["name"]
-        supplied = tensor_value(values, region["name"], name)
+        source_name = binding_sources.get(name, name)
+        supplied = tensor_value(values, region["name"], source_name)
         required = (name in invocation_bindings if invocation else
                     tensor["storage"] in {"constant", "state"})
         if supplied is None and required:
             kind = "invocation" if invocation else "module"
             raise CodegenError(
-                f"{kind} values missing {region['name']}.{name}"
+                f"{kind} values missing {region['name']}.{name} "
+                f"(source={source_name}, available={sorted(values)})"
             )
         selected[name] = supplied if supplied is not None else zero_value(tensor["dtype"])
     return build_image(metadata, selected)

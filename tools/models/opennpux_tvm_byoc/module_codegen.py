@@ -53,6 +53,7 @@ def compile_module(
         raise CodegenError("module regions must be a non-empty array")
 
     graphs: dict[str, dict[str, Any]] = {}
+    binding_sources: dict[str, dict[str, str]] = {}
     tensor_tables: dict[str, dict[str, dict[str, Any]]] = {}
     declaration_order: dict[str, int] = {}
     for index, record in enumerate(raw_regions):
@@ -66,6 +67,18 @@ def compile_module(
             raise CodegenError(f"region {name} must contain a normalized BYOC graph")
         graphs[name] = graph
         tensor_tables[name] = _tensor_table(graph, name)
+        raw_sources = record.get("binding_sources", {})
+        if (not isinstance(raw_sources, dict) or
+                any(not isinstance(key, str) or not isinstance(value, str)
+                    for key, value in raw_sources.items())):
+            raise CodegenError(f"region {name} has invalid binding_sources")
+        unknown_sources = set(raw_sources) - set(tensor_tables[name])
+        if unknown_sources:
+            raise CodegenError(
+                f"region {name} binding_sources reference unknown tensors: "
+                + ", ".join(sorted(unknown_sources))
+            )
+        binding_sources[name] = dict(raw_sources)
         declaration_order[name] = index
 
     edges = module.get("edges", [])
@@ -313,6 +326,10 @@ def compile_module(
             "invocation_bindings": invocation_bindings,
             "constant_bindings": constant_bindings,
             "state_bindings": state_bindings,
+            "binding_sources": {
+                tensor_name: binding_sources[name].get(tensor_name, tensor_name)
+                for tensor_name in external_bindings
+            },
             "outputs": list(graphs[name].get("outputs", [])),
         })
 

@@ -288,6 +288,8 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
         raise CodegenError("partitioned module main is not a Relax function")
 
     invocation_order: list[Any] = []
+    extracted_graphs: dict[Any, dict[str, Any]] = {}
+    binding_sources: dict[Any, dict[str, str]] = {}
     producer: dict[Any, tuple[str, str]] = {}
     host_value: dict[Any, tuple[str, str, list[dict[str, Any]]]] = {}
     edges = []
@@ -337,6 +339,7 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
         parameter_names = [
             tensor["name"] for tensor in graph["tensors"][: len(function.params)]
         ]
+        sources = {}
         for argument, parameter_name in zip(call.args, parameter_names):
             if argument in producer:
                 source_region, source_tensor = producer[argument]
@@ -351,6 +354,12 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
                     "to": {"region": region_name, "tensor": parameter_name},
                     "pipeline": pipeline,
                 })
+            else:
+                source_name = getattr(argument, "name_hint", None)
+                if source_name:
+                    sources[parameter_name] = str(source_name)
+        extracted_graphs[call.op] = graph
+        binding_sources[call.op] = sources
         producer[binding.var] = (region_name, graph["outputs"][0])
 
     if len(invocation_order) != len(regions):
@@ -363,7 +372,8 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
         "regions": [
             {
                 "name": regions[global_var][0],
-                "graph": _normalized_graph_from_function(regions[global_var][1], relax),
+                "graph": extracted_graphs[global_var],
+                "binding_sources": binding_sources[global_var],
             }
             for global_var in invocation_order
         ],

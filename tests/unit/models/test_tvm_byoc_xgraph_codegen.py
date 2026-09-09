@@ -446,6 +446,25 @@ class XGraphCodegenTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "runtime values are required"):
             build_image(metadata, {"input": [1.0] * 8})
 
+    def test_tensor_arena_can_materialize_only_invocation_bindings(self):
+        _, metadata = compile_graph(self.load_fixture())
+        image = build_image(
+            metadata, {"input": [1.0] * 8}, allow_missing=True
+        )
+        tensors = {tensor["name"]: tensor for tensor in metadata["tensors"]}
+        input_tensor = tensors["input"]
+        weight_tensor = tensors["weight"]
+        self.assertEqual(
+            struct.unpack_from("<f", image, input_tensor["offset"])[0], 1.0
+        )
+        self.assertEqual(
+            image[
+                weight_tensor["offset"]:
+                weight_tensor["offset"] + weight_tensor["byte_size"]
+            ],
+            bytes(weight_tensor["byte_size"]),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

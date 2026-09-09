@@ -66,7 +66,9 @@ def _load_object(path: Path) -> dict[str, Any]:
     return value
 
 
-def build_image(metadata: dict[str, Any], values: dict[str, Any]) -> bytes:
+def build_image(
+    metadata: dict[str, Any], values: dict[str, Any], *, allow_missing: bool = False
+) -> bytes:
     arena_size = metadata.get("arena_size")
     tensors = metadata.get("tensors")
     if not isinstance(arena_size, int) or arena_size < 0x20000:
@@ -87,7 +89,11 @@ def build_image(metadata: dict[str, Any], values: dict[str, Any]) -> bytes:
             if name in values:
                 raise ValueError(f"tensor {name}: values are only valid for runtime inputs")
             continue
-        if not isinstance(name, str) or name not in values:
+        if not isinstance(name, str):
+            raise ValueError("tensor metadata has an invalid name")
+        if name not in values and allow_missing:
+            continue
+        if name not in values:
             raise ValueError(f"tensor {name}: runtime values are required")
         if (
             dtype not in PACKERS

@@ -62,6 +62,8 @@ def build_region_arena(
         if tensor["storage"] not in {"input", "constant", "state"}:
             continue
         name = tensor["name"]
+        if invocation and name not in invocation_bindings:
+            continue
         source_name = binding_sources.get(name, name)
         supplied = tensor_value(values, region["name"], source_name)
         required = (name in invocation_bindings if invocation else
@@ -73,7 +75,7 @@ def build_region_arena(
                 f"(source={source_name}, available={sorted(values)})"
             )
         selected[name] = supplied if supplied is not None else zero_value(tensor["dtype"])
-    return build_image(metadata, selected)
+    return build_image(metadata, selected, allow_missing=invocation)
 
 
 def run(command: list[str]) -> None:

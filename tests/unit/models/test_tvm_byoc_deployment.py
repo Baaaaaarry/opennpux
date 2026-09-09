@@ -89,6 +89,27 @@ class TvmByocDeploymentTest(unittest.TestCase):
             self.assertEqual(region["binding_sources"]["rhs"], "residual_bias")
             self.assertTrue((directory / "output/request-000.npxmi").is_file())
 
+    def test_long_fused_region_uses_bounded_temporary_paths(self):
+        model = json.loads(MODEL.read_text(encoding="utf-8"))
+        long_name = "fused_" + "relax_matmul_" * 30 + "opennpux"
+        residual = next(
+            region for region in model["regions"] if region["name"] == "residual"
+        )
+        residual["name"] = long_name
+        model["edges"][0]["from"]["region"] = long_name
+        temporary, directory, result = self.run_compiler(deployment(), model)
+        with temporary:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            arena_names = [path.name for path in (directory / "output/arenas").iterdir()]
+            self.assertTrue(arena_names)
+            self.assertTrue(all(len(name.encode("utf-8")) <= 255 for name in arena_names))
+            manifest = json.loads(
+                (directory / "output/compiled/module.npxgm.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertIn(long_name, [region["name"] for region in manifest["regions"]])
+
     def test_rejects_missing_constant(self):
         spec = deployment()
         spec["module_values"] = {}

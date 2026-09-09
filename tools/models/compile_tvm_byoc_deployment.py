@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import faulthandler
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import traceback
@@ -19,6 +21,23 @@ from opennpux_tvm_byoc import CodegenError
 
 
 FORMAT = "OPENNPUX_TVM_BYOC_DEPLOYMENT_V1"
+
+
+def bounded_file_key(value: str, limit: int = 120) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+        raise CodegenError(f"invalid artifact name {value!r}")
+    if len(value.encode("utf-8")) <= limit:
+        return value
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    prefix = value[:64].rstrip(".-_") or "artifact"
+    return f"{prefix}-{digest}"
+
+
+def region_file_key(region: dict[str, Any]) -> str:
+    artifact = region.get("artifact")
+    if not isinstance(artifact, str) or not artifact.endswith(".npxg"):
+        raise CodegenError(f"region {region.get('name')} has invalid artifact name")
+    return bounded_file_key(Path(artifact).stem)
 
 
 def load_object(path: Path) -> dict[str, Any]:
@@ -191,7 +210,7 @@ def main() -> None:
         for region in manifest["regions"]:
             stage = f"build-module-arena:{region['name']}"
             print(f"tvm_byoc_deployment_stage={stage}", flush=True)
-            path = arena_dir / f"{region['name']}.module.bin"
+            path = arena_dir / f"{region_file_key(region)}.module.bin"
             path.write_bytes(build_region_arena(
                 metadata[region["name"]], region, module_values, invocation=False
             ))
@@ -223,11 +242,13 @@ def main() -> None:
                     not isinstance(values, dict) or not isinstance(scalars, dict)):
                 raise CodegenError(f"invocation {index} is invalid")
             seen_names.add(name)
+            invocation_key = bounded_file_key(name)
+            invocation_artifact = f"{invocation_key}.npxmi"
             invocation_command = [
                 sys.executable,
                 str(Path(__file__).with_name("build_tvm_byoc_invocation.py")),
                 str(compiled),
-                str(args.output / f"{name}.npxmi"),
+                str(args.output / invocation_artifact),
             ]
             for region in manifest["regions"]:
                 stage = f"build-invocation-arena:{name}:{region['name']}"
@@ -239,7 +260,7 @@ def main() -> None:
                     f"{invocation_binding_summary(metadata[region['name']], region, values)}",
                     flush=True,
                 )
-                path = arena_dir / f"{name}.{region['name']}.bin"
+                path = arena_dir / f"{invocation_key}.{region_file_key(region)}.bin"
                 arena = build_region_arena(
                     metadata[region["name"]], region, values, invocation=True
                 )
@@ -264,7 +285,7 @@ def main() -> None:
             run(invocation_command)
             invocation_records.append({
                 "name": name,
-                "artifact": f"{name}.npxmi",
+                "artifact": invocation_artifact,
             })
 
         deployment_manifest = {

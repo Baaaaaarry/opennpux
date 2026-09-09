@@ -28,9 +28,15 @@ export OPENNPUX_XGRAPH_LOWERING_LIB="${LOWERING_LIB}"
 "${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \
     "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_basic.json" \
     "${BUILD_DIR}/basic.npxg"
+"${PYTHON}" "${SCRIPT_DIR}/compile_opennpux_backend.py" \
+    "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_basic.json" \
+    "${BUILD_DIR}/backend-basic.npxg"
 "${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
     "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_module.json" \
     "${BUILD_DIR}/module"
+"${PYTHON}" "${SCRIPT_DIR}/compile_opennpux_backend.py" \
+    "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_module.json" \
+    "${BUILD_DIR}/backend-module"
 "${PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_module.py" \
     "${ROOT_DIR}/tests/fixtures/models/tvm_byoc_stateful_module.json" \
     "${BUILD_DIR}/stateful-module"

@@ -21,7 +21,8 @@ Model frontend
     -> TVM Relax IR
     -> FuseOpsByPattern(OpenNPUX capability patterns)
     -> MergeCompositeFunctions(OpenNPUX regions)
-    -> normalized OPENNPUX_TVM_BYOC_GRAPH_V1
+    -> TVM adapter
+    -> frontend-neutral OPENNPUX_BACKEND_GRAPH_V1 / MODULE_V1
     -> static shared-DMA Tensor arena planning
     -> XGraph v2 header + 64-byte commands (.npxg)
     -> existing Coral firmware XGraph decoder
@@ -32,6 +33,42 @@ The implementation follows current TVM BYOC separation: pattern registration,
 graph partitioning, backend code generation, then runtime execution. We keep
 weights as region inputs (`bind_constants=False`) because OpenNPUX already has
 a separate weight package, paging, and binding contract.
+
+## Frontend-neutral backend boundary
+
+BYOC is TVM's partitioning protocol, not the OpenNPUX hardware interface. The
+reusable boundary is therefore the normalized OpenNPUX backend IR and the
+compiler/runtime ABI below it:
+
+```text
+TVM Relax -- TVM BYOC adapter --\
+                                OPENNPUX_BACKEND_GRAPH_V1 / MODULE_V1
+MAX Graph -- future Mojo adapter /           |
+Other graph compiler adapter ----/           v
+                                  capability validation + storage planning
+                                  generic request lowering + hardware tiling
+                                  XGraph / XOpenNPUX code generation
+                                  .npxg + .npxgm + .npxmi
+                                  Coral driver, firmware and NPU modeling
+```
+
+Frontend adapters own only source-IR matching, partitioning, type/shape
+translation, stable parameter names, and conversion into backend IR. They must
+not implement tile selection, command encoding, device memory layout, or Guest
+submission. Those policies belong to `opennpux_backend` and are shared by TVM,
+the future MAX/Mojo adapter, and any later frontend.
+
+New adapters call `opennpux_backend.compiler.compile_graph()` or
+`compile_module()`. The standalone `compile_opennpux_backend.py` accepts only
+normalized backend IR, deliberately has no TVM dependency, and is the contract
+test entry point for future adapters. `compile_tvm_byoc_xgraph.py` and
+`compile_tvm_byoc_module.py` remain TVM-facing compatibility tools: they import
+or partition Relax and then cross the same neutral boundary.
+
+New output uses `OPENNPUX_BACKEND_GRAPH_V1` and
+`OPENNPUX_BACKEND_MODULE_V1`. Readers retain compatibility with the earlier
+`OPENNPUX_TVM_BYOC_*` names so existing fixtures and compiled JSON manifests do
+not require a flag-day migration.
 
 ## Artifact contract
 

@@ -5,10 +5,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from opennpux_backend.ir import GRAPH_FORMATS, MODULE_FORMAT, MODULE_FORMATS
+
 from .xgraph_codegen import CodegenError, FORMAT, compile_graph
-
-
-MODULE_FORMAT = "OPENNPUX_TVM_BYOC_MODULE_V1"
 
 
 def _region_name(value: Any, index: int) -> str:
@@ -46,8 +45,10 @@ def compile_module(
     module: dict[str, Any], lowering_library: str | None = None,
 ) -> tuple[dict[str, tuple[bytes, dict[str, Any]]], dict[str, Any]]:
     """Compile each region and return artifacts plus a validated DAG manifest."""
-    if not isinstance(module, dict) or module.get("format") != MODULE_FORMAT:
-        raise CodegenError(f"module format must be {MODULE_FORMAT}")
+    if not isinstance(module, dict) or module.get("format") not in MODULE_FORMATS:
+        raise CodegenError(
+            f"module format must be one of {sorted(MODULE_FORMATS)}"
+        )
     raw_regions = module.get("regions")
     if not isinstance(raw_regions, list) or not raw_regions:
         raise CodegenError("module regions must be a non-empty array")
@@ -63,7 +64,7 @@ def compile_module(
         if name in graphs:
             raise CodegenError(f"duplicate region name {name}")
         graph = record.get("graph")
-        if not isinstance(graph, dict) or graph.get("format") != FORMAT:
+        if not isinstance(graph, dict) or graph.get("format") not in GRAPH_FORMATS:
             raise CodegenError(f"region {name} must contain a normalized BYOC graph")
         graphs[name] = graph
         tensor_tables[name] = _tensor_table(graph, name)

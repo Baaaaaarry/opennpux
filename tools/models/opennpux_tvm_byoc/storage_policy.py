@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .module_codegen import MODULE_FORMAT
-from .xgraph_codegen import CodegenError, FORMAT
+from opennpux_backend.ir import is_graph, is_module
+
+from .xgraph_codegen import CodegenError
 
 
 def apply_parameter_aliases(
@@ -14,7 +15,7 @@ def apply_parameter_aliases(
     """Translate Relax-internal parameter names to stable frontend names."""
     if not aliases:
         return
-    if source.get("format") != MODULE_FORMAT:
+    if not is_module(source):
         raise CodegenError("parameter aliases require a normalized module")
     matched: set[str] = set()
     for region in source.get("regions", []):
@@ -47,9 +48,9 @@ def apply_parameter_storage(
             "parameters cannot be both constant and state: "
             + ", ".join(sorted(overlap))
         )
-    if source.get("format") == FORMAT:
+    if is_graph(source):
         regions = [{"graph": source, "binding_sources": {}}]
-    elif source.get("format") == MODULE_FORMAT:
+    elif is_module(source):
         regions = source.get("regions", [])
     else:
         raise CodegenError("storage policy requires a normalized graph or module")
@@ -93,7 +94,7 @@ def apply_state_updates(
     specifications.extend((value, "append") for value in (appends or []))
     if not specifications:
         return
-    if source.get("format") != MODULE_FORMAT:
+    if not is_module(source):
         raise CodegenError("state updates require a normalized module")
     regions = source.get("regions", [])
 

@@ -25,6 +25,7 @@ from opennpux_tvm_byoc.storage_policy import (  # noqa: E402
     apply_parameter_storage,
     apply_state_updates,
 )
+from opennpux_backend.ir import GRAPH_FORMAT, MODULE_FORMAT  # noqa: E402
 
 
 class XGraphModuleCodegenTest(unittest.TestCase):
@@ -55,6 +56,14 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         self.assertEqual(manifest["regions"][0]["constant_bindings"], [])
         self.assertEqual(manifest["regions"][1]["external_inputs"], [])
         self.assertEqual(manifest["edges"][0]["bytes"], 32)
+
+    def test_neutral_backend_module_format_is_canonical(self):
+        module = self.load_fixture()
+        module["format"] = MODULE_FORMAT
+        for region in module["regions"]:
+            region["graph"]["format"] = GRAPH_FORMAT
+        _, manifest = compile_module(module)
+        self.assertEqual(manifest["format"], MODULE_FORMAT)
 
     def test_separates_module_constants_from_invocation_bindings(self):
         module = self.load_fixture()

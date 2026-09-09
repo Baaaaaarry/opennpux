@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 from opennpux_tvm_byoc import CodegenError
-from opennpux_tvm_byoc.module_codegen import MODULE_FORMAT, compile_module
+from opennpux_backend.ir import is_module
+from opennpux_tvm_byoc.module_codegen import compile_module
 
 
 def parse_parameter_alias(value: str) -> tuple[str, str]:
@@ -50,7 +51,7 @@ def main() -> None:
         source = json.loads(args.input.read_text(encoding="utf-8"))
         if not isinstance(source, dict):
             raise CodegenError("input must contain a JSON object")
-        if source.get("format") != MODULE_FORMAT:
+        if not is_module(source):
             try:
                 import tvm
             except ImportError as error:

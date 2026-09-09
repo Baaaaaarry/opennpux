@@ -1710,3 +1710,15 @@ input 填零而先通过，但 invocation 随后无法用 ONNX 名称匹配 TVM 
 内部参数名。Relax BYOC 提取现记录 `binding_sources`，storage policy 和 invocation materializer
 均通过源模型参数名解析；同一个 `hidden_states` 即使被 TVM 展开为多个 region binding，也只要求
 CPU runtime 提交一次源 Tensor。缺失绑定错误同时打印内部名、源名称和可用输入列表。
+## Frontend-neutral compiler backend boundary
+
+The compiler backend is now separated conceptually and at its public Python
+entry point from the original TVM BYOC adapter. New normalized output uses
+`OPENNPUX_BACKEND_GRAPH_V1` and `OPENNPUX_BACKEND_MODULE_V1`; legacy
+`OPENNPUX_TVM_BYOC_*` inputs remain readable. The frontend-independent
+`opennpux_backend.compiler` API and `compile_opennpux_backend.py` CLI lower the
+same IR to existing XGraph/module artifacts without importing TVM. TVM remains
+the first thin adapter; a future MAX/Mojo adapter must emit the same backend IR
+instead of duplicating tiling, command encoding, packaging, or runtime logic.
+See `docs/design/opennpux_compiler_backend.md` for the ownership and migration
+contract.

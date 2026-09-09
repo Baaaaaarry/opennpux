@@ -8,8 +8,10 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
+from opennpux_backend.ir import GRAPH_FORMAT, GRAPH_FORMATS
 
-FORMAT = "OPENNPUX_TVM_BYOC_GRAPH_V1"
+
+FORMAT = GRAPH_FORMAT
 MAGIC = 0x5847504E
 VERSION = 2
 STATE_READY = 1
@@ -678,8 +680,8 @@ def compile_graph(
     graph: dict[str, Any], lowering_library: str | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     """Compile a normalized BYOC graph and return binary plus inspectable metadata."""
-    if not isinstance(graph, dict) or graph.get("format") != FORMAT:
-        raise CodegenError(f"graph format must be {FORMAT}")
+    if not isinstance(graph, dict) or graph.get("format") not in GRAPH_FORMATS:
+        raise CodegenError(f"graph format must be one of {sorted(GRAPH_FORMATS)}")
     data_offset = _u32(graph.get("data_offset", DATA_OFFSET), "data_offset")
     if data_offset < DATA_OFFSET or data_offset % ALIGNMENT != 0:
         raise CodegenError("data_offset must be 64-byte aligned and not overlap commands")

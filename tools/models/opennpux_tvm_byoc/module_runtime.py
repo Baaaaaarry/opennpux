@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from typing import Any, Callable
 
-from .module_codegen import MODULE_FORMAT
+from opennpux_backend.ir import is_module
 from .xgraph_codegen import CodegenError
 
 
@@ -124,7 +124,7 @@ class ModuleRuntime:
         self.binding_resolver = binding_resolver
         self.host_executor = host_executor
         self.manifest = self._load_json(self.directory / "module.npxgm.json")
-        if self.manifest.get("format") != MODULE_FORMAT:
+        if not is_module(self.manifest):
             raise CodegenError("invalid XGraph module manifest format")
         self.regions: dict[str, dict[str, Any]] = {}
         self.arenas: dict[str, bytearray] = {}

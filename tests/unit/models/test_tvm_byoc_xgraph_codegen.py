@@ -15,6 +15,7 @@ from opennpux_tvm_byoc.xgraph_codegen import (  # noqa: E402
     CodegenError,
     compile_graph,
 )
+from opennpux_backend.ir import GRAPH_FORMAT  # noqa: E402
 from build_xgraph_tensor_image import build_image  # noqa: E402
 
 
@@ -48,6 +49,12 @@ class XGraphCodegenTest(unittest.TestCase):
         self.assertEqual(commands[4][8], 1)
         self.assertEqual(commands[4][11], metadata["tensors"][-1]["offset"])
         self.assertEqual([command[10] for command in commands], list(range(5)))
+
+    def test_neutral_backend_graph_format_is_canonical(self):
+        graph = self.load_fixture()
+        graph["format"] = GRAPH_FORMAT
+        _, metadata = compile_graph(graph)
+        self.assertEqual(metadata["format"], GRAPH_FORMAT)
 
     def test_arena_is_aligned_and_non_overlapping(self):
         _, metadata = compile_graph(self.load_fixture())

@@ -9,8 +9,8 @@ import os
 import sys
 from pathlib import Path
 
+from opennpux_backend.ir import is_graph
 from opennpux_tvm_byoc import CodegenError, compile_graph
-from opennpux_tvm_byoc.xgraph_codegen import FORMAT
 
 
 def load_json(path: Path) -> dict:
@@ -57,7 +57,7 @@ def main() -> None:
     metadata_path = args.metadata or Path(f"{args.output}.json")
     try:
         source = load_json(args.input)
-        if source.get("format") == FORMAT:
+        if is_graph(source):
             graph = source
         else:
             try:

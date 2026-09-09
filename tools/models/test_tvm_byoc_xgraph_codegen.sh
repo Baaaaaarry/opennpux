@@ -225,11 +225,25 @@ import json
 import sys
 
 manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-assert manifest["region_count"] == 1
-assert manifest["total_commands"] == 17
-assert manifest["regions"][0]["invocation_bindings"] == ["hidden"]
-assert manifest["regions"][0]["state_bindings"] == ["state"]
-assert len(manifest["state_updates"]) == 1
+def require(label, actual, expected):
+    if actual != expected:
+        raise RuntimeError(f"{label}: expected={expected!r} actual={actual!r}")
+
+require("stateful decoder regions", manifest["region_count"], 1)
+require("stateful decoder commands", manifest["total_commands"], 17)
+region = manifest["regions"][0]
+sources = region["binding_sources"]
+require(
+    "stateful decoder invocation sources",
+    [sources[name] for name in region["invocation_bindings"]],
+    ["hidden"],
+)
+require(
+    "stateful decoder state sources",
+    [sources[name] for name in region["state_bindings"]],
+    ["state"],
+)
+require("stateful decoder state updates", len(manifest["state_updates"]), 1)
 print("tvm_onnx_stateful_decoder_contract=PASS")
 PY
     "${TVM_PYTHON}" "${SCRIPT_DIR}/compile_tvm_byoc_xgraph.py" \

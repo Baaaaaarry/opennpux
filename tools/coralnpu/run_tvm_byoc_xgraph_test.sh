@@ -72,7 +72,8 @@ LOCAL_STATUS=$?
 set -e
 if [ "${LOCAL_STATUS}" -ne 0 ]; then
     cat "${LOCAL_LOG}"
-    find "${BUILD_DIR}" -name compile-module.log -type f -exec sh -c '
+    find "${BUILD_DIR}" -name compile-module.log -type f \
+        ! -exec grep -qx "compile_module=PASS" {} \; -exec sh -c '
         for path do
             echo "compile_module_diagnostic=${path}"
             cat "${path}"

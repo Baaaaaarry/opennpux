@@ -59,11 +59,15 @@ DEBUG_LOG="${ROOT_DIR}/simout/tvm-byoc-xgraph.debug"
 FIRMWARE="${ROOT_DIR}/build/coralnpu/gem5_qwen_command_flow_smoke.elf"
 
 mkdir -p "${ROOT_DIR}/simout"
-if ! OPENNPUX_REQUIRE_TVM=1 \
+set +e
+OPENNPUX_REQUIRE_TVM=1 \
     "${ROOT_DIR}/tools/models/test_tvm_byoc_xgraph_codegen.sh" \
-    >"${LOCAL_LOG}" 2>&1; then
+    >"${LOCAL_LOG}" 2>&1
+LOCAL_STATUS=$?
+set -e
+if [ "${LOCAL_STATUS}" -ne 0 ]; then
     cat "${LOCAL_LOG}"
-    echo "error: TVM BYOC local generation failed" >&2
+    echo "error: TVM BYOC local generation failed status=${LOCAL_STATUS}" >&2
     exit 1
 fi
 cat "${LOCAL_LOG}"

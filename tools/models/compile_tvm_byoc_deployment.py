@@ -78,6 +78,27 @@ def build_region_arena(
     return build_image(metadata, selected, allow_missing=invocation)
 
 
+def invocation_binding_summary(
+    metadata: dict[str, Any], region: dict[str, Any], values: dict[str, Any]
+) -> str:
+    tensors = {
+        tensor["name"]: tensor
+        for tensor in metadata.get("tensors", [])
+        if isinstance(tensor, dict) and isinstance(tensor.get("name"), str)
+    }
+    sources = region.get("binding_sources", {})
+    records = []
+    for name in region.get("invocation_bindings", []):
+        tensor = tensors.get(name, {})
+        source = sources.get(name, name)
+        supplied = tensor_value(values, region["name"], source) is not None
+        records.append(
+            f"{name}<-{source}:{tensor.get('dtype', '?')}:"
+            f"{tensor.get('byte_size', '?')}:{'set' if supplied else 'missing'}"
+        )
+    return ",".join(records) or "none"
+
+
 def run(command: list[str]) -> None:
     result = subprocess.run(command, check=False, text=True, capture_output=True)
     if result.stdout:
@@ -140,7 +161,7 @@ def main() -> None:
         for value in state_appends:
             compile_command.extend(["--state-append", value])
         stage = "compile-module"
-        print(f"tvm_byoc_deployment_stage={stage}")
+        print(f"tvm_byoc_deployment_stage={stage}", flush=True)
         run(compile_command)
 
         stage = "load-module-manifest"
@@ -154,7 +175,7 @@ def main() -> None:
         arena_dir.mkdir(exist_ok=True)
         for region in manifest["regions"]:
             stage = f"build-module-arena:{region['name']}"
-            print(f"tvm_byoc_deployment_stage={stage}")
+            print(f"tvm_byoc_deployment_stage={stage}", flush=True)
             path = arena_dir / f"{region['name']}.module.bin"
             path.write_bytes(build_region_arena(
                 metadata[region["name"]], region, module_values, invocation=False
@@ -172,7 +193,7 @@ def main() -> None:
         for region, path in base_arenas:
             package_command.extend(["--arena", f"{region}={path}"])
         stage = "build-module-package"
-        print(f"tvm_byoc_deployment_stage={stage}")
+        print(f"tvm_byoc_deployment_stage={stage}", flush=True)
         run(package_command)
 
         invocation_records = []
@@ -195,11 +216,27 @@ def main() -> None:
             ]
             for region in manifest["regions"]:
                 stage = f"build-invocation-arena:{name}:{region['name']}"
-                print(f"tvm_byoc_deployment_stage={stage}")
+                print(f"tvm_byoc_deployment_stage={stage}", flush=True)
+                print(
+                    "tvm_byoc_invocation_arena="
+                    f"region:{region['name']},bytes:{region['arena_size']},"
+                    "bindings:"
+                    f"{invocation_binding_summary(metadata[region['name']], region, values)}",
+                    flush=True,
+                )
                 path = arena_dir / f"{name}.{region['name']}.bin"
-                path.write_bytes(build_region_arena(
+                arena = build_region_arena(
                     metadata[region["name"]], region, values, invocation=True
-                ))
+                )
+                print(
+                    f"tvm_byoc_deployment_stage={stage}:encoded bytes={len(arena)}",
+                    flush=True,
+                )
+                path.write_bytes(arena)
+                print(
+                    f"tvm_byoc_deployment_stage={stage}:written path={path}",
+                    flush=True,
+                )
                 invocation_command.extend(["--arena", f"{region['name']}={path}"])
             for scalar_name, scalar_value in scalars.items():
                 if not isinstance(scalar_name, str) or not isinstance(scalar_value, int):
@@ -208,7 +245,7 @@ def main() -> None:
                     "--scalar", f"{scalar_name}={scalar_value}"
                 ])
             stage = f"build-invocation:{name}"
-            print(f"tvm_byoc_deployment_stage={stage}")
+            print(f"tvm_byoc_deployment_stage={stage}", flush=True)
             run(invocation_command)
             invocation_records.append({
                 "name": name,
@@ -224,12 +261,15 @@ def main() -> None:
         }
         manifest_path = args.output / "deployment.json"
         stage = "write-deployment-manifest"
-        print(f"tvm_byoc_deployment_stage={stage}")
+        print(f"tvm_byoc_deployment_stage={stage}", flush=True)
         manifest_path.write_text(
             json.dumps(deployment_manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-    except (OSError, KeyError, ValueError, struct.error, CodegenError) as error:
+    except (
+        MemoryError, OSError, OverflowError, KeyError, TypeError, ValueError,
+        struct.error, CodegenError,
+    ) as error:
         print(f"tvm_byoc_deployment=FAIL stage={stage}: {error}", file=sys.stderr)
         raise SystemExit(1) from error
     print(f"tvm_byoc_deployment_manifest={manifest_path}")

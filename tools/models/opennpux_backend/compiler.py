@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-# The implementation remains in the original package during the compatibility
-# transition. Frontend adapters must depend on this module, not that package.
-from opennpux_tvm_byoc.module_codegen import compile_module as _compile_module
-from opennpux_tvm_byoc.xgraph_codegen import (
+from .module_codegen import compile_module as _compile_module
+from .xgraph_codegen import (
     CodegenError,
     compile_graph as _compile_graph,
 )

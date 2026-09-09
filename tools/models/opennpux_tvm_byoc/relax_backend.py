@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .module_codegen import MODULE_FORMAT
-from .xgraph_codegen import CodegenError, FORMAT
+from opennpux_backend.capabilities import normalize_operation
+from opennpux_backend.module_codegen import MODULE_FORMAT
+from opennpux_backend.xgraph_codegen import CodegenError, FORMAT
 
 
 PATTERN_OPS = {
@@ -234,9 +235,12 @@ def _normalized_graph_from_function(function: Any, relax: Any) -> dict[str, Any]
             "storage": "scratch",
         }
         op_name, attrs = _call_operator(binding.value, local_functions)
+        canonical_op = normalize_operation(op_name)
+        if canonical_op is None:
+            raise CodegenError(f"unsupported OpenNPUX operation {op_name}")
         nodes.append(
             {
-                "op": op_name,
+                "op": canonical_op,
                 "inputs": [assign_name(argument) for argument in binding.value.args],
                 "outputs": [output_name],
                 "attrs": _call_attrs(op_name, attrs),
@@ -338,11 +342,14 @@ def normalized_module_from_relax(module) -> dict[str, Any]:
             op_name = getattr(call.op, "name", None)
             if not op_name:
                 raise CodegenError("Host bridge contains a non-primitive call")
+            canonical_op = normalize_operation(str(op_name))
+            if canonical_op is None:
+                raise CodegenError(f"unsupported Host bridge operation {op_name}")
             host_value[binding.var] = (
                 source_region,
                 source_tensor,
                 pipeline + [{
-                    "op": str(op_name),
+                    "op": canonical_op,
                     "attrs": _call_attrs(str(op_name), getattr(call, "attrs", None)),
                 }],
             )

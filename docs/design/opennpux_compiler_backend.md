@@ -36,7 +36,19 @@ The public normalized identities are:
 - `OPENNPUX_BACKEND_MODULE_V1`: a DAG of regions plus direct Tensor edges,
   Host bindings, scalar bindings, state updates, and module outputs.
 
-The Python API is `opennpux_backend.compiler`. The standalone contract tool is:
+The low-level Python API is `opennpux_backend.compiler`. Frontends should
+implement the `opennpux_backend.frontend.FrontendAdapter` protocol and call
+`compile_frontend()`. The adapter has one required method:
+
+```python
+class MojoAdapter:
+    name = "mojo-max"
+
+    def to_backend_ir(self, max_graph):
+        return lower_max_graph_to_opennpux_ir(max_graph)
+```
+
+The standalone contract tool is:
 
 ```bash
 python3 tools/models/compile_opennpux_backend.py backend.json output
@@ -95,15 +107,23 @@ introducing a second command format.
 
 ## Migration plan
 
-1. Stabilize neutral graph/module identities and generic compiler entry points.
+1. Stabilize neutral graph/module identities and generic compiler entry points. (Done)
 2. Move backend implementation modules out of the historical
-   `opennpux_tvm_byoc` namespace while retaining compatibility re-exports.
+   `opennpux_tvm_byoc` namespace while retaining compatibility re-exports. (Done)
 3. Define a versioned capability query so adapters can partition without
    duplicating support tables.
 4. Define shape-polymorphic constraints and invocation-time specialization in
    backend IR instead of frontend-specific flags.
 5. Add a MAX/Mojo adapter conformance test that feeds the same normalized graph
-   as TVM and requires byte-identical XGraph commands and equivalent outputs.
+   as TVM and requires byte-identical XGraph commands. (Done with a frontend-
+   independent fake MAX/Mojo adapter; native MAX Graph extraction remains.)
+
+The conformance boundary canonicalizes frontend aliases before compilation.
+For example, `relax.matmul` and an adapter-emitted `matmul` reach exactly the
+same tiler and XGraph encoder. Backend implementation modules do not import
+`opennpux_tvm_byoc`, TVM, MAX, Mojo, ONNX, or model-specific code. The old TVM
+module paths are compatibility re-exports only and may be removed after callers
+migrate to `opennpux_backend`.
 
 The first step is complete when legacy TVM artifacts remain readable, TVM emits
 neutral formats, and the generic compiler can compile graph and module inputs

@@ -1,8 +1,8 @@
 """OpenNPUX TVM BYOC compiler support."""
 
-from .xgraph_codegen import CodegenError, compile_graph
-from .module_codegen import MODULE_FORMAT, compile_module
-from .module_runtime import (
+from opennpux_backend.compiler import CodegenError, compile_graph, compile_module
+from opennpux_backend.module_codegen import MODULE_FORMAT
+from opennpux_backend.module_runtime import (
     BindingResolver,
     CoralCtlExecutor,
     HostExecutor,

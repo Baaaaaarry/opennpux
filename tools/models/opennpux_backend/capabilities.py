@@ -24,6 +24,8 @@ OPERATION_ALIASES = {
     "relax.take": "take",
     "reshape": "copy",
     "relax.reshape": "copy",
+    "transpose": "transpose",
+    "relax.permute_dims": "transpose",
     "topk": "topk",
     "relax.topk": "topk",
     "rope": "rope",
@@ -34,6 +36,8 @@ OPERATION_ALIASES = {
     "opennpux.kv_pack": "kv_pack",
     "attention": "attention",
     "opennpux.attention": "attention",
+    "relu": "relu",
+    "relax.nn.relu": "relu",
 }
 
 OPERATION_CAPABILITIES = {
@@ -49,6 +53,15 @@ OPERATION_CAPABILITIES = {
     "copy": {"commands": ["TDMA"], "dtypes": ["float32", "int32"]},
     "kv_pack": {"commands": ["TDMA", "TDMA"], "dtypes": ["float32"]},
     "attention": {"commands": ["TATTENTION"], "dtypes": ["float32"]},
+    "transpose": {
+        "commands": [],
+        "dtypes": ["float32"],
+        "compile_time_only": True,
+    },
+}
+
+HOST_OPERATION_CAPABILITIES = {
+    "relu": {"dtypes": ["float32"]},
 }
 
 
@@ -59,6 +72,10 @@ def normalize_operation(name: object) -> str | None:
 
 def supports_operation(name: object) -> bool:
     return normalize_operation(name) in OPERATION_CAPABILITIES
+
+
+def supports_host_operation(name: object) -> bool:
+    return normalize_operation(name) in HOST_OPERATION_CAPABILITIES
 
 
 def capability_manifest() -> dict[str, Any]:

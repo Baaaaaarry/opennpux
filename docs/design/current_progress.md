@@ -1690,3 +1690,9 @@ AV -> residual`，对应 7 条设备命令。TADD/TMUL 新增操作专属 RHS sc
 codegen 仅对单元素 FP32 RHS 生成该位，range check、traffic accounting、Guest CSR 下发和 C++
 functional pipe 均采用一致语义。causal mask 在当前门禁中是与 score 等形的 Tensor，其他未明确
 定义的隐式广播继续在编译期拒绝，避免将 ONNX/NumPy 规则误当成硬件 ISA 规则。
+
+GB10 已验证上述 7-command scaled causal Attention 全链路。随后门禁移除预制 Q/K/V Tensor，
+改为从运行时 hidden states 和模块常驻 Q/K/V/O 权重执行完整 projection-attention-residual 子图。
+标准 ONNX 图应生成 6 条 TMMA、1 条 TMUL、2 条 TADD 和 1 条 TSOFTMAX，共 10 commands；
+K transpose 继续融合进 QK TMMA。该增量验证模型参数、中间 Tensor 依赖和 residual，而不是仅验证
+预制 Attention 输入。

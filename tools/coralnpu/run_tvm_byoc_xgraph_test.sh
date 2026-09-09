@@ -862,7 +862,7 @@ ONNX_ATTENTION_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
 }
 printf '%s\n' "\${ONNX_ATTENTION_OUTPUT}"
 OUTPUT="\${ONNX_ATTENTION_OUTPUT}"
-has_output_line 'xgraph_module_commands_completed=7' ||
+has_output_line 'xgraph_module_commands_completed=10' ||
     fail 'ONNX attention block command count mismatch'
 has_output_line 'xgraph_module_run=PASS' ||
     fail 'ONNX attention block runtime PASS verdict missing'

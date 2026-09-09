@@ -743,15 +743,16 @@ A decomposed attention gate covers a Transformer compute chain expressed only
 with standard ONNX operators:
 
 ```text
-QK^T MatMul -> scalar scale -> causal-mask Add -> Softmax -> PV MatMul -> Residual Add
+Q/K/V projection -> QK^T -> scale -> causal mask -> Softmax -> AV -> O projection -> residual
 ```
 
-The current TMMA contract flattens the higher-rank left operand into rows and
-requires a rank-2 right operand, so this first gate uses one static batch and
-V constants. TVM must lower the graph to `TDMA reshape -> TMMA -> TMUL ->
-TADD -> TSOFTMAX -> TMMA -> TADD`, complete seven device commands, and match an
-independent NumPy softmax/attention result. The gate deliberately does not use
-an `opennpux.attention` frontend operator; it proves standard model operations
+The gate takes runtime hidden states and four module-resident Q/K/V/O weight
+matrices. TVM lowers it to six TMMA commands plus TMUL, two TADD commands, and
+TSOFTMAX: ten device commands in total. K remains in model layout and its
+explicit ONNX Transpose is fused into the QK TMMA flag. The output must match
+an independent NumPy projected-attention result. The gate deliberately does
+not use an `opennpux.attention` frontend operator; it proves standard model
+operators, model parameters, intermediate tensors, and residual dependencies
 can reach the instruction-level backend. Its verdict is
 `tvm_onnx_attention_block=PASS`.
 
@@ -772,9 +773,9 @@ frontend explicitly binds initializer inputs that describe compile-time graph
 structure (currently the shape input of `Reshape`) and runs Relax constant
 folding. They are recorded as compile-time inputs rather than being packaged
 as NPU Tensor constants; numerical weight initializers remain Relax parameters
-and module-resident NPU constants. The attention gate now starts from
-`query_flat[2,4]` plus an ONNX int64 shape initializer instead of requiring the
-frontend to supply a pre-shaped `[1,2,4]` Tensor.
+and module-resident NPU constants. Reshape initializer folding remains covered
+by the other ONNX and module-storage gates; projected Attention now starts from
+one runtime hidden-state Tensor and module-resident projection weights.
 
 The attention gate also keeps K in the standard `[N,K]` layout and expresses
 `Q x K^T` with an ONNX `Transpose` feeding `MatMul`. BYOC captures

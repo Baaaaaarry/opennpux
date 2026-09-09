@@ -207,6 +207,69 @@ class XGraphCodegenTest(unittest.TestCase):
         self.assertEqual(metadata["command_count"], 5)
         self.assertEqual(command[1], 0x100)
 
+    def test_lowers_complete_projected_attention_chain(self):
+        def tensor(name, shape, storage="scratch"):
+            return {"name": name, "shape": shape, "dtype": "float32",
+                    "storage": storage}
+
+        graph = {
+            "format": "OPENNPUX_TVM_BYOC_GRAPH_V1",
+            "tensors": [
+                tensor("hidden", [2, 4], "input"),
+                tensor("wq", [4, 4], "constant"),
+                tensor("wk", [4, 4], "constant"),
+                tensor("wv", [4, 4], "constant"),
+                tensor("wo", [4, 4], "constant"),
+                tensor("scale", [1], "constant"),
+                tensor("mask", [2, 2], "constant"),
+                tensor("q", [2, 4]), tensor("k", [2, 4]),
+                tensor("v", [2, 4]), tensor("kt", [4, 2]),
+                tensor("scores", [2, 2]), tensor("scaled", [2, 2]),
+                tensor("masked", [2, 2]), tensor("probabilities", [2, 2]),
+                tensor("context", [2, 4]), tensor("projected", [2, 4]),
+                tensor("output", [2, 4], "output"),
+            ],
+            "nodes": [
+                {"op": "relax.matmul", "inputs": ["hidden", "wq"],
+                 "outputs": ["q"]},
+                {"op": "relax.matmul", "inputs": ["hidden", "wk"],
+                 "outputs": ["k"]},
+                {"op": "relax.matmul", "inputs": ["hidden", "wv"],
+                 "outputs": ["v"]},
+                {"op": "relax.permute_dims", "inputs": ["k"],
+                 "outputs": ["kt"], "attrs": {"axes": [1, 0]}},
+                {"op": "relax.matmul", "inputs": ["q", "kt"],
+                 "outputs": ["scores"]},
+                {"op": "relax.multiply", "inputs": ["scores", "scale"],
+                 "outputs": ["scaled"]},
+                {"op": "relax.add", "inputs": ["scaled", "mask"],
+                 "outputs": ["masked"]},
+                {"op": "relax.nn.softmax", "inputs": ["masked"],
+                 "outputs": ["probabilities"], "attrs": {"axis": -1}},
+                {"op": "relax.matmul", "inputs": ["probabilities", "v"],
+                 "outputs": ["context"]},
+                {"op": "relax.matmul", "inputs": ["context", "wo"],
+                 "outputs": ["projected"]},
+                {"op": "relax.add", "inputs": ["projected", "hidden"],
+                 "outputs": ["output"]},
+            ],
+            "outputs": ["output"],
+        }
+        binary, metadata = compile_graph(graph)
+        commands = [
+            COMMAND.unpack_from(binary, HEADER.size + index * COMMAND.size)
+            for index in range(metadata["command_count"])
+        ]
+        self.assertEqual(metadata["source_node_count"], 11)
+        self.assertEqual(metadata["layout_fusions"], 1)
+        self.assertEqual(metadata["command_count"], 10)
+        self.assertEqual(
+            [command[0] for command in commands],
+            [1, 1, 1, 1, 3, 2, 5, 1, 1, 2],
+        )
+        self.assertEqual(commands[3][1] & 1, 1)
+        self.assertEqual(commands[4][1], 0x100)
+
     def test_rejects_implicit_vector_broadcast(self):
         graph = self.load_fixture()
         graph["tensors"][2]["shape"] = [3]

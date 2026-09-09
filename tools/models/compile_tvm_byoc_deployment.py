@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from build_xgraph_tensor_image import build_image
+from compile_tvm_byoc_module import compile_input, parse_parameter_alias
 from opennpux_tvm_byoc import CodegenError
 
 
@@ -120,7 +121,8 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("--partitioned", action="store_true")
     parser.add_argument(
-        "--parameter-alias", action="append", default=[], metavar="INTERNAL=SOURCE"
+        "--parameter-alias", action="append", default=[], metavar="INTERNAL=SOURCE",
+        type=parse_parameter_alias,
     )
     parser.add_argument(
         "--lowering-library",
@@ -145,29 +147,24 @@ def main() -> None:
 
         args.output.mkdir(parents=True, exist_ok=True)
         compiled = args.output / "compiled"
-        compile_command = [
-            sys.executable,
-            str(Path(__file__).with_name("compile_tvm_byoc_module.py")),
-            str(args.input),
-            str(compiled),
-        ]
-        if args.partitioned:
-            compile_command.append("--partitioned")
-        if args.lowering_library:
-            compile_command.extend(["--lowering-library", args.lowering_library])
-        for name in constants:
-            compile_command.extend(["--constant-parameter", name])
-        for name in states:
-            compile_command.extend(["--state-parameter", name])
-        for alias in args.parameter_alias:
-            compile_command.extend(["--parameter-alias", alias])
-        for value in state_updates:
-            compile_command.extend(["--state-update", value])
-        for value in state_appends:
-            compile_command.extend(["--state-append", value])
         stage = "compile-module"
         print(f"tvm_byoc_deployment_stage={stage}", flush=True)
-        run(compile_command)
+        _, compiled_manifest = compile_input(
+            args.input,
+            compiled,
+            partitioned=args.partitioned,
+            lowering_library=args.lowering_library,
+            constant_parameters=constants,
+            state_parameters=states,
+            parameter_aliases=args.parameter_alias,
+            state_updates=state_updates,
+            state_appends=state_appends,
+            dump_module=args.output / "normalized-backend-module.json",
+        )
+        print(f"xgraph_module_manifest={compiled / 'module.npxgm.json'}")
+        print(f"xgraph_module_regions={compiled_manifest['region_count']}")
+        print(f"xgraph_module_commands={compiled_manifest['total_commands']}")
+        print("xgraph_module_codegen=PASS")
 
         stage = "load-module-manifest"
         manifest = load_object(compiled / "module.npxgm.json")

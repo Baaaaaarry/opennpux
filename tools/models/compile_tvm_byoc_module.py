@@ -21,6 +21,90 @@ def parse_parameter_alias(value: str) -> tuple[str, str]:
     return internal, source
 
 
+def compile_input(
+    input_path: Path,
+    output: Path,
+    *,
+    partitioned: bool = False,
+    lowering_library: str | None = None,
+    constant_parameters: list[str] | None = None,
+    state_parameters: list[str] | None = None,
+    parameter_aliases: list[tuple[str, str]] | None = None,
+    state_updates: list[str] | None = None,
+    state_appends: list[str] | None = None,
+    dump_module: Path | None = None,
+) -> tuple[Path, dict]:
+    """Compile TVM IR or normalized backend IR without a subprocess boundary."""
+    stage = "load-input"
+    try:
+        source = json.loads(input_path.read_text(encoding="utf-8"))
+        if not isinstance(source, dict):
+            raise CodegenError("input must contain a JSON object")
+        if not is_module(source):
+            stage = "import-tvm-relax"
+            try:
+                import tvm
+            except ImportError as error:
+                raise CodegenError(
+                    "input is not a normalized backend module and Apache TVM is unavailable"
+                ) from error
+            from opennpux_tvm_byoc.relax_backend import (
+                normalized_module_from_relax,
+                partition_for_opennpux,
+            )
+
+            tvm_module = tvm.ir.load_json(input_path.read_text(encoding="utf-8"))
+            if not partitioned:
+                stage = "partition-tvm-relax"
+                tvm_module = partition_for_opennpux(tvm_module)
+            stage = "normalize-backend-module"
+            source = normalized_module_from_relax(tvm_module)
+        from opennpux_tvm_byoc.storage_policy import (
+            apply_parameter_aliases,
+            apply_parameter_storage,
+            apply_state_updates,
+        )
+
+        alias_pairs = parameter_aliases or []
+        aliases = dict(alias_pairs)
+        if len(aliases) != len(alias_pairs):
+            raise CodegenError("duplicate internal parameter alias")
+        stage = "apply-parameter-aliases"
+        apply_parameter_aliases(source, aliases)
+        stage = "apply-storage-policy"
+        apply_parameter_storage(
+            source, constant_parameters or [], state_parameters or []
+        )
+        stage = "apply-state-updates"
+        apply_state_updates(source, state_updates or [], state_appends or [])
+        if dump_module is not None:
+            dump_module.parent.mkdir(parents=True, exist_ok=True)
+            dump_module.write_text(
+                json.dumps(source, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        stage = "lower-backend-module"
+        artifacts, manifest = compile_module(source, lowering_library)
+        stage = "write-artifacts"
+        output.mkdir(parents=True, exist_ok=True)
+        for region in manifest["regions"]:
+            binary, metadata = artifacts[region["name"]]
+            artifact_path = output / region["artifact"]
+            artifact_path.write_bytes(binary)
+            Path(f"{artifact_path}.json").write_text(
+                json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        manifest_path = output / "module.npxgm.json"
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return manifest_path, manifest
+    except (OSError, ValueError, json.JSONDecodeError, CodegenError) as error:
+        raise CodegenError(f"stage={stage}: {error}") from error
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", type=Path, help="normalized module or TVM IRModule JSON")
@@ -47,71 +131,21 @@ def main() -> None:
         "--state-append", action="append", default=[], metavar="OUTPUT=STATE"
     )
     args = parser.parse_args()
-    stage = "load-input"
     try:
-        source = json.loads(args.input.read_text(encoding="utf-8"))
-        if not isinstance(source, dict):
-            raise CodegenError("input must contain a JSON object")
-        if not is_module(source):
-            stage = "import-tvm-relax"
-            try:
-                import tvm
-            except ImportError as error:
-                raise CodegenError(
-                    "input is not a normalized BYOC module and Apache TVM is unavailable"
-                ) from error
-            from opennpux_tvm_byoc.relax_backend import (
-                normalized_module_from_relax,
-                partition_for_opennpux,
-            )
-
-            tvm_module = tvm.ir.load_json(args.input.read_text(encoding="utf-8"))
-            if not args.partitioned:
-                stage = "partition-tvm-relax"
-                tvm_module = partition_for_opennpux(tvm_module)
-            stage = "normalize-backend-module"
-            source = normalized_module_from_relax(tvm_module)
-        from opennpux_tvm_byoc.storage_policy import (
-            apply_parameter_aliases,
-            apply_parameter_storage,
-            apply_state_updates,
-        )
-
-        aliases = dict(args.parameter_alias)
-        if len(aliases) != len(args.parameter_alias):
-            raise CodegenError("duplicate internal parameter alias")
-        stage = "apply-parameter-aliases"
-        apply_parameter_aliases(source, aliases)
-        stage = "apply-storage-policy"
-        apply_parameter_storage(
-            source, args.constant_parameter, args.state_parameter
-        )
-        stage = "apply-state-updates"
-        apply_state_updates(source, args.state_update, args.state_append)
-        if args.dump_byoc_module is not None:
-            args.dump_byoc_module.write_text(
-                json.dumps(source, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-        stage = "lower-backend-module"
-        artifacts, manifest = compile_module(source, args.lowering_library)
-        stage = "write-artifacts"
-        args.output.mkdir(parents=True, exist_ok=True)
-        for region in manifest["regions"]:
-            binary, metadata = artifacts[region["name"]]
-            artifact_path = args.output / region["artifact"]
-            artifact_path.write_bytes(binary)
-            Path(f"{artifact_path}.json").write_text(
-                json.dumps(metadata, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-        manifest_path = args.output / "module.npxgm.json"
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        manifest_path, manifest = compile_input(
+            args.input,
+            args.output,
+            partitioned=args.partitioned,
+            lowering_library=args.lowering_library,
+            constant_parameters=args.constant_parameter,
+            state_parameters=args.state_parameter,
+            parameter_aliases=args.parameter_alias,
+            state_updates=args.state_update,
+            state_appends=args.state_append,
+            dump_module=args.dump_byoc_module,
         )
     except (OSError, ValueError, json.JSONDecodeError, CodegenError) as error:
-        print(f"xgraph_module_codegen=FAIL stage={stage}: {error}", file=sys.stderr)
+        print(f"xgraph_module_codegen=FAIL {error}", file=sys.stderr)
         raise SystemExit(1) from error
     print(f"xgraph_module_manifest={manifest_path}")
     print(f"xgraph_module_regions={manifest['region_count']}")

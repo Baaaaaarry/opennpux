@@ -65,6 +65,16 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         _, manifest = compile_module(module)
         self.assertEqual(manifest["format"], MODULE_FORMAT)
 
+    def test_long_composite_region_uses_bounded_artifact_name(self):
+        module = self.load_fixture()
+        long_name = "fused_" + "relax_matmul_" * 30 + "opennpux"
+        module["regions"][1]["name"] = long_name
+        module["edges"][0]["from"]["region"] = long_name
+        _, manifest = compile_module(module)
+        region = next(value for value in manifest["regions"] if value["name"] == long_name)
+        self.assertLessEqual(len(f"{region['artifact']}.json".encode("utf-8")), 255)
+        self.assertRegex(region["artifact"], r"^region-000-fused_.+-[0-9a-f]{16}\.npxg$")
+
     def test_separates_module_constants_from_invocation_bindings(self):
         module = self.load_fixture()
         apply_parameter_storage(module, ["rhs"], [])

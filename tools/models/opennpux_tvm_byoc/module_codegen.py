@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -14,6 +15,17 @@ def _region_name(value: Any, index: int) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
         raise CodegenError(f"region {index} has an invalid name")
     return value
+
+
+def _artifact_name(sequence: int, region: str) -> str:
+    candidate = f"region-{sequence:03d}-{region}.npxg"
+    # Leave room for the metadata `.json` suffix and filesystems with a
+    # 255-byte component limit. TVM composite names can exceed that limit.
+    if len(candidate.encode("utf-8")) <= 200:
+        return candidate
+    digest = hashlib.sha256(region.encode("utf-8")).hexdigest()[:16]
+    prefix = region[:64].rstrip(".-_") or "region"
+    return f"region-{sequence:03d}-{prefix}-{digest}.npxg"
 
 
 def _endpoint(value: Any, label: str) -> tuple[str, str]:
@@ -286,7 +298,7 @@ def compile_module(
     )
     for sequence, name in enumerate(execution_order):
         binary, metadata = compile_graph(graphs[name], lowering_library)
-        artifact_name = f"region-{sequence:03d}-{name}.npxg"
+        artifact_name = _artifact_name(sequence, name)
         artifacts[name] = (binary, metadata)
         external_inputs = [
             tensor_name

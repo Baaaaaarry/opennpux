@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import json
 import subprocess
 import sys
@@ -33,6 +34,7 @@ def run(command: list[str]) -> None:
 
 
 def main() -> None:
+    faulthandler.enable()
     parser = argparse.ArgumentParser(
         description="compile an ONNX model and runtime requests for OpenNPUX"
     )
@@ -152,8 +154,15 @@ def main() -> None:
         (args.output / "partition-audit.json").write_text(
             json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-    except (ImportError, OSError, KeyError, TypeError, ValueError) as error:
+    except Exception as error:
         print(f"onnx_byoc_deployment=FAIL stage={stage}: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
+    except SystemExit as error:
+        print(
+            f"onnx_byoc_deployment=FAIL stage={stage}: nested SystemExit {error}",
+            file=sys.stderr,
+            flush=True,
+        )
         raise SystemExit(1) from error
     print(f"onnx_byoc_constants={len(constant_names)}")
     print(f"onnx_byoc_folded_initializers={len(folded_initializers)}")

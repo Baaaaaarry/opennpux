@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import json
 import os
-import struct
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -113,6 +114,7 @@ def run(command: list[str]) -> None:
 
 
 def main() -> None:
+    faulthandler.enable()
     parser = argparse.ArgumentParser(
         description="compile a TVM Relax model into reusable OpenNPUX deployment artifacts"
     )
@@ -149,18 +151,29 @@ def main() -> None:
         compiled = args.output / "compiled"
         stage = "compile-module"
         print(f"tvm_byoc_deployment_stage={stage}", flush=True)
-        _, compiled_manifest = compile_input(
-            args.input,
-            compiled,
-            partitioned=args.partitioned,
-            lowering_library=args.lowering_library,
-            constant_parameters=constants,
-            state_parameters=states,
-            parameter_aliases=args.parameter_alias,
-            state_updates=state_updates,
-            state_appends=state_appends,
-            dump_module=args.output / "normalized-backend-module.json",
+        diagnostic_path = args.output / "compile-module.log"
+        diagnostic_path.write_text(
+            f"stage={stage}\ninput={args.input}\noutput={compiled}\n",
+            encoding="utf-8",
         )
+        try:
+            _, compiled_manifest = compile_input(
+                args.input,
+                compiled,
+                partitioned=args.partitioned,
+                lowering_library=args.lowering_library,
+                constant_parameters=constants,
+                state_parameters=states,
+                parameter_aliases=args.parameter_alias,
+                state_updates=state_updates,
+                state_appends=state_appends,
+                dump_module=args.output / "normalized-backend-module.json",
+            )
+        except BaseException:
+            with diagnostic_path.open("a", encoding="utf-8") as diagnostic:
+                diagnostic.write(traceback.format_exc())
+            raise
+        diagnostic_path.write_text("compile_module=PASS\n", encoding="utf-8")
         print(f"xgraph_module_manifest={compiled / 'module.npxgm.json'}")
         print(f"xgraph_module_regions={compiled_manifest['region_count']}")
         print(f"xgraph_module_commands={compiled_manifest['total_commands']}")
@@ -268,11 +281,15 @@ def main() -> None:
             json.dumps(deployment_manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-    except (
-        MemoryError, OSError, OverflowError, KeyError, TypeError, ValueError,
-        struct.error, CodegenError,
-    ) as error:
+    except Exception as error:
         print(f"tvm_byoc_deployment=FAIL stage={stage}: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
+    except SystemExit as error:
+        print(
+            f"tvm_byoc_deployment=FAIL stage={stage}: nested SystemExit {error}",
+            file=sys.stderr,
+            flush=True,
+        )
         raise SystemExit(1) from error
     print(f"tvm_byoc_deployment_manifest={manifest_path}")
     print(f"tvm_byoc_deployment_module={package}")

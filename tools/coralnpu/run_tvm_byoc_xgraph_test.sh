@@ -72,6 +72,12 @@ LOCAL_STATUS=$?
 set -e
 if [ "${LOCAL_STATUS}" -ne 0 ]; then
     cat "${LOCAL_LOG}"
+    find "${BUILD_DIR}" -name compile-module.log -type f -exec sh -c '
+        for path do
+            echo "compile_module_diagnostic=${path}"
+            cat "${path}"
+        done
+    ' sh {} +
     echo "error: TVM BYOC local generation failed status=${LOCAL_STATUS}" >&2
     exit 1
 fi

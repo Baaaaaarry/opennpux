@@ -47,11 +47,13 @@ def main() -> None:
         "--state-append", action="append", default=[], metavar="OUTPUT=STATE"
     )
     args = parser.parse_args()
+    stage = "load-input"
     try:
         source = json.loads(args.input.read_text(encoding="utf-8"))
         if not isinstance(source, dict):
             raise CodegenError("input must contain a JSON object")
         if not is_module(source):
+            stage = "import-tvm-relax"
             try:
                 import tvm
             except ImportError as error:
@@ -65,7 +67,9 @@ def main() -> None:
 
             tvm_module = tvm.ir.load_json(args.input.read_text(encoding="utf-8"))
             if not args.partitioned:
+                stage = "partition-tvm-relax"
                 tvm_module = partition_for_opennpux(tvm_module)
+            stage = "normalize-backend-module"
             source = normalized_module_from_relax(tvm_module)
         from opennpux_tvm_byoc.storage_policy import (
             apply_parameter_aliases,
@@ -76,17 +80,22 @@ def main() -> None:
         aliases = dict(args.parameter_alias)
         if len(aliases) != len(args.parameter_alias):
             raise CodegenError("duplicate internal parameter alias")
+        stage = "apply-parameter-aliases"
         apply_parameter_aliases(source, aliases)
+        stage = "apply-storage-policy"
         apply_parameter_storage(
             source, args.constant_parameter, args.state_parameter
         )
+        stage = "apply-state-updates"
         apply_state_updates(source, args.state_update, args.state_append)
         if args.dump_byoc_module is not None:
             args.dump_byoc_module.write_text(
                 json.dumps(source, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+        stage = "lower-backend-module"
         artifacts, manifest = compile_module(source, args.lowering_library)
+        stage = "write-artifacts"
         args.output.mkdir(parents=True, exist_ok=True)
         for region in manifest["regions"]:
             binary, metadata = artifacts[region["name"]]
@@ -102,7 +111,7 @@ def main() -> None:
             encoding="utf-8",
         )
     except (OSError, ValueError, json.JSONDecodeError, CodegenError) as error:
-        print(f"xgraph_module_codegen=FAIL: {error}", file=sys.stderr)
+        print(f"xgraph_module_codegen=FAIL stage={stage}: {error}", file=sys.stderr)
         raise SystemExit(1) from error
     print(f"xgraph_module_manifest={manifest_path}")
     print(f"xgraph_module_regions={manifest['region_count']}")

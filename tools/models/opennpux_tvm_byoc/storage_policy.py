@@ -18,19 +18,29 @@ def apply_parameter_aliases(
     if not is_module(source):
         raise CodegenError("parameter aliases require a normalized module")
     matched: set[str] = set()
+    observed: set[str] = set()
     for region in source.get("regions", []):
         binding_sources = region.get("binding_sources", {})
         if not isinstance(binding_sources, dict):
             raise CodegenError("parameter aliases encountered invalid binding_sources")
         for tensor_name, internal_name in list(binding_sources.items()):
+            observed.add(internal_name)
             if internal_name in aliases:
                 binding_sources[tensor_name] = aliases[internal_name]
                 matched.add(internal_name)
+                continue
+            # Relax may preserve the stable frontend name itself. Treat an
+            # already-applied alias as success so repeated compilation is safe.
+            for alias, source_name in aliases.items():
+                if internal_name == source_name:
+                    matched.add(alias)
     missing = set(aliases) - matched
     if missing:
         raise CodegenError(
             "parameter aliases were not found in BYOC regions: "
             + ", ".join(sorted(missing))
+            + "; observed binding sources: "
+            + ", ".join(sorted(observed))
         )
 
 

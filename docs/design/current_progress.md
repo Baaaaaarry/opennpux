@@ -1722,3 +1722,10 @@ the first thin adapter; a future MAX/Mojo adapter must emit the same backend IR
 instead of duplicating tiling, command encoding, packaging, or runtime logic.
 See `docs/design/opennpux_compiler_backend.md` for the ownership and migration
 contract.
+
+The ONNX deployment path now treats parameter aliases as idempotent. TVM may
+either retain the stable ONNX source name or expose an internal Relax name;
+both forms resolve to the same backend binding instead of making compilation
+depend on TVM naming behavior. Module compilation failures also report the
+precise import, partition, normalization, storage-policy, state-update, lowering,
+or artifact-write stage.

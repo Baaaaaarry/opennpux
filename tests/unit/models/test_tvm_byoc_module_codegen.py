@@ -92,6 +92,15 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         )
         self.assertEqual(region["constant_bindings"], ["rhs"])
 
+    def test_parameter_aliases_are_idempotent(self):
+        module = self.load_fixture()
+        residual = next(
+            region for region in module["regions"] if region["name"] == "residual"
+        )
+        residual["binding_sources"] = {"rhs": "output_weight"}
+        apply_parameter_aliases(module, {"utput_weight": "output_weight"})
+        self.assertEqual(residual["binding_sources"]["rhs"], "output_weight")
+
     def test_storage_policy_rejects_unknown_and_conflicting_parameters(self):
         module = self.load_fixture()
         with self.assertRaisesRegex(CodegenError, "were not found"):

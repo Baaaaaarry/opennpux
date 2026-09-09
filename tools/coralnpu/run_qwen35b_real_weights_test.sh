@@ -27,9 +27,10 @@ Command-line options override the corresponding CORAL_QWEN_* environment
 variables. The external numerical runner is a correctness reference; it is not
 the Host C++ functional-kernel result source.
 
-Set CORAL_HOST_FUNCTIONAL_EXECUTION=xopennpux-primitives to replace eligible
-Host C++ kernels with the XOpenNPUX functional coprocessor. This mode requires
-every model request to lower successfully; Host C++ fallback is an error.
+TVM/BYOC full-graph mode is enabled by default. It emits model.relax.json and
+model.npxtvm, selects xopennpux-primitives, and requires every model request to
+lower successfully. Set CORAL_TVM_BYOC_FULL_GRAPH=0 for the legacy Host C++
+execution path.
 EOF
 }
 
@@ -39,6 +40,9 @@ EXECUTABLE_PLAN_NAME="${CORAL_NPU_EXECUTABLE_PLAN_NAME:-model.npxe}"
 MANIFEST_NAME="${CORAL_NPU_MANIFEST_NAME:-model.npxm}"
 RANGE_NAME="${CORAL_NPU_RANGE_NAME:-model.npxr}"
 TENSOR_PLAN_NAME="${CORAL_NPU_TENSOR_PLAN_NAME:-model.npxtb}"
+TVM_BYOC_GRAPH_NAME="${CORAL_TVM_BYOC_GRAPH_NAME:-model.npxtvm}"
+TVM_BYOC_RELAX_NAME="${CORAL_TVM_BYOC_RELAX_NAME:-model.relax.json}"
+TVM_BYOC_FULL_GRAPH="${CORAL_TVM_BYOC_FULL_GRAPH:-1}"
 EXECUTION_PLAN_NAME="${CORAL_NPU_EXECUTION_PLAN_NAME:-execution-plan.npxp}"
 POLL_COUNT="${CORAL_PAGED_POLL_COUNT:-100000000}"
 BASE="${CORAL_NPU_BASE:-0x1d000000}"
@@ -160,10 +164,20 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-HOST_FUNCTIONAL_EXECUTION_MODE="${CORAL_HOST_FUNCTIONAL_EXECUTION:-host-cpp}"
+if [ "$TVM_BYOC_FULL_GRAPH" != 0 ]; then
+    DEFAULT_HOST_FUNCTIONAL_EXECUTION=xopennpux-primitives
+else
+    DEFAULT_HOST_FUNCTIONAL_EXECUTION=host-cpp
+fi
+HOST_FUNCTIONAL_EXECUTION_MODE="${CORAL_HOST_FUNCTIONAL_EXECUTION:-$DEFAULT_HOST_FUNCTIONAL_EXECUTION}"
 HOST_XGRAPH_GPTQ_MATMUL_SCOPE="${CORAL_HOST_XGRAPH_GPTQ_MATMUL_SCOPE:-none}"
 HOST_XGRAPH_NORMALIZE_SCOPE="${CORAL_HOST_XGRAPH_NORMALIZE_SCOPE:-standard}"
 HOST_XGRAPH_REQUIRE_FULL="${CORAL_HOST_XGRAPH_REQUIRE_FULL:-0}"
+if [ "$TVM_BYOC_FULL_GRAPH" != 0 ] &&
+   [ "$HOST_FUNCTIONAL_EXECUTION_MODE" != xopennpux-primitives ]; then
+    echo "error: TVM BYOC full-graph acceptance requires xopennpux-primitives" >&2
+    exit 1
+fi
 if [ "$HOST_FUNCTIONAL_EXECUTION_MODE" = xopennpux-primitives ]; then
     HOST_XGRAPH_GPTQ_MATMUL_SCOPE="${CORAL_HOST_XGRAPH_GPTQ_MATMUL_SCOPE:-all}"
     HOST_XGRAPH_NORMALIZE_SCOPE="${CORAL_HOST_XGRAPH_NORMALIZE_SCOPE:-all}"
@@ -455,6 +469,41 @@ if [ "$SIM_HOST_FUNCTIONAL" != 0 ] &&
         echo "regenerate it with: ./tools/models/prepare_hf_model_package.sh $MODEL_DIR" >&2
         exit 1
     }
+fi
+if [ "$SIM_HOST_FUNCTIONAL" != 0 ]; then
+    TENSOR_PLAN_JSON_NAME=${TENSOR_PLAN_NAME%.npxtb}.npxt
+    [ -r "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" ] || {
+        echo "error: executable JSON missing: $MODEL_DIR/$EXECUTABLE_PLAN_NAME" >&2
+        exit 1
+    }
+    [ -r "$MODEL_DIR/$TENSOR_PLAN_JSON_NAME" ] || {
+        echo "error: tensor-plan JSON missing: $MODEL_DIR/$TENSOR_PLAN_JSON_NAME" >&2
+        exit 1
+    }
+    echo "[coral-qwen35b-real-weights-test] compiling TVM BYOC full graph" >&2
+    TVM_BYOC_PYTHON=${TVM_PYTHON:-python3}
+    if [ "$TVM_BYOC_FULL_GRAPH" != 0 ]; then
+        if [ -f "${ROOT_DIR}/.cache/tvm/env.sh" ]; then
+            # shellcheck disable=SC1091
+            . "${ROOT_DIR}/.cache/tvm/env.sh"
+            TVM_BYOC_PYTHON=${TVM_PYTHON:-python3}
+        fi
+        "$TVM_BYOC_PYTHON" \
+            "${ROOT_DIR}/tools/models/compile_tvm_byoc_execution_graph.py" \
+            "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" \
+            "$MODEL_DIR/$TENSOR_PLAN_JSON_NAME" \
+            "$MODEL_DIR/$TVM_BYOC_GRAPH_NAME" \
+            --require-node-count 524 \
+            --relax-output "$MODEL_DIR/$TVM_BYOC_RELAX_NAME" \
+            --require-tvm >&2
+    else
+        "$TVM_BYOC_PYTHON" \
+            "${ROOT_DIR}/tools/models/compile_tvm_byoc_execution_graph.py" \
+            "$MODEL_DIR/$EXECUTABLE_PLAN_NAME" \
+            "$MODEL_DIR/$TENSOR_PLAN_JSON_NAME" \
+            "$MODEL_DIR/$TVM_BYOC_GRAPH_NAME" \
+            --require-node-count 524 >&2
+    fi
 fi
 if [ ! -r "$MODEL_DIR/preprocessor_config.json" ] &&
    python3 - "$MODEL_DIR/config.json" <<'PY'
@@ -964,7 +1013,8 @@ if [ '$SIM_HOST_FUNCTIONAL' != 0 ]; then
         m5 --inst exit
         exit 1
     fi
-    echo '[coral-qwen35b-real-weights-test] functional_backend=host-cpp'
+    echo '[coral-qwen35b-real-weights-test] compiler_backend=tvm-relax-byoc'
+    echo '[coral-qwen35b-real-weights-test] functional_backend=$HOST_FUNCTIONAL_EXECUTION_MODE'
 fi
 if [ '$TOKEN_REFERENCE' != 0 ]; then
     if ! grep -Fqx 'inference_generated_tokens=$EXPECTED_GENERATED_TOKENS' \

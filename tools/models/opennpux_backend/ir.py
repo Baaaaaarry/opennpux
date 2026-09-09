@@ -2,6 +2,7 @@
 
 GRAPH_FORMAT = "OPENNPUX_BACKEND_GRAPH_V1"
 MODULE_FORMAT = "OPENNPUX_BACKEND_MODULE_V1"
+EXECUTION_GRAPH_FORMAT = "OPENNPUX_BACKEND_EXECUTION_GRAPH_V1"
 
 # Read compatibility for artifacts emitted before the backend was separated
 # from its first TVM BYOC adapter.

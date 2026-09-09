@@ -92,6 +92,11 @@ if ! "${SCRIPT_DIR}/compile_npu_executable.py" \
 fi
 "${SCRIPT_DIR}/inspect_npu_tensor_plan.py" \
     "$(dirname -- "${OUTPUT}")/model.npxt"
+"${SCRIPT_DIR}/compile_tvm_byoc_execution_graph.py" \
+    "$(dirname -- "${OUTPUT}")/model.npxe" \
+    "$(dirname -- "${OUTPUT}")/model.npxt" \
+    "$(dirname -- "${OUTPUT}")/model.npxtvm" \
+    --require-node-count 524
 "${SCRIPT_DIR}/compile_npu_weight_plan.py" \
     "${OUTPUT}" "$(dirname -- "${OUTPUT}")/model.npxe" \
     "$(dirname -- "${OUTPUT}")/model.npxw" --require-complete

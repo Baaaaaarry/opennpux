@@ -662,3 +662,42 @@ It validates command-scale control flow, not Qwen numerical correctness. The
 script requires 524 submitted and completed commands, 343 serviced/retired page
 faults, zero queue backpressure, and the final executable PASS verdict. Real
 GPTQ range streaming and numerical kernels are the following data-plane gate.
+
+## TVM BYOC Full-Graph Acceptance
+
+Install the pinned TVM environment once, prepare the model artifacts, then run
+the strict real-weight path:
+
+```sh
+TVM_BUILD_JOBS=12 ./tools/models/setup_tvm_byoc_env.sh
+. .cache/tvm/env.sh
+./tools/models/prepare_hf_model_package.sh /data/models/Qwen3.5-35B
+./tools/coralnpu/run_qwen35b_real_weights_test.sh \
+  --model-dir /data/models/Qwen3.5-35B \
+  --prompt "OpenNPUX heterogeneous inference" \
+  --max-new-tokens 4
+```
+
+The compiler joins `model.npxe` and `model.npxt` into a relocatable 524-node
+execution graph, materializes the complete SSA dependency DAG as
+`model.relax.json`, and records both source hashes in `model.npxtvm`. Runtime
+addresses remain unresolved until invocation so weight paging, KV state and
+dynamic MoE routing are not frozen into the compiler artifact.
+
+Full-graph mode defaults to `xopennpux-primitives` and rejects Host C++
+fallback. Besides strict token equivalence, acceptance requires these markers:
+
+```text
+tvm_byoc_execution_nodes=524
+tvm_byoc_execution_graph=PASS
+host_functional_xgraph_requests=524
+host_functional_xgraph_fallback_requests=0
+host_functional_xgraph_complete=PASS
+[coral-qwen35b-real-weights-test] compiler_backend=tvm-relax-byoc
+[coral-qwen35b-real-weights-test] functional_backend=xopennpux-primitives
+[coral-qwen35b-real-weights-test] token_golden=PASS equivalence=strict
+[coral-qwen35b-real-weights-test] PASS
+```
+
+Set `CORAL_TVM_BYOC_FULL_GRAPH=0` only to diagnose the legacy execution path;
+that mode is not the TVM full-graph acceptance gate.

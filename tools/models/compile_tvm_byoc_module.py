@@ -13,6 +13,13 @@ from opennpux_tvm_byoc import CodegenError
 from opennpux_tvm_byoc.module_codegen import MODULE_FORMAT, compile_module
 
 
+def parse_parameter_alias(value: str) -> tuple[str, str]:
+    internal, separator, source = value.partition("=")
+    if not separator or not internal or not source:
+        raise argparse.ArgumentTypeError("parameter alias must use INTERNAL=SOURCE")
+    return internal, source
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", type=Path, help="normalized module or TVM IRModule JSON")
@@ -29,6 +36,9 @@ def main() -> None:
     )
     parser.add_argument("--constant-parameter", action="append", default=[])
     parser.add_argument("--state-parameter", action="append", default=[])
+    parser.add_argument(
+        "--parameter-alias", action="append", default=[], type=parse_parameter_alias
+    )
     parser.add_argument(
         "--state-update", action="append", default=[], metavar="OUTPUT=STATE"
     )
@@ -57,10 +67,15 @@ def main() -> None:
                 tvm_module = partition_for_opennpux(tvm_module)
             source = normalized_module_from_relax(tvm_module)
         from opennpux_tvm_byoc.storage_policy import (
+            apply_parameter_aliases,
             apply_parameter_storage,
             apply_state_updates,
         )
 
+        aliases = dict(args.parameter_alias)
+        if len(aliases) != len(args.parameter_alias):
+            raise CodegenError("duplicate internal parameter alias")
+        apply_parameter_aliases(source, aliases)
         apply_parameter_storage(
             source, args.constant_parameter, args.state_parameter
         )

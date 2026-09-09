@@ -20,6 +20,7 @@ from opennpux_tvm_byoc.module_runtime import (  # noqa: E402
     ModuleRuntime,
 )
 from opennpux_tvm_byoc.storage_policy import (  # noqa: E402
+    apply_parameter_aliases,
     apply_parameter_storage,
     apply_state_updates,
 )
@@ -54,6 +55,24 @@ class XGraphModuleCodegenTest(unittest.TestCase):
         region = manifest["regions"][0]
         self.assertEqual(region["external_bindings"], ["lhs", "rhs"])
         self.assertEqual(region["invocation_bindings"], ["lhs"])
+        self.assertEqual(region["constant_bindings"], ["rhs"])
+
+    def test_parameter_aliases_restore_frontend_names(self):
+        module = self.load_fixture()
+        residual = next(
+            region for region in module["regions"] if region["name"] == "residual"
+        )
+        residual["binding_sources"] = {
+            "lhs": "lhs",
+            "rhs": "utput_weight",
+        }
+        apply_parameter_aliases(module, {"utput_weight": "output_weight"})
+        apply_parameter_storage(module, ["output_weight"], [])
+        _, manifest = compile_module(module)
+        region = manifest["regions"][0]
+        self.assertEqual(
+            region["binding_sources"]["rhs"], "output_weight"
+        )
         self.assertEqual(region["constant_bindings"], ["rhs"])
 
     def test_storage_policy_rejects_unknown_and_conflicting_parameters(self):

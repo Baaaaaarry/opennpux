@@ -56,7 +56,16 @@ def unique_map(values, label: str):
     return result
 
 
-def tensor_signature(parameter) -> dict:
+def source_parameter_names(model, compile_time_names: list[str]) -> list[str]:
+    compile_time = set(compile_time_names)
+    names = []
+    for value in [*model.graph.input, *model.graph.initializer]:
+        if value.name not in compile_time and value.name not in names:
+            names.append(value.name)
+    return names
+
+
+def tensor_signature(parameter, source_name: str) -> dict:
     info = parameter.struct_info
     dimensions = []
     for dimension in info.shape.values:
@@ -66,6 +75,7 @@ def tensor_signature(parameter) -> dict:
         dimensions.append(value)
     return {
         "name": str(parameter.name_hint),
+        "source_name": source_name,
         "shape": dimensions,
         "dtype": str(info.dtype),
     }
@@ -114,10 +124,19 @@ def main() -> None:
             module = relax.transform.FoldConstant()(module)
         module = relax.transform.CanonicalizeBindings()(module)
         main_function = module["main"]
+        source_names = source_parameter_names(model, compile_time_names)
+        if len(source_names) != len(main_function.params):
+            raise ValueError(
+                "ONNX source parameters do not match Relax main parameters: "
+                f"source={len(source_names)} relax={len(main_function.params)}"
+            )
         signature = {
             "format": "OPENNPUX_TVM_ONNX_SIGNATURE_V1",
             "source": str(args.input),
-            "parameters": [tensor_signature(value) for value in main_function.params],
+            "parameters": [
+                tensor_signature(value, source_name)
+                for value, source_name in zip(main_function.params, source_names)
+            ],
             "onnx_initializers": [value.name for value in model.graph.initializer],
             "compile_time_initializers": compile_time_names,
             "outputs": [value.name for value in model.graph.output],

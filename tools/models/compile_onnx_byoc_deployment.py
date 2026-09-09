@@ -65,7 +65,15 @@ def main() -> None:
             str(args.model), str(relax_path), "--signature", str(signature_path),
         ])
         signature = load_object(signature_path)
-        parameter_names = {value["name"] for value in signature["parameters"]}
+        parameter_names = {
+            value.get("source_name", value["name"])
+            for value in signature["parameters"]
+        }
+        parameter_aliases = [
+            (value["name"], value.get("source_name", value["name"]))
+            for value in signature["parameters"]
+            if value["name"] != value.get("source_name", value["name"])
+        ]
 
         model = onnx.load(str(args.model), load_external_data=True)
         constant_values = {}
@@ -112,6 +120,10 @@ def main() -> None:
         ]
         if args.lowering_library:
             command.extend(["--lowering-library", args.lowering_library])
+        for internal_name, source_name in parameter_aliases:
+            command.extend([
+                "--parameter-alias", f"{internal_name}={source_name}"
+            ])
         stage = "compile-tvm-byoc-deployment"
         print(f"onnx_byoc_deployment_stage={stage}")
         run(command)

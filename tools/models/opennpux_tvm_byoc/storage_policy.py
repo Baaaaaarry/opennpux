@@ -8,6 +8,31 @@ from .module_codegen import MODULE_FORMAT
 from .xgraph_codegen import CodegenError, FORMAT
 
 
+def apply_parameter_aliases(
+    source: dict[str, Any], aliases: dict[str, str]
+) -> None:
+    """Translate Relax-internal parameter names to stable frontend names."""
+    if not aliases:
+        return
+    if source.get("format") != MODULE_FORMAT:
+        raise CodegenError("parameter aliases require a normalized module")
+    matched: set[str] = set()
+    for region in source.get("regions", []):
+        binding_sources = region.get("binding_sources", {})
+        if not isinstance(binding_sources, dict):
+            raise CodegenError("parameter aliases encountered invalid binding_sources")
+        for tensor_name, internal_name in list(binding_sources.items()):
+            if internal_name in aliases:
+                binding_sources[tensor_name] = aliases[internal_name]
+                matched.add(internal_name)
+    missing = set(aliases) - matched
+    if missing:
+        raise CodegenError(
+            "parameter aliases were not found in BYOC regions: "
+            + ", ".join(sorted(missing))
+        )
+
+
 def apply_parameter_storage(
     source: dict[str, Any],
     constant_parameters: list[str],

@@ -13,6 +13,21 @@ SPEC.loader.exec_module(MODULE)
 
 
 class TvmByocOnnxFrontendTest(unittest.TestCase):
+    def test_preserves_onnx_parameter_order_as_source_names(self):
+        model = SimpleNamespace(
+            graph=SimpleNamespace(
+                input=[SimpleNamespace(name="hidden_states")],
+                initializer=[
+                    SimpleNamespace(name="query_shape"),
+                    SimpleNamespace(name="output_weight"),
+                ],
+            )
+        )
+        self.assertEqual(
+            MODULE.source_parameter_names(model, ["query_shape"]),
+            ["hidden_states", "output_weight"],
+        )
+
     def test_parses_shape(self):
         self.assertEqual(MODULE.parse_shape("tokens=1,16,2048"),
                          ("tokens", [1, 16, 2048]))

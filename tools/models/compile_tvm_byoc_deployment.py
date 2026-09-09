@@ -120,6 +120,9 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("--partitioned", action="store_true")
     parser.add_argument(
+        "--parameter-alias", action="append", default=[], metavar="INTERNAL=SOURCE"
+    )
+    parser.add_argument(
         "--lowering-library",
         default=os.environ.get("OPENNPUX_XGRAPH_LOWERING_LIB"),
     )
@@ -156,6 +159,8 @@ def main() -> None:
             compile_command.extend(["--constant-parameter", name])
         for name in states:
             compile_command.extend(["--state-parameter", name])
+        for alias in args.parameter_alias:
+            compile_command.extend(["--parameter-alias", alias])
         for value in state_updates:
             compile_command.extend(["--state-update", value])
         for value in state_appends:

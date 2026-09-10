@@ -42,4 +42,4 @@ def test_qwen35b_weight_plan_rebuild_uses_json_executable_plan():
 
 def test_checkpoint_format_invalidates_pre_resume_fix_snapshots():
     launcher = (ROOT / "sim/gem5/run_multicore.sh").read_text(encoding="utf-8")
-    assert "CORAL_CKPT_FORMAT_VERSION=11" in launcher
+    assert "CORAL_CKPT_FORMAT_VERSION=12" in launcher

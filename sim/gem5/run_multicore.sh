@@ -116,10 +116,12 @@ export CORAL_CKPT_KERNEL_META="${CORAL_CKPT_ROOT}/kernel_image_path.txt"
 export CORAL_CKPT_CMDLINE_META="${CORAL_CKPT_ROOT}/kernel_cmdline.txt"
 export CORAL_CKPT_FORMAT_META="${CORAL_CKPT_ROOT}/format_version.txt"
 export CORAL_CKPT_CONFIG_META="${CORAL_CKPT_ROOT}/config_signature.txt"
-# Version 11 records configuration that affects the DT, physical-memory map,
+# Version 12 invalidates checkpoints created by the short-lived BusyBox resume
+# path in version 11, in addition to recording configuration that affects the
+# DT, physical-memory map,
 # and checkpoint SimObjects. Linux parses the DT before checkpoint creation,
 # so a checkpoint made with different NPU/memory options cannot be repaired.
-export CORAL_CKPT_FORMAT_VERSION=11
+export CORAL_CKPT_FORMAT_VERSION=12
 
 # ---------------------------------------------------------------------------
 # NPU backend configuration.

@@ -119,7 +119,7 @@ export CORAL_CKPT_CONFIG_META="${CORAL_CKPT_ROOT}/config_signature.txt"
 # Version 10 records configuration that affects the DT, physical-memory map,
 # and checkpoint SimObjects. Linux parses the DT before checkpoint creation,
 # so a checkpoint made with different NPU/memory options cannot be repaired.
-export CORAL_CKPT_FORMAT_VERSION=10
+export CORAL_CKPT_FORMAT_VERSION=11
 
 # ---------------------------------------------------------------------------
 # NPU backend configuration.

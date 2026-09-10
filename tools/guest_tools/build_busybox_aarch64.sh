@@ -2,7 +2,7 @@
 #
 # build_busybox_aarch64.sh — Build a minimal aarch64 BusyBox for the gem5 guest.
 #
-# Cross-compiles a static BusyBox binary containing only the insmod applet.
+# Cross-compiles a static BusyBox recovery toolbox for post-checkpoint use.
 # The binary is installed into the guest disk image so the boot checkpoint
 # can preload it into tmpfs.  After checkpoint restore, BusyBox loads the
 # opennpux-coral kernel module without touching virtio-blk — the current
@@ -13,7 +13,7 @@
 #
 # Pipeline:
 #   Download busybox-1.36.1.tar.bz2 (cached under .cache/busybox/)
-#     → allnoconfig → enable STATIC + BUSYBOX + INSMOD
+#     → allnoconfig → enable the validated recovery applet set
 #       → make busybox → aarch64-linux-gnu-strip
 #         → validate with qemu-aarch64
 #           → build/guest-tools/busybox-aarch64
@@ -182,7 +182,7 @@ fi
 # Step 3: Configure — start from allnoconfig, then enable only what we need.
 #   STATIC: no shared-lib dependency in the guest (libc not required).
 #   BUSYBOX: the multicall binary entry point.
-#   INSMOD: the only applet we need — load kernel modules.
+# These applets cover the dynamic resume trampoline and generated guest tests.
 # ---------------------------------------------------------------------------
 # Safety: BUILD_DIR must be an absolute path under the project root.
 case "${BUILD_DIR}" in
@@ -214,16 +214,19 @@ enable_config() {
     mv "${BUILD_DIR}/.config.tmp" "${BUILD_DIR}/.config"
 }
 
+RECOVERY_APPLETS="ASH AWK BASE64 CAT CHMOD DMESG ENV GREP INSMOD MKDIR MOUNT RM SED TAIL"
 enable_config STATIC
 enable_config BUSYBOX
-enable_config INSMOD
+for option in ${RECOVERY_APPLETS}; do
+    enable_config "${option}"
+done
 
 # ---------------------------------------------------------------------------
-# Step 4: Resolve dependencies (oldconfig) and verify the three options stuck.
+# Step 4: Resolve dependencies and verify every requested option stuck.
 # ---------------------------------------------------------------------------
 yes '' | make -C "${SRC_DIR}" O="${BUILD_DIR}" \
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" oldconfig >/dev/null
-for option in STATIC BUSYBOX INSMOD; do
+for option in STATIC BUSYBOX ${RECOVERY_APPLETS}; do
     grep -q "^CONFIG_${option}=y$" "${BUILD_DIR}/.config" || \
         fail "BusyBox configuration rejected CONFIG_${option}=y"
 done
@@ -244,7 +247,7 @@ fi
 install -m 0755 "${BUILD_DIR}/busybox" "${OUT}"
 
 # ---------------------------------------------------------------------------
-# Step 6: Validate the binary runs on aarch64 and contains the insmod applet.
+# Step 6: Validate the binary and every required recovery applet.
 #   qemu-aarch64 runs the binary in user-mode emulation; --list prints all
 #   compiled-in applets.  Validation is skipped when qemu is unavailable
 #   (common in CI environments without qemu-user) or when explicitly
@@ -254,12 +257,13 @@ if [ "${BUSYBOX_SKIP_VALIDATE:-0}" = "1" ]; then
     echo "Skipping qemu-aarch64 validation (BUSYBOX_SKIP_VALIDATE=1)"
 elif command -v qemu-aarch64 >/dev/null 2>&1; then
     applets="$(qemu-aarch64 "${OUT}" --list)"
-    if printf '%s\n' "${applets}" | grep -qx insmod; then
-        echo "verified with qemu-aarch64: insmod"
-    else
-        rm -f "${OUT}"
-        fail "insmod applet is missing from the compiled binary"
-    fi
+    for applet in sh awk base64 cat chmod dmesg env grep insmod mkdir mount rm sed tail; do
+        printf '%s\n' "${applets}" | grep -qx "${applet}" || {
+            rm -f "${OUT}"
+            fail "${applet} applet is missing from the compiled binary"
+        }
+    done
+    echo "verified recovery applets with qemu-aarch64"
 else
     echo "warning: qemu-aarch64 not found; skipping binary validation" >&2
     echo "warning: install qemu-user or set BUSYBOX_SKIP_VALIDATE=1 to suppress" >&2

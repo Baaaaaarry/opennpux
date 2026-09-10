@@ -77,10 +77,13 @@ case "${name}" in
             echo "hint: sudo apt-get install qemu-user" >&2
             exit 1
         fi
-        if ! qemu-aarch64 "${LOADER}" --list | grep -qx insmod; then
-            echo "error: BusyBox does not contain the insmod applet: ${LOADER}" >&2
-            exit 1
-        fi
+        applets="$(qemu-aarch64 "${LOADER}" --list)"
+        for applet in sh awk base64 cat chmod dmesg env grep insmod mkdir mount rm sed tail; do
+            printf '%s\n' "${applets}" | grep -qx "${applet}" || {
+                echo "error: BusyBox does not contain ${applet}: ${LOADER}" >&2
+                exit 1
+            }
+        done
         sudo install -D -m 0755 "${LOADER}" "${mnt}/bin/busybox"
         sudo ln -sf /bin/busybox "${mnt}/sbin/insmod"
         ;;

@@ -11,6 +11,7 @@ echo "[coralnpu] boot checkpoint script started"
 preloaded_coralctl=0
 preloaded_module=0
 preloaded_busybox=0
+preloaded_recovery_toolbox=0
 preloaded_model=0
 dt_memory_region=0
 preloaded_qwen=0
@@ -62,6 +63,20 @@ if [ -x /bin/busybox ]; then
     chmod 0700 /tmp/busybox
     echo "[coralnpu] preloaded busybox into checkpoint tmpfs"
     preloaded_busybox=1
+    missing_applets=""
+    busybox_applets="$(/tmp/busybox --list 2>/dev/null || true)"
+    for applet in sh awk base64 cat chmod dmesg env grep insmod mkdir mount rm sed tail; do
+        if ! printf '%s\n' "${busybox_applets}" | grep -qx "${applet}"; then
+            missing_applets="${missing_applets} ${applet}"
+        fi
+    done
+    if [ -z "${missing_applets}" ]; then
+        preloaded_recovery_toolbox=1
+        : > /tmp/coralnpu-recovery-toolbox.ready
+        echo "[coralnpu] recovery toolbox preload ready"
+    else
+        echo "[coralnpu] WARNING: busybox missing recovery applets:${missing_applets}"
+    fi
 fi
 
 for candidate in \
@@ -93,9 +108,17 @@ do
 done
 [ "$preloaded_qwen" -ne 1 ] || : > /tmp/qwen-tiny.ready
 
+if [ "$preloaded_recovery_toolbox" -ne 1 ]; then
+    echo "[coralnpu] ERROR: recovery toolbox incomplete; refusing checkpoint"
+    echo "[coralnpu] rebuild and install build/guest-tools/busybox-aarch64"
+    /sbin/m5 --inst exit
+    exit 1
+fi
+
 if [ "$preloaded_coralctl" -eq 1 ] && \
    [ "$preloaded_module" -eq 1 ] && \
    [ "$preloaded_busybox" -eq 1 ] && \
+   [ "$preloaded_recovery_toolbox" -eq 1 ] && \
    [ "$dt_memory_region" -eq 1 ]; then
     : > /tmp/coralnpu-baseline-preload.ready
     echo "[coralnpu] baseline checkpoint preload ready"
@@ -124,8 +147,8 @@ echo "[coralnpu] requesting checkpoint after Linux boot"
 # configured for this gem5 invocation instead of continuing a stale test
 # embedded in the checkpoint.
 RESUME_SCRIPT=/tmp/coralnpu-resume.rcS
-rm -f "${RESUME_SCRIPT}"
 echo "[coralnpu] resumed from boot checkpoint; loading current resume script"
+/tmp/busybox rm -f "${RESUME_SCRIPT}"
 /sbin/m5 --inst readfile > "${RESUME_SCRIPT}"
 
 if [ ! -s "${RESUME_SCRIPT}" ]; then
@@ -133,5 +156,5 @@ if [ ! -s "${RESUME_SCRIPT}" ]; then
     /sbin/m5 --inst exit
 fi
 
-chmod 0700 "${RESUME_SCRIPT}"
-exec /bin/sh "${RESUME_SCRIPT}"
+/tmp/busybox chmod 0700 "${RESUME_SCRIPT}"
+exec /tmp/busybox sh "${RESUME_SCRIPT}"

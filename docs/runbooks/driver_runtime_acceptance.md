@@ -84,9 +84,10 @@ IMAGE=$IMAGE_PATH/ubuntu-18.04-arm64-docker.img \
 ```
 
 The guest image must also contain a module loader. If the driver-info test
-prints `insmod: not found` or `no insmod/modprobe found in guest`, build the
-minimal static aarch64 BusyBox. The build enables only `insmod` and the small
-module-loading implementation:
+prints `insmod: not found`, `recovery toolbox incomplete`, or a post-restore
+virtio-blk error, build the static aarch64 recovery BusyBox. It contains the
+validated applet set used after checkpoint restore, including `sh`, `mount`,
+text-processing tools, and `insmod`:
 
 ```sh
 sudo apt-get install gcc-aarch64-linux-gnu libc6-dev-arm64-cross \

@@ -42,4 +42,20 @@ def test_qwen35b_weight_plan_rebuild_uses_json_executable_plan():
 
 def test_checkpoint_format_invalidates_pre_resume_fix_snapshots():
     launcher = (ROOT / "sim/gem5/run_multicore.sh").read_text(encoding="utf-8")
-    assert "CORAL_CKPT_FORMAT_VERSION=12" in launcher
+    assert "CORAL_CKPT_FORMAT_VERSION=13" in launcher
+
+
+def test_recovery_busybox_contract_covers_resume_commands():
+    builder = (
+        ROOT / "tools/guest_tools/build_busybox_aarch64.sh"
+    ).read_text(encoding="utf-8")
+    for option in (
+        "ASH", "AWK", "BASE64", "CAT", "CHMOD", "DMESG", "ENV", "GREP",
+        "INSMOD", "MKDIR", "MOUNT", "RM", "SED", "TAIL",
+    ):
+        assert option in builder
+    checkpoint = (
+        ROOT / "sim/gem5/configs/coralnpu/boot-to-checkpoint.rcS"
+    ).read_text(encoding="utf-8")
+    assert "coralnpu-recovery-toolbox.ready" in checkpoint
+    assert "refusing checkpoint" in checkpoint

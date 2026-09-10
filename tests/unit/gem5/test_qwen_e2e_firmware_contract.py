@@ -40,20 +40,6 @@ def test_qwen35b_weight_plan_rebuild_uses_json_executable_plan():
     assert '"$MODEL_DIR/$EXECUTABLE_NAME"' not in compile_call
 
 
-def test_qwen35b_resume_path_does_not_depend_on_checkpoint_root_disk():
-    runner = (
-        ROOT / "tools/coralnpu/run_qwen35b_real_weights_test.sh"
-    ).read_text(encoding="utf-8")
-    guest = runner.split('cat >"$TMP_SCRIPT" <<EOF', 1)[1].split(
-        "\nEOF\n", 1
-    )[0]
-    assert 'BB=/tmp/busybox' in guest
-    assert "mount -t tmpfs -o size=128m tmpfs /tmp" not in guest
-    assert '"\\$BB" grep' in runner
-    assert "/tmp/opennpux-model" in runner
-    assert "/mnt/opennpux-model" not in runner
-
-    checkpoint = (
-        ROOT / "sim/gem5/configs/coralnpu/boot-to-checkpoint.rcS"
-    ).read_text(encoding="utf-8")
-    assert 'exec /tmp/busybox sh "${RESUME_SCRIPT}"' in checkpoint
+def test_checkpoint_format_invalidates_pre_resume_fix_snapshots():
+    launcher = (ROOT / "sim/gem5/run_multicore.sh").read_text(encoding="utf-8")
+    assert "CORAL_CKPT_FORMAT_VERSION=11" in launcher

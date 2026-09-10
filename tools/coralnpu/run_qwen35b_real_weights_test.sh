@@ -938,75 +938,82 @@ trap 'rm -f "$TMP_SCRIPT"' EXIT
 cat >"$TMP_SCRIPT" <<EOF
 #!/bin/sh
 set -u
-BB=/tmp/busybox
-if [ ! -x "\$BB" ] || [ ! -f /tmp/coralnpu-baseline-preload.ready ]; then
-    echo '[coral-qwen35b-real-weights-test] FAIL: stale checkpoint preload'
+mkdir -p /proc /sys /dev /tmp /mnt/opennpux-model
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+# Keep the injected tool and inference log off the checkpointed virtio-blk
+# image. Large synchronous /tmp traffic can corrupt the restored legacy
+# virtqueue before token validation has completed.
+if ! mount -t tmpfs -o size=128m tmpfs /tmp 2>/dev/null; then
+    echo '[coral-qwen35b-real-weights-test] FAIL: tmpfs /tmp mount failed'
     m5 --inst exit
     exit 1
 fi
-"\$BB" mkdir -p /tmp/opennpux-model
 decode_base64()
 {
-    "\$BB" base64 -d
+    if command -v base64 >/dev/null 2>&1; then
+        base64 -d
+    elif [ -x /bin/busybox ]; then
+        /bin/busybox base64 -d
+    elif [ -x /tmp/busybox ]; then
+        /tmp/busybox base64 -d
+    else
+        return 1
+    fi
 }
 decode_base64 >/tmp/coralctl <<'OPENNPUX_CORALCTL_EOF'
 EOF
 base64 "$CORALCTL" >>"$TMP_SCRIPT"
 cat >>"$TMP_SCRIPT" <<EOF
 OPENNPUX_CORALCTL_EOF
-"\$BB" chmod 0755 /tmp/coralctl
+chmod 0755 /tmp/coralctl
 echo '[coral-qwen35b-real-weights-test] started'
-has_9p=0
-while IFS= read -r filesystem; do
-    case "\$filesystem" in
-        *9p) has_9p=1; break ;;
-    esac
-done < /proc/filesystems
-if [ "\$has_9p" -ne 1 ]; then
+if ! grep -qw 9p /proc/filesystems; then
     echo '[coral-qwen35b-real-weights-test] FAIL: kernel lacks CONFIG_9P_FS'
     m5 --inst exit
     exit 1
 fi
-if ! "\$BB" mount -t 9p \
+if ! mount -t 9p \
     -o 'trans=virtio,version=9p2000.L,ro,aname=$MODEL_DIR' \
-    gem5 /tmp/opennpux-model; then
+    gem5 /mnt/opennpux-model; then
     echo '[coral-qwen35b-real-weights-test] FAIL: VirtIO 9P model mount failed'
-    "\$BB" dmesg 2>/dev/null | "\$BB" tail -n 20 || true
+    dmesg 2>/dev/null | tail -n 20 || true
     m5 --inst exit
     exit 1
 fi
 for asset in '$EXECUTABLE_NAME' '$MANIFEST_NAME' '$RANGE_NAME'; do
-    if [ ! -r "/tmp/opennpux-model/\$asset" ]; then
+    if [ ! -r "/mnt/opennpux-model/\$asset" ]; then
         echo "[coral-qwen35b-real-weights-test] FAIL: mounted asset missing: \$asset"
         m5 --inst exit
         exit 1
     fi
 done
-if "\$BB" env $NUMERICAL_ENV $SIM_HOST_ENV $SIM_HOST_NUMERICAL_ENV \
+if env $NUMERICAL_ENV $SIM_HOST_ENV $SIM_HOST_NUMERICAL_ENV \
     $SIM_HOST_FUNCTIONAL_ENV \
     $REUSE_DECODE_WEIGHTS_ENV \
     OPENNPUX_PROMPT='$PROMPT' \
     OPENNPUX_MAX_NEW_TOKENS='$MAX_NEW_TOKENS' \
     OPENNPUX_INPUT_TOKEN_COUNT='$INPUT_TOKEN_COUNT' \
     OPENNPUX_INPUT_TOKEN_IDS='$INPUT_TOKEN_IDS' \
-    OPENNPUX_MODEL_ROOT=/tmp/opennpux-model \
+    OPENNPUX_MODEL_ROOT=/mnt/opennpux-model \
     /tmp/coralctl executable-run-paged \
-    /tmp/opennpux-model/$EXECUTABLE_NAME decode \
-    /tmp/opennpux-model/$MANIFEST_NAME \
-    /tmp/opennpux-model/$RANGE_NAME \
+    /mnt/opennpux-model/$EXECUTABLE_NAME decode \
+    /mnt/opennpux-model/$MANIFEST_NAME \
+    /mnt/opennpux-model/$RANGE_NAME \
     $BASE $POLL_COUNT >/tmp/opennpux-inference.log 2>&1; then
     inference_rc=0
 else
     inference_rc=\$?
 fi
-"\$BB" cat /tmp/opennpux-inference.log
+cat /tmp/opennpux-inference.log
 if [ "\$inference_rc" -ne 0 ]; then
     echo '[coral-qwen35b-real-weights-test] FAIL: real weight execution failed'
     m5 --inst exit
     exit 1
 fi
 if [ '$SIM_HOST_FUNCTIONAL' != 0 ]; then
-    if ! "\$BB" grep -Fqx 'inference_result_source=host-functional-cpp' \
+    if ! grep -Fqx 'inference_result_source=host-functional-cpp' \
         /tmp/opennpux-inference.log; then
         echo '[coral-qwen35b-real-weights-test] FAIL: Host C++ result source missing'
         m5 --inst exit
@@ -1016,14 +1023,14 @@ if [ '$SIM_HOST_FUNCTIONAL' != 0 ]; then
     echo '[coral-qwen35b-real-weights-test] functional_backend=$HOST_FUNCTIONAL_EXECUTION_MODE'
 fi
 if [ '$TOKEN_REFERENCE' != 0 ]; then
-    if ! "\$BB" grep -Fqx 'inference_generated_tokens=$EXPECTED_GENERATED_TOKENS' \
+    if ! grep -Fqx 'inference_generated_tokens=$EXPECTED_GENERATED_TOKENS' \
         /tmp/opennpux-inference.log; then
         echo '[coral-qwen35b-real-weights-test] FAIL: generated token count differs from HF golden'
         m5 --inst exit
         exit 1
     fi
-    if ! actual_token_ids=\$("\$BB" sed -n 's/^inference_token_ids=//p' \
-        /tmp/opennpux-inference.log | "\$BB" tail -n 1); then
+    if ! actual_token_ids=\$(sed -n 's/^inference_token_ids=//p' \
+        /tmp/opennpux-inference.log | tail -n 1); then
         echo '[coral-qwen35b-real-weights-test] FAIL: token result parsing failed'
         m5 --inst exit
         exit 1
@@ -1037,7 +1044,7 @@ if [ '$TOKEN_REFERENCE' != 0 ]; then
     token_validation=PASS
     if [ "\$actual_token_ids" != '$EXPECTED_TOKEN_IDS' ]; then
         if [ -n '$PREFLIGHT_TIE_STEP' ] &&
-           "\$BB" awk -v actual="\$actual_token_ids" \
+           awk -v actual="\$actual_token_ids" \
                -v expected='$EXPECTED_TOKEN_IDS' \
                -v step='$PREFLIGHT_TIE_STEP' \
                -v host_token='$PREFLIGHT_TIE_HOST_TOKEN' \

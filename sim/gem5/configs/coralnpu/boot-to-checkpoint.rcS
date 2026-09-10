@@ -124,12 +124,8 @@ echo "[coralnpu] requesting checkpoint after Linux boot"
 # configured for this gem5 invocation instead of continuing a stale test
 # embedded in the checkpoint.
 RESUME_SCRIPT=/tmp/coralnpu-resume.rcS
+rm -f "${RESUME_SCRIPT}"
 echo "[coralnpu] resumed from boot checkpoint; loading current resume script"
-if [ -x /tmp/busybox ]; then
-    /tmp/busybox rm -f "${RESUME_SCRIPT}"
-else
-    rm -f "${RESUME_SCRIPT}"
-fi
 /sbin/m5 --inst readfile > "${RESUME_SCRIPT}"
 
 if [ ! -s "${RESUME_SCRIPT}" ]; then
@@ -137,9 +133,5 @@ if [ ! -s "${RESUME_SCRIPT}" ]; then
     /sbin/m5 --inst exit
 fi
 
-if [ -x /tmp/busybox ]; then
-    /tmp/busybox chmod 0700 "${RESUME_SCRIPT}"
-    exec /tmp/busybox sh "${RESUME_SCRIPT}"
-fi
 chmod 0700 "${RESUME_SCRIPT}"
 exec /bin/sh "${RESUME_SCRIPT}"

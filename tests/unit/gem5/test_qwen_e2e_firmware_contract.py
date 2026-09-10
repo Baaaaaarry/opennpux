@@ -59,3 +59,12 @@ def test_recovery_busybox_contract_covers_resume_commands():
     ).read_text(encoding="utf-8")
     assert "coralnpu-recovery-toolbox.ready" in checkpoint
     assert "refusing checkpoint" in checkpoint
+
+
+def test_bootstrap_does_not_retry_when_checkpoint_creation_fails():
+    launcher = (ROOT / "sim/gem5/run_multicore.sh").read_text(encoding="utf-8")
+    checkpoint_guard = 'if [ ! -f "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then'
+    assert checkpoint_guard in launcher
+    assert launcher.index(checkpoint_guard) < launcher.index(
+        'if [ "${CORAL_AUTO_RESUME_AFTER_CKPT}" = "1" ]; then'
+    )

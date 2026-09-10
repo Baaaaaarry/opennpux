@@ -429,6 +429,11 @@ else
     --exit-after-checkpoint \
     --bootscript="${CORAL_CKPT_BOOTSCRIPT}" \
     --kernel-cmd="${CORAL_KERNEL_CMDLINE}"
+  if [ ! -f "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
+    echo "error: bootstrap exited without creating ${CORAL_BOOTED_CKPT}/m5.cpt" >&2
+    echo "inspect ${GEM5_OUTDIR}/system.terminal for the guest-side cause" >&2
+    exit 1
+  fi
   # Record metadata so subsequent runs can detect changes.
   printf '%s\n' "${CORAL_DISK_IMG}" > "${CORAL_CKPT_IMAGE_META}"
   printf '%s\n' "${CORAL_KERNEL_INIT}" > "${CORAL_CKPT_INIT_META}"

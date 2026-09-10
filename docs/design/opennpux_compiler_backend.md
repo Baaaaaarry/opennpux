@@ -66,10 +66,25 @@ python3 tools/models/inspect_opennpux_backend.py
 ```
 
 The capability table uses canonical operations such as `matmul` and
-`attention`, not TVM or MAX spellings. It reports the hardware command family,
-accepted dtypes, and whether backend tiling is required. Detailed shape and
-layout validation still runs during compilation; a name-level match alone does
-not make an unsupported Tensor contract legal.
+`attention`, not TVM or MAX spellings. It reports command families, input and
+output arity, accepted dtypes, rank requirements, shape relations, attributes,
+tiling support, and per-instruction extent limits. An adapter can call
+`supports_operation_contract()` with concrete Tensor descriptors before
+partitioning. Compilation calls the corresponding
+`validate_operation_contract()` again before command emission, so an adapter
+cannot bypass the backend ABI contract. Name-level support alone never makes an
+unsupported Tensor invocation legal.
+
+The contract intentionally separates two checks:
+
+1. Capability preflight checks frontend-neutral invocation facts that TVM,
+   MAX/Mojo, and other importers can all express: arity, static shape, dtype,
+   layout attributes, and shape relations.
+2. Final lowering checks command-specific address, arena, tile, scratch, and
+   batch limits after storage planning.
+
+This split lets frontends make consistent partition decisions without exposing
+XGraph encoding details or duplicating hardware lowering policy.
 
 Graph input produces `.npxg` and inspection metadata. Module input produces one
 `.npxg` per region and `module.npxgm.json`. This entry point deliberately does
@@ -116,8 +131,8 @@ introducing a second command format.
 2. Move backend implementation modules out of the historical
    `opennpux_tvm_byoc` namespace while retaining compatibility re-exports. (Done)
 3. Define a versioned capability query so adapters can partition without
-   duplicating support tables. (Done for operation identity and dtype metadata;
-   symbolic shape constraints remain.)
+   duplicating support tables. (Done for operation identity, arity, dtype,
+   static rank/shape relations, attributes, and instruction limits.)
 4. Define shape-polymorphic constraints and invocation-time specialization in
    backend IR instead of frontend-specific flags.
 5. Add a MAX/Mojo adapter conformance test that feeds the same normalized graph

@@ -14,6 +14,8 @@ from opennpux_backend import (  # noqa: E402
     FrontendAdapter,
     GRAPH_FORMAT,
     compile_frontend,
+    capability_manifest,
+    supports_operation_contract,
     write_graph_artifact,
 )
 from opennpux_backend.compiler import CodegenError  # noqa: E402
@@ -120,6 +122,24 @@ assert not any(name.startswith("opennpux_tvm_byoc") for name in sys.modules)
                 json.loads(sidecar.read_text(encoding="utf-8")),
                 compilation["metadata"],
             )
+
+    def test_capability_contract_is_frontend_neutral_and_shape_aware(self):
+        tensor = lambda shape, dtype="float32": {"shape": shape, "dtype": dtype}
+        self.assertTrue(supports_operation_contract(
+            "relax.matmul",
+            [tensor([2, 4]), tensor([4, 8])],
+            [tensor([2, 8])],
+        ))
+        self.assertFalse(supports_operation_contract(
+            "matmul",
+            [tensor([2, 4]), tensor([3, 8])],
+            [tensor([2, 8])],
+        ))
+        manifest = capability_manifest()
+        self.assertEqual(manifest["operations"]["matmul"]["arity"], [2, 1])
+        self.assertEqual(
+            manifest["operations"]["matmul"]["shape_relation"], "matmul"
+        )
 
 
 if __name__ == "__main__":

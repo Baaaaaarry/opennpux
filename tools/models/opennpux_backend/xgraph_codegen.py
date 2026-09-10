@@ -8,7 +8,11 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
-from opennpux_backend.capabilities import normalize_operation
+from opennpux_backend.capabilities import (
+    ContractViolation,
+    normalize_operation,
+    validate_operation_contract,
+)
 from opennpux_backend.canonicalize import canonicalize_graph
 from opennpux_backend.ir import GRAPH_FORMAT, GRAPH_FORMATS
 
@@ -359,6 +363,16 @@ def _lower_node(
         raise CodegenError(f"node {node_index} attrs must be an object")
     inputs = node.get("inputs")
     outputs = node.get("outputs")
+    if isinstance(inputs, list) and isinstance(outputs, list):
+        try:
+            validate_operation_contract(
+                op,
+                [_tensor(tensors, name, node_index) for name in inputs],
+                [_tensor(tensors, name, node_index) for name in outputs],
+                attrs,
+            )
+        except ContractViolation as error:
+            raise CodegenError(f"node {node_index} violates backend contract: {error}") from error
 
     if op == "matmul":
         names = _expect_count(inputs, 2, "inputs", node_index)

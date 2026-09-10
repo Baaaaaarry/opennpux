@@ -431,7 +431,20 @@ else
     --kernel-cmd="${CORAL_KERNEL_CMDLINE}"
   if [ ! -f "${CORAL_BOOTED_CKPT}/m5.cpt" ]; then
     echo "error: bootstrap exited without creating ${CORAL_BOOTED_CKPT}/m5.cpt" >&2
-    echo "inspect ${GEM5_OUTDIR}/system.terminal for the guest-side cause" >&2
+    if [ -r "${GEM5_OUTDIR}/system.terminal" ]; then
+      echo "--- guest bootstrap failure (last 40 lines) ---" >&2
+      tail -n 40 "${GEM5_OUTDIR}/system.terminal" >&2
+      echo "--- end guest bootstrap failure ---" >&2
+      if grep -q 'recovery toolbox incomplete' \
+          "${GEM5_OUTDIR}/system.terminal"; then
+        echo "rebuild and install the static recovery toolbox:" >&2
+        echo "  ./tools/guest_tools/build_busybox_aarch64.sh" >&2
+        echo "  sudo ./tools/guest_tools/install_module_loader_to_image.sh" >&2
+        echo "    ${CORAL_DISK_IMG} ./build/guest-tools/busybox-aarch64" >&2
+      fi
+    else
+      echo "guest log missing: ${GEM5_OUTDIR}/system.terminal" >&2
+    fi
     exit 1
   fi
   # Record metadata so subsequent runs can detect changes.

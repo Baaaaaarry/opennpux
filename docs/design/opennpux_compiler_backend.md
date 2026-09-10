@@ -54,6 +54,10 @@ The standalone contract tool is:
 python3 tools/models/compile_opennpux_backend.py backend.json output
 ```
 
+Compiled files are emitted through the backend-owned
+`write_graph_artifact()` and `write_module_artifacts()` APIs. Frontend tools
+must not duplicate `.npxg`/`.npxgm` naming or sidecar serialization rules.
+
 Adapters query the same backend-owned operation table with
 `opennpux_backend.supports_operation()` or as machine-readable JSON:
 
@@ -93,8 +97,9 @@ the driver. These remain backend-owned behavior.
 
 ## TVM and Mojo integration
 
-The TVM adapter uses Relax pattern fusion and BYOC partitioning, then emits the
-neutral IR. Existing `compile_tvm_byoc_xgraph.py` and
+The TVM adapter is `RelaxFrontendAdapter`. It uses Relax pattern fusion and
+BYOC partitioning, then emits the neutral IR through the common
+`adapt_frontend()` boundary. Existing `compile_tvm_byoc_xgraph.py` and
 `compile_tvm_byoc_module.py` remain convenience frontends and compatibility
 entry points.
 
@@ -111,7 +116,8 @@ introducing a second command format.
 2. Move backend implementation modules out of the historical
    `opennpux_tvm_byoc` namespace while retaining compatibility re-exports. (Done)
 3. Define a versioned capability query so adapters can partition without
-   duplicating support tables.
+   duplicating support tables. (Done for operation identity and dtype metadata;
+   symbolic shape constraints remain.)
 4. Define shape-polymorphic constraints and invocation-time specialization in
    backend IR instead of frontend-specific flags.
 5. Add a MAX/Mojo adapter conformance test that feeds the same normalized graph

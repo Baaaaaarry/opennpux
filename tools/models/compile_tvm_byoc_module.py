@@ -9,9 +9,10 @@ import os
 import sys
 from pathlib import Path
 
-from opennpux_tvm_byoc import CodegenError
+from opennpux_backend.artifacts import write_module_artifacts
+from opennpux_backend.compiler import CodegenError, compile_module
+from opennpux_backend.frontend import adapt_frontend
 from opennpux_backend.ir import is_module
-from opennpux_tvm_byoc.module_codegen import compile_module
 
 
 def parse_parameter_alias(value: str) -> tuple[str, str]:
@@ -48,18 +49,15 @@ def compile_input(
                 raise CodegenError(
                     "input is not a normalized backend module and Apache TVM is unavailable"
                 ) from error
-            from opennpux_tvm_byoc.relax_backend import (
-                normalized_module_from_relax,
-                partition_for_opennpux,
-            )
+            from opennpux_tvm_byoc.relax_backend import RelaxFrontendAdapter
 
             tvm_module = tvm.ir.load_json(input_path.read_text(encoding="utf-8"))
-            if not partitioned:
-                stage = "partition-tvm-relax"
-                tvm_module = partition_for_opennpux(tvm_module)
             stage = "normalize-backend-module"
-            source = normalized_module_from_relax(tvm_module)
-        from opennpux_tvm_byoc.storage_policy import (
+            source = adapt_frontend(
+                tvm_module,
+                RelaxFrontendAdapter(module=True, partitioned=partitioned),
+            )
+        from opennpux_backend.storage_policy import (
             apply_parameter_aliases,
             apply_parameter_storage,
             apply_state_updates,
@@ -86,20 +84,7 @@ def compile_input(
         stage = "lower-backend-module"
         artifacts, manifest = compile_module(source, lowering_library)
         stage = "write-artifacts"
-        output.mkdir(parents=True, exist_ok=True)
-        for region in manifest["regions"]:
-            binary, metadata = artifacts[region["name"]]
-            artifact_path = output / region["artifact"]
-            artifact_path.write_bytes(binary)
-            Path(f"{artifact_path}.json").write_text(
-                json.dumps(metadata, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-        manifest_path = output / "module.npxgm.json"
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        manifest_path = write_module_artifacts(output, artifacts, manifest)
         return manifest_path, manifest
     except (OSError, ValueError, json.JSONDecodeError, CodegenError) as error:
         raise CodegenError(f"stage={stage}: {error}") from error

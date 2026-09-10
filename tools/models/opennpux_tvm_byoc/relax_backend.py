@@ -39,6 +39,23 @@ PATTERN_ARITY = {
 }
 
 
+class RelaxFrontendAdapter:
+    """Translate a TVM Relax IRModule into canonical OpenNPUX backend IR."""
+
+    name = "tvm-relax-byoc"
+
+    def __init__(self, *, module: bool, partitioned: bool = False) -> None:
+        self.module = module
+        self.partitioned = partitioned
+
+    def to_backend_ir(self, source: Any) -> dict[str, Any]:
+        if not self.partitioned:
+            source = partition_for_opennpux(source)
+        if self.module:
+            return normalized_module_from_relax(source)
+        return normalized_graph_from_relax(source)
+
+
 def _tvm_modules():
     try:
         import tvm

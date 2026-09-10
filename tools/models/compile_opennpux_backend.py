@@ -9,6 +9,7 @@ import os
 import sys
 from pathlib import Path
 
+from opennpux_backend.artifacts import write_graph_artifact, write_module_artifacts
 from opennpux_backend.compiler import CodegenError, compile_graph, compile_module
 from opennpux_backend.ir import is_graph, is_module
 
@@ -18,28 +19,6 @@ def _load(path: Path) -> dict:
     if not isinstance(value, dict):
         raise CodegenError("backend IR must contain a JSON object")
     return value
-
-
-def _write_module(
-    output: Path,
-    artifacts: dict[str, tuple[bytes, dict]],
-    manifest: dict,
-) -> Path:
-    output.mkdir(parents=True, exist_ok=True)
-    for region in manifest["regions"]:
-        binary, metadata = artifacts[region["name"]]
-        artifact_path = output / region["artifact"]
-        artifact_path.write_bytes(binary)
-        Path(f"{artifact_path}.json").write_text(
-            json.dumps(metadata, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-    manifest_path = output / "module.npxgm.json"
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return manifest_path
 
 
 def main() -> None:
@@ -57,18 +36,12 @@ def main() -> None:
         source = _load(args.input)
         if is_graph(source):
             binary, metadata = compile_graph(source, args.lowering_library)
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_bytes(binary)
-            metadata_path = Path(f"{args.output}.json")
-            metadata_path.write_text(
-                json.dumps(metadata, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
+            write_graph_artifact(args.output, binary, metadata)
             print(f"opennpux_backend_artifact={args.output}")
             print(f"opennpux_backend_commands={metadata['command_count']}")
         elif is_module(source):
             artifacts, manifest = compile_module(source, args.lowering_library)
-            manifest_path = _write_module(args.output, artifacts, manifest)
+            manifest_path = write_module_artifacts(args.output, artifacts, manifest)
             print(f"opennpux_backend_manifest={manifest_path}")
             print(f"opennpux_backend_regions={manifest['region_count']}")
             print(f"opennpux_backend_commands={manifest['total_commands']}")

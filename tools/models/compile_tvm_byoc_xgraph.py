@@ -9,8 +9,10 @@ import os
 import sys
 from pathlib import Path
 
+from opennpux_backend.artifacts import write_graph_artifact
+from opennpux_backend.compiler import CodegenError, compile_graph
+from opennpux_backend.frontend import adapt_frontend
 from opennpux_backend.ir import is_graph
-from opennpux_tvm_byoc import CodegenError, compile_graph
 
 
 def load_json(path: Path) -> dict:
@@ -66,16 +68,14 @@ def main() -> None:
                 raise CodegenError(
                     "input is not normalized BYOC JSON and Apache TVM is unavailable"
                 ) from error
-            from opennpux_tvm_byoc.relax_backend import (
-                normalized_graph_from_relax,
-                partition_for_opennpux,
-            )
+            from opennpux_tvm_byoc.relax_backend import RelaxFrontendAdapter
 
             module = tvm.ir.load_json(args.input.read_text(encoding="utf-8"))
-            if not args.partitioned:
-                module = partition_for_opennpux(module)
-            graph = normalized_graph_from_relax(module)
-        from opennpux_tvm_byoc.storage_policy import apply_parameter_storage
+            graph = adapt_frontend(
+                module,
+                RelaxFrontendAdapter(module=False, partitioned=args.partitioned),
+            )
+        from opennpux_backend.storage_policy import apply_parameter_storage
 
         apply_parameter_storage(
             graph, args.constant_parameter, args.state_parameter
@@ -85,9 +85,7 @@ def main() -> None:
                 json.dumps(graph, indent=2, sort_keys=True) + "\n"
             )
         binary, metadata = compile_graph(graph, args.lowering_library)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_bytes(binary)
-        metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+        write_graph_artifact(args.output, binary, metadata, metadata_path)
     except (OSError, CodegenError, json.JSONDecodeError) as error:
         print(f"xgraph_codegen=FAIL: {error}", file=sys.stderr)
         raise SystemExit(1) from error

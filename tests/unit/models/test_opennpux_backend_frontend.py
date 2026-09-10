@@ -2,6 +2,7 @@ import copy
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,7 +10,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "tools/models"))
 
-from opennpux_backend import GRAPH_FORMAT, compile_frontend  # noqa: E402
+from opennpux_backend import (  # noqa: E402
+    FrontendAdapter,
+    GRAPH_FORMAT,
+    compile_frontend,
+    write_graph_artifact,
+)
 from opennpux_backend.compiler import CodegenError  # noqa: E402
 
 
@@ -93,6 +99,27 @@ assert not any(name.startswith("opennpux_tvm_byoc") for name in sys.modules)
 
         with self.assertRaisesRegex(CodegenError, "non-empty name"):
             compile_frontend(self.load_fixture(), InvalidAdapter())
+
+    def test_tvm_adapter_implements_common_protocol_without_loading_tvm(self):
+        from opennpux_tvm_byoc.relax_backend import RelaxFrontendAdapter
+
+        adapter = RelaxFrontendAdapter(module=False, partitioned=True)
+        self.assertIsInstance(adapter, FrontendAdapter)
+        self.assertEqual(adapter.name, "tvm-relax-byoc")
+        self.assertNotIn("tvm", sys.modules)
+
+    def test_common_artifact_writer_is_frontend_independent(self):
+        compilation = compile_frontend(self.load_fixture(), LegacyTvmAdapter())
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "model.npxg"
+            sidecar = write_graph_artifact(
+                output, compilation["artifact"], compilation["metadata"]
+            )
+            self.assertEqual(output.read_bytes(), compilation["artifact"])
+            self.assertEqual(
+                json.loads(sidecar.read_text(encoding="utf-8")),
+                compilation["metadata"],
+            )
 
 
 if __name__ == "__main__":

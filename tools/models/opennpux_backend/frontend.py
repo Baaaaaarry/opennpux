@@ -19,19 +19,25 @@ class FrontendAdapter(Protocol):
         """Return an OPENNPUX_BACKEND_GRAPH_V1 or MODULE_V1 object."""
 
 
+def adapt_frontend(source: Any, adapter: FrontendAdapter) -> dict[str, Any]:
+    """Convert one frontend object into detached canonical backend IR."""
+    adapter_name = getattr(adapter, "name", None)
+    if not isinstance(adapter_name, str) or not adapter_name:
+        raise CodegenError("frontend adapter must provide a non-empty name")
+    try:
+        return canonicalize_ir(adapter.to_backend_ir(source))
+    except (AttributeError, TypeError, ValueError) as error:
+        raise CodegenError(f"frontend adapter {adapter_name} failed: {error}") from error
+
+
 def compile_frontend(
     source: Any,
     adapter: FrontendAdapter,
     lowering_library: str | None = None,
 ) -> dict[str, Any]:
     """Adapt and compile a frontend object through the common backend path."""
-    adapter_name = getattr(adapter, "name", None)
-    if not isinstance(adapter_name, str) or not adapter_name:
-        raise CodegenError("frontend adapter must provide a non-empty name")
-    try:
-        backend_ir = canonicalize_ir(adapter.to_backend_ir(source))
-    except (AttributeError, TypeError, ValueError) as error:
-        raise CodegenError(f"frontend adapter {adapter_name} failed: {error}") from error
+    backend_ir = adapt_frontend(source, adapter)
+    adapter_name = adapter.name
     if is_graph(backend_ir):
         artifact, metadata = compile_graph(backend_ir, lowering_library)
         metadata = dict(metadata)
@@ -55,4 +61,4 @@ def compile_frontend(
     raise CodegenError(f"frontend adapter {adapter_name} returned unsupported IR")
 
 
-__all__ = ["FrontendAdapter", "compile_frontend"]
+__all__ = ["FrontendAdapter", "adapt_frontend", "compile_frontend"]

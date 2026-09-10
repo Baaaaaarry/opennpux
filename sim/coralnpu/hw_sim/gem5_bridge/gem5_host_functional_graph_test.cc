@@ -1206,6 +1206,72 @@ int main(int argc, char** argv) {
        ++index) {
     assert(std::isfinite(shared_output_data[index]));
   }
+  constexpr uint32_t kLongRopeRows = 22;
+  constexpr uint32_t kLongRopeHeads = 16;
+  constexpr uint32_t kLongRopeKvHeads = 2;
+  constexpr uint32_t kLongRopeHeadDim = 4;
+  constexpr uint32_t kLongRopeRotaryDim = 2;
+  const opennpux_npu_tensor_plan_runtime long_rope_runtime = {
+      1, kLongRopeRows, kLongRopeRows, 2};
+  assert(graph.ConfigureRuntime(submission, submission_size,
+                                UINT32_C(0x24000000), long_rope_runtime));
+  const size_t long_query_elements =
+      kLongRopeRows * kLongRopeHeads * kLongRopeHeadDim;
+  const size_t long_key_elements =
+      kLongRopeRows * kLongRopeKvHeads * kLongRopeHeadDim;
+  std::vector<float> long_query(long_query_elements, 1.0f);
+  std::vector<float> long_key(long_key_elements, 1.0f);
+  std::vector<uint32_t> long_positions(kLongRopeRows);
+  for (uint32_t index = 0; index < kLongRopeRows; ++index) {
+    long_positions[index] = index;
+  }
+  constexpr uint32_t kLongQueryAddress = UINT32_C(0x60000000);
+  constexpr uint32_t kLongKeyAddress = UINT32_C(0x60010000);
+  constexpr uint32_t kLongPositionsAddress = UINT32_C(0x60020000);
+  const uint32_t long_query_bytes = long_query.size() * sizeof(float);
+  const uint32_t long_key_bytes = long_key.size() * sizeof(float);
+  assert(graph.arena().size() >= long_query_bytes + long_key_bytes);
+  opennpux_npu_functional_request long_rope_request = {};
+  long_rope_request.opcode = OPENNPUX_NPU_OP_ROPE;
+  long_rope_request.operand_count = 5;
+  long_rope_request.operands[0] = {
+      OPENNPUX_NPU_OPERAND_INPUT, kLongQueryAddress, long_query_bytes, 0};
+  long_rope_request.operands[1] = {
+      OPENNPUX_NPU_OPERAND_SECONDARY, kLongKeyAddress, long_key_bytes, 0};
+  long_rope_request.operands[2] = {
+      OPENNPUX_NPU_OPERAND_POSITIONS, kLongPositionsAddress,
+      static_cast<uint32_t>(long_positions.size() * sizeof(uint32_t)), 0};
+  long_rope_request.operands[3] = {
+      OPENNPUX_NPU_OPERAND_OUTPUT, graph.arena().base(), long_query_bytes, 0};
+  long_rope_request.operands[4] = {
+      OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY,
+      graph.arena().base() + long_query_bytes, long_key_bytes, 0};
+  long_rope_request.rows = kLongRopeRows;
+  long_rope_request.features = kLongRopeHeads * kLongRopeHeadDim;
+  long_rope_request.heads = kLongRopeHeads;
+  long_rope_request.kv_heads = kLongRopeKvHeads;
+  long_rope_request.head_dim = kLongRopeHeadDim;
+  long_rope_request.rope_theta = 10000.0f;
+  const Gem5FunctionalMemoryRegion long_rope_regions[] = {
+      {kLongQueryAddress, reinterpret_cast<uint8_t*>(long_query.data()),
+       long_query_bytes},
+      {kLongKeyAddress, reinterpret_cast<uint8_t*>(long_key.data()),
+       long_key_bytes},
+      {kLongPositionsAddress,
+       reinterpret_cast<uint8_t*>(long_positions.data()),
+       long_positions.size() * sizeof(uint32_t)},
+  };
+  opennpux_npu_operator_parameters long_rope_parameters = {};
+  long_rope_parameters.intermediate_features = kLongRopeRotaryDim;
+  Gem5HostXGraphExecutionStats long_rope_stats = {};
+  assert(ExecuteGem5HostXGraphRequest(
+             long_rope_request, long_rope_parameters, long_rope_regions,
+             std::size(long_rope_regions), &graph.arena(), &long_rope_stats) ==
+         Gem5HostXGraphExecutionOutcome::kExecuted);
+  assert(long_rope_stats.commands ==
+         static_cast<uint64_t>(kLongRopeRows) *
+             (kLongRopeHeads + kLongRopeKvHeads) * 2);
+  assert(long_rope_stats.commands > OPENNPUX_XGRAPH_MAX_COMMANDS);
   std::printf("functional_graph_add_elements=%zu\n", count);
   std::puts("functional_graph_gptq_projection=PASS");
   std::puts("functional_graph_routed_expert=PASS");
@@ -1222,6 +1288,7 @@ int main(int argc, char** argv) {
   std::puts("functional_graph_xopennpux_large_gated_norm_lowering=PASS");
   std::puts("functional_graph_xopennpux_tiled_gated_norm=PASS");
   std::puts("functional_graph_float_shared_expert=PASS");
+  std::puts("functional_graph_xopennpux_batched_rope=PASS");
   std::puts("gem5_host_functional_graph=PASS");
   std::free(submission);
   opennpux_npu_executable_unload(&executable);

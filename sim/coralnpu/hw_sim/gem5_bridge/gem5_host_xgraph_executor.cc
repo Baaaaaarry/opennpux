@@ -1,5 +1,6 @@
 #include "hw_sim/gem5_bridge/gem5_host_xgraph_executor.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <cstddef>
@@ -714,6 +715,29 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
   return true;
 }
 
+bool ExecuteCommandBatches(
+    const std::vector<opennpux_xgraph_command>& commands,
+    uint32_t memory_base, std::vector<uint8_t>* memory,
+    Gem5HostXGraphExecutionStats* stats) {
+  if (commands.empty() || memory == nullptr || stats == nullptr) return false;
+  for (size_t begin = 0; begin < commands.size();
+       begin += OPENNPUX_XGRAPH_MAX_COMMANDS) {
+    const size_t end = std::min(
+        commands.size(), begin + OPENNPUX_XGRAPH_MAX_COMMANDS);
+    std::vector<opennpux_xgraph_command> batch;
+    try {
+      batch.assign(commands.begin() + begin, commands.begin() + end);
+    } catch (...) {
+      return false;
+    }
+    if (!ExecuteCommands(batch, static_cast<uint32_t>(batch.size()),
+                         memory_base, memory, stats)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 Gem5HostXGraphExecutionOutcome ExecuteRopeRequest(
     const opennpux_npu_functional_request& request,
     const opennpux_npu_operator_parameters& parameters,
@@ -757,7 +781,7 @@ Gem5HostXGraphExecutionOutcome ExecuteRopeRequest(
   if (query_elements > UINT32_MAX / sizeof(float) ||
       key_elements > UINT32_MAX / sizeof(float) ||
       table_elements > UINT32_MAX / sizeof(float) ||
-      command_count == 0 || command_count > OPENNPUX_XGRAPH_MAX_COMMANDS ||
+      command_count == 0 || command_count > UINT32_MAX ||
       query->byte_size < query_elements * sizeof(float) ||
       query_output->byte_size < query_elements * sizeof(float) ||
       positions->byte_size <
@@ -885,8 +909,7 @@ Gem5HostXGraphExecutionOutcome ExecuteRopeRequest(
     emit_heads(key_offset, key_output_offset, request.kv_heads,
                static_cast<uint32_t>(key_features));
   }
-  if (!ExecuteCommands(commands, static_cast<uint32_t>(commands.size()),
-                       arena->base(), &memory, stats)) {
+  if (!ExecuteCommandBatches(commands, arena->base(), &memory, stats)) {
     return Gem5HostXGraphExecutionOutcome::kError;
   }
   auto* query_destination = arena->Translate(query_output->address, query_bytes);

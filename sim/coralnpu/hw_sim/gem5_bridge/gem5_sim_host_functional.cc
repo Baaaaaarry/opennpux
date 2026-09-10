@@ -163,6 +163,17 @@ struct Gem5SimHostFunctional::Impl {
         std::fprintf(stderr,
                      "Coral host functional execution failed step=%u command=%u\n",
                      step, failed_command);
+        const auto* failed = graph.command(failed_command);
+        if (failed != nullptr) {
+          std::fprintf(
+              stderr,
+              "Coral host functional failure detail opcode=%u flags=%#x "
+              "tag=%#llx sequence=%u kv=%u experts=%u arena=%zu\n",
+              failed->opcode, failed->flags,
+              static_cast<unsigned long long>(failed->profiling_tag),
+              runtime.sequence_length, runtime.kv_length,
+              runtime.active_experts, graph.arena().size());
+        }
         std::fflush(stderr);
         return -1;
       }

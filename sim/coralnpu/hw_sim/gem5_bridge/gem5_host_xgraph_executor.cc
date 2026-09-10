@@ -768,75 +768,58 @@ Gem5HostXGraphExecutionOutcome ExecuteRopeRequest(
     return Gem5HostXGraphExecutionOutcome::kNotEligible;
   }
 
-  std::vector<uint8_t> memory;
-  try {
-    memory = *arena->mutable_storage_for_coprocessor();
-  } catch (...) {
-    return Gem5HostXGraphExecutionOutcome::kError;
-  }
-  const size_t resident_bytes = memory.size();
-  opennpux_npu_functional_request staged = {};
-  if (!StageExternalOperands(request, regions, region_count, arena->base(),
-                             resident_bytes, &memory, &staged) ||
-      !AlignMemory(&memory, 64)) {
+  const uint64_t query_bytes = query_elements * sizeof(float);
+  const uint64_t key_bytes = key_elements * sizeof(float);
+  const auto* query_source = TranslateRegions(
+      regions, region_count, query->address, static_cast<uint32_t>(query_bytes));
+  const auto* key_source = key == nullptr
+                               ? nullptr
+                               : TranslateRegions(regions, region_count,
+                                                  key->address,
+                                                  static_cast<uint32_t>(key_bytes));
+  const auto* position_values = reinterpret_cast<const uint32_t*>(
+      TranslateRegions(regions, region_count, positions->address,
+                       request.rows * sizeof(uint32_t)));
+  if (query_source == nullptr || position_values == nullptr ||
+      (key != nullptr && key_source == nullptr)) {
     return Gem5HostXGraphExecutionOutcome::kNotEligible;
   }
 
-  query = FindOperand(staged, OPENNPUX_NPU_OPERAND_INPUT);
-  key = FindOperand(staged, OPENNPUX_NPU_OPERAND_SECONDARY);
-  positions = FindOperand(staged, OPENNPUX_NPU_OPERAND_POSITIONS);
-  query_output = FindOperand(staged, OPENNPUX_NPU_OPERAND_OUTPUT);
-  key_output =
-      FindOperand(staged, OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY);
-  if (query == nullptr || positions == nullptr || query_output == nullptr ||
-      (key != nullptr && key_output == nullptr)) {
-    return Gem5HostXGraphExecutionOutcome::kError;
-  }
-  const auto offset_of = [&](uint32_t address, uint64_t bytes,
-                             uint32_t* offset) {
-    if (offset == nullptr || address < arena->base()) return false;
-    const uint64_t value =
-        static_cast<uint64_t>(address) - arena->base();
-    if (value > UINT32_MAX || value > memory.size() ||
-        bytes > memory.size() - value) {
+  uint64_t workspace_bytes = 0;
+  const auto allocate = [&](uint64_t bytes, uint32_t* offset) {
+    workspace_bytes = (workspace_bytes + 63) & ~UINT64_C(63);
+    if (offset == nullptr || workspace_bytes > UINT32_MAX ||
+        bytes > UINT32_MAX - workspace_bytes) {
       return false;
     }
-    *offset = static_cast<uint32_t>(value);
+    *offset = static_cast<uint32_t>(workspace_bytes);
+    workspace_bytes += bytes;
     return true;
   };
   uint32_t query_offset = 0;
   uint32_t key_offset = 0;
-  uint32_t positions_offset = 0;
   uint32_t query_output_offset = 0;
   uint32_t key_output_offset = 0;
-  if (!offset_of(query->address, query_elements * sizeof(float),
-                 &query_offset) ||
-      !offset_of(positions->address,
-                 static_cast<uint64_t>(request.rows) * sizeof(uint32_t),
-                 &positions_offset) ||
-      !offset_of(query_output->address, query_elements * sizeof(float),
-                 &query_output_offset) ||
-      (key != nullptr &&
-       (!offset_of(key->address, key_elements * sizeof(float), &key_offset) ||
-        !offset_of(key_output->address, key_elements * sizeof(float),
-                   &key_output_offset)))) {
+  uint32_t table_offset = 0;
+  const uint64_t table_bytes = table_elements * sizeof(float);
+  if (!allocate(query_bytes, &query_offset) ||
+      (key != nullptr && !allocate(key_bytes, &key_offset)) ||
+      !allocate(query_bytes, &query_output_offset) ||
+      (key != nullptr && !allocate(key_bytes, &key_output_offset)) ||
+      !allocate(table_bytes, &table_offset)) {
     return Gem5HostXGraphExecutionOutcome::kNotEligible;
   }
-
-  const size_t table_offset = memory.size();
-  const size_t table_bytes =
-      static_cast<size_t>(table_elements) * sizeof(float);
-  if (table_offset > UINT32_MAX || table_bytes > UINT32_MAX - table_offset) {
-    return Gem5HostXGraphExecutionOutcome::kNotEligible;
-  }
+  std::vector<uint8_t> memory;
   try {
-    memory.resize(table_offset + table_bytes);
+    memory.resize(static_cast<size_t>(workspace_bytes));
   } catch (...) {
     return Gem5HostXGraphExecutionOutcome::kError;
   }
+  std::memcpy(memory.data() + query_offset, query_source, query_bytes);
+  if (key != nullptr) {
+    std::memcpy(memory.data() + key_offset, key_source, key_bytes);
+  }
   auto* table = reinterpret_cast<float*>(memory.data() + table_offset);
-  const auto* position_values = reinterpret_cast<const uint32_t*>(
-      memory.data() + positions_offset);
   const uint32_t half = rotary_dim / 2;
   for (uint32_t row = 0; row < request.rows; ++row) {
     float* cosine = table + static_cast<size_t>(row) * rotary_dim * 2;
@@ -877,8 +860,7 @@ Gem5HostXGraphExecutionOutcome ExecuteRopeRequest(
         command.destination_offset =
             output_offset + element * sizeof(float);
         command.source1_offset =
-            static_cast<uint32_t>(table_offset) +
-            row * rotary_dim * 2 * sizeof(float);
+            table_offset + row * rotary_dim * 2 * sizeof(float);
         commands.push_back(command);
         if (rotary_dim != request.head_dim) {
           command = {};
@@ -907,7 +889,19 @@ Gem5HostXGraphExecutionOutcome ExecuteRopeRequest(
                        arena->base(), &memory, stats)) {
     return Gem5HostXGraphExecutionOutcome::kError;
   }
-  std::memcpy(arena->data(), memory.data(), resident_bytes);
+  auto* query_destination = arena->Translate(query_output->address, query_bytes);
+  auto* key_destination = key_output == nullptr
+                              ? nullptr
+                              : arena->Translate(key_output->address, key_bytes);
+  if (query_destination == nullptr ||
+      (key_output != nullptr && key_destination == nullptr)) {
+    return Gem5HostXGraphExecutionOutcome::kError;
+  }
+  std::memcpy(query_destination, memory.data() + query_output_offset,
+              query_bytes);
+  if (key_destination != nullptr) {
+    std::memcpy(key_destination, memory.data() + key_output_offset, key_bytes);
+  }
   return Gem5HostXGraphExecutionOutcome::kExecuted;
 }
 

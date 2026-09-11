@@ -15,6 +15,10 @@ static inline void xopennpux_write_tensor_shape(uint32_t value) {
   __asm__ volatile("csrw 0x802, %0" : : "r"(value) : "memory");
 }
 
+static inline void xopennpux_write_tensor_features(uint32_t value) {
+  __asm__ volatile("csrw 0x830, %0" : : "r"(value) : "memory");
+}
+
 static inline void xopennpux_write_tensor_data_type(uint32_t value) {
   __asm__ volatile("csrw 0x806, %0" : : "r"(value) : "memory");
 }

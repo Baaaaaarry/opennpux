@@ -661,6 +661,7 @@ bool BuildPacket(const opennpux_xgraph_command& command,
   }
   packet->tensor_shape =
       xopennpux::EncodeTensorShape(command.dim0, command.dim1);
+  packet->tensor_features = command.dim1;
   packet->tensor_data_type = xopennpux::EncodeMmaDataTypes(
       xopennpux::DataType::kFp32, xopennpux::DataType::kFp32,
       xopennpux::DataType::kFp32);

@@ -126,6 +126,7 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   mma_shape_ = 0;
   mma_data_type_ = 0;
   tensor_shape_ = 0;
+  tensor_features_ = 0;
   tensor_data_type_ = 0;
   scalar_param0_ = 0;
   quant_qzeros_address_ = 0;
@@ -174,6 +175,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrTensorShape:
       tensor_shape_ = value;
+      break;
+    case xopennpux::kCsrTensorFeatures:
+      tensor_features_ = value;
       break;
     case xopennpux::kCsrTensorDataType:
       tensor_data_type_ = value;
@@ -298,6 +302,9 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
       return true;
     case xopennpux::kCsrTensorShape:
       *value = tensor_shape_;
+      return true;
+    case xopennpux::kCsrTensorFeatures:
+      *value = tensor_features_;
       return true;
     case xopennpux::kCsrTensorDataType:
       *value = tensor_data_type_;
@@ -449,8 +456,11 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Classify(
                                      : (is_mma ? packet.mma_data_type
                                                : packet.tensor_data_type);
   const xopennpux::MmaShape shape = xopennpux::DecodeMmaShape(shape_csr);
+  const uint32_t tensor_features = packet.csr_epoch == 0
+                                       ? tensor_features_
+                                       : packet.tensor_features;
   const xopennpux::TensorShape tensor_shape =
-      xopennpux::DecodeTensorShape(shape_csr);
+      xopennpux::DecodeTensorShape(shape_csr, tensor_features);
   const xopennpux::MmaDataTypes data_types =
       xopennpux::DecodeMmaDataTypes(data_type_csr);
   constexpr uint32_t kShapeReservedMask = 0xc0000000;
@@ -757,10 +767,12 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
   queue_[tail].data_types = data_types;
   const uint32_t tensor_shape_csr =
       packet.csr_epoch == 0 ? tensor_shape_ : packet.tensor_shape;
+  const uint32_t tensor_features =
+      packet.csr_epoch == 0 ? tensor_features_ : packet.tensor_features;
   const uint32_t tensor_data_type_csr =
       packet.csr_epoch == 0 ? tensor_data_type_ : packet.tensor_data_type;
   queue_[tail].tensor_shape =
-      xopennpux::DecodeTensorShape(tensor_shape_csr);
+      xopennpux::DecodeTensorShape(tensor_shape_csr, tensor_features);
   queue_[tail].tensor_data_types =
       xopennpux::DecodeMmaDataTypes(tensor_data_type_csr);
   queue_[tail].scalar_param0 =

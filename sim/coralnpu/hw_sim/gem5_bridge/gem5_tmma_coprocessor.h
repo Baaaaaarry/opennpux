@@ -33,6 +33,7 @@ struct Gem5TmmaDispatchPacket {
   uint32_t mma_shape = 0;
   uint32_t mma_data_type = 0;
   uint32_t tensor_shape = 0;
+  uint32_t tensor_features = 0;
   uint32_t tensor_data_type = 0;
   uint32_t scalar_param0 = 0;
   uint32_t quant_qzeros_address = 0;
@@ -155,6 +156,7 @@ class Gem5XOpenNpuFunctionalCoprocessor {
   uint32_t mma_shape_ = 0;
   uint32_t mma_data_type_ = 0;
   uint32_t tensor_shape_ = 0;
+  uint32_t tensor_features_ = 0;
   uint32_t tensor_data_type_ = 0;
   uint32_t scalar_param0_ = 0;
   uint32_t quant_qzeros_address_ = 0;

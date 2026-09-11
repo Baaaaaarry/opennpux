@@ -66,6 +66,7 @@ void ConfigureTensorFp32(Gem5XOpenNpuFunctionalCoprocessor* coprocessor,
                          uint32_t rows, uint32_t features) {
   assert(coprocessor->WriteCsr(xopennpux::kCsrTensorShape,
                                xopennpux::EncodeTensorShape(rows, features)));
+  assert(coprocessor->WriteCsr(xopennpux::kCsrTensorFeatures, features));
   assert(coprocessor->WriteCsr(
       xopennpux::kCsrTensorDataType,
       xopennpux::EncodeMmaDataTypes(xopennpux::DataType::kFp32,
@@ -1029,6 +1030,27 @@ void TestFp32TopKSplitOutput() {
   }
 }
 
+void TestFp32TopKFullWidthFeatures() {
+  constexpr uint32_t kFeatures = 70000;
+  constexpr uint32_t kExpected = 69000;
+  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  ConfigureTensorFp32(&coprocessor, 1, kFeatures);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScalarParam0, 1));
+  Gem5TmmaDispatchPacket packet = Packet(18);
+  packet.instruction = xopennpux::EncodeTtopk(12, 10);
+  packet.rs2_value = 0;
+  packet.rd_value = kMemoryBase + kFeatures * sizeof(float);
+  assert(coprocessor.Submit(packet) == Gem5TmmaSubmitResult::kAccepted);
+
+  std::vector<uint8_t> memory(kFeatures * sizeof(float) + 64, 0);
+  WriteFloat(&memory, kExpected * sizeof(float), 10.0f);
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.error == Gem5TmmaExecutionError::kNone);
+  assert(ReadUint32(memory, kFeatures * sizeof(float) + sizeof(float)) ==
+         kExpected);
+}
+
 void TestFp32MatmulAndSnapshot() {
   Gem5TmmaCoprocessor coprocessor;
   ConfigureFp32(&coprocessor, 2, 2, 3);
@@ -1221,6 +1243,7 @@ int main() {
   TestGatherIndexFault();
   TestFp32TopK();
   TestFp32TopKSplitOutput();
+  TestFp32TopKFullWidthFeatures();
   TestFp32MatmulAndSnapshot();
   TestRejectAndBackpressure();
   TestPacketCsrSnapshotAndFence();

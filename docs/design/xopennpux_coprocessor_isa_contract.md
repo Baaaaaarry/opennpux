@@ -159,6 +159,14 @@ or 100 percent for values 0 through 4 respectively. Other values are reserved.
 | `0x82b..0x82d` | `mma_lhs/rhs/dst_stride` | byte row strides for strided TMMA operands |
 | `0x82e` | `mma_flags` | transpose-RHS `[0]`, destination accumulate `[1]` |
 | `0x82f` | `tensor_flags` | RMSNorm weight-offset `[0]`, BF16-input rounding `[1]` |
+| `0x830` | `tensor_features` | optional full-width feature extent; zero selects the legacy `tensor_shape[31:16]` value |
+
+The v0.2 `tensor_shape` encoding retains 16-bit rows and 16-bit features for
+binary compatibility. Software MUST program `tensor_features` when the feature
+extent exceeds 65535. NPU Decode L2 snapshots both CSRs atomically and uses a
+nonzero `tensor_features` value in place of `tensor_shape[31:16]`. This is
+required for operations such as TOPK over LLM vocabularies larger than 64K;
+silently truncating the feature extent is an invalid implementation.
 
 The supported logical data types are FP16, BF16, FP32, INT16, INT8,
 FP8-E4M3, FP8-E5M2, INT4, INT2, MXFP6, and MXFP4. Each instruction definition

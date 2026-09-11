@@ -69,6 +69,9 @@ constexpr uint16_t kCsrMmaRhsStride = 0x82c;
 constexpr uint16_t kCsrMmaDstStride = 0x82d;
 constexpr uint16_t kCsrMmaFlags = 0x82e;
 constexpr uint16_t kCsrTensorFlags = 0x82f;
+// Full-width feature extent for tensor operations. A zero value preserves the
+// legacy 16-bit feature field encoded in kCsrTensorShape.
+constexpr uint16_t kCsrTensorFeatures = 0x830;
 constexpr uint32_t kMmaFlagTransposeRhs = 1u;
 constexpr uint32_t kMmaFlagAccumulate = 2u;
 constexpr uint32_t kTensorFlagNormWeightOffset = 1u;
@@ -114,7 +117,7 @@ struct MmaDataTypes {
 
 struct TensorShape {
   uint16_t rows = 0;
-  uint16_t features = 0;
+  uint32_t features = 0;
 };
 
 struct QuantConfig {
@@ -146,6 +149,13 @@ constexpr uint32_t EncodeTensorShape(uint32_t rows, uint32_t features) {
 constexpr TensorShape DecodeTensorShape(uint32_t value) {
   return TensorShape{static_cast<uint16_t>(value & 0xffff),
                      static_cast<uint16_t>((value >> 16) & 0xffff)};
+}
+
+constexpr TensorShape DecodeTensorShape(uint32_t value,
+                                        uint32_t extended_features) {
+  TensorShape shape = DecodeTensorShape(value);
+  if (extended_features != 0) shape.features = extended_features;
+  return shape;
 }
 
 constexpr uint32_t EncodeMmaShape(uint32_t m, uint32_t n, uint32_t k) {

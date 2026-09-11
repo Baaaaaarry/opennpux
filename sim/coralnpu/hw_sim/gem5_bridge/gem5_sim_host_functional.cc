@@ -149,14 +149,25 @@ struct Gem5SimHostFunctional::Impl {
       if (tokens.size() > OPENNPUX_NPU_RUNTIME_FIELD_MASK) {
         return -1;
       }
+      const bool prefill = step == 0;
+      const uint32_t sequence_length =
+          prefill ? static_cast<uint32_t>(tokens.size()) : 1;
       const opennpux_npu_tensor_plan_runtime runtime = {
-          1, static_cast<uint32_t>(tokens.size()),
+          1, sequence_length,
           static_cast<uint32_t>(tokens.size()), active_experts};
       uint32_t failed_command = UINT32_MAX;
       uint32_t next_token = 0;
-      if (!graph.ConfigureRuntime(extmem->data(), invocation->total_size,
-                                  static_cast<uint32_t>(kExtmemBase), runtime) ||
-          !graph.SetInputTokenIds(tokens.data(), tokens.size()) ||
+      const bool configured =
+          prefill
+              ? graph.ConfigureRuntime(extmem->data(), invocation->total_size,
+                                       static_cast<uint32_t>(kExtmemBase),
+                                       runtime)
+              : graph.ConfigureRuntimePreservingPersistent(
+                    extmem->data(), invocation->total_size,
+                    static_cast<uint32_t>(kExtmemBase), runtime);
+      if (!configured ||
+          !graph.SetInputTokenIds(prefill ? tokens.data() : &tokens.back(),
+                                  sequence_length) ||
           !graph.ExecuteProgram(&weights, &failed_command) ||
           !graph.ReadNextToken(&next_token) ||
           next_token >= input->vocabulary_size) {

@@ -1427,10 +1427,17 @@ bool Gem5HostFunctionalGraph::ReadNextToken(uint32_t* token_id) const {
       return false;
     }
     const uint64_t output_count = output->byte_size / sizeof(uint32_t);
+    const uint64_t required_count =
+        static_cast<uint64_t>(request.rows) * request.top_k;
     if (output_count < request.top_k) {
       return false;
     }
-    const uint64_t selected = output_count - request.top_k;
+    // TTOPK writes active rows at the start of the output allocation. A
+    // one-row output is the ABI's last-row-only form; otherwise select the
+    // last active row, not the tail of a potentially oversized allocation.
+    const uint64_t selected = output_count < required_count
+                                  ? 0
+                                  : required_count - request.top_k;
     const auto* values = reinterpret_cast<const uint32_t*>(
         arena_.Translate(output->address, output->byte_size));
     if (values == nullptr) {

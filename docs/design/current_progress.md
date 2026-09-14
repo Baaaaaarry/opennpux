@@ -1777,3 +1777,6 @@ export，消除应用手工维护 Graph 与 sidecar Tensor 清单的漂移。实
 绑定的 MAX 源码；OpenNPUX lowering 和 device runtime 仍完全位于 Modular workspace 之外。
 源码 runner 默认显式传递 `--config=prebuilt-mojo`；只有修改 Mojo compiler 本身时才通过
 `MODULAR_MOJO_CONFIG=build-mojo` 选择源码构建工具链。
+为支持受限网络 GB10，Modular 指定 revision 的 `rules_mojo` 与 `rules_cc` 也固定为主项目
+子模块。runner 在 `.cache/modular-deps` 对 `rules_mojo` 应用 Modular 自带 patch，并通过
+Bazel `override_repository` 使用两个本地依赖，避免构建阶段下载对应 GitHub archive。

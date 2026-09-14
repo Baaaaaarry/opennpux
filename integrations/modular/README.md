@@ -52,6 +52,11 @@ MODULAR_MOJO_CONFIG=build-mojo \
   ./tools/models/run_max_source_opennpux_export.sh
 ```
 
+`rules_mojo` and `rules_cc` are pinned submodules matching Modular's archive
+overrides. The runner creates a patched `rules_mojo` mirror under
+`.cache/modular-deps` and passes both through Bazel `override_repository`, so
+these dependencies do not require GitHub access during a GB10 build.
+
 The runner copies the tracked overlay into the ignored submodule working tree,
 runs `//max/opennpux:export_projection`, and compiles the resulting frontend
 export outside Modular. The copied overlay is generated state; edit the tracked

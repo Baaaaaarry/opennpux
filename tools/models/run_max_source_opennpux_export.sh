@@ -5,6 +5,9 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 MODULAR_DIR="${MODULAR_SOURCE_DIR:-${ROOT_DIR}/thirdparty/modular}"
+RULES_MOJO_SOURCE="${ROOT_DIR}/thirdparty/rules_mojo"
+RULES_CC_SOURCE="${ROOT_DIR}/thirdparty/rules_cc"
+RULES_MOJO_CACHE="${ROOT_DIR}/.cache/modular-deps/rules_mojo"
 MOJO_CONFIG="${MODULAR_MOJO_CONFIG:-prebuilt-mojo}"
 BUILD_DIR="${MAX_SOURCE_BUILD_DIR:-${ROOT_DIR}/build/local-tests/max-source}"
 OUTPUT="${1:-${BUILD_DIR}/max-source-projection.npxg}"
@@ -23,6 +26,28 @@ esac
 
 "${SCRIPT_DIR}/setup_modular_source.sh"
 
+rules_mojo_revision="$(git -C "${RULES_MOJO_SOURCE}" rev-parse HEAD)"
+RULES_MOJO_PATCHED="${RULES_MOJO_CACHE}/${rules_mojo_revision}"
+patch_revision_file="${RULES_MOJO_PATCHED}/.opennpux-source-revision"
+patched_revision=
+if [ -f "${patch_revision_file}" ]; then
+    patched_revision="$(cat "${patch_revision_file}")"
+fi
+if [ "${patched_revision}" != "${rules_mojo_revision}" ]; then
+    if [ -e "${RULES_MOJO_PATCHED}" ]; then
+        echo "max_source_export=FAIL incomplete-cache=${RULES_MOJO_PATCHED}" >&2
+        exit 1
+    fi
+    patched_temporary="${RULES_MOJO_PATCHED}.tmp.$$"
+    mkdir -p "${RULES_MOJO_CACHE}" "${patched_temporary}"
+    cp -R "${RULES_MOJO_SOURCE}/." "${patched_temporary}/"
+    (cd "${patched_temporary}" && patch -p1 < \
+        "${MODULAR_DIR}/bazel/public-patches/rules_mojo_toolchain.patch")
+    printf '%s\n' "${rules_mojo_revision}" > \
+        "${patched_temporary}/.opennpux-source-revision"
+    mv "${patched_temporary}" "${RULES_MOJO_PATCHED}"
+fi
+
 mkdir -p "${OVERLAY_DESTINATION}" "${BUILD_DIR}" "$(dirname -- "${OUTPUT}")"
 cp "${OVERLAY_SOURCE}/BUILD.bazel" "${OVERLAY_DESTINATION}/BUILD.bazel"
 cp "${OVERLAY_SOURCE}/export_projection.py" \
@@ -30,6 +55,8 @@ cp "${OVERLAY_SOURCE}/export_projection.py" \
 
 (cd "${MODULAR_DIR}" && \
     ./bazelw run --config="${MOJO_CONFIG}" \
+        --override_repository="rules_mojo=${RULES_MOJO_PATCHED}" \
+        --override_repository="rules_cc=${RULES_CC_SOURCE}" \
         //max/opennpux:export_projection -- "${EXPORT_JSON}")
 
 if [ ! -f "${LOWERING_LIBRARY}" ]; then

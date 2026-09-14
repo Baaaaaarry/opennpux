@@ -10,3 +10,17 @@
 	path = thirdparty/modular
 	url = https://github.com/modular/modular.git
 	ignore = dirty
+[submodule "thirdparty/rules_mojo"]
+	path = thirdparty/rules_mojo
+	url = https://github.com/modular/rules_mojo.git
+	ignore = dirty
+[submodule "thirdparty/rules_cc"]
+	path = thirdparty/rules_cc
+	url = https://github.com/bazelbuild/rules_cc.git
+	ignore = dirty
+[submodule "thirdparty/rules_mojo"]
+	path = thirdparty/rules_mojo
+	url = https://github.com/modular/rules_mojo.git
+[submodule "thirdparty/rules_cc"]
+	path = thirdparty/rules_cc
+	url = https://github.com/bazelbuild/rules_cc.git

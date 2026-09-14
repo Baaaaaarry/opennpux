@@ -11,6 +11,7 @@ RULES_MOJO_CACHE="${ROOT_DIR}/.cache/modular-deps/rules_mojo"
 BATS_CORE_SOURCE="${ROOT_DIR}/thirdparty/bats-core"
 BATS_CORE_CACHE="${ROOT_DIR}/.cache/modular-deps/bats-core"
 MOJO_CONFIG="${MODULAR_MOJO_CONFIG:-prebuilt-mojo}"
+BAZEL_DISTDIR="${MODULAR_BAZEL_DISTDIR:-}"
 BUILD_DIR="${MAX_SOURCE_BUILD_DIR:-${ROOT_DIR}/build/local-tests/max-source}"
 OUTPUT="${1:-${BUILD_DIR}/max-source-projection.npxg}"
 LOWERING_LIBRARY="${2:-${ROOT_DIR}/build/local-tests/mojo-max-xgraph/libopennpux_xgraph_codegen.so}"
@@ -25,6 +26,24 @@ case "${MOJO_CONFIG}" in
         exit 2
         ;;
 esac
+
+if [ -n "${BAZEL_DISTDIR}" ]; then
+    if [ ! -d "${BAZEL_DISTDIR}" ]; then
+        echo "max_source_export=FAIL missing-distdir=${BAZEL_DISTDIR}" >&2
+        exit 1
+    fi
+    if ! find "${BAZEL_DISTDIR}" -maxdepth 1 -type f -name 'max-*.whl' \
+        | grep -q .; then
+        echo "max_source_export=FAIL distdir-missing=max-platform-wheel" >&2
+        exit 1
+    fi
+    if [ "${MOJO_CONFIG}" = prebuilt-mojo ] && \
+       ! find "${BAZEL_DISTDIR}" -maxdepth 1 -type f \
+           -name 'mojo_compiler-*.whl' | grep -q .; then
+        echo "max_source_export=FAIL distdir-missing=mojo-compiler-wheel" >&2
+        exit 1
+    fi
+fi
 
 "${SCRIPT_DIR}/setup_modular_source.sh"
 
@@ -79,12 +98,15 @@ cp "${OVERLAY_SOURCE}/BUILD.bazel" "${OVERLAY_DESTINATION}/BUILD.bazel"
 cp "${OVERLAY_SOURCE}/export_projection.py" \
     "${OVERLAY_DESTINATION}/export_projection.py"
 
-(cd "${MODULAR_DIR}" && \
-    ./bazelw run --config="${MOJO_CONFIG}" \
+(cd "${MODULAR_DIR}" &&
+    set -- ./bazelw run --config="${MOJO_CONFIG}" \
         --override_repository="rules_mojo=${RULES_MOJO_PATCHED}" \
         --override_repository="rules_cc=${RULES_CC_SOURCE}" \
-        --override_repository="aspect_bazel_lib++toolchains+bats_toolchains=${BATS_CORE_LOCAL}" \
-        //max/opennpux:export_projection -- "${EXPORT_JSON}")
+        --override_repository="aspect_bazel_lib++toolchains+bats_toolchains=${BATS_CORE_LOCAL}"
+    if [ -n "${BAZEL_DISTDIR}" ]; then
+        set -- "$@" --distdir="${BAZEL_DISTDIR}"
+    fi
+    "$@" //max/opennpux:export_projection -- "${EXPORT_JSON}")
 
 if [ ! -f "${LOWERING_LIBRARY}" ]; then
     echo "max_source_export=FAIL missing-lowering-library=${LOWERING_LIBRARY}" >&2

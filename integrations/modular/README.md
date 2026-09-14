@@ -52,6 +52,24 @@ MODULAR_MOJO_CONFIG=build-mojo \
   ./tools/models/run_max_source_opennpux_export.sh
 ```
 
+The open-source repository is not a fully self-hosting MAX distribution.
+Public MAX Graph Python sources still require the platform `_core`/MLIR/runtime
+payload from the matching `max-*.whl`. `prebuilt-mojo` additionally requires
+the matching `mojo_compiler-*.whl`; `build-mojo` builds that compiler from the
+checkout but does not remove the MAX platform-wheel requirement.
+
+On a restricted GB10 host, copy the exact wheel files named in Bazel's download
+diagnostic from a connected machine into one directory, then run:
+
+```bash
+MODULAR_BAZEL_DISTDIR=/data/opennpux-bazel-distdir \
+  ./tools/models/run_max_source_opennpux_export.sh
+```
+
+Bazel verifies the hashes pinned by the Modular revision. The runner checks the
+required bootstrap wheel classes before starting analysis, so a missing
+artifact fails immediately rather than after network retries.
+
 `rules_mojo` and `rules_cc` are pinned submodules matching Modular's archive
 overrides. The runner creates a patched `rules_mojo` mirror under
 `.cache/modular-deps` and passes both through Bazel `override_repository`, so

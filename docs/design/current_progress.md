@@ -1780,3 +1780,8 @@ export，消除应用手工维护 Graph 与 sidecar Tensor 清单的漂移。实
 为支持受限网络 GB10，Modular 指定 revision 的 `rules_mojo` 与 `rules_cc` 也固定为主项目
 子模块。runner 在 `.cache/modular-deps` 对 `rules_mojo` 应用 Modular 自带 patch，并通过
 Bazel `override_repository` 使用两个本地依赖，避免构建阶段下载对应 GitHub archive。
+
+验证进一步确认 Modular 开源树并非完整 self-hosting MAX 发行版：即使采用 `build-mojo`，
+MAX Graph 的 `_core`、MLIR 和 runtime 仍从对应 `max-*.whl` bootstrap；`prebuilt-mojo` 还需要
+`mojo_compiler-*.whl`。源码 runner 新增 `MODULAR_BAZEL_DISTDIR`，可在联网机器获取锁定版本
+后离线传入 GB10，由 Bazel 校验上游固定 hash；缺少必要 wheel 时在构建前立即失败。

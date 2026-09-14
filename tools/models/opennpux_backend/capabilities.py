@@ -88,12 +88,16 @@ def _field(tensor: object, name: str) -> Any:
     return getattr(tensor, name, None)
 
 
-def _shape(tensor: object, label: str) -> tuple[int, ...]:
+def _shape(tensor: object, label: str) -> tuple[int | str, ...]:
     shape = _field(tensor, "shape")
     if not isinstance(shape, (list, tuple)) or any(
-        not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0 for dim in shape
+        not (
+            (isinstance(dim, int) and not isinstance(dim, bool) and dim > 0)
+            or (isinstance(dim, str) and bool(dim))
+        )
+        for dim in shape
     ):
-        raise ContractViolation(f"{label} requires a positive static shape")
+        raise ContractViolation(f"{label} requires positive dimensions or symbols")
     return tuple(shape)
 
 
@@ -148,9 +152,11 @@ def validate_operation_contract(
     return operation
 
 
-def _element_count(shape: Sequence[int]) -> int:
+def _element_count(shape: Sequence[int | str]) -> int | None:
     result = 1
     for dimension in shape:
+        if not isinstance(dimension, int):
+            return None
         result *= dimension
     return result
 
@@ -189,6 +195,11 @@ def capability_manifest() -> dict[str, Any]:
     """Return a deterministic machine-readable partitioning contract."""
     return {
         "format": CAPABILITY_FORMAT,
+        "shape_contract": {
+            "format": "OPENNPUX_BACKEND_SHAPES_V1",
+            "dimensions": ["positive-static-int", "declared-symbol"],
+            "specialization": "required-before-command-lowering",
+        },
         "operations": {
             name: dict(OPERATION_CAPABILITIES[name])
             for name in sorted(OPERATION_CAPABILITIES)

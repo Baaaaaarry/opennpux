@@ -23,6 +23,11 @@ from .ir import (
     is_graph,
     is_module,
 )
+from .shapes import (
+    SHAPE_CONTRACT_FORMAT,
+    ShapeSpecializationError,
+    specialize_ir,
+)
 
 __all__ = [
     "CAPABILITY_FORMAT",
@@ -33,6 +38,8 @@ __all__ = [
     "LEGACY_MODULE_FORMAT",
     "MODULE_FORMAT",
     "MODULE_FORMATS",
+    "SHAPE_CONTRACT_FORMAT",
+    "ShapeSpecializationError",
     "FrontendAdapter",
     "adapt_frontend",
     "canonicalize_graph",
@@ -46,6 +53,7 @@ __all__ = [
     "supports_host_operation",
     "supports_operation",
     "supports_operation_contract",
+    "specialize_ir",
     "validate_operation_contract",
     "write_graph_artifact",
     "write_module_artifacts",

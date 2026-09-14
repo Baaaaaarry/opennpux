@@ -19,6 +19,7 @@ from opennpux_backend import (  # noqa: E402
     write_graph_artifact,
 )
 from opennpux_backend.compiler import CodegenError  # noqa: E402
+from opennpux_backend.compiler import compile_graph  # noqa: E402
 
 
 class LegacyTvmAdapter:
@@ -140,6 +141,77 @@ assert not any(name.startswith("opennpux_tvm_byoc") for name in sys.modules)
         self.assertEqual(
             manifest["operations"]["matmul"]["shape_relation"], "matmul"
         )
+        self.assertEqual(
+            manifest["shape_contract"]["specialization"],
+            "required-before-command-lowering",
+        )
+
+    def test_symbolic_shapes_specialize_identically_across_frontends(self):
+        tvm_graph = self.load_fixture()
+        tvm_graph["shape_symbols"] = {"batch": {"min": 1, "max": 8}}
+        for tensor in tvm_graph["tensors"]:
+            if tensor["shape"][0] == 2:
+                tensor["shape"][0] = "batch"
+        mojo_graph = copy.deepcopy(tvm_graph)
+        replacements = {
+            "relax.matmul": "max.matmul",
+            "relax.add": "max.add",
+            "relax.nn.silu": "max.silu",
+            "relax.nn.softmax": "max.softmax",
+            "relax.topk": "max.topk",
+        }
+        for node in mojo_graph["nodes"]:
+            node["op"] = replacements[node["op"]]
+
+        tvm = compile_frontend(
+            tvm_graph, LegacyTvmAdapter(), shape_bindings={"batch": 2}
+        )
+        mojo = compile_frontend(
+            mojo_graph, FakeMojoAdapter(), shape_bindings={"batch": 2}
+        )
+        self.assertEqual(tvm["artifact"], mojo["artifact"])
+        self.assertEqual(tvm["specialized_ir"], mojo["specialized_ir"])
+        self.assertEqual(
+            tvm["specialized_ir"]["shape_specialization"]["bindings"],
+            {"batch": 2},
+        )
+
+    def test_symbolic_shape_requires_valid_invocation_binding(self):
+        graph = self.load_fixture()
+        graph["shape_symbols"] = {"batch": {"min": 1, "max": 8}}
+        graph["tensors"][0]["shape"][0] = "batch"
+        with self.assertRaisesRegex(CodegenError, "missing shape binding batch"):
+            compile_frontend(graph, LegacyTvmAdapter())
+        with self.assertRaisesRegex(CodegenError, "outside \\[1, 8\\]"):
+            compile_frontend(
+                graph, LegacyTvmAdapter(), shape_bindings={"batch": 9}
+            )
+
+    def test_low_level_backend_entry_specializes_symbols(self):
+        graph = self.load_fixture()
+        graph["shape_symbols"] = {"batch": {"min": 1, "max": 8}}
+        for tensor in graph["tensors"]:
+            if tensor["shape"][0] == 2:
+                tensor["shape"][0] = "batch"
+        symbolic_artifact, _ = compile_graph(
+            graph, shape_bindings={"batch": 2}
+        )
+        static_graph = self.load_fixture()
+        static_artifact, _ = compile_graph(static_graph)
+        self.assertEqual(symbolic_artifact, static_artifact)
+
+    def test_capability_contract_accepts_matching_symbols(self):
+        tensor = lambda shape: {"shape": shape, "dtype": "float32"}
+        self.assertTrue(supports_operation_contract(
+            "matmul",
+            [tensor(["sequence", 4]), tensor([4, 8])],
+            [tensor(["sequence", 8])],
+        ))
+        self.assertFalse(supports_operation_contract(
+            "matmul",
+            [tensor(["sequence", 4]), tensor([4, 8])],
+            [tensor(["batch", 8])],
+        ))
 
 
 if __name__ == "__main__":

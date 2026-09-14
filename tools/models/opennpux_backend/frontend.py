@@ -7,6 +7,7 @@ from typing import Any, Protocol, runtime_checkable
 from .canonicalize import canonicalize_ir
 from .compiler import CodegenError, compile_graph, compile_module
 from .ir import is_graph, is_module
+from .shapes import ShapeSpecializationError, specialize_ir
 
 
 @runtime_checkable
@@ -34,27 +35,34 @@ def compile_frontend(
     source: Any,
     adapter: FrontendAdapter,
     lowering_library: str | None = None,
+    shape_bindings: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Adapt and compile a frontend object through the common backend path."""
     backend_ir = adapt_frontend(source, adapter)
+    try:
+        specialized_ir = specialize_ir(backend_ir, shape_bindings)
+    except ShapeSpecializationError as error:
+        raise CodegenError(f"shape specialization failed: {error}") from error
     adapter_name = adapter.name
-    if is_graph(backend_ir):
-        artifact, metadata = compile_graph(backend_ir, lowering_library)
+    if is_graph(specialized_ir):
+        artifact, metadata = compile_graph(specialized_ir, lowering_library)
         metadata = dict(metadata)
         metadata["frontend_adapter"] = adapter_name
         return {
             "kind": "graph",
             "backend_ir": backend_ir,
+            "specialized_ir": specialized_ir,
             "artifact": artifact,
             "metadata": metadata,
         }
-    if is_module(backend_ir):
-        artifacts, manifest = compile_module(backend_ir, lowering_library)
+    if is_module(specialized_ir):
+        artifacts, manifest = compile_module(specialized_ir, lowering_library)
         manifest = dict(manifest)
         manifest["frontend_adapter"] = adapter_name
         return {
             "kind": "module",
             "backend_ir": backend_ir,
+            "specialized_ir": specialized_ir,
             "artifacts": artifacts,
             "manifest": manifest,
         }

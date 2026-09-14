@@ -132,9 +132,11 @@ introducing a second command format.
    `opennpux_tvm_byoc` namespace while retaining compatibility re-exports. (Done)
 3. Define a versioned capability query so adapters can partition without
    duplicating support tables. (Done for operation identity, arity, dtype,
-   static rank/shape relations, attributes, and instruction limits.)
+   static and symbolic rank/shape relations, attributes, and instruction limits.)
 4. Define shape-polymorphic constraints and invocation-time specialization in
-   backend IR instead of frontend-specific flags.
+   backend IR instead of frontend-specific flags. (Done for bounded symbolic
+   Tensor dimensions and deterministic invocation binding; runtime-varying
+   scalar/state extents continue to use module invocation bindings.)
 5. Add a MAX/Mojo adapter conformance test that feeds the same normalized graph
    as TVM and requires byte-identical XGraph commands. (Done with a frontend-
    independent fake MAX/Mojo adapter; native MAX Graph extraction remains.)

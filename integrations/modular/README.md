@@ -56,6 +56,10 @@ MODULAR_MOJO_CONFIG=build-mojo \
 overrides. The runner creates a patched `rules_mojo` mirror under
 `.cache/modular-deps` and passes both through Bazel `override_repository`, so
 these dependencies do not require GitHub access during a GB10 build.
+The transitive Bats test toolchain is handled the same way using the pinned
+`bats-core` source and a generated BUILD equivalent to bazel-lib's repository
+rule. Helper libraries are omitted because the export target does not run Bats
+tests.
 
 The runner copies the tracked overlay into the ignored submodule working tree,
 runs `//max/opennpux:export_projection`, and compiles the resulting frontend

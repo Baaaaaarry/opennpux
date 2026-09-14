@@ -7,6 +7,7 @@ ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 MODULAR_DIR="${MODULAR_SOURCE_DIR:-${ROOT_DIR}/thirdparty/modular}"
 RULES_MOJO_DIR="${ROOT_DIR}/thirdparty/rules_mojo"
 RULES_CC_DIR="${ROOT_DIR}/thirdparty/rules_cc"
+BATS_CORE_DIR="${ROOT_DIR}/thirdparty/bats-core"
 
 usage() {
     echo "usage: $0 [--query TARGET | --test TARGET]" >&2
@@ -33,10 +34,12 @@ if [ ! -e "${MODULAR_DIR}/.git" ]; then
     git -C "${ROOT_DIR}" submodule update --init --depth 1 thirdparty/modular
 fi
 
-if [ ! -e "${RULES_MOJO_DIR}/.git" ] || [ ! -e "${RULES_CC_DIR}/.git" ]; then
+if [ ! -e "${RULES_MOJO_DIR}/.git" ] || \
+   [ ! -e "${RULES_CC_DIR}/.git" ] || \
+   [ ! -e "${BATS_CORE_DIR}/.git" ]; then
     echo "[modular-source] initializing pinned Bazel dependencies"
     git -C "${ROOT_DIR}" submodule update --init \
-        thirdparty/rules_mojo thirdparty/rules_cc
+        thirdparty/rules_mojo thirdparty/rules_cc thirdparty/bats-core
 fi
 
 for path in bazelw MODULE.bazel LICENSE max/python/max/graph/graph.py; do
@@ -57,6 +60,7 @@ echo "modular_source_path=${MODULAR_DIR}"
 echo "modular_source_revision=${actual}"
 echo "rules_mojo_source_revision=$(git -C "${RULES_MOJO_DIR}" rev-parse HEAD)"
 echo "rules_cc_source_revision=$(git -C "${RULES_CC_DIR}" rev-parse HEAD)"
+echo "bats_core_source_revision=$(git -C "${BATS_CORE_DIR}" rev-parse HEAD)"
 echo "modular_source=PASS"
 
 case "${mode}" in

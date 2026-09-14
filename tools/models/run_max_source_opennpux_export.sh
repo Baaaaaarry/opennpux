@@ -8,6 +8,8 @@ MODULAR_DIR="${MODULAR_SOURCE_DIR:-${ROOT_DIR}/thirdparty/modular}"
 RULES_MOJO_SOURCE="${ROOT_DIR}/thirdparty/rules_mojo"
 RULES_CC_SOURCE="${ROOT_DIR}/thirdparty/rules_cc"
 RULES_MOJO_CACHE="${ROOT_DIR}/.cache/modular-deps/rules_mojo"
+BATS_CORE_SOURCE="${ROOT_DIR}/thirdparty/bats-core"
+BATS_CORE_CACHE="${ROOT_DIR}/.cache/modular-deps/bats-core"
 MOJO_CONFIG="${MODULAR_MOJO_CONFIG:-prebuilt-mojo}"
 BUILD_DIR="${MAX_SOURCE_BUILD_DIR:-${ROOT_DIR}/build/local-tests/max-source}"
 OUTPUT="${1:-${BUILD_DIR}/max-source-projection.npxg}"
@@ -48,6 +50,23 @@ if [ "${patched_revision}" != "${rules_mojo_revision}" ]; then
     mv "${patched_temporary}" "${RULES_MOJO_PATCHED}"
 fi
 
+bats_core_revision="$(git -C "${BATS_CORE_SOURCE}" rev-parse HEAD)"
+BATS_CORE_LOCAL="${BATS_CORE_CACHE}/${bats_core_revision}"
+if [ ! -f "${BATS_CORE_LOCAL}/.opennpux-source-revision" ]; then
+    if [ -e "${BATS_CORE_LOCAL}" ]; then
+        echo "max_source_export=FAIL incomplete-cache=${BATS_CORE_LOCAL}" >&2
+        exit 1
+    fi
+    bats_temporary="${BATS_CORE_LOCAL}.tmp.$$"
+    mkdir -p "${BATS_CORE_CACHE}" "${bats_temporary}"
+    cp -R "${BATS_CORE_SOURCE}/." "${bats_temporary}/"
+    cp "${ROOT_DIR}/integrations/modular/bats-core.BUILD.bazel" \
+        "${bats_temporary}/BUILD.bazel"
+    printf '%s\n' "${bats_core_revision}" > \
+        "${bats_temporary}/.opennpux-source-revision"
+    mv "${bats_temporary}" "${BATS_CORE_LOCAL}"
+fi
+
 mkdir -p "${OVERLAY_DESTINATION}" "${BUILD_DIR}" "$(dirname -- "${OUTPUT}")"
 cp "${OVERLAY_SOURCE}/BUILD.bazel" "${OVERLAY_DESTINATION}/BUILD.bazel"
 cp "${OVERLAY_SOURCE}/export_projection.py" \
@@ -57,6 +76,7 @@ cp "${OVERLAY_SOURCE}/export_projection.py" \
     ./bazelw run --config="${MOJO_CONFIG}" \
         --override_repository="rules_mojo=${RULES_MOJO_PATCHED}" \
         --override_repository="rules_cc=${RULES_CC_SOURCE}" \
+        --override_repository="aspect_bazel_lib++toolchains+bats_toolchains=${BATS_CORE_LOCAL}" \
         //max/opennpux:export_projection -- "${EXPORT_JSON}")
 
 if [ ! -f "${LOWERING_LIBRARY}" ]; then

@@ -1740,5 +1740,11 @@ artifact 和 runtime 实现。
 
 本地门禁 `tools/models/test_mojo_max_xgraph_codegen.sh` 已验证 MAX 与 TVM 表达的相同 5-op
 图生成逐字节相同的 `.npxg`，并通过 C artifact ABI；独立 arena 的 CPU TopK reference 为
-`0,2`。`run_tvm_byoc_xgraph_test.sh` 已加入该 MAX artifact 的 driver/full-system 执行，GB10
-验收应出现 `mojo_max_full_system=PASS`，同时原有 `tvm_byoc_xgraph=PASS` 必须保持。
+`0,2`。`run_tvm_byoc_xgraph_test.sh` 已加入该 MAX artifact 的 driver/full-system 执行。
+
+GB10 full-system 验收已经完成：MAX artifact 经 Coral driver/firmware 执行 5 条命令，统计
+`78 operations / 78 modeled cycles`，8-byte TopK 输出的 device checksum、readback checksum
+和独立 CPU reference checksum 均为 `0x3c39ef87`，`max_abs_error=0`，最终输出
+`mojo_max_full_system=PASS`。同次回归中的 TVM Transformer、ONNX projection/stateful decode、
+Attention、KV append/attention、多 region Host pipeline 和 module reuse 全部通过，最终保持
+`tvm_frontend_to_xopennpux=PASS` 与 `tvm_byoc_xgraph=PASS`。

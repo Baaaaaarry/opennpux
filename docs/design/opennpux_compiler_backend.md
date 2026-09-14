@@ -146,6 +146,13 @@ python3 tools/models/compile_mojo_max_xgraph.py max-graph.json model.npxg \
   --shape sequence=128
 ```
 
+The SDK-independent adapter has passed the GB10 full-system gate. Its five-op
+conformance graph completed five device commands and 78 modeled operations,
+and the device readback matched an independently generated CPU reference with
+zero error. The same run retained all TVM/ONNX, stateful, KV-attention, mixed
+Host/device, and module-reuse gates. Native MAX SDK extraction is therefore an
+adapter-only task; it must not change Backend IR lowering or runtime behavior.
+
 ## Migration plan
 
 1. Stabilize neutral graph/module identities and generic compiler entry points. (Done)

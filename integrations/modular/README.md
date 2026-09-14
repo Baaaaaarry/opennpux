@@ -60,6 +60,9 @@ The transitive Bats test toolchain is handled the same way using the pinned
 `bats-core` source and a generated BUILD equivalent to bazel-lib's repository
 rule. Helper libraries are omitted because the export target does not run Bats
 tests.
+The generated mirror includes an explicit `REPO.bazel` marker required by
+Bazel 8 `override_repository`; the runner repairs older cached mirrors in
+place.
 
 The runner copies the tracked overlay into the ignored submodule working tree,
 runs `//max/opennpux:export_projection`, and compiles the resulting frontend

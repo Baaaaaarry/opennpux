@@ -62,9 +62,16 @@ if [ ! -f "${BATS_CORE_LOCAL}/.opennpux-source-revision" ]; then
     cp -R "${BATS_CORE_SOURCE}/." "${bats_temporary}/"
     cp "${ROOT_DIR}/integrations/modular/bats-core.BUILD.bazel" \
         "${bats_temporary}/BUILD.bazel"
+    cp "${ROOT_DIR}/integrations/modular/bats-core.REPO.bazel" \
+        "${bats_temporary}/REPO.bazel"
     printf '%s\n' "${bats_core_revision}" > \
         "${bats_temporary}/.opennpux-source-revision"
     mv "${bats_temporary}" "${BATS_CORE_LOCAL}"
+fi
+# Repair caches produced by older runners without rebuilding the source mirror.
+if [ ! -f "${BATS_CORE_LOCAL}/REPO.bazel" ]; then
+    cp "${ROOT_DIR}/integrations/modular/bats-core.REPO.bazel" \
+        "${BATS_CORE_LOCAL}/REPO.bazel"
 fi
 
 mkdir -p "${OVERLAY_DESTINATION}" "${BUILD_DIR}" "$(dirname -- "${OUTPUT}")"

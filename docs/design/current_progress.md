@@ -1770,3 +1770,8 @@ driver/device runtime。设备发现、内存、队列、同步及 ABI 仍由 Op
 MAX Graph，自动登记输入与输出，并让每个 `call()` 同时形成 MAX node 和稳定的 OpenNPUX
 export，消除应用手工维护 Graph 与 sidecar Tensor 清单的漂移。实现不导入 MAX、也不遍历
 私有 MLIR，因此同一 session 协议可由 Modular 源码、发布 SDK 或未来 Mojo binding 复用。
+
+源码模式新增两阶段执行门禁：Modular Bazel workspace 内的 `//max/opennpux:export_projection`
+构建真实 MAX Graph 并输出稳定 frontend export，主仓库随后调用统一 Backend IR/XGraph codegen
+生成 `.npxg`。该路径不安装 nightly wheel，也不尝试用系统 Python 直接加载依赖原生 `_core`/MLIR
+绑定的 MAX 源码；OpenNPUX lowering 和 device runtime 仍完全位于 Modular workspace 之外。

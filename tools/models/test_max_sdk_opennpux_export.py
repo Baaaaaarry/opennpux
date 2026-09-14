@@ -28,7 +28,8 @@ def main() -> None:
                 "max_sdk_export=FAIL: MAX SDK unavailable; run "
                 "./tools/models/setup_modular_source.sh for source development; "
                 "the native SDK smoke additionally requires a built MAX Python "
-                "runtime or ./tools/models/setup_max_sdk_env.sh"
+                "runtime. For wheel-free source validation run "
+                "./tools/models/run_max_source_opennpux_export.sh"
             ) from error
         print("max_sdk_export=SKIP reason=max-sdk-unavailable")
         return

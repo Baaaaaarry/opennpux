@@ -1,0 +1,13 @@
+load("//bazel:api.bzl", "modular_py_binary")
+
+package(default_visibility = ["//visibility:private"])
+
+modular_py_binary(
+    name = "export_projection",
+    srcs = ["export_projection.py"],
+    deps = [
+        "//max/python/max/driver",
+        "//max/python/max/dtype",
+        "//max/python/max/graph",
+    ],
+)

@@ -36,6 +36,19 @@ Run the source integration contract without installing the `modular` wheel:
 ./tools/models/test_modular_source_integration.sh
 ```
 
+Build a real public MAX Graph with the source tree's Bazel runtime, then lower
+its stable export through the OpenNPUX backend without a wheel installation:
+
+```bash
+./tools/models/test_mojo_max_xgraph_codegen.sh
+./tools/models/run_max_source_opennpux_export.sh
+```
+
+The runner copies the tracked overlay into the ignored submodule working tree,
+runs `//max/opennpux:export_projection`, and compiles the resulting frontend
+export outside Modular. The copied overlay is generated state; edit the tracked
+files in `integrations/modular/source_export`, not the submodule copy.
+
 To query or test upstream Bazel targets, opt in explicitly because the first
 run may download Bazel and external dependencies:
 

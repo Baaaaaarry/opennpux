@@ -125,6 +125,27 @@ provide native implementations of selected lowering functions, but those
 implementations must obey the same backend IR and artifact ABI rather than
 introducing a second command format.
 
+The SDK-independent MAX boundary is implemented by
+`opennpux_mojo.MaxGraphAdapter`. A MAX object may implement
+`to_opennpux_export()` or serialize `OPENNPUX_MAX_GRAPH_EXPORT_V1` directly.
+The export contains only frontend facts: named Tensors, MAX operation names,
+attributes, graph/module topology, constants, mutable state, and bounded shape
+symbols. The adapter maps these facts into common Backend IR. It does not
+allocate storage, choose tiles, encode XOpenNPUX commands, or import MAX.
+
+```text
+MAX Graph object -> to_opennpux_export() -> MaxGraphAdapter
+                 -> Backend IR specialization and capability validation
+                 -> common storage/lowering/XGraph/package/runtime path
+```
+
+An exported graph can be compiled without TVM or MAX installed:
+
+```bash
+python3 tools/models/compile_mojo_max_xgraph.py max-graph.json model.npxg \
+  --shape sequence=128
+```
+
 ## Migration plan
 
 1. Stabilize neutral graph/module identities and generic compiler entry points. (Done)
@@ -139,7 +160,8 @@ introducing a second command format.
    scalar/state extents continue to use module invocation bindings.)
 5. Add a MAX/Mojo adapter conformance test that feeds the same normalized graph
    as TVM and requires byte-identical XGraph commands. (Done with a frontend-
-   independent fake MAX/Mojo adapter; native MAX Graph extraction remains.)
+   independent adapter and `OPENNPUX_MAX_GRAPH_EXPORT_V1`; direct extraction
+   from the installed MAX SDK remains.)
 
 The conformance boundary canonicalizes frontend aliases before compilation.
 For example, `relax.matmul` and an adapter-emitted `matmul` reach exactly the

@@ -1729,3 +1729,16 @@ both forms resolve to the same backend binding instead of making compilation
 depend on TVM naming behavior. Module compilation failures also report the
 precise import, partition, normalization, storage-policy, state-update, lowering,
 or artifact-write stage.
+
+## 2026-09-14 MAX/Mojo frontend-neutral adapter boundary
+
+新增 `OPENNPUX_MAX_GRAPH_EXPORT_V1` 与 `opennpux_mojo.MaxGraphAdapter`。MAX/Mojo
+对象只需实现 `to_opennpux_export()`，即可将命名 Tensor、通用操作、常量、状态、模块拓扑和
+有界符号 shape 交给统一 OpenNPUX Backend IR；适配器不依赖 MAX SDK，也不包含 tiling、arena、
+XOpenNPUX 编码或 driver 逻辑。单图与多 region module 均复用现有 capability、storage、lowering、
+artifact 和 runtime 实现。
+
+本地门禁 `tools/models/test_mojo_max_xgraph_codegen.sh` 已验证 MAX 与 TVM 表达的相同 5-op
+图生成逐字节相同的 `.npxg`，并通过 C artifact ABI；独立 arena 的 CPU TopK reference 为
+`0,2`。`run_tvm_byoc_xgraph_test.sh` 已加入该 MAX artifact 的 driver/full-system 执行，GB10
+验收应出现 `mojo_max_full_system=PASS`，同时原有 `tvm_byoc_xgraph=PASS` 必须保持。

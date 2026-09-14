@@ -5,6 +5,9 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 BUILD_DIR="${ROOT_DIR}/build/local-tests/tvm-byoc-xgraph"
+MOJO_BUILD_DIR="${ROOT_DIR}/build/local-tests/mojo-max-xgraph"
+MOJO_GRAPH="${MOJO_BUILD_DIR}/mojo-basic.npxg"
+MOJO_ARENA="${MOJO_BUILD_DIR}/mojo-basic.arena.bin"
 GRAPH="${BUILD_DIR}/relax-model.npxg"
 ARENA="${BUILD_DIR}/relax-model.arena.bin"
 TRANSFORMER_GRAPH="${BUILD_DIR}/transformer-block.npxg"
@@ -83,6 +86,11 @@ if [ "${LOCAL_STATUS}" -ne 0 ]; then
     exit 1
 fi
 cat "${LOCAL_LOG}"
+"${ROOT_DIR}/tools/models/test_mojo_max_xgraph_codegen.sh"
+[ -f "${MOJO_GRAPH}" ] && [ -f "${MOJO_ARENA}" ] || {
+    echo "error: Mojo/MAX XGraph artifacts were not generated" >&2
+    exit 1
+}
 [ -f "${GRAPH}" ] && [ -f "${ARENA}" ] &&
     [ -f "${TRANSFORMER_GRAPH}" ] && [ -f "${TRANSFORMER_ARENA}" ] || {
     echo "error: TVM BYOC XGraph artifacts were not generated" >&2
@@ -573,6 +581,16 @@ EOF
 base64 "${ARENA}" >>"${TEST_SCRIPT}"
 cat >>"${TEST_SCRIPT}" <<EOF
 OPENNPUX_TVM_ARENA_EOF
+decode_base64 >/tmp/mojo-max-model.npxg <<'OPENNPUX_MOJO_GRAPH_EOF'
+EOF
+base64 "${MOJO_GRAPH}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<'EOF'
+OPENNPUX_MOJO_GRAPH_EOF
+decode_base64 >/tmp/mojo-max-model.arena.bin <<'OPENNPUX_MOJO_ARENA_EOF'
+EOF
+base64 "${MOJO_ARENA}" >>"${TEST_SCRIPT}"
+cat >>"${TEST_SCRIPT}" <<EOF
+OPENNPUX_MOJO_ARENA_EOF
 decode_base64 >/tmp/tvm-transformer-block.npxg <<'OPENNPUX_TVM_TRANSFORMER_GRAPH_EOF'
 EOF
 base64 "${TRANSFORMER_GRAPH}" >>"${TEST_SCRIPT}"
@@ -808,6 +826,24 @@ has_output_line 'xgraph_output_reference=PASS' ||
     fail 'output differs numerically from host reference'
 has_output_line 'xgraph_artifact_run=PASS' ||
     fail 'runtime PASS verdict missing'
+MOJO_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
+    OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
+    /tmp/coralctl xgraph-run /tmp/mojo-max-model.npxg \
+    /tmp/mojo-max-model.arena.bin 0x1d000000 1000000)" || {
+    printf '%s\n' "\${MOJO_OUTPUT}"
+    fail 'Mojo/MAX adapter artifact execution failed'
+}
+printf '%s\n' "\${MOJO_OUTPUT}"
+OUTPUT="\${MOJO_OUTPUT}"
+has_output_line 'xgraph_completed_commands=5' ||
+    fail 'Mojo/MAX adapter command count mismatch'
+has_output_line 'xgraph_output_readback=PASS' ||
+    fail 'Mojo/MAX output was not synchronized to the Host window'
+has_output_line 'xgraph_output_reference=PASS' ||
+    fail 'Mojo/MAX output differs from independent CPU reference'
+has_output_line 'xgraph_artifact_run=PASS' ||
+    fail 'Mojo/MAX runtime PASS verdict missing'
+echo 'mojo_max_full_system=PASS'
 TRANSFORMER_OUTPUT="\$(OPENNPUX_CORAL_TRANSPORT=driver \
     OPENNPUX_XGRAPH_OUTPUT_TOLERANCE=0.00005 \
     /tmp/coralctl xgraph-run /tmp/tvm-transformer-block.npxg \

@@ -1754,3 +1754,5 @@ MAX SDK 薄层继续新增 `MaxExportBuilder`：应用在使用公开 `Graph`、
 登记到 sidecar export。该方案不遍历私有 MLIR/node 容器。无 SDK 本地环境的 17 项 recorder/
 adapter 测试及 artifact 等价门禁通过；真实 SDK smoke 已加入
 `test_max_sdk_opennpux_export.py`，等待 GB10 使用 `--require-max` 验证 1-command TMMA 导出。
+MAX SDK 使用独立 `.venv/max-sdk`，由 `setup_max_sdk_env.sh` 从官方 Modular wheel 源安装，
+避免改变现有 HF numerical 与 TVM Python 依赖。

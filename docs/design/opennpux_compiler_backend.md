@@ -163,7 +163,8 @@ Dynamic dimensions require explicit bounds before a Tensor is registered.
 Validate the public SDK integration on a host with MAX installed:
 
 ```bash
-python3 tools/models/test_max_sdk_opennpux_export.py \
+./tools/models/setup_max_sdk_env.sh
+.venv/max-sdk/bin/python tools/models/test_max_sdk_opennpux_export.py \
   build/max-sdk-projection.npxg --require-max \
   --lowering-library build/local-tests/mojo-max-xgraph/libopennpux_xgraph_codegen.so
 ```

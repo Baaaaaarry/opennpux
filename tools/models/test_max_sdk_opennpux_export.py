@@ -24,7 +24,11 @@ def main() -> None:
         from max.graph import DeviceRef, Graph, TensorType, ops
     except ImportError as error:
         if args.require_max:
-            raise SystemExit(f"max_sdk_export=FAIL: {error}") from error
+            raise SystemExit(
+                "max_sdk_export=FAIL: MAX SDK unavailable; run "
+                "./tools/models/setup_max_sdk_env.sh and retry with "
+                ".venv/max-sdk/bin/python"
+            ) from error
         print("max_sdk_export=SKIP reason=max-sdk-unavailable")
         return
 

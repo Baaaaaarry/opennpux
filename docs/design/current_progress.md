@@ -1775,3 +1775,5 @@ export，消除应用手工维护 Graph 与 sidecar Tensor 清单的漂移。实
 构建真实 MAX Graph 并输出稳定 frontend export，主仓库随后调用统一 Backend IR/XGraph codegen
 生成 `.npxg`。该路径不安装 nightly wheel，也不尝试用系统 Python 直接加载依赖原生 `_core`/MLIR
 绑定的 MAX 源码；OpenNPUX lowering 和 device runtime 仍完全位于 Modular workspace 之外。
+源码 runner 默认显式传递 `--config=prebuilt-mojo`；只有修改 Mojo compiler 本身时才通过
+`MODULAR_MOJO_CONFIG=build-mojo` 选择源码构建工具链。

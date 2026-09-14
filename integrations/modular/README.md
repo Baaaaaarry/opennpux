@@ -44,6 +44,14 @@ its stable export through the OpenNPUX backend without a wheel installation:
 ./tools/models/run_max_source_opennpux_export.sh
 ```
 
+The runner defaults to Modular's prebuilt Mojo toolchain. Only developers who
+are changing the Mojo compiler itself should select the source-built toolchain:
+
+```bash
+MODULAR_MOJO_CONFIG=build-mojo \
+  ./tools/models/run_max_source_opennpux_export.sh
+```
+
 The runner copies the tracked overlay into the ignored submodule working tree,
 runs `//max/opennpux:export_projection`, and compiles the resulting frontend
 export outside Modular. The copied overlay is generated state; edit the tracked

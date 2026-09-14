@@ -1756,3 +1756,12 @@ adapter 测试及 artifact 等价门禁通过；真实 SDK smoke 已加入
 `test_max_sdk_opennpux_export.py`，等待 GB10 使用 `--require-max` 验证 1-command TMMA 导出。
 MAX SDK 使用独立 `.venv/max-sdk`，由 `setup_max_sdk_env.sh` 从官方 Modular wheel 源安装，
 避免改变现有 HF numerical 与 TVM Python 依赖。
+
+## 2026-09-14 Modular/MAX source baseline
+
+新增固定版本的 `thirdparty/modular` 源码子模块，MAX Graph、Mojo/KGEN、模型与 kernel 的
+增量开发不再依赖 nightly wheel 下载。`setup_modular_source.sh` 校验子模块版本和关键源码，
+并提供显式 Bazel query/test 入口；`test_modular_source_integration.sh` 验证 OpenNPUX adapter
+不反向依赖 `max` Python runtime，保持 TVM 与 MAX/Mojo 共用 Backend IR、tiling、XGraph 和
+driver/device runtime。设备发现、内存、队列、同步及 ABI 仍由 OpenNPUX 主仓库持有，避免将
+可复用设备后端绑定到 Modular 未开放的底层 runtime 实现。

@@ -172,6 +172,21 @@ Validate the public SDK integration on a host with MAX installed:
 Acceptance requires `max_sdk_commands=1` and `max_sdk_export=PASS`. Hosts
 without MAX print an explicit SKIP unless `--require-max` is supplied.
 
+For compiler and device-backend development, the preferred path is the pinned
+`thirdparty/modular` source submodule rather than the nightly wheel:
+
+```bash
+./tools/models/setup_modular_source.sh
+./tools/models/test_modular_source_integration.sh
+```
+
+The source tree is an upstream frontend/model/kernel dependency. OpenNPUX
+device discovery, allocation, synchronization, command submission, Backend IR,
+tiling and XGraph encoding remain in the main repository. This boundary is
+intentional: it makes the device backend reusable from TVM and MAX/Mojo and
+does not assume that MAX's low-level runtime bindings are open for extension.
+See `integrations/modular/README.md` for the source and patch policy.
+
 ## Migration plan
 
 1. Stabilize neutral graph/module identities and generic compiler entry points. (Done)

@@ -14,6 +14,7 @@ from opennpux_mojo import (  # noqa: E402
     MAX_GRAPH_EXPORT_FORMAT,
     MaxExportBuilder,
     MaxGraphAdapter,
+    MaxGraphExportSession,
 )
 
 
@@ -159,6 +160,50 @@ class OpenNPUXMojoAdapterTest(unittest.TestCase):
         self.assertEqual(
             export["shape_symbols"]["sequence"], {"min": 1, "max": 4096}
         )
+
+    def test_graph_session_owns_graph_and_export_lifecycle(self):
+        class Value:
+            def __init__(self, shape):
+                self.shape = shape
+                self.dtype = "DType.float32"
+                self.tensor = self
+
+        class Graph:
+            def __init__(self, name, input_types):
+                self.name = name
+                self.inputs = [Value(shape) for shape in input_types]
+                self.outputs = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return None
+
+            def output(self, *values):
+                self.outputs.extend(values)
+
+        result = Value([2, 3])
+        with MaxGraphExportSession(
+            Graph,
+            "projection",
+            input_types=[[2, 4], [4, 3]],
+            input_names=["lhs", "rhs"],
+            input_storage=["input", "constant"],
+        ) as session:
+            lhs, rhs = session.inputs
+            projected = session.call(
+                "max.matmul",
+                lambda *_: result,
+                [lhs, rhs],
+                ["projected"],
+            )
+            session.output(projected)
+
+        export = session.to_opennpux_export()
+        self.assertEqual(export["outputs"], ["projected"])
+        self.assertEqual(export["operations"][0]["inputs"], ["lhs", "rhs"])
+        self.assertEqual(export["tensors"][1]["storage"], "constant")
 
 
 if __name__ == "__main__":

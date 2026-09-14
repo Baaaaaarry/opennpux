@@ -1765,3 +1765,8 @@ MAX SDK 使用独立 `.venv/max-sdk`，由 `setup_max_sdk_env.sh` 从官方 Modu
 不反向依赖 `max` Python runtime，保持 TVM 与 MAX/Mojo 共用 Backend IR、tiling、XGraph 和
 driver/device runtime。设备发现、内存、队列、同步及 ABI 仍由 OpenNPUX 主仓库持有，避免将
 可复用设备后端绑定到 Modular 未开放的底层 runtime 实现。
+
+新增 `MaxGraphExportSession` 作为源码侧公开构图入口。它以注入的 `Graph` factory 创建真实
+MAX Graph，自动登记输入与输出，并让每个 `call()` 同时形成 MAX node 和稳定的 OpenNPUX
+export，消除应用手工维护 Graph 与 sidecar Tensor 清单的漂移。实现不导入 MAX、也不遍历
+私有 MLIR，因此同一 session 协议可由 Modular 源码、发布 SDK 或未来 Mojo binding 复用。

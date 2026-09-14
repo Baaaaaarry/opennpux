@@ -48,3 +48,8 @@ Future MAX-facing code belongs in this directory or
 `tools/models/opennpux_mojo`. If an upstream source change is unavoidable,
 carry it as a reviewable patch under `integrations/modular/patches` and submit
 it upstream instead of leaving the submodule dirty.
+
+`MaxGraphExportSession` is the preferred public Graph entry point. It owns the
+real `max.graph.Graph` context, registers declared inputs, records calls made
+through its `call()` method, and finalizes MAX and OpenNPUX outputs together.
+This avoids inspecting MAX private MLIR and prevents graph/export drift.

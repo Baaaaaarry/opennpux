@@ -10,7 +10,7 @@ from pathlib import Path
 from opennpux_backend import compile_frontend
 from opennpux_backend.artifacts import write_graph_artifact
 from opennpux_backend.compiler import compile_graph
-from opennpux_mojo import MaxExportBuilder, MaxGraphAdapter
+from opennpux_mojo import MaxGraphAdapter, MaxGraphExportSession
 
 
 def main() -> None:
@@ -36,26 +36,24 @@ def main() -> None:
     device = DeviceRef.CPU()
     lhs_type = TensorType(DType.float32, (2, 4), device=device)
     rhs_type = TensorType(DType.float32, (4, 3), device=device)
-    recorder = MaxExportBuilder("opennpux_projection")
-    with Graph(
-        "opennpux_projection", input_types=[lhs_type, rhs_type]
-    ) as graph:
-        lhs = graph.inputs[0].tensor
-        rhs = graph.inputs[1].tensor
-        recorder.add_tensor("lhs", lhs, storage="input")
-        recorder.add_tensor("rhs", rhs, storage="input")
-        projected = recorder.call(
+    with MaxGraphExportSession(
+        Graph,
+        "opennpux_projection",
+        input_types=[lhs_type, rhs_type],
+        input_names=["lhs", "rhs"],
+    ) as session:
+        lhs, rhs = session.inputs
+        projected = session.call(
             "max.matmul",
             ops.matmul,
             [lhs, rhs],
             ["projected"],
             name="projection",
         )
-        graph.output(projected)
-        recorder.add_output(projected)
+        session.output(projected)
 
     compilation = compile_frontend(
-        recorder, MaxGraphAdapter(), args.lowering_library
+        session, MaxGraphAdapter(), args.lowering_library
     )
     expected = {
         "format": "OPENNPUX_BACKEND_GRAPH_V1",

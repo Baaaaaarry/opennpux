@@ -2,5 +2,11 @@
 
 from .graph_adapter import MAX_GRAPH_EXPORT_FORMAT, MaxGraphAdapter
 from .export_builder import MaxExportBuilder
+from .graph_session import MaxGraphExportSession
 
-__all__ = ["MAX_GRAPH_EXPORT_FORMAT", "MaxExportBuilder", "MaxGraphAdapter"]
+__all__ = [
+    "MAX_GRAPH_EXPORT_FORMAT",
+    "MaxExportBuilder",
+    "MaxGraphAdapter",
+    "MaxGraphExportSession",
+]

@@ -153,6 +153,24 @@ zero error. The same run retained all TVM/ONNX, stateful, KV-attention, mixed
 Host/device, and module-reuse gates. Native MAX SDK extraction is therefore an
 adapter-only task; it must not change Backend IR lowering or runtime behavior.
 
+`MaxExportBuilder` is the SDK-facing implementation of that adapter-only task.
+It records public `TensorValue`/`BufferValue` shape and dtype properties while
+the application constructs the MAX Graph. `call()` invokes the real MAX op and
+records the same input/output values and attributes in the sidecar export. This
+avoids unsupported traversal of MAX's private MLIR or internal operation list.
+Dynamic dimensions require explicit bounds before a Tensor is registered.
+
+Validate the public SDK integration on a host with MAX installed:
+
+```bash
+python3 tools/models/test_max_sdk_opennpux_export.py \
+  build/max-sdk-projection.npxg --require-max \
+  --lowering-library build/local-tests/mojo-max-xgraph/libopennpux_xgraph_codegen.so
+```
+
+Acceptance requires `max_sdk_commands=1` and `max_sdk_export=PASS`. Hosts
+without MAX print an explicit SKIP unless `--require-max` is supplied.
+
 ## Migration plan
 
 1. Stabilize neutral graph/module identities and generic compiler entry points. (Done)

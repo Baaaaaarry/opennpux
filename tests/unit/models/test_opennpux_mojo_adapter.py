@@ -10,7 +10,11 @@ sys.path.insert(0, str(ROOT / "tools/models"))
 
 from opennpux_backend import compile_frontend  # noqa: E402
 from opennpux_backend.compiler import compile_graph, compile_module  # noqa: E402
-from opennpux_mojo import MAX_GRAPH_EXPORT_FORMAT, MaxGraphAdapter  # noqa: E402
+from opennpux_mojo import (  # noqa: E402
+    MAX_GRAPH_EXPORT_FORMAT,
+    MaxExportBuilder,
+    MaxGraphAdapter,
+)
 
 
 def max_export(graph):
@@ -101,6 +105,59 @@ class OpenNPUXMojoAdapterTest(unittest.TestCase):
         self.assertEqual(
             compiled["manifest"]["total_commands"],
             expected_manifest["total_commands"],
+        )
+
+    def test_export_builder_records_public_max_values_and_calls(self):
+        class Value:
+            def __init__(self, shape, dtype="DType.float32"):
+                self.shape = shape
+                self.dtype = dtype
+
+        lhs = Value([2, 4])
+        rhs = Value([4, 3])
+        output = Value([2, 3])
+        builder = MaxExportBuilder("projection")
+        builder.add_tensor("lhs", lhs, storage="input")
+        builder.add_tensor("rhs", rhs, storage="constant")
+        result = builder.call(
+            "max.matmul",
+            lambda left, right: output,
+            [lhs, rhs],
+            ["projected"],
+            name="projection",
+        )
+        builder.add_output(result)
+
+        compiled = compile_frontend(builder, MaxGraphAdapter())
+        expected = {
+            "format": "OPENNPUX_BACKEND_GRAPH_V1",
+            "tensors": [
+                {"name": "lhs", "shape": [2, 4], "dtype": "float32", "storage": "input"},
+                {"name": "rhs", "shape": [4, 3], "dtype": "float32", "storage": "constant"},
+                {"name": "projected", "shape": [2, 3], "dtype": "float32", "storage": "output"},
+            ],
+            "nodes": [
+                {"op": "matmul", "inputs": ["lhs", "rhs"], "outputs": ["projected"]}
+            ],
+            "outputs": ["projected"],
+        }
+        expected_artifact, _ = compile_graph(expected)
+        self.assertEqual(compiled["artifact"], expected_artifact)
+
+    def test_export_builder_requires_bounds_for_max_symbolic_dims(self):
+        class Value:
+            shape = ["sequence", 4]
+            dtype = "float32"
+
+        builder = MaxExportBuilder()
+        with self.assertRaisesRegex(ValueError, "requires declared bounds"):
+            builder.add_tensor("input", Value(), storage="input")
+        builder.declare_symbol("sequence", 1, 4096)
+        builder.add_tensor("input", Value(), storage="input")
+        builder.add_output("input")
+        export = builder.to_opennpux_export()
+        self.assertEqual(
+            export["shape_symbols"]["sequence"], {"min": 1, "max": 4096}
         )
 
 

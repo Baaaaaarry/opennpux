@@ -1748,3 +1748,9 @@ GB10 full-system 验收已经完成：MAX artifact 经 Coral driver/firmware 执
 `mojo_max_full_system=PASS`。同次回归中的 TVM Transformer、ONNX projection/stateful decode、
 Attention、KV append/attention、多 region Host pipeline 和 module reuse 全部通过，最终保持
 `tvm_frontend_to_xopennpux=PASS` 与 `tvm_byoc_xgraph=PASS`。
+
+MAX SDK 薄层继续新增 `MaxExportBuilder`：应用在使用公开 `Graph`、`TensorValue` 和 `ops`
+建图时同步记录 Tensor shape/dtype 与操作拓扑，`call()` 返回真实 MAX op 的结果并将同一输入输出
+登记到 sidecar export。该方案不遍历私有 MLIR/node 容器。无 SDK 本地环境的 17 项 recorder/
+adapter 测试及 artifact 等价门禁通过；真实 SDK smoke 已加入
+`test_max_sdk_opennpux_export.py`，等待 GB10 使用 `--require-max` 验证 1-command TMMA 导出。

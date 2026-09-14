@@ -43,6 +43,9 @@ cmp "${BUILD_DIR}/mojo-basic.npxg" "${BUILD_DIR}/backend-basic.npxg"
     "${ROOT_DIR}/tests/unit/models/tvm_byoc_xgraph_artifact_test.c" \
     -o "${BUILD_DIR}/xgraph_artifact_test"
 "${BUILD_DIR}/xgraph_artifact_test" "${BUILD_DIR}/mojo-basic.npxg"
+"${PYTHON}" "${SCRIPT_DIR}/test_max_sdk_opennpux_export.py" \
+    "${BUILD_DIR}/max-sdk-projection.npxg" \
+    --lowering-library "${LOWERING_LIB}"
 
 echo "mojo_max_tvm_artifact_equivalence=PASS"
 echo "mojo_max_xgraph_codegen=PASS"

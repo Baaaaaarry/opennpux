@@ -38,6 +38,17 @@ if [ -s "$READFILE" ]; then
     /bin/sh "$READFILE"
     rc="$?"
     echo "[opennpux-init] readfile script exited rc=$rc"
+    if [ "$rc" -eq 0 ]; then
+        echo "[opennpux-init] workload completed; exiting simulation"
+        if [ -x /sbin/m5 ]; then
+            /sbin/m5 --inst exit || /sbin/m5 exit
+        elif command -v m5 >/dev/null 2>&1; then
+            m5 --inst exit || m5 exit
+        else
+            echo "[opennpux-init] cannot exit simulation: m5 tool not found"
+        fi
+        echo "[opennpux-init] m5 exit returned unexpectedly"
+    fi
 else
     echo "[opennpux-init] no readfile script available"
     if [ -s /tmp/opennpux-m5-readfile.err ]; then
@@ -45,5 +56,5 @@ else
     fi
 fi
 
-echo "[opennpux-init] dropping to emergency shell"
+echo "[opennpux-init] dropping to emergency shell after workload failure"
 exec /bin/sh

@@ -154,6 +154,7 @@ class Gem5CoreMiniAxiWrapper {
     packet.mma_shape = core_.io_xnpu_request_bits_csr_mmaShape;
     packet.mma_data_type = core_.io_xnpu_request_bits_csr_mmaDataType;
     packet.tensor_shape = core_.io_xnpu_request_bits_csr_tensorShape;
+    packet.tensor_features = core_.io_xnpu_request_bits_csr_tensorFeatures;
     packet.tensor_data_type = core_.io_xnpu_request_bits_csr_tensorDataType;
     packet.scalar_param0 = core_.io_xnpu_request_bits_csr_scalarParam0;
     packet.quant_qzeros_address =
@@ -236,12 +237,17 @@ class Gem5CoreMiniAxiWrapper {
         std::fprintf(
             stderr,
             "Coral XOpenNPU dispatch sequence=%u operation=%s pc=%#x "
-            "inst=%#x epoch=%u rs1=%#x rs2=%#x rd=%#x\n",
+            "inst=%#x epoch=%u rs1=%#x rs2=%#x rd=%#x "
+            "mma_shape=%#x strides=%#x/%#x/%#x mma_flags=%#x "
+            "tensor_shape=%#x tensor_features=%u tensor_flags=%#x\n",
             sequence_id,
             xopennpux::OperationName(
                 xopennpux::DecodeOperation(packet.instruction)),
             packet.pc, packet.instruction, packet.csr_epoch,
-            packet.rs1_value, packet.rs2_value, packet.rd_value);
+            packet.rs1_value, packet.rs2_value, packet.rd_value,
+            packet.mma_shape, packet.mma_lhs_stride, packet.mma_rhs_stride,
+            packet.mma_dst_stride, packet.mma_flags, packet.tensor_shape,
+            packet.tensor_features, packet.tensor_flags);
       }
       return *result == Gem5TmmaSubmitResult::kAccepted;
     }

@@ -68,6 +68,11 @@ class XOpenNpuCsrState(p: Parameters) extends Bundle {
   val mmaDstStride = UInt(p.xlen.W)
   val mmaFlags = UInt(p.xlen.W)
   val tensorFlags = UInt(p.xlen.W)
+  val scheduleDependencyLo = UInt(p.xlen.W)
+  val scheduleDependencyHi = UInt(p.xlen.W)
+  val scheduleEpoch = UInt(p.xlen.W)
+  val scheduleEngineMask = UInt(p.xlen.W)
+  val schedulePreferredFlags = UInt(p.xlen.W)
   val epoch = UInt(32.W)
 }
 

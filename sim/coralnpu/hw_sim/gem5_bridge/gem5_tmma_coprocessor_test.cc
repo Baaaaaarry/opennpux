@@ -1142,6 +1142,37 @@ void TestPacketCsrSnapshotAndFence() {
   assert(coprocessor.Submit(fence) == Gem5TmmaSubmitResult::kAccepted);
 }
 
+void TestScheduleCsrSnapshot() {
+  Gem5TmmaCoprocessor coprocessor;
+  ConfigureFp32(&coprocessor, 1, 1, 1);
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScheduleDependencyLo,
+                              0x89abcdef));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScheduleDependencyHi,
+                              0x01234567));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScheduleEpoch, 7));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrScheduleEngineMask, 6));
+  assert(coprocessor.WriteCsr(xopennpux::kCsrSchedulePreferredFlags,
+                              0x301));
+  uint32_t value = 0;
+  assert(coprocessor.ReadCsr(xopennpux::kCsrScheduleDependencyLo, &value) &&
+         value == 0x89abcdef);
+  assert(coprocessor.ReadCsr(xopennpux::kCsrScheduleDependencyHi, &value) &&
+         value == 0x01234567);
+
+  assert(coprocessor.Submit(Packet(43)) ==
+         Gem5TmmaSubmitResult::kAccepted);
+  std::vector<uint8_t> memory(4096, 0);
+  WriteFloat(&memory, 0, 2.0f);
+  WriteFloat(&memory, 0x100, 3.0f);
+  Gem5TmmaCompletion completion;
+  assert(coprocessor.ExecuteNext(&memory, kMemoryBase, &completion));
+  assert(completion.schedule_dependency_mask ==
+         UINT64_C(0x0123456789abcdef));
+  assert(completion.schedule_epoch == 7);
+  assert(completion.schedule_engine_mask == 6);
+  assert(completion.schedule_preferred_flags == 0x301);
+}
+
 void TestInvalidTypeAndAddressFault() {
   Gem5TmmaCoprocessor coprocessor;
   assert(coprocessor.WriteCsr(xopennpux::kCsrMmaShape,
@@ -1247,6 +1278,7 @@ int main() {
   TestFp32MatmulAndSnapshot();
   TestRejectAndBackpressure();
   TestPacketCsrSnapshotAndFence();
+  TestScheduleCsrSnapshot();
   TestInvalidTypeAndAddressFault();
   TestStridedTransposedAccumulatingTmma();
   return 0;

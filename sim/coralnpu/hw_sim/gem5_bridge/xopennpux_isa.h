@@ -72,6 +72,11 @@ constexpr uint16_t kCsrTensorFlags = 0x82f;
 // Full-width feature extent for tensor operations. A zero value preserves the
 // legacy 16-bit feature field encoded in kCsrTensorShape.
 constexpr uint16_t kCsrTensorFeatures = 0x830;
+constexpr uint16_t kCsrScheduleDependencyLo = 0x831;
+constexpr uint16_t kCsrScheduleDependencyHi = 0x832;
+constexpr uint16_t kCsrScheduleEpoch = 0x833;
+constexpr uint16_t kCsrScheduleEngineMask = 0x834;
+constexpr uint16_t kCsrSchedulePreferredFlags = 0x835;
 constexpr uint32_t kMmaFlagTransposeRhs = 1u;
 constexpr uint32_t kMmaFlagAccumulate = 2u;
 constexpr uint32_t kTensorFlagNormWeightOffset = 1u;

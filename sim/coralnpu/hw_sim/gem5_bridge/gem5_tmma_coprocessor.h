@@ -68,6 +68,10 @@ struct Gem5TmmaDispatchPacket {
   uint32_t mma_dst_stride = 0;
   uint32_t mma_flags = 0;
   uint32_t tensor_flags = 0;
+  uint64_t schedule_dependency_mask = 0;
+  uint32_t schedule_epoch = 0;
+  uint32_t schedule_engine_mask = 0;
+  uint32_t schedule_preferred_flags = 0;
   uint32_t csr_epoch = 0;
 };
 
@@ -86,6 +90,10 @@ struct Gem5TmmaCompletion {
   uint64_t mac_operations = 0;
   uint64_t element_operations = 0;
   uint64_t modeled_cycles = 0;
+  uint64_t schedule_dependency_mask = 0;
+  uint32_t schedule_epoch = 0;
+  uint32_t schedule_engine_mask = 0;
+  uint32_t schedule_preferred_flags = 0;
   Gem5TmmaExecutionError error = Gem5TmmaExecutionError::kNone;
 };
 
@@ -147,6 +155,10 @@ class Gem5XOpenNpuFunctionalCoprocessor {
     uint32_t mma_dst_stride = 0;
     uint32_t mma_flags = 0;
     uint32_t tensor_flags = 0;
+    uint64_t schedule_dependency_mask = 0;
+    uint32_t schedule_epoch = 0;
+    uint32_t schedule_engine_mask = 0;
+    uint32_t schedule_preferred_flags = 0;
     uint32_t csr_epoch = 0;
   };
 
@@ -191,6 +203,10 @@ class Gem5XOpenNpuFunctionalCoprocessor {
   uint32_t mma_dst_stride_ = 0;
   uint32_t mma_flags_ = 0;
   uint32_t tensor_flags_ = 0;
+  uint64_t schedule_dependency_mask_ = 0;
+  uint32_t schedule_epoch_ = 0;
+  uint32_t schedule_engine_mask_ = 0;
+  uint32_t schedule_preferred_flags_ = 0;
   uint32_t csr_epoch_ = 0;
 };
 

@@ -1233,6 +1233,16 @@ coral_gem5_step(coral_gem5_handle* handle, uint32_t cycles)
                    static_cast<unsigned long long>(
                        tmma_completion.modeled_cycles));
       std::fprintf(stderr,
+                   "Coral XOpenNPU schedule sequence=%u dependency=%#018llx "
+                   "epoch=%u engine_mask=%#x preferred=%u flags=%#x\n",
+                   tmma_completion.sequence_id,
+                   static_cast<unsigned long long>(
+                       tmma_completion.schedule_dependency_mask),
+                   tmma_completion.schedule_epoch,
+                   tmma_completion.schedule_engine_mask,
+                   tmma_completion.schedule_preferred_flags & 0xffu,
+                   tmma_completion.schedule_preferred_flags >> 8);
+      std::fprintf(stderr,
                    "Coral XOpenNPU writeback sequence=%u destination=%#x "
                    "bytes=%u checksum=%#010x words=%#010x/%#010x/%#010x/%#010x\n",
                    tmma_completion.sequence_id,

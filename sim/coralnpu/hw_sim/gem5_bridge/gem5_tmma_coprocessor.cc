@@ -161,6 +161,10 @@ void Gem5XOpenNpuFunctionalCoprocessor::Reset() {
   mma_dst_stride_ = 0;
   mma_flags_ = 0;
   tensor_flags_ = 0;
+  schedule_dependency_mask_ = 0;
+  schedule_epoch_ = 0;
+  schedule_engine_mask_ = 0;
+  schedule_preferred_flags_ = 0;
   csr_epoch_ = 0;
 }
 
@@ -280,6 +284,24 @@ bool Gem5XOpenNpuFunctionalCoprocessor::WriteCsr(uint16_t address,
       break;
     case xopennpux::kCsrTensorFlags:
       tensor_flags_ = value;
+      break;
+    case xopennpux::kCsrScheduleDependencyLo:
+      schedule_dependency_mask_ =
+          (schedule_dependency_mask_ & UINT64_C(0xffffffff00000000)) | value;
+      break;
+    case xopennpux::kCsrScheduleDependencyHi:
+      schedule_dependency_mask_ =
+          (schedule_dependency_mask_ & UINT64_C(0x00000000ffffffff)) |
+          (static_cast<uint64_t>(value) << 32);
+      break;
+    case xopennpux::kCsrScheduleEpoch:
+      schedule_epoch_ = value;
+      break;
+    case xopennpux::kCsrScheduleEngineMask:
+      schedule_engine_mask_ = value;
+      break;
+    case xopennpux::kCsrSchedulePreferredFlags:
+      schedule_preferred_flags_ = value;
       break;
     default:
       return false;
@@ -407,6 +429,21 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ReadCsr(uint16_t address,
       return true;
     case xopennpux::kCsrTensorFlags:
       *value = tensor_flags_;
+      return true;
+    case xopennpux::kCsrScheduleDependencyLo:
+      *value = static_cast<uint32_t>(schedule_dependency_mask_);
+      return true;
+    case xopennpux::kCsrScheduleDependencyHi:
+      *value = static_cast<uint32_t>(schedule_dependency_mask_ >> 32);
+      return true;
+    case xopennpux::kCsrScheduleEpoch:
+      *value = schedule_epoch_;
+      return true;
+    case xopennpux::kCsrScheduleEngineMask:
+      *value = schedule_engine_mask_;
+      return true;
+    case xopennpux::kCsrSchedulePreferredFlags:
+      *value = schedule_preferred_flags_;
       return true;
     default:
       return false;
@@ -859,6 +896,17 @@ Gem5TmmaSubmitResult Gem5XOpenNpuFunctionalCoprocessor::Submit(
       packet.csr_epoch == 0 ? mma_flags_ : packet.mma_flags;
   queue_[tail].tensor_flags =
       packet.csr_epoch == 0 ? tensor_flags_ : packet.tensor_flags;
+  queue_[tail].schedule_dependency_mask =
+      packet.csr_epoch == 0 ? schedule_dependency_mask_
+                            : packet.schedule_dependency_mask;
+  queue_[tail].schedule_epoch =
+      packet.csr_epoch == 0 ? schedule_epoch_ : packet.schedule_epoch;
+  queue_[tail].schedule_engine_mask =
+      packet.csr_epoch == 0 ? schedule_engine_mask_
+                            : packet.schedule_engine_mask;
+  queue_[tail].schedule_preferred_flags =
+      packet.csr_epoch == 0 ? schedule_preferred_flags_
+                            : packet.schedule_preferred_flags;
   ++queue_size_;
   return Gem5TmmaSubmitResult::kAccepted;
 }
@@ -882,6 +930,10 @@ bool Gem5XOpenNpuFunctionalCoprocessor::ExecuteNext(
   completion->hart_id = command.dispatch.hart_id;
   completion->operation = command.operation;
   completion->destination_address = command.dispatch.rd_value;
+  completion->schedule_dependency_mask = command.schedule_dependency_mask;
+  completion->schedule_epoch = command.schedule_epoch;
+  completion->schedule_engine_mask = command.schedule_engine_mask;
+  completion->schedule_preferred_flags = command.schedule_preferred_flags;
   const uint32_t conv_input_h = command.conv_input_hw & 0xffffu;
   const uint32_t conv_input_w = command.conv_input_hw >> 16;
   const uint32_t conv_output_h = command.conv_output_hw & 0xffffu;

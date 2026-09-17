@@ -203,6 +203,16 @@ class Gem5CoreMiniAxiWrapper {
     packet.mma_dst_stride = core_.io_xnpu_request_bits_csr_mmaDstStride;
     packet.mma_flags = core_.io_xnpu_request_bits_csr_mmaFlags;
     packet.tensor_flags = core_.io_xnpu_request_bits_csr_tensorFlags;
+    packet.schedule_dependency_mask =
+        (static_cast<uint64_t>(
+             core_.io_xnpu_request_bits_csr_scheduleDependencyHi)
+         << 32) |
+        core_.io_xnpu_request_bits_csr_scheduleDependencyLo;
+    packet.schedule_epoch = core_.io_xnpu_request_bits_csr_scheduleEpoch;
+    packet.schedule_engine_mask =
+        core_.io_xnpu_request_bits_csr_scheduleEngineMask;
+    packet.schedule_preferred_flags =
+        core_.io_xnpu_request_bits_csr_schedulePreferredFlags;
     packet.csr_epoch = core_.io_xnpu_request_bits_csr_epoch;
     packet.sequence_id = sequence_id;
 

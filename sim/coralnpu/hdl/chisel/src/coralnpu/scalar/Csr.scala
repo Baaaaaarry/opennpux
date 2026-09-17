@@ -98,6 +98,11 @@ object CsrAddress extends ChiselEnum {
   val RECURRENT_HEADS = Value(0x81D.U(12.W))
   val RECURRENT_DIMS = Value(0x81E.U(12.W))
   val RECURRENT_BETA_ADDRESS = Value(0x81F.U(12.W))
+  val SCHEDULE_DEPENDENCY_LO = Value(0x831.U(12.W))
+  val SCHEDULE_DEPENDENCY_HI = Value(0x832.U(12.W))
+  val SCHEDULE_EPOCH = Value(0x833.U(12.W))
+  val SCHEDULE_ENGINE_MASK = Value(0x834.U(12.W))
+  val SCHEDULE_PREFERRED_FLAGS = Value(0x835.U(12.W))
   val RECURRENT_A_LOG_ADDRESS = Value(0x820.U(12.W))
   val RECURRENT_DT_BIAS_ADDRESS = Value(0x821.U(12.W))
   val CONV_INPUT_HW = Value(0x822.U(12.W))
@@ -342,6 +347,11 @@ class Csr(p: Parameters) extends Module {
   val mmaDstStride = RegInit(0.U(p.xlen.W))
   val mmaFlags = RegInit(0.U(p.xlen.W))
   val tensorFlags = RegInit(0.U(p.xlen.W))
+  val scheduleDependencyLo = RegInit(0.U(p.xlen.W))
+  val scheduleDependencyHi = RegInit(0.U(p.xlen.W))
+  val scheduleEpoch = RegInit(0.U(p.xlen.W))
+  val scheduleEngineMask = RegInit(0.U(p.xlen.W))
+  val schedulePreferredFlags = RegInit(0.U(p.xlen.W))
   val xnpuCsrEpoch = RegInit(0.U(32.W))
   io.xnpu.mmaShape := mmaShape
   io.xnpu.mmaDataType := mmaDataType
@@ -380,6 +390,11 @@ class Csr(p: Parameters) extends Module {
   io.xnpu.mmaDstStride := mmaDstStride
   io.xnpu.mmaFlags := mmaFlags
   io.xnpu.tensorFlags := tensorFlags
+  io.xnpu.scheduleDependencyLo := scheduleDependencyLo
+  io.xnpu.scheduleDependencyHi := scheduleDependencyHi
+  io.xnpu.scheduleEpoch := scheduleEpoch
+  io.xnpu.scheduleEngineMask := scheduleEngineMask
+  io.xnpu.schedulePreferredFlags := schedulePreferredFlags
   io.xnpu.epoch := xnpuCsrEpoch
 
   // Debug mode CSRs
@@ -530,6 +545,12 @@ class Csr(p: Parameters) extends Module {
   val mmaDstStrideEn = csr_address === CsrAddress.MMA_DST_STRIDE
   val mmaFlagsEn = csr_address === CsrAddress.MMA_FLAGS
   val tensorFlagsEn = csr_address === CsrAddress.TENSOR_FLAGS
+  val scheduleDependencyLoEn = csr_address === CsrAddress.SCHEDULE_DEPENDENCY_LO
+  val scheduleDependencyHiEn = csr_address === CsrAddress.SCHEDULE_DEPENDENCY_HI
+  val scheduleEpochEn = csr_address === CsrAddress.SCHEDULE_EPOCH
+  val scheduleEngineMaskEn = csr_address === CsrAddress.SCHEDULE_ENGINE_MASK
+  val schedulePreferredFlagsEn =
+    csr_address === CsrAddress.SCHEDULE_PREFERRED_FLAGS
   val kscm0En     = csr_address === CsrAddress.KSCM0
   val kscm1En     = csr_address === CsrAddress.KSCM1
   val kscm2En     = csr_address === CsrAddress.KSCM2
@@ -629,6 +650,11 @@ class Csr(p: Parameters) extends Module {
       mmaDstStrideEn -> mmaDstStride,
       mmaFlagsEn -> mmaFlags,
       tensorFlagsEn -> tensorFlags,
+      scheduleDependencyLoEn -> scheduleDependencyLo,
+      scheduleDependencyHiEn -> scheduleDependencyHi,
+      scheduleEpochEn -> scheduleEpoch,
+      scheduleEngineMaskEn -> scheduleEngineMask,
+      schedulePreferredFlagsEn -> schedulePreferredFlags,
       kscm0En     -> kscm(31,0),
       kscm1En     -> kscm(63,32),
       kscm2En     -> kscm(95,64),
@@ -724,6 +750,11 @@ class Csr(p: Parameters) extends Module {
     when (mmaDstStrideEn) { mmaDstStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (mmaFlagsEn) { mmaFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (tensorFlagsEn) { tensorFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (scheduleDependencyLoEn) { scheduleDependencyLo := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (scheduleDependencyHiEn) { scheduleDependencyHi := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (scheduleEpochEn) { scheduleEpoch := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (scheduleEngineMaskEn) { scheduleEngineMask := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (schedulePreferredFlagsEn) { schedulePreferredFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (dscratch0En)  { dscratch0 := wdata }
     when (dscratch1En)  { dscratch1 := wdata }
     when (tdata1En)     { tdata1 := LegalizeTdata1(wdata) }

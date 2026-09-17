@@ -19,6 +19,31 @@ static inline void xopennpux_write_tensor_features(uint32_t value) {
   __asm__ volatile("csrw 0x830, %0" : : "r"(value) : "memory");
 }
 
+static inline void xopennpux_write_schedule_dependency_lo(uint32_t value) {
+  __asm__ volatile("csrw 0x831, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_schedule_dependency_hi(uint32_t value) {
+  __asm__ volatile("csrw 0x832, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_schedule_dependency(uint64_t value) {
+  xopennpux_write_schedule_dependency_lo((uint32_t)value);
+  xopennpux_write_schedule_dependency_hi((uint32_t)(value >> 32));
+}
+
+static inline void xopennpux_write_schedule_epoch(uint32_t value) {
+  __asm__ volatile("csrw 0x833, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_schedule_engine_mask(uint32_t value) {
+  __asm__ volatile("csrw 0x834, %0" : : "r"(value) : "memory");
+}
+
+static inline void xopennpux_write_schedule_preferred_flags(uint32_t value) {
+  __asm__ volatile("csrw 0x835, %0" : : "r"(value) : "memory");
+}
+
 static inline void xopennpux_write_tensor_data_type(uint32_t value) {
   __asm__ volatile("csrw 0x806, %0" : : "r"(value) : "memory");
 }

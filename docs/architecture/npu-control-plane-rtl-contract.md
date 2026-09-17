@@ -47,6 +47,19 @@ The eventual SystemVerilog adapter maps the structures to ready/valid channels:
 The C++ implementation is the executable reference for arbitration,
 backpressure, ordering, and error propagation. It is not an RTL timing claim.
 
+The Coral-to-NPU boundary snapshots scheduling state through custom CSRs:
+
+| CSR | Purpose |
+| --- | --- |
+| `0x831` | dependency mask bits 31:0 |
+| `0x832` | dependency mask bits 63:32 |
+| `0x833` | ordering epoch |
+| `0x834` | allowed engine mask |
+| `0x835` | preferred engine in bits 7:0 and flags in bits 31:8 |
+
+These values are part of the dispatch snapshot. Later CSR writes therefore
+cannot alter an already accepted task.
+
 ## XGraph schedule table
 
 XGraph v2 keeps the 64-byte command record stable and optionally appends one

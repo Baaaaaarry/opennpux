@@ -98,11 +98,6 @@ object CsrAddress extends ChiselEnum {
   val RECURRENT_HEADS = Value(0x81D.U(12.W))
   val RECURRENT_DIMS = Value(0x81E.U(12.W))
   val RECURRENT_BETA_ADDRESS = Value(0x81F.U(12.W))
-  val SCHEDULE_DEPENDENCY_LO = Value(0x831.U(12.W))
-  val SCHEDULE_DEPENDENCY_HI = Value(0x832.U(12.W))
-  val SCHEDULE_EPOCH = Value(0x833.U(12.W))
-  val SCHEDULE_ENGINE_MASK = Value(0x834.U(12.W))
-  val SCHEDULE_PREFERRED_FLAGS = Value(0x835.U(12.W))
   val RECURRENT_A_LOG_ADDRESS = Value(0x820.U(12.W))
   val RECURRENT_DT_BIAS_ADDRESS = Value(0x821.U(12.W))
   val CONV_INPUT_HW = Value(0x822.U(12.W))
@@ -119,6 +114,12 @@ object CsrAddress extends ChiselEnum {
   val MMA_DST_STRIDE = Value(0x82D.U(12.W))
   val MMA_FLAGS = Value(0x82E.U(12.W))
   val TENSOR_FLAGS = Value(0x82F.U(12.W))
+  val TENSOR_FEATURES = Value(0x830.U(12.W))
+  val SCHEDULE_DEPENDENCY_LO = Value(0x831.U(12.W))
+  val SCHEDULE_DEPENDENCY_HI = Value(0x832.U(12.W))
+  val SCHEDULE_EPOCH = Value(0x833.U(12.W))
+  val SCHEDULE_ENGINE_MASK = Value(0x834.U(12.W))
+  val SCHEDULE_PREFERRED_FLAGS = Value(0x835.U(12.W))
   val MCYCLE    = Value(0xB00.U(12.W))
   val MINSTRET  = Value(0xB02.U(12.W))
   val MCYCLEH   = Value(0xB80.U(12.W))
@@ -347,6 +348,7 @@ class Csr(p: Parameters) extends Module {
   val mmaDstStride = RegInit(0.U(p.xlen.W))
   val mmaFlags = RegInit(0.U(p.xlen.W))
   val tensorFlags = RegInit(0.U(p.xlen.W))
+  val tensorFeatures = RegInit(0.U(p.xlen.W))
   val scheduleDependencyLo = RegInit(0.U(p.xlen.W))
   val scheduleDependencyHi = RegInit(0.U(p.xlen.W))
   val scheduleEpoch = RegInit(0.U(p.xlen.W))
@@ -390,6 +392,7 @@ class Csr(p: Parameters) extends Module {
   io.xnpu.mmaDstStride := mmaDstStride
   io.xnpu.mmaFlags := mmaFlags
   io.xnpu.tensorFlags := tensorFlags
+  io.xnpu.tensorFeatures := tensorFeatures
   io.xnpu.scheduleDependencyLo := scheduleDependencyLo
   io.xnpu.scheduleDependencyHi := scheduleDependencyHi
   io.xnpu.scheduleEpoch := scheduleEpoch
@@ -545,6 +548,7 @@ class Csr(p: Parameters) extends Module {
   val mmaDstStrideEn = csr_address === CsrAddress.MMA_DST_STRIDE
   val mmaFlagsEn = csr_address === CsrAddress.MMA_FLAGS
   val tensorFlagsEn = csr_address === CsrAddress.TENSOR_FLAGS
+  val tensorFeaturesEn = csr_address === CsrAddress.TENSOR_FEATURES
   val scheduleDependencyLoEn = csr_address === CsrAddress.SCHEDULE_DEPENDENCY_LO
   val scheduleDependencyHiEn = csr_address === CsrAddress.SCHEDULE_DEPENDENCY_HI
   val scheduleEpochEn = csr_address === CsrAddress.SCHEDULE_EPOCH
@@ -650,6 +654,7 @@ class Csr(p: Parameters) extends Module {
       mmaDstStrideEn -> mmaDstStride,
       mmaFlagsEn -> mmaFlags,
       tensorFlagsEn -> tensorFlags,
+      tensorFeaturesEn -> tensorFeatures,
       scheduleDependencyLoEn -> scheduleDependencyLo,
       scheduleDependencyHiEn -> scheduleDependencyHi,
       scheduleEpochEn -> scheduleEpoch,
@@ -750,6 +755,7 @@ class Csr(p: Parameters) extends Module {
     when (mmaDstStrideEn) { mmaDstStride := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (mmaFlagsEn) { mmaFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (tensorFlagsEn) { tensorFlags := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
+    when (tensorFeaturesEn) { tensorFeatures := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (scheduleDependencyLoEn) { scheduleDependencyLo := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (scheduleDependencyHiEn) { scheduleDependencyHi := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }
     when (scheduleEpochEn) { scheduleEpoch := wdata; xnpuCsrEpoch := xnpuCsrEpoch + 1.U }

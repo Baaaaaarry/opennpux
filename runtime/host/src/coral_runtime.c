@@ -1462,6 +1462,7 @@ opennpux_coral_xgraph_test(
     struct opennpux_npu_operator_parameters parameters[request_count];
     struct opennpux_npu_xgraph_lowering_options options[request_count];
     struct opennpux_xgraph_command commands[command_capacity];
+    struct opennpux_xgraph_schedule schedules[command_capacity];
     uint32_t command_origins[command_capacity];
     memset(options, 0, sizeof(options));
 
@@ -1907,6 +1908,13 @@ opennpux_coral_xgraph_test(
         if (run_result != 0) {
             break;
         }
+        if (opennpux_npu_xgraph_build_schedule(
+                commands, commands_emitted, schedules,
+                command_capacity) != 0) {
+            run_errno = errno == 0 ? EIO : errno;
+            run_result = -1;
+            break;
+        }
 
         const uint32_t batch = result->batch_count;
         const int final_batch =
@@ -1921,13 +1929,18 @@ opennpux_coral_xgraph_test(
         copy_to_volatile_bytes((volatile uint8_t *)(void *)(header + 1),
                                commands,
                                commands_emitted * sizeof(commands[0]));
+        const uint32_t schedule_offset =
+            sizeof(*header) + commands_emitted * sizeof(commands[0]);
+        copy_to_volatile_bytes(
+            (volatile uint8_t *)(void *)header + schedule_offset,
+            schedules, commands_emitted * sizeof(schedules[0]));
         header->magic = OPENNPUX_XGRAPH_MAGIC;
         header->version = OPENNPUX_XGRAPH_VERSION;
         header->header_size = sizeof(*header);
         header->command_size = sizeof(commands[0]);
         header->command_count = commands_emitted;
-        header->total_size =
-            sizeof(*header) + commands_emitted * sizeof(commands[0]);
+        header->total_size = schedule_offset +
+            commands_emitted * sizeof(schedules[0]);
         header->output_offset = packed_topk;
         header->output_bytes = 2 * sizeof(uint32_t);
         header->reserved[OPENNPUX_XGRAPH_BATCH_SEQUENCE] = batch;
@@ -1939,14 +1952,22 @@ opennpux_coral_xgraph_test(
             final_batch ? OPENNPUX_XGRAPH_BATCH_FLAG_FINAL : 0;
         header->reserved[OPENNPUX_XGRAPH_BATCH_FIRST_COMMAND] =
             total_commands;
+        header->reserved[OPENNPUX_XGRAPH_SCHEDULE_OFFSET] = schedule_offset;
+        header->reserved[OPENNPUX_XGRAPH_SCHEDULE_COUNT] = commands_emitted;
+        header->reserved[OPENNPUX_XGRAPH_SCHEDULE_RECORD_SIZE] =
+            sizeof(schedules[0]);
         __sync_synchronize();
         header->state = OPENNPUX_XGRAPH_STATE_READY;
         __sync_synchronize();
         fprintf(stderr,
                 "xgraph_stage=submission-ready source=generic-lowering"
                 " batch=%" PRIu32 " requests=%" PRIu32
-                " commands=%" PRIu32 " final=%d\n",
-                batch, requests_consumed, commands_emitted, final_batch);
+                " commands=%" PRIu32 " schedules=%" PRIu32
+                " dependency_edges=%" PRIu32 " epochs=%" PRIu32
+                " final=%d\n",
+                batch, requests_consumed, commands_emitted, commands_emitted,
+                commands_emitted - 1, (commands_emitted + 63) / 64,
+                final_batch);
 
         run_result =
             opennpux_coral_run(dev, entry, polls, &result->device_status);

@@ -712,6 +712,12 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
       return false;
     }
   }
+  std::vector<opennpux_xgraph_schedule> schedules(command_count);
+  if (opennpux_npu_xgraph_build_schedule(
+          commands.data(), command_count, schedules.data(), command_count) !=
+      0) {
+    return false;
+  }
   Gem5XOpenNpuFunctionalCoprocessor coprocessor;
   for (uint32_t window_begin = 0; window_begin < command_count;
        window_begin += Gem5NpuTaskScheduler::kCapacity) {
@@ -720,18 +726,21 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
     Gem5NpuTaskScheduler scheduler;
     scheduler.Reset();
 
-    // XGraph v2 has no dependency field. Preserve its architectural in-order
-    // semantics by generating a chain inside each scoreboard window. A future
-    // artifact revision can supply explicit masks without changing the
-    // scheduler/backend contract.
     for (uint32_t local = 0; local < window_count; ++local) {
+      const uint32_t index = window_begin + local;
+      const opennpux_xgraph_schedule& schedule = schedules[index];
       Gem5NpuTask task = {};
       task.sequence = local;
-      task.submission_tag = commands[window_begin + local].command_id;
+      task.submission_tag = commands[index].command_id;
       task.command_id = local;
-      task.dependency_mask =
-          local == 0 ? 0 : UINT64_C(1) << (local - 1);
-      task.engine = CommandEngine(commands[window_begin + local].opcode);
+      task.ordering_epoch = schedule.ordering_epoch;
+      task.dependency_mask = schedule.dependency_mask;
+      task.engine = static_cast<Gem5NpuEngine>(schedule.preferred_engine);
+      if ((schedule.allowed_engine_mask &
+           OPENNPUX_XGRAPH_ENGINE_MASK(schedule.preferred_engine)) == 0 ||
+          task.engine != CommandEngine(commands[index].opcode)) {
+        return false;
+      }
       if (!scheduler.Submit(task)) return false;
     }
 
@@ -753,6 +762,7 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
       completion.sequence = task.sequence;
       completion.submission_tag = task.submission_tag;
       completion.command_id = task.command_id;
+      completion.ordering_epoch = task.ordering_epoch;
       completion.engine = task.engine;
       completion.status = execution.error == Gem5TmmaExecutionError::kNone
                               ? Gem5NpuCompletionStatus::kSuccess

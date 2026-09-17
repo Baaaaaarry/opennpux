@@ -255,6 +255,19 @@ if [ "${CORAL_NPU_LAUNCH_XOPENNPUX:-0}" = 1 ]; then
         dump_validation_context
         exit 1
     }
+    if [ "${CORAL_NPU_LAUNCH_REQUIRE_EXPLICIT_SCHEDULE:-0}" = 1 ]; then
+        grep -q 'xgraph_stage=submission-ready source=generic-lowering .* schedules=[1-9][0-9]* .*dependency_edges=' "${TERMINAL}" || {
+            echo "error: generic lowering did not submit an explicit schedule table" >&2
+            dump_validation_context
+            exit 1
+        }
+        grep -q 'Coral XOpenNPU schedule .*engine_mask=0x[1-9a-f]' \
+            "${HOST_LOG}" || {
+            echo "error: XOpenNPU execution did not consume schedule engine metadata" >&2
+            dump_validation_context
+            exit 1
+        }
+    fi
 else
     grep -q 'source=custom-instruction' "${HOST_LOG}" || {
         echo "error: no custom-instruction submission observed" >&2

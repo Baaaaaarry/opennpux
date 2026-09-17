@@ -273,6 +273,17 @@ int opennpux_npu_xgraph_lower_batch(
     uint32_t *commands_emitted,
     struct opennpux_npu_xgraph_lowering_failure *failure);
 
+/*
+ * Build the explicit control-plane schedule associated with lowered commands.
+ * The baseline policy preserves program order with one predecessor edge per
+ * command, starts a new scoreboard epoch every 64 commands, and supplies the
+ * engine affinity consumed by the NPU task scheduler. More aggressive graph
+ * scheduling can replace this policy without changing the artifact ABI.
+ */
+int opennpux_npu_xgraph_build_schedule(
+    const struct opennpux_xgraph_command *commands, uint32_t command_count,
+    struct opennpux_xgraph_schedule *schedules, uint32_t schedule_capacity);
+
 #ifdef __cplusplus
 }
 #endif

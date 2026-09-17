@@ -1274,6 +1274,50 @@ test_routed_expert_lowering(void)
     assert(consumed == 1 && emitted == 1 && origin == 10);
 }
 
+static void
+test_explicit_schedule_generation(void)
+{
+    enum { count = 65 };
+    struct opennpux_xgraph_command commands[count];
+    struct opennpux_xgraph_schedule schedules[count];
+    const uint32_t opcodes[] = {
+        OPENNPUX_XGRAPH_OP_TDMA,
+        OPENNPUX_XGRAPH_OP_TMMA,
+        OPENNPUX_XGRAPH_OP_TADD,
+        OPENNPUX_XGRAPH_OP_TSOFTMAX,
+    };
+    const uint8_t engines[] = {
+        OPENNPUX_XGRAPH_ENGINE_TDMA,
+        OPENNPUX_XGRAPH_ENGINE_TENSOR,
+        OPENNPUX_XGRAPH_ENGINE_VECTOR,
+        OPENNPUX_XGRAPH_ENGINE_SFU,
+    };
+    memset(commands, 0, sizeof(commands));
+    memset(schedules, 0xa5, sizeof(schedules));
+    for (uint32_t index = 0; index < count; ++index) {
+        commands[index].command_id = index;
+        commands[index].opcode = opcodes[index % 4];
+    }
+    assert(opennpux_npu_xgraph_build_schedule(
+               commands, count, schedules, count) == 0);
+    for (uint32_t index = 0; index < count; ++index) {
+        const uint32_t local_id = index % 64;
+        const uint8_t engine = engines[index % 4];
+        assert(schedules[index].dependency_mask ==
+               (local_id == 0 ? 0 : UINT64_C(1) << (local_id - 1)));
+        assert(schedules[index].ordering_epoch == index / 64);
+        assert(schedules[index].allowed_engine_mask ==
+               OPENNPUX_XGRAPH_ENGINE_MASK(engine));
+        assert(schedules[index].preferred_engine == engine);
+        assert(schedules[index].flags == 0);
+    }
+    assert(opennpux_npu_xgraph_build_schedule(
+               commands, count, schedules, count - 1) == -1);
+    commands[7].command_id = 99;
+    assert(opennpux_npu_xgraph_build_schedule(
+               commands, count, schedules, count) == -1);
+}
+
 int
 main(void)
 {
@@ -1298,6 +1342,7 @@ main(void)
     test_dense_multi_projection_lowering();
     test_attention_projection_lowering();
     test_routed_expert_lowering();
+    test_explicit_schedule_generation();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

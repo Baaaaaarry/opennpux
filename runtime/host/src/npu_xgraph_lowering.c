@@ -3,6 +3,76 @@
 #include <errno.h>
 #include <string.h>
 
+static int
+opennpux_npu_xgraph_command_engine(uint32_t opcode, uint8_t *engine)
+{
+    if (engine == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    switch (opcode) {
+      case OPENNPUX_XGRAPH_OP_TDMA:
+      case OPENNPUX_XGRAPH_OP_TGATHER:
+        *engine = OPENNPUX_XGRAPH_ENGINE_TDMA;
+        return 0;
+      case OPENNPUX_XGRAPH_OP_TMMA:
+      case OPENNPUX_XGRAPH_OP_TDEQUANT:
+      case OPENNPUX_XGRAPH_OP_TCAUSALCONV:
+      case OPENNPUX_XGRAPH_OP_TATTENTION:
+      case OPENNPUX_XGRAPH_OP_TRECURRENT:
+      case OPENNPUX_XGRAPH_OP_TCONV:
+      case OPENNPUX_XGRAPH_OP_TROUTED_EXPERT:
+        *engine = OPENNPUX_XGRAPH_ENGINE_TENSOR;
+        return 0;
+      case OPENNPUX_XGRAPH_OP_TRMSNORM:
+      case OPENNPUX_XGRAPH_OP_TSOFTMAX:
+      case OPENNPUX_XGRAPH_OP_TTOPK:
+        *engine = OPENNPUX_XGRAPH_ENGINE_SFU;
+        return 0;
+      case OPENNPUX_XGRAPH_OP_TADD:
+      case OPENNPUX_XGRAPH_OP_TMUL:
+      case OPENNPUX_XGRAPH_OP_TROPE:
+      case OPENNPUX_XGRAPH_OP_TSILU:
+      case OPENNPUX_XGRAPH_OP_TSIGMOID:
+      case OPENNPUX_XGRAPH_OP_TROW_SCALE:
+        *engine = OPENNPUX_XGRAPH_ENGINE_VECTOR;
+        return 0;
+      default:
+        errno = ENOTSUP;
+        return -1;
+    }
+}
+
+int
+opennpux_npu_xgraph_build_schedule(
+    const struct opennpux_xgraph_command *commands, uint32_t command_count,
+    struct opennpux_xgraph_schedule *schedules, uint32_t schedule_capacity)
+{
+    if (commands == NULL || schedules == NULL || command_count == 0 ||
+        command_count > schedule_capacity ||
+        command_count > OPENNPUX_XGRAPH_MAX_COMMANDS) {
+        errno = EINVAL;
+        return -1;
+    }
+    for (uint32_t index = 0; index < command_count; ++index) {
+        uint8_t engine = 0;
+        if (commands[index].command_id != index ||
+            opennpux_npu_xgraph_command_engine(commands[index].opcode,
+                                                &engine) != 0) {
+            return -1;
+        }
+        const uint32_t local_id = index % 64;
+        schedules[index].dependency_mask =
+            local_id == 0 ? 0 : UINT64_C(1) << (local_id - 1);
+        schedules[index].ordering_epoch = index / 64;
+        schedules[index].allowed_engine_mask =
+            OPENNPUX_XGRAPH_ENGINE_MASK(engine);
+        schedules[index].preferred_engine = engine;
+        schedules[index].flags = 0;
+    }
+    return 0;
+}
+
 static const struct opennpux_npu_functional_operand *
 find_operand(const struct opennpux_npu_functional_request *request,
              uint32_t role)

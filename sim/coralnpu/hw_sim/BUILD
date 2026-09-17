@@ -418,6 +418,18 @@ cc_test(
     ],
 )
 
+cc_library(
+    name = "gem5_npu_control_plane",
+    srcs = ["gem5_bridge/gem5_npu_control_plane.cc"],
+    hdrs = ["gem5_bridge/gem5_npu_control_plane.h"],
+)
+
+cc_test(
+    name = "gem5_npu_control_plane_test",
+    srcs = ["gem5_bridge/gem5_npu_control_plane_test.cc"],
+    deps = [":gem5_npu_control_plane"],
+)
+
 cc_test(
     name = "gem5_tmma_coprocessor_test",
     srcs = ["gem5_bridge/gem5_tmma_coprocessor_test.cc"],

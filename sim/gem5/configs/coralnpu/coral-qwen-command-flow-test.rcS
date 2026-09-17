@@ -7,9 +7,20 @@ NPU_BASE=0x1D000000
 CORALCTL=/tmp/coralctl
 MODULE=/tmp/opennpux_coral.ko
 
+exit_simulation() {
+    if command -v m5 >/dev/null 2>&1; then
+        m5 --inst exit
+        # m5 exit is asynchronous. Do not return to a checkpoint's stale PID 1
+        # while gem5 is processing the exit event.
+        while :; do
+            /tmp/busybox sleep 3600
+        done
+    fi
+}
+
 fail() {
     echo "[coral-qwen-command-flow-test] FAIL: $*"
-    command -v m5 >/dev/null 2>&1 && m5 --inst exit
+    exit_simulation
     exit 1
 }
 
@@ -80,5 +91,5 @@ echo "qwen_command_flow=PASS"
 # Keep the common host wrapper's terminal verdict stable.
 echo "npu_launch_test=PASS"
 echo "[coral-qwen-command-flow-test] PASS"
-command -v m5 >/dev/null 2>&1 && m5 --inst exit
+exit_simulation
 exit 0

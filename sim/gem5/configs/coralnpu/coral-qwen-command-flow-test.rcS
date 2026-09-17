@@ -8,14 +8,19 @@ CORALCTL=/tmp/coralctl
 MODULE=/tmp/opennpux_coral.ko
 
 exit_simulation() {
-    if command -v m5 >/dev/null 2>&1; then
+    if [ -x /sbin/m5 ]; then
+        /sbin/m5 --inst exit || /sbin/m5 exit
+    elif command -v m5 >/dev/null 2>&1; then
         m5 --inst exit
-        # m5 exit is asynchronous. Do not return to a checkpoint's stale PID 1
-        # while gem5 is processing the exit event.
-        while :; do
-            /tmp/busybox sleep 3600
-        done
+    else
+        echo "[coral-qwen-command-flow-test] FAIL: m5 tool missing"
+        return 1
     fi
+    # m5 exit is asynchronous. Do not return to a checkpoint's stale PID 1
+    # while gem5 is processing the exit event.
+    while :; do
+        /tmp/busybox sleep 3600
+    done
 }
 
 fail() {

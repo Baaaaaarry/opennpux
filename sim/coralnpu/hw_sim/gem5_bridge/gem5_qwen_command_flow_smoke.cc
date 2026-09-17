@@ -7,6 +7,20 @@
 
 namespace {
 
+constexpr uint32_t kScheduleOffsetReserved = 5;
+constexpr uint32_t kScheduleCountReserved = 6;
+constexpr uint32_t kScheduleSizeReserved = 7;
+
+struct ScheduleRecord {
+  uint64_t dependency_mask;
+  uint32_t ordering_epoch;
+  uint16_t allowed_engine_mask;
+  uint8_t preferred_engine;
+  uint8_t flags;
+};
+
+static_assert(sizeof(ScheduleRecord) == 16, "schedule ABI changed");
+
 constexpr uint32_t kExtmemBase = UINT32_C(0x20000000);
 constexpr uint32_t kExtmemSize = UINT32_C(0x00800000);
 constexpr uint32_t kMailboxAddress =
@@ -538,15 +552,33 @@ int main() {
   mailbox->error_code = OPENNPUX_CORAL_GENERIC_TEST_ERROR_NONE;
 
   volatile opennpux_xgraph_header* graph = Graph();
+  const uint64_t command_end =
+      sizeof(opennpux_xgraph_header) +
+      static_cast<uint64_t>(graph->command_count) *
+          sizeof(opennpux_xgraph_command);
+  const uint32_t schedule_offset =
+      graph->reserved[kScheduleOffsetReserved];
+  const uint32_t schedule_count = graph->reserved[kScheduleCountReserved];
+  const uint32_t schedule_size = graph->reserved[kScheduleSizeReserved];
+  const bool has_schedule =
+      schedule_offset != 0 || schedule_count != 0 || schedule_size != 0;
+  const uint64_t expected_size =
+      has_schedule
+          ? static_cast<uint64_t>(schedule_offset) +
+                static_cast<uint64_t>(schedule_count) * sizeof(ScheduleRecord)
+          : command_end;
   if (graph->magic != OPENNPUX_XGRAPH_MAGIC ||
       graph->version != OPENNPUX_XGRAPH_VERSION ||
       graph->header_size != sizeof(opennpux_xgraph_header) ||
       graph->command_size != sizeof(opennpux_xgraph_command) ||
       graph->command_count == 0 ||
       graph->command_count > OPENNPUX_XGRAPH_MAX_COMMANDS ||
-      graph->total_size != sizeof(opennpux_xgraph_header) +
-                               graph->command_count *
-                                   sizeof(opennpux_xgraph_command) ||
+      command_end > UINT32_MAX || expected_size > UINT32_MAX ||
+      graph->total_size != expected_size ||
+      (has_schedule &&
+       (schedule_offset != command_end ||
+        schedule_count != graph->command_count ||
+        schedule_size != sizeof(ScheduleRecord))) ||
       graph->state != OPENNPUX_XGRAPH_STATE_READY) {
     return Fail(OPENNPUX_XGRAPH_ERROR_ABI, 0);
   }
@@ -557,7 +589,31 @@ int main() {
   uint64_t operations = 0;
   uint64_t cycles = 0;
   const volatile opennpux_xgraph_command* commands = Commands();
+  const volatile ScheduleRecord* schedules =
+      has_schedule
+          ? reinterpret_cast<const volatile ScheduleRecord*>(
+                reinterpret_cast<const volatile uint8_t*>(graph) +
+                schedule_offset)
+          : nullptr;
+  uint32_t previous_epoch = 0;
   for (uint32_t index = 0; index < graph->command_count; ++index) {
+    if (schedules != nullptr) {
+      const uint32_t local_id = index % 64;
+      const uint64_t valid_dependencies =
+          local_id == 0 ? 0 : (UINT64_C(1) << local_id) - 1;
+      if (schedules[index].ordering_epoch < previous_epoch ||
+          (index >= 64 &&
+           schedules[index].ordering_epoch == previous_epoch &&
+           local_id == 0) ||
+          (schedules[index].dependency_mask & ~valid_dependencies) != 0 ||
+          schedules[index].allowed_engine_mask == 0 ||
+          schedules[index].preferred_engine > 4 ||
+          (schedules[index].allowed_engine_mask &
+           (UINT16_C(1) << schedules[index].preferred_engine)) == 0) {
+        return Fail(OPENNPUX_XGRAPH_ERROR_ABI, index);
+      }
+      previous_epoch = schedules[index].ordering_epoch;
+    }
     if (commands[index].command_id != index ||
         !ValidateCommand(commands[index])) {
       return Fail(OPENNPUX_XGRAPH_ERROR_BOUNDS, index);

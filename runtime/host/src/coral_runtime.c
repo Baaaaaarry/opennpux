@@ -1350,9 +1350,10 @@ opennpux_coral_xgraph_test(
     static const float embedding_values[8] = {
         1.0f, 2.0f, 3.0f, 4.0f, 1.0f, 9.0f, 2.0f, 3.0f,
     };
+    /* Dense lowering consumes model weights in physical [N,K] layout. */
     static const float matrix_values[16] = {
-        1.0f, 2.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 1.0f, 2.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f,
     };
     static const float bias_values[8] = {
         0.5f, -1.0f, 1.0f, -0.5f, -0.25f, 0.75f, -1.0f, 1.25f,
@@ -1403,8 +1404,8 @@ opennpux_coral_xgraph_test(
     };
     static const float router_input_values[2] = {1.0f, 2.0f};
     static const float router_weight_values[8] = {
-        1.0f, 0.0f, 2.0f, -1.0f,
-        0.0f, 2.0f, 1.0f, 3.0f,
+        1.0f, 0.0f, 0.0f, 2.0f,
+        2.0f, 1.0f, -1.0f, 3.0f,
     };
     static const uint32_t router_expected_indices[2] = {3, 1};
     static const float causal_input_values[4] = {
@@ -2017,7 +2018,7 @@ opennpux_coral_xgraph_test(
             float accumulator = 0.0f;
             for (size_t inner = 0; inner < 4; ++inner) {
                 accumulator += expected[0][row * 4 + inner] *
-                               matrix_values[inner * 4 + column];
+                               matrix_values[column * 4 + inner];
             }
             expected[1][row * 4 + column] = accumulator;
         }

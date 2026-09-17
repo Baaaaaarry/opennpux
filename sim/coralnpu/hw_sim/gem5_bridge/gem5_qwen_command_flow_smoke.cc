@@ -621,11 +621,6 @@ int main() {
       xopennpux_write_schedule_preferred_flags(
           static_cast<uint32_t>(schedules[index].preferred_engine) |
           (static_cast<uint32_t>(schedules[index].flags) << 8));
-    } else {
-      xopennpux_write_schedule_dependency(0);
-      xopennpux_write_schedule_epoch(index / 64);
-      xopennpux_write_schedule_engine_mask(0);
-      xopennpux_write_schedule_preferred_flags(0);
     }
     if (commands[index].command_id != index ||
         !ValidateCommand(commands[index])) {

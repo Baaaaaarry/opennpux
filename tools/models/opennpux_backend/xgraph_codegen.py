@@ -23,8 +23,10 @@ VERSION = 2
 STATE_READY = 1
 HEADER = struct.Struct("<12I2Q8I")
 COMMAND = struct.Struct("<16I")
+SCHEDULE = struct.Struct("<QI HBB")
 HEADER_SIZE = 96
 COMMAND_SIZE = 64
+SCHEDULE_SIZE = 16
 DATA_OFFSET = 0x00020000
 MAX_COMMANDS = 768
 ALIGNMENT = 64
@@ -41,6 +43,21 @@ OP_TGATHER = 8
 OP_TTOPK = 9
 OP_TDMA = 11
 OP_TATTENTION = 13
+
+ENGINE_TDMA = 0
+ENGINE_TENSOR = 1
+ENGINE_VECTOR = 2
+ENGINE_SFU = 3
+
+
+def _command_engine(opcode: int) -> int:
+    if opcode in {OP_TDMA, OP_TGATHER}:
+        return ENGINE_TDMA
+    if opcode in {OP_TMMA, OP_TATTENTION, 10, 12, 14, 15, 18}:
+        return ENGINE_TENSOR
+    if opcode in {OP_TRMSNORM, OP_TSOFTMAX, OP_TTOPK}:
+        return ENGINE_SFU
+    return ENGINE_VECTOR
 
 TMMA_TRANSPOSE_RHS = 1
 TTOPK_SPLIT_OUTPUT = 1
@@ -713,8 +730,20 @@ def compile_graph(
     output = _tensor(tensors, output_names[0], len(nodes))
     if output.name not in produced or output.storage != "output":
         raise CodegenError("graph output must be produced and use output storage")
-    total_size = HEADER_SIZE + len(commands) * COMMAND_SIZE
-    reserved = (0, 0, len(nodes), 1, 0, 0, 0, 0)
+    schedule_offset = HEADER_SIZE + len(commands) * COMMAND_SIZE
+    schedules = []
+    for index, command in enumerate(commands):
+        local = index % 64
+        dependency_mask = 0 if local == 0 else 1 << (local - 1)
+        engine = _command_engine(command.opcode)
+        schedules.append(
+            SCHEDULE.pack(dependency_mask, index // 64, 1 << engine, engine, 0)
+        )
+    total_size = schedule_offset + len(schedules) * SCHEDULE_SIZE
+    reserved = (
+        0, 0, len(nodes), 1, 0,
+        schedule_offset, len(schedules), SCHEDULE_SIZE,
+    )
     header = HEADER.pack(
         MAGIC,
         VERSION,
@@ -732,13 +761,18 @@ def compile_graph(
         0,
         *reserved,
     )
-    binary = header + b"".join(command.encode() for command in commands)
+    binary = (
+        header + b"".join(command.encode() for command in commands) +
+        b"".join(schedules)
+    )
     metadata = {
         "format": FORMAT,
         "xgraph_version": VERSION,
         "header_size": HEADER_SIZE,
         "command_size": COMMAND_SIZE,
         "command_count": len(commands),
+        "schedule_count": len(schedules),
+        "schedule_record_size": SCHEDULE_SIZE,
         "binary_size": len(binary),
         "arena_size": arena_size,
         "node_count": len(nodes),

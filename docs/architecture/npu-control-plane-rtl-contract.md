@@ -46,3 +46,17 @@ The eventual SystemVerilog adapter maps the structures to ready/valid channels:
 
 The C++ implementation is the executable reference for arbitration,
 backpressure, ordering, and error propagation. It is not an RTL timing claim.
+
+## XGraph schedule table
+
+XGraph v2 keeps the 64-byte command record stable and optionally appends one
+16-byte `opennpux_xgraph_schedule` per command. Header reserved fields 5, 6,
+and 7 carry the table offset, count, and record size. An all-zero tuple means a
+legacy graph and requires conservative in-order execution.
+
+The first compiler implementation emits a safe chain inside each 64-command
+scoreboard window and increments `ordering_epoch` at every window boundary.
+It also emits the allowed-engine mask and preferred engine derived from the
+hardware opcode. This is deliberately equivalent to the old serial execution.
+Later scheduling passes may remove unnecessary edges and widen allowed-engine
+masks after tensor lifetime and memory-hazard analysis.

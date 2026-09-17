@@ -60,13 +60,29 @@ opennpux_xgraph_artifact_load(
     const struct opennpux_xgraph_header *header = artifact->header;
     const uint64_t command_bytes =
         (uint64_t)header->command_count * sizeof(struct opennpux_xgraph_command);
-    const uint64_t expected_size = sizeof(*header) + command_bytes;
+    const uint64_t command_end = sizeof(*header) + command_bytes;
+    const uint32_t schedule_offset =
+        header->reserved[OPENNPUX_XGRAPH_SCHEDULE_OFFSET];
+    const uint32_t schedule_count =
+        header->reserved[OPENNPUX_XGRAPH_SCHEDULE_COUNT];
+    const uint32_t schedule_record_size =
+        header->reserved[OPENNPUX_XGRAPH_SCHEDULE_RECORD_SIZE];
+    const int has_schedule = schedule_offset != 0 || schedule_count != 0 ||
+        schedule_record_size != 0;
+    const uint64_t schedule_bytes =
+        (uint64_t)schedule_count * sizeof(struct opennpux_xgraph_schedule);
+    const uint64_t expected_size = has_schedule
+        ? (uint64_t)schedule_offset + schedule_bytes : command_end;
     if (header->magic != OPENNPUX_XGRAPH_MAGIC ||
         header->version != OPENNPUX_XGRAPH_VERSION ||
         header->header_size != sizeof(*header) ||
         header->command_size != sizeof(struct opennpux_xgraph_command) ||
         header->command_count == 0 ||
         header->command_count > OPENNPUX_XGRAPH_MAX_COMMANDS ||
+        (has_schedule &&
+         (schedule_offset != command_end ||
+          schedule_count != header->command_count ||
+          schedule_record_size != sizeof(struct opennpux_xgraph_schedule))) ||
         expected_size != artifact->size || header->total_size != expected_size ||
         header->state != OPENNPUX_XGRAPH_STATE_READY ||
         OPENNPUX_XGRAPH_OFFSET + expected_size > OPENNPUX_XGRAPH_DATA_OFFSET) {
@@ -74,8 +90,21 @@ opennpux_xgraph_artifact_load(
     }
     artifact->commands =
         (const struct opennpux_xgraph_command *)(const void *)(header + 1);
+    artifact->schedules = has_schedule
+        ? (const struct opennpux_xgraph_schedule *)(const void *)(
+              artifact->bytes + schedule_offset)
+        : NULL;
     for (uint32_t index = 0; index < header->command_count; ++index) {
         if (artifact->commands[index].command_id != index) {
+            goto invalid;
+        }
+        if (artifact->schedules != NULL &&
+            (artifact->schedules[index].allowed_engine_mask == 0 ||
+             artifact->schedules[index].preferred_engine >
+                 OPENNPUX_XGRAPH_ENGINE_CONTROL ||
+             (artifact->schedules[index].allowed_engine_mask &
+              OPENNPUX_XGRAPH_ENGINE_MASK(
+                  artifact->schedules[index].preferred_engine)) == 0)) {
             goto invalid;
         }
     }

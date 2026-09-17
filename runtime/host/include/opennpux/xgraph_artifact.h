@@ -15,6 +15,7 @@ struct opennpux_xgraph_artifact {
     size_t size;
     const struct opennpux_xgraph_header *header;
     const struct opennpux_xgraph_command *commands;
+    const struct opennpux_xgraph_schedule *schedules;
 };
 
 int opennpux_xgraph_artifact_load(

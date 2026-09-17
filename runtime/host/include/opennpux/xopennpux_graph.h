@@ -34,6 +34,21 @@ extern "C" {
 #define OPENNPUX_XGRAPH_BATCH_FIRST_COMMAND UINT32_C(4)
 #define OPENNPUX_XGRAPH_BATCH_FLAG_FINAL UINT32_C(1)
 
+/* Optional schedule table metadata carried in header::reserved[5..7]. */
+#define OPENNPUX_XGRAPH_SCHEDULE_OFFSET UINT32_C(5)
+#define OPENNPUX_XGRAPH_SCHEDULE_COUNT UINT32_C(6)
+#define OPENNPUX_XGRAPH_SCHEDULE_RECORD_SIZE UINT32_C(7)
+
+enum opennpux_xgraph_engine {
+    OPENNPUX_XGRAPH_ENGINE_TDMA = 0,
+    OPENNPUX_XGRAPH_ENGINE_TENSOR = 1,
+    OPENNPUX_XGRAPH_ENGINE_VECTOR = 2,
+    OPENNPUX_XGRAPH_ENGINE_SFU = 3,
+    OPENNPUX_XGRAPH_ENGINE_CONTROL = 4,
+};
+
+#define OPENNPUX_XGRAPH_ENGINE_MASK(engine) (UINT16_C(1) << (engine))
+
 enum opennpux_xgraph_opcode {
     OPENNPUX_XGRAPH_OP_TMMA = 1,
     OPENNPUX_XGRAPH_OP_TADD = 2,
@@ -91,6 +106,19 @@ struct opennpux_xgraph_command {
     uint32_t data_type;
     uint32_t command_id;
     uint32_t reserved[5];
+};
+
+/*
+ * Optional scheduling constraints indexed one-to-one with commands. The
+ * dependency mask addresses command IDs inside the current 64-command epoch.
+ * A later epoch is an implicit fence behind every earlier epoch.
+ */
+struct opennpux_xgraph_schedule {
+    uint64_t dependency_mask;
+    uint32_t ordering_epoch;
+    uint16_t allowed_engine_mask;
+    uint8_t preferred_engine;
+    uint8_t flags;
 };
 
 /*
@@ -174,24 +202,30 @@ struct opennpux_xgraph_header {
 #ifdef __cplusplus
 static_assert(sizeof(opennpux_xgraph_command) == 64,
               "XOpenNPUX graph command ABI changed");
+static_assert(sizeof(opennpux_xgraph_schedule) == 16,
+              "XOpenNPUX schedule ABI changed");
 static_assert(sizeof(opennpux_xgraph_header) == 96,
               "XOpenNPUX graph header ABI changed");
 static_assert(OPENNPUX_XGRAPH_OFFSET + sizeof(opennpux_xgraph_header) +
                   OPENNPUX_XGRAPH_MAX_COMMANDS *
-                      sizeof(opennpux_xgraph_command) <=
+                      (sizeof(opennpux_xgraph_command) +
+                       sizeof(opennpux_xgraph_schedule)) <=
               OPENNPUX_XGRAPH_DATA_OFFSET,
-              "XOpenNPUX command region overlaps tensor data");
+              "XOpenNPUX command/schedule region overlaps tensor data");
 #else
 _Static_assert(sizeof(struct opennpux_xgraph_command) == 64,
                "XOpenNPUX graph command ABI changed");
+_Static_assert(sizeof(struct opennpux_xgraph_schedule) == 16,
+               "XOpenNPUX schedule ABI changed");
 _Static_assert(sizeof(struct opennpux_xgraph_header) == 96,
                "XOpenNPUX graph header ABI changed");
 _Static_assert(OPENNPUX_XGRAPH_OFFSET +
                        sizeof(struct opennpux_xgraph_header) +
                        OPENNPUX_XGRAPH_MAX_COMMANDS *
-                           sizeof(struct opennpux_xgraph_command) <=
+                           (sizeof(struct opennpux_xgraph_command) +
+                            sizeof(struct opennpux_xgraph_schedule)) <=
                    OPENNPUX_XGRAPH_DATA_OFFSET,
-               "XOpenNPUX command region overlaps tensor data");
+               "XOpenNPUX command/schedule region overlaps tensor data");
 #endif
 
 #ifdef __cplusplus

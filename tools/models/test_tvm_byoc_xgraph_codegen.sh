@@ -139,7 +139,10 @@ header = struct.unpack_from("<12I2Q8I", data)
 assert header[0] == 0x5847504E
 assert header[1] == 2
 assert header[4] == 5
-assert len(data) == 96 + 5 * 64
+assert header[19] == 96 + 5 * 64
+assert header[20] == 5
+assert header[21] == 16
+assert len(data) == 96 + 5 * 64 + 5 * 16
 PY
 "${CC}" -std=c11 -Wall -Wextra -Werror -pedantic \
     -I"${ROOT_DIR}/runtime/host/include" \

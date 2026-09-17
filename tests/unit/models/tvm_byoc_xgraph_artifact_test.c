@@ -17,11 +17,20 @@ main(int argc, char **argv)
     assert(header.header_size == sizeof(header));
     assert(header.command_size == sizeof(struct opennpux_xgraph_command));
     assert(header.command_count == 5);
-    assert(header.total_size == sizeof(header) + 5 * header.command_size);
+    assert(header.reserved[OPENNPUX_XGRAPH_SCHEDULE_OFFSET] ==
+           sizeof(header) + 5 * header.command_size);
+    assert(header.reserved[OPENNPUX_XGRAPH_SCHEDULE_COUNT] == 5);
+    assert(header.reserved[OPENNPUX_XGRAPH_SCHEDULE_RECORD_SIZE] ==
+           sizeof(struct opennpux_xgraph_schedule));
+    assert(header.total_size == sizeof(header) +
+           5 * header.command_size +
+           5 * sizeof(struct opennpux_xgraph_schedule));
     assert(header.state == OPENNPUX_XGRAPH_STATE_READY);
 
     struct opennpux_xgraph_command commands[5];
     assert(fread(commands, sizeof(commands), 1, source) == 1);
+    struct opennpux_xgraph_schedule schedules[5];
+    assert(fread(schedules, sizeof(schedules), 1, source) == 1);
     assert(fgetc(source) == EOF);
     assert(fclose(source) == 0);
     const uint32_t expected_opcodes[] = {
@@ -35,6 +44,11 @@ main(int argc, char **argv)
         assert(commands[index].opcode == expected_opcodes[index]);
         assert(commands[index].command_id == index);
         assert(commands[index].data_type == OPENNPUX_XGRAPH_DTYPE_FP32);
+        assert(schedules[index].ordering_epoch == 0);
+        assert(schedules[index].allowed_engine_mask ==
+               OPENNPUX_XGRAPH_ENGINE_MASK(schedules[index].preferred_engine));
+        assert(schedules[index].dependency_mask ==
+               (index == 0 ? 0 : UINT64_C(1) << (index - 1)));
     }
     assert(commands[0].dim0 == 2);
     assert(commands[0].dim1 == 3);

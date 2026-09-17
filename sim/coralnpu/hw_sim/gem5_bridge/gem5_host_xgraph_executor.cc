@@ -11,6 +11,7 @@
 #include <limits>
 #include <vector>
 
+#include "hw_sim/gem5_bridge/gem5_npu_control_plane.h"
 #include "hw_sim/gem5_bridge/gem5_tmma_coprocessor.h"
 #include "hw_sim/gem5_bridge/xopennpux_isa.h"
 #include "opennpux/xopennpux_graph.h"
@@ -83,6 +84,28 @@ bool IsSupportedCommand(uint32_t opcode) {
   return IsSupportedPrimitive(opcode) || opcode == OPENNPUX_XGRAPH_OP_TMMA ||
          opcode == OPENNPUX_XGRAPH_OP_TDEQUANT ||
          opcode == OPENNPUX_XGRAPH_OP_TRECURRENT;
+}
+
+Gem5NpuEngine CommandEngine(uint32_t opcode) {
+  switch (opcode) {
+    case OPENNPUX_XGRAPH_OP_TDMA:
+    case OPENNPUX_XGRAPH_OP_TGATHER:
+      return Gem5NpuEngine::kTdma;
+    case OPENNPUX_XGRAPH_OP_TMMA:
+    case OPENNPUX_XGRAPH_OP_TDEQUANT:
+    case OPENNPUX_XGRAPH_OP_TCAUSALCONV:
+    case OPENNPUX_XGRAPH_OP_TATTENTION:
+    case OPENNPUX_XGRAPH_OP_TRECURRENT:
+    case OPENNPUX_XGRAPH_OP_TCONV:
+    case OPENNPUX_XGRAPH_OP_TROUTED_EXPERT:
+      return Gem5NpuEngine::kTensor;
+    case OPENNPUX_XGRAPH_OP_TRMSNORM:
+    case OPENNPUX_XGRAPH_OP_TSOFTMAX:
+    case OPENNPUX_XGRAPH_OP_TTOPK:
+      return Gem5NpuEngine::kSfu;
+    default:
+      return Gem5NpuEngine::kVector;
+  }
 }
 
 bool IsOutputRole(uint32_t role) {
@@ -690,28 +713,72 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
     }
   }
   Gem5XOpenNpuFunctionalCoprocessor coprocessor;
-  for (uint32_t index = 0; index < command_count; ++index) {
-    Gem5TmmaDispatchPacket packet = {};
-    if (!BuildPacket(commands[index], memory_base, &packet) ||
-        coprocessor.Submit(packet) != Gem5TmmaSubmitResult::kAccepted) {
-      return false;
+  for (uint32_t window_begin = 0; window_begin < command_count;
+       window_begin += Gem5NpuTaskScheduler::kCapacity) {
+    const uint32_t window_count = std::min<uint32_t>(
+        Gem5NpuTaskScheduler::kCapacity, command_count - window_begin);
+    Gem5NpuTaskScheduler scheduler;
+    scheduler.Reset();
+
+    // XGraph v2 has no dependency field. Preserve its architectural in-order
+    // semantics by generating a chain inside each scoreboard window. A future
+    // artifact revision can supply explicit masks without changing the
+    // scheduler/backend contract.
+    for (uint32_t local = 0; local < window_count; ++local) {
+      Gem5NpuTask task = {};
+      task.sequence = local;
+      task.submission_tag = commands[window_begin + local].command_id;
+      task.command_id = local;
+      task.dependency_mask =
+          local == 0 ? 0 : UINT64_C(1) << (local - 1);
+      task.engine = CommandEngine(commands[window_begin + local].opcode);
+      if (!scheduler.Submit(task)) return false;
     }
-    Gem5TmmaCompletion completion = {};
-    if (!coprocessor.ExecuteNext(memory, memory_base, &completion) ||
-        completion.error != Gem5TmmaExecutionError::kNone) {
-      return false;
+
+    for (uint32_t retired_count = 0; retired_count < window_count;
+         ++retired_count) {
+      Gem5NpuTask task = {};
+      if (!scheduler.Issue(&task)) return false;
+      const uint32_t index = window_begin + task.command_id;
+      Gem5TmmaDispatchPacket packet = {};
+      if (!BuildPacket(commands[index], memory_base, &packet) ||
+          coprocessor.Submit(packet) != Gem5TmmaSubmitResult::kAccepted) {
+        return false;
+      }
+      Gem5TmmaCompletion execution = {};
+      if (!coprocessor.ExecuteNext(memory, memory_base, &execution)) {
+        return false;
+      }
+      Gem5NpuCompletion completion = {};
+      completion.sequence = task.sequence;
+      completion.submission_tag = task.submission_tag;
+      completion.command_id = task.command_id;
+      completion.engine = task.engine;
+      completion.status = execution.error == Gem5TmmaExecutionError::kNone
+                              ? Gem5NpuCompletionStatus::kSuccess
+                              : Gem5NpuCompletionStatus::kExecutionError;
+      completion.fault_address = execution.faulting_address;
+      completion.operations =
+          execution.mac_operations + execution.element_operations;
+      completion.cycles = execution.modeled_cycles;
+      if (!scheduler.Finish(completion)) return false;
+
+      Gem5NpuCompletion retired = {};
+      if (!scheduler.Retire(&retired) ||
+          retired.status != Gem5NpuCompletionStatus::kSuccess) {
+        return false;
+      }
+      uint64_t bytes_read = 0;
+      uint64_t bytes_written = 0;
+      if (!CalculateTraffic(commands[index], &bytes_read, &bytes_written)) {
+        return false;
+      }
+      ++stats->commands;
+      stats->operations += retired.operations;
+      stats->modeled_cycles += retired.cycles;
+      stats->bytes_read += bytes_read;
+      stats->bytes_written += bytes_written;
     }
-    uint64_t bytes_read = 0;
-    uint64_t bytes_written = 0;
-    if (!CalculateTraffic(commands[index], &bytes_read, &bytes_written)) {
-      return false;
-    }
-    ++stats->commands;
-    stats->operations +=
-        completion.mac_operations + completion.element_operations;
-    stats->modeled_cycles += completion.modeled_cycles;
-    stats->bytes_read += bytes_read;
-    stats->bytes_written += bytes_written;
   }
   return true;
 }

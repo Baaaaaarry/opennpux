@@ -213,6 +213,7 @@ cc_library(
     deps = [
         ":gem5_generic_command_dispatch_headers",
         ":gem5_host_tensor_arena",
+        ":gem5_npu_control_plane",
         ":gem5_xgraph_lowering_runtime",
         ":gem5_xopennpux_functional_coprocessor",
     ],

@@ -267,6 +267,34 @@ if [ "${CORAL_NPU_LAUNCH_XOPENNPUX:-0}" = 1 ]; then
             dump_validation_context
             exit 1
         }
+        schedule_summary="$(${AWK:-awk} '
+            /xgraph_stage=submission-ready source=generic-lowering/ {
+                schedules = edges = epochs = 0
+                for (index = 1; index <= NF; ++index) {
+                    if ($index ~ /^schedules=/) {
+                        split($index, value, "=")
+                        schedules += value[2]
+                    } else if ($index ~ /^dependency_edges=/) {
+                        split($index, value, "=")
+                        edges += value[2]
+                    } else if ($index ~ /^epochs=/) {
+                        split($index, value, "=")
+                        epochs += value[2]
+                    }
+                }
+                total_schedules += schedules
+                total_edges += edges
+                total_epochs += epochs
+                batches += 1
+            }
+            END {
+                printf "batches=%u schedules=%u dependency_edges=%u epochs=%u", \
+                    batches, total_schedules, total_edges, total_epochs
+            }
+        ' "${TERMINAL}")"
+        consumed_schedules="$(grep -c 'Coral XOpenNPU schedule .*engine_mask=0x[1-9a-f]' "${HOST_LOG}")"
+        echo "xgraph_explicit_schedule=${schedule_summary} consumed=${consumed_schedules}"
+        echo "xgraph_explicit_schedule_validation=PASS"
     fi
 else
     grep -q 'source=custom-instruction' "${HOST_LOG}" || {

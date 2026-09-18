@@ -214,9 +214,26 @@ cc_library(
         ":gem5_generic_command_dispatch_headers",
         ":gem5_host_tensor_arena",
         ":gem5_npu_control_plane",
+        ":gem5_npu_engine_adapter",
         ":gem5_xgraph_lowering_runtime",
         ":gem5_xopennpux_functional_coprocessor",
     ],
+)
+
+cc_library(
+    name = "gem5_npu_engine_adapter",
+    srcs = ["gem5_bridge/gem5_npu_engine_adapter.cc"],
+    hdrs = ["gem5_bridge/gem5_npu_engine_adapter.h"],
+    deps = [
+        ":gem5_npu_control_plane",
+        ":gem5_xopennpux_functional_coprocessor",
+    ],
+)
+
+cc_test(
+    name = "gem5_npu_engine_adapter_test",
+    srcs = ["gem5_bridge/gem5_npu_engine_adapter_test.cc"],
+    deps = [":gem5_npu_engine_adapter"],
 )
 
 cc_library(

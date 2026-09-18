@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "hw_sim/gem5_bridge/gem5_npu_control_plane.h"
-#include "hw_sim/gem5_bridge/gem5_tmma_coprocessor.h"
+#include "hw_sim/gem5_bridge/gem5_npu_engine_adapter.h"
 #include "hw_sim/gem5_bridge/xopennpux_isa.h"
 #include "opennpux/xopennpux_graph.h"
 
@@ -718,7 +718,8 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
       0) {
     return false;
   }
-  Gem5XOpenNpuFunctionalCoprocessor coprocessor;
+  Gem5NpuFunctionalEngineAdapter engines;
+  engines.Reset();
   for (uint32_t window_begin = 0; window_begin < command_count;
        window_begin += Gem5NpuTaskScheduler::kCapacity) {
     const uint32_t window_count = std::min<uint32_t>(
@@ -760,19 +761,33 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
         const uint32_t index = window_begin + issued_task.command_id;
         Gem5TmmaDispatchPacket packet = {};
         if (!BuildPacket(commands[index], memory_base, &packet) ||
-            coprocessor.Submit(packet) != Gem5TmmaSubmitResult::kAccepted) {
+            !engines.CanAccept(issued_task.engine) ||
+            engines.Submit(issued_task.engine, packet) !=
+                Gem5TmmaSubmitResult::kAccepted) {
           return false;
         }
-        Gem5TmmaCompletion execution = {};
-        if (!coprocessor.ExecuteNext(memory, memory_base, &execution)) {
+      }
+      for (size_t completed = 0; completed < issued.size(); ++completed) {
+        Gem5NpuEngineCompletion engine_completion = {};
+        if (!engines.Poll(memory, memory_base, &engine_completion)) {
           return false;
         }
+        const auto issued_task = std::find_if(
+            issued.begin(), issued.end(), [&](const Gem5NpuTask& candidate) {
+              return candidate.submission_tag ==
+                     engine_completion.execution.sequence_id;
+            });
+        if (issued_task == issued.end() ||
+            issued_task->engine != engine_completion.engine) {
+          return false;
+        }
+        const Gem5TmmaCompletion& execution = engine_completion.execution;
         Gem5NpuCompletion completion = {};
-        completion.sequence = issued_task.sequence;
-        completion.submission_tag = issued_task.submission_tag;
-        completion.command_id = issued_task.command_id;
-        completion.ordering_epoch = issued_task.ordering_epoch;
-        completion.engine = issued_task.engine;
+        completion.sequence = issued_task->sequence;
+        completion.submission_tag = issued_task->submission_tag;
+        completion.command_id = issued_task->command_id;
+        completion.ordering_epoch = issued_task->ordering_epoch;
+        completion.engine = issued_task->engine;
         completion.status = execution.error == Gem5TmmaExecutionError::kNone
                                 ? Gem5NpuCompletionStatus::kSuccess
                                 : Gem5NpuCompletionStatus::kExecutionError;

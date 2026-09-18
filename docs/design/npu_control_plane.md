@@ -71,6 +71,22 @@ Telemetry reports submitted, issued, and retired tasks; dependency, epoch,
 engine-credit, and completion-backpressure stalls; and maximum in-flight and
 completion-queue occupancy.
 
+## Engine adapter boundary
+
+`Gem5NpuEngineAdapter` separates scheduling from execution. The scheduler uses
+four operations only:
+
+- `CanAccept(engine)` observes engine credit or downstream backpressure.
+- `Submit(engine, packet)` transfers one accepted XOpenNPUX operation.
+- `Poll(memory, base, completion)` returns any completed engine operation.
+- `pending_count()` exposes outstanding work for drain and fence handling.
+
+`Gem5NpuFunctionalEngineAdapter` implements this interface with the existing
+C++ functional coprocessor. A Verilator/RTL adapter must implement the same
+contract with ready/valid task submission and a completion channel. Neither
+implementation owns graph dependency policy; the shared scheduler remains the
+single source of issue and retirement decisions.
+
 ## Current boundary
 
 The C++ control-plane model validates scheduling semantics and functional

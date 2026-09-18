@@ -1732,6 +1732,10 @@ or artifact-write stage.
 
 ## 2026-09-14 MAX/Mojo frontend-neutral adapter boundary
 
+> Retired: this experimental adapter and its Modular source/toolchain
+> submodules were removed from the production tree. The frontend-neutral
+> Backend IR contract remains; TVM+BYOC is the supported frontend.
+
 新增 `OPENNPUX_MAX_GRAPH_EXPORT_V1` 与 `opennpux_mojo.MaxGraphAdapter`。MAX/Mojo
 对象只需实现 `to_opennpux_export()`，即可将命名 Tensor、通用操作、常量、状态、模块拓扑和
 有界符号 shape 交给统一 OpenNPUX Backend IR；适配器不依赖 MAX SDK，也不包含 tiling、arena、
@@ -1758,6 +1762,9 @@ MAX SDK 使用独立 `.venv/max-sdk`，由 `setup_max_sdk_env.sh` 从官方 Modu
 避免改变现有 HF numerical 与 TVM Python 依赖。
 
 ## 2026-09-14 Modular/MAX source baseline
+
+> Retired: the source bootstrap was not self-contained and still required
+> matching binary wheels. These notes are retained only as development history.
 
 新增固定版本的 `thirdparty/modular` 源码子模块，MAX Graph、Mojo/KGEN、模型与 kernel 的
 增量开发不再依赖 nightly wheel 下载。`setup_modular_source.sh` 校验子模块版本和关键源码，

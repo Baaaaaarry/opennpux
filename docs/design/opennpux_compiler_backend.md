@@ -41,11 +41,11 @@ implement the `opennpux_backend.frontend.FrontendAdapter` protocol and call
 `compile_frontend()`. The adapter has one required method:
 
 ```python
-class MojoAdapter:
-    name = "mojo-max"
+class NewFrontendAdapter:
+    name = "new-frontend"
 
-    def to_backend_ir(self, max_graph):
-        return lower_max_graph_to_opennpux_ir(max_graph)
+    def to_backend_ir(self, frontend_graph):
+        return lower_frontend_graph_to_opennpux_ir(frontend_graph)
 ```
 
 The standalone contract tool is:
@@ -110,82 +110,21 @@ An adapter must not select hardware tiles, encode custom RISC-V instructions,
 allocate the shared-DMA arena, implement GPTQ dequantization, or submit work to
 the driver. These remain backend-owned behavior.
 
-## TVM and Mojo integration
+## TVM integration and future frontends
 
-The TVM adapter is `RelaxFrontendAdapter`. It uses Relax pattern fusion and
-BYOC partitioning, then emits the neutral IR through the common
+The production adapter is `RelaxFrontendAdapter`. It uses Relax pattern fusion
+and BYOC partitioning, then emits neutral IR through the common
 `adapt_frontend()` boundary. Existing `compile_tvm_byoc_xgraph.py` and
 `compile_tvm_byoc_module.py` remain convenience frontends and compatibility
-entry points.
+entry points. Experimental MAX/Mojo integration was removed because its
+toolchain could not be built and tested reproducibly in the supported
+environment.
 
-MAX/Mojo does not implement TVM BYOC. Its adapter will register MAX Graph custom
-operations and/or Mojo custom kernels, map their graph values and attributes to
-the same neutral IR, and call `opennpux_backend.compiler`. Mojo may later
-provide native implementations of selected lowering functions, but those
-implementations must obey the same backend IR and artifact ABI rather than
-introducing a second command format.
-
-The SDK-independent MAX boundary is implemented by
-`opennpux_mojo.MaxGraphAdapter`. A MAX object may implement
-`to_opennpux_export()` or serialize `OPENNPUX_MAX_GRAPH_EXPORT_V1` directly.
-The export contains only frontend facts: named Tensors, MAX operation names,
-attributes, graph/module topology, constants, mutable state, and bounded shape
-symbols. The adapter maps these facts into common Backend IR. It does not
-allocate storage, choose tiles, encode XOpenNPUX commands, or import MAX.
-
-```text
-MAX Graph object -> to_opennpux_export() -> MaxGraphAdapter
-                 -> Backend IR specialization and capability validation
-                 -> common storage/lowering/XGraph/package/runtime path
-```
-
-An exported graph can be compiled without TVM or MAX installed:
-
-```bash
-python3 tools/models/compile_mojo_max_xgraph.py max-graph.json model.npxg \
-  --shape sequence=128
-```
-
-The SDK-independent adapter has passed the GB10 full-system gate. Its five-op
-conformance graph completed five device commands and 78 modeled operations,
-and the device readback matched an independently generated CPU reference with
-zero error. The same run retained all TVM/ONNX, stateful, KV-attention, mixed
-Host/device, and module-reuse gates. Native MAX SDK extraction is therefore an
-adapter-only task; it must not change Backend IR lowering or runtime behavior.
-
-`MaxExportBuilder` is the SDK-facing implementation of that adapter-only task.
-It records public `TensorValue`/`BufferValue` shape and dtype properties while
-the application constructs the MAX Graph. `call()` invokes the real MAX op and
-records the same input/output values and attributes in the sidecar export. This
-avoids unsupported traversal of MAX's private MLIR or internal operation list.
-Dynamic dimensions require explicit bounds before a Tensor is registered.
-
-Validate the public SDK integration on a host with MAX installed:
-
-```bash
-./tools/models/setup_max_sdk_env.sh
-.venv/max-sdk/bin/python tools/models/test_max_sdk_opennpux_export.py \
-  build/max-sdk-projection.npxg --require-max \
-  --lowering-library build/local-tests/mojo-max-xgraph/libopennpux_xgraph_codegen.so
-```
-
-Acceptance requires `max_sdk_commands=1` and `max_sdk_export=PASS`. Hosts
-without MAX print an explicit SKIP unless `--require-max` is supplied.
-
-For compiler and device-backend development, the preferred path is the pinned
-`thirdparty/modular` source submodule rather than the nightly wheel:
-
-```bash
-./tools/models/setup_modular_source.sh
-./tools/models/test_modular_source_integration.sh
-```
-
-The source tree is an upstream frontend/model/kernel dependency. OpenNPUX
-device discovery, allocation, synchronization, command submission, Backend IR,
-tiling and XGraph encoding remain in the main repository. This boundary is
-intentional: it makes the device backend reusable from TVM and MAX/Mojo and
-does not assume that MAX's low-level runtime bindings are open for extension.
-See `integrations/modular/README.md` for the source and patch policy.
+Future frontend adapters must emit the same Backend IR and reuse capability
+validation, storage planning, lowering, packaging, and runtime submission.
+Frontend-specific SDK objects and build dependencies must remain outside the
+backend and require a reproducible build and conformance test before entering
+the production tree.
 
 ## Migration plan
 

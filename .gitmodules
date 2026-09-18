@@ -6,28 +6,3 @@
 	path = thirdparty/coralnpu
 	url = https://github.com/google-coral/coralnpu.git
 	ignore = dirty
-[submodule "thirdparty/modular"]
-	path = thirdparty/modular
-	url = https://github.com/modular/modular.git
-	ignore = dirty
-[submodule "thirdparty/rules_mojo"]
-	path = thirdparty/rules_mojo
-	url = https://github.com/modular/rules_mojo.git
-	ignore = dirty
-[submodule "thirdparty/rules_cc"]
-	path = thirdparty/rules_cc
-	url = https://github.com/bazelbuild/rules_cc.git
-	ignore = dirty
-[submodule "thirdparty/bats-core"]
-	path = thirdparty/bats-core
-	url = https://github.com/bats-core/bats-core.git
-	ignore = dirty
-[submodule "thirdparty/rules_mojo"]
-	path = thirdparty/rules_mojo
-	url = https://github.com/modular/rules_mojo.git
-[submodule "thirdparty/rules_cc"]
-	path = thirdparty/rules_cc
-	url = https://github.com/bazelbuild/rules_cc.git
-[submodule "thirdparty/bats-core"]
-	path = thirdparty/bats-core
-	url = https://github.com/bats-core/bats-core.git

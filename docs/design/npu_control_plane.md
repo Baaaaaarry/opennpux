@@ -74,10 +74,13 @@ completion-queue occupancy.
 ## Current boundary
 
 The C++ control-plane model validates scheduling semantics and functional
-execution. The Coral guest instruction stream is still issued in program order,
-and modeled cycles do not yet account for overlap between independent engines.
-RTL integration must therefore replace the scheduler and engine timing behind
-the same schedule/command ABI, then demonstrate:
+execution. The Host XGraph executor issues the complete ready set before it
+collects completions, so independent engine classes create observable in-flight
+and completion-queue occupancy. Engine kernels still execute synchronously and
+modeled cycles do not yet account for overlap. The Coral guest instruction
+stream also remains program ordered. RTL integration must therefore replace
+engine timing and the guest-side scheduler behind the same schedule/command
+ABI, then demonstrate:
 
 1. Concurrent issue of independent commands to different engines.
 2. Correct RAW/WAR/WAW and epoch blocking.

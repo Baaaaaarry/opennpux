@@ -744,50 +744,64 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
       if (!scheduler.Submit(task)) return false;
     }
 
-    for (uint32_t retired_count = 0; retired_count < window_count;
-         ++retired_count) {
+    uint32_t retired_count = 0;
+    while (retired_count < window_count) {
+      std::vector<Gem5NpuTask> issued;
       Gem5NpuTask task = {};
-      if (!scheduler.Issue(&task)) return false;
-      const uint32_t index = window_begin + task.command_id;
-      Gem5TmmaDispatchPacket packet = {};
-      if (!BuildPacket(commands[index], memory_base, &packet) ||
-          coprocessor.Submit(packet) != Gem5TmmaSubmitResult::kAccepted) {
-        return false;
+      while (scheduler.Issue(&task)) {
+        issued.push_back(task);
       }
-      Gem5TmmaCompletion execution = {};
-      if (!coprocessor.ExecuteNext(memory, memory_base, &execution)) {
-        return false;
-      }
-      Gem5NpuCompletion completion = {};
-      completion.sequence = task.sequence;
-      completion.submission_tag = task.submission_tag;
-      completion.command_id = task.command_id;
-      completion.ordering_epoch = task.ordering_epoch;
-      completion.engine = task.engine;
-      completion.status = execution.error == Gem5TmmaExecutionError::kNone
-                              ? Gem5NpuCompletionStatus::kSuccess
-                              : Gem5NpuCompletionStatus::kExecutionError;
-      completion.fault_address = execution.faulting_address;
-      completion.operations =
-          execution.mac_operations + execution.element_operations;
-      completion.cycles = execution.modeled_cycles;
-      if (!scheduler.Finish(completion)) return false;
+      if (issued.empty()) return false;
 
+      // Functional engines execute synchronously, but issuing the ready set
+      // first preserves engine credits, dependency stalls, and completion
+      // ordering for the future RTL implementation.
+      for (const Gem5NpuTask& issued_task : issued) {
+        const uint32_t index = window_begin + issued_task.command_id;
+        Gem5TmmaDispatchPacket packet = {};
+        if (!BuildPacket(commands[index], memory_base, &packet) ||
+            coprocessor.Submit(packet) != Gem5TmmaSubmitResult::kAccepted) {
+          return false;
+        }
+        Gem5TmmaCompletion execution = {};
+        if (!coprocessor.ExecuteNext(memory, memory_base, &execution)) {
+          return false;
+        }
+        Gem5NpuCompletion completion = {};
+        completion.sequence = issued_task.sequence;
+        completion.submission_tag = issued_task.submission_tag;
+        completion.command_id = issued_task.command_id;
+        completion.ordering_epoch = issued_task.ordering_epoch;
+        completion.engine = issued_task.engine;
+        completion.status = execution.error == Gem5TmmaExecutionError::kNone
+                                ? Gem5NpuCompletionStatus::kSuccess
+                                : Gem5NpuCompletionStatus::kExecutionError;
+        completion.fault_address = execution.faulting_address;
+        completion.operations =
+            execution.mac_operations + execution.element_operations;
+        completion.cycles = execution.modeled_cycles;
+        if (!scheduler.Finish(completion)) return false;
+      }
+
+      bool made_retirement_progress = false;
       Gem5NpuCompletion retired = {};
-      if (!scheduler.Retire(&retired) ||
-          retired.status != Gem5NpuCompletionStatus::kSuccess) {
-        return false;
+      while (scheduler.Retire(&retired)) {
+        if (retired.status != Gem5NpuCompletionStatus::kSuccess) return false;
+        const uint32_t index = window_begin + retired.command_id;
+        uint64_t bytes_read = 0;
+        uint64_t bytes_written = 0;
+        if (!CalculateTraffic(commands[index], &bytes_read, &bytes_written)) {
+          return false;
+        }
+        ++stats->commands;
+        stats->operations += retired.operations;
+        stats->modeled_cycles += retired.cycles;
+        stats->bytes_read += bytes_read;
+        stats->bytes_written += bytes_written;
+        ++retired_count;
+        made_retirement_progress = true;
       }
-      uint64_t bytes_read = 0;
-      uint64_t bytes_written = 0;
-      if (!CalculateTraffic(commands[index], &bytes_read, &bytes_written)) {
-        return false;
-      }
-      ++stats->commands;
-      stats->operations += retired.operations;
-      stats->modeled_cycles += retired.cycles;
-      stats->bytes_read += bytes_read;
-      stats->bytes_written += bytes_written;
+      if (!made_retirement_progress) return false;
     }
     const Gem5NpuSchedulerStats& scheduler_stats = scheduler.stats();
     stats->scheduler_tasks_issued += scheduler_stats.tasks_issued;

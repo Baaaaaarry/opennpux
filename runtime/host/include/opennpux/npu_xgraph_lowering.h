@@ -284,6 +284,18 @@ int opennpux_npu_xgraph_build_schedule(
     const struct opennpux_xgraph_command *commands, uint32_t command_count,
     struct opennpux_xgraph_schedule *schedules, uint32_t schedule_capacity);
 
+/*
+ * Refine the baseline schedule using generic request tensor ranges. Commands
+ * emitted from one request remain ordered; commands from different requests
+ * receive dependencies only for overlapping RAW, WAR, or WAW accesses.
+ */
+int opennpux_npu_xgraph_build_request_schedule(
+    const struct opennpux_xgraph_command *commands,
+    const uint32_t *command_origins, uint32_t command_count,
+    const struct opennpux_npu_functional_request *requests,
+    uint32_t request_count, struct opennpux_xgraph_schedule *schedules,
+    uint32_t schedule_capacity);
+
 #ifdef __cplusplus
 }
 #endif

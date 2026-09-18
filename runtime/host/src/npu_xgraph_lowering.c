@@ -73,6 +73,126 @@ opennpux_npu_xgraph_build_schedule(
     return 0;
 }
 
+static int
+opennpux_npu_xgraph_operand_is_write(uint32_t role)
+{
+    switch (role) {
+      case OPENNPUX_NPU_OPERAND_OUTPUT:
+      case OPENNPUX_NPU_OPERAND_OUTPUT_INDICES:
+      case OPENNPUX_NPU_OPERAND_GATE_OUTPUT:
+      case OPENNPUX_NPU_OPERAND_UP_OUTPUT:
+      case OPENNPUX_NPU_OPERAND_ACTIVATED:
+      case OPENNPUX_NPU_OPERAND_OUTPUT_SECONDARY:
+      case OPENNPUX_NPU_OPERAND_OUTPUT_TERTIARY:
+      case OPENNPUX_NPU_OPERAND_OUTPUT_QUATERNARY:
+        return 1;
+      default:
+        return 0;
+    }
+}
+
+static int
+opennpux_npu_xgraph_ranges_overlap(
+    const struct opennpux_npu_functional_operand *lhs,
+    const struct opennpux_npu_functional_operand *rhs)
+{
+    const uint64_t lhs_end = (uint64_t)lhs->address + lhs->byte_size;
+    const uint64_t rhs_end = (uint64_t)rhs->address + rhs->byte_size;
+    return lhs->byte_size != 0 && rhs->byte_size != 0 &&
+        lhs->address < rhs_end && rhs->address < lhs_end;
+}
+
+static int
+opennpux_npu_xgraph_requests_conflict(
+    const struct opennpux_npu_functional_request *earlier,
+    const struct opennpux_npu_functional_request *later)
+{
+    for (uint32_t lhs_index = 0; lhs_index < earlier->operand_count;
+         ++lhs_index) {
+        const struct opennpux_npu_functional_operand *lhs =
+            &earlier->operands[lhs_index];
+        const int lhs_write = opennpux_npu_xgraph_operand_is_write(lhs->role);
+        for (uint32_t rhs_index = 0; rhs_index < later->operand_count;
+             ++rhs_index) {
+            const struct opennpux_npu_functional_operand *rhs =
+                &later->operands[rhs_index];
+            const int rhs_write =
+                opennpux_npu_xgraph_operand_is_write(rhs->role);
+            if ((lhs_write || rhs_write) &&
+                opennpux_npu_xgraph_ranges_overlap(lhs, rhs)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static const struct opennpux_npu_functional_request *
+opennpux_npu_xgraph_find_request(
+    const struct opennpux_npu_functional_request *requests,
+    uint32_t request_count, uint32_t command_id)
+{
+    for (uint32_t index = 0; index < request_count; ++index) {
+        if (requests[index].command_id == command_id) {
+            return &requests[index];
+        }
+    }
+    return NULL;
+}
+
+int
+opennpux_npu_xgraph_build_request_schedule(
+    const struct opennpux_xgraph_command *commands,
+    const uint32_t *command_origins, uint32_t command_count,
+    const struct opennpux_npu_functional_request *requests,
+    uint32_t request_count, struct opennpux_xgraph_schedule *schedules,
+    uint32_t schedule_capacity)
+{
+    if (command_origins == NULL || requests == NULL || request_count == 0 ||
+        opennpux_npu_xgraph_build_schedule(
+            commands, command_count, schedules, schedule_capacity) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    for (uint32_t index = 0; index < command_count; ++index) {
+        const uint32_t local_id = index % 64;
+        uint64_t dependencies = 0;
+        const struct opennpux_npu_functional_request *current =
+            opennpux_npu_xgraph_find_request(
+                requests, request_count, command_origins[index]);
+        if (current == NULL) {
+            errno = EINVAL;
+            return -1;
+        }
+        if (local_id != 0 &&
+            command_origins[index - 1] == command_origins[index]) {
+            dependencies |= UINT64_C(1) << (local_id - 1);
+        } else {
+            for (uint32_t prior = index; prior > index - local_id; --prior) {
+                const uint32_t prior_index = prior - 1;
+                if (prior_index + 1 < command_count &&
+                    command_origins[prior_index] ==
+                        command_origins[prior_index + 1]) {
+                    continue;
+                }
+                const struct opennpux_npu_functional_request *earlier =
+                    opennpux_npu_xgraph_find_request(
+                        requests, request_count,
+                        command_origins[prior_index]);
+                if (earlier == NULL) {
+                    errno = EINVAL;
+                    return -1;
+                }
+                if (opennpux_npu_xgraph_requests_conflict(earlier, current)) {
+                    dependencies |= UINT64_C(1) << (prior_index % 64);
+                }
+            }
+        }
+        schedules[index].dependency_mask = dependencies;
+    }
+    return 0;
+}
+
 static const struct opennpux_npu_functional_operand *
 find_operand(const struct opennpux_npu_functional_request *request,
              uint32_t role)

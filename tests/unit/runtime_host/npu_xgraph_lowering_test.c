@@ -1318,6 +1318,55 @@ test_explicit_schedule_generation(void)
                commands, count, schedules, count) == -1);
 }
 
+static void
+test_request_hazard_schedule(void)
+{
+    enum { request_count = 4, command_count = 5 };
+    struct opennpux_npu_functional_request requests[request_count];
+    struct opennpux_npu_operator_parameters parameters[request_count];
+    struct opennpux_xgraph_command commands[command_count];
+    struct opennpux_xgraph_schedule schedules[command_count];
+    uint32_t origins[command_count] = {0, 1, 2, 3, 3};
+    memset(commands, 0, sizeof(commands));
+    for (uint32_t index = 0; index < request_count; ++index) {
+        initialize(&requests[index], &parameters[index],
+                   OPENNPUX_NPU_OP_ADD);
+        requests[index].command_id = index;
+    }
+    add_operand(&requests[0], OPENNPUX_NPU_OPERAND_OUTPUT,
+                EXTMEM_BASE + 0x1000, 64);
+    add_operand(&requests[1], OPENNPUX_NPU_OPERAND_INPUT,
+                EXTMEM_BASE + 0x2000, 64);
+    add_operand(&requests[1], OPENNPUX_NPU_OPERAND_OUTPUT,
+                EXTMEM_BASE + 0x3000, 64);
+    add_operand(&requests[2], OPENNPUX_NPU_OPERAND_INPUT,
+                EXTMEM_BASE + 0x1010, 16);
+    add_operand(&requests[2], OPENNPUX_NPU_OPERAND_OUTPUT,
+                EXTMEM_BASE + 0x4000, 16);
+    add_operand(&requests[3], OPENNPUX_NPU_OPERAND_INPUT,
+                EXTMEM_BASE + 0x5000, 64);
+    add_operand(&requests[3], OPENNPUX_NPU_OPERAND_OUTPUT,
+                EXTMEM_BASE + 0x2000, 64);
+    for (uint32_t index = 0; index < command_count; ++index) {
+        commands[index].command_id = index;
+        commands[index].opcode = OPENNPUX_XGRAPH_OP_TADD;
+    }
+
+    assert(opennpux_npu_xgraph_build_request_schedule(
+               commands, origins, command_count, requests, request_count,
+               schedules, command_count) == 0);
+    assert(schedules[0].dependency_mask == 0);
+    assert(schedules[1].dependency_mask == 0);
+    assert(schedules[2].dependency_mask == UINT64_C(1) << 0);
+    assert(schedules[3].dependency_mask == UINT64_C(1) << 1);
+    assert(schedules[4].dependency_mask == UINT64_C(1) << 3);
+
+    origins[4] = 99;
+    assert(opennpux_npu_xgraph_build_request_schedule(
+               commands, origins, command_count, requests, request_count,
+               schedules, command_count) == -1);
+}
+
 int
 main(void)
 {
@@ -1343,6 +1392,7 @@ main(void)
     test_attention_projection_lowering();
     test_routed_expert_lowering();
     test_explicit_schedule_generation();
+    test_request_hazard_schedule();
     puts("NPU XGraph primitive lowering test: PASS");
     return 0;
 }

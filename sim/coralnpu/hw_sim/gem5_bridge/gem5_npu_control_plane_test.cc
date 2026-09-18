@@ -103,6 +103,34 @@ void TestOutOfOrderCompletionRetiresInOrder() {
   assert(scheduler.Retire(&retired) && retired.sequence == second.sequence);
 }
 
+void TestIndependentEnginesIssueConcurrently() {
+  Gem5NpuTaskScheduler scheduler;
+  scheduler.Reset();
+  const Gem5NpuTask tdma = Task(20, 0, 0, Gem5NpuEngine::kTdma);
+  const Gem5NpuTask tensor = Task(21, 1, 0, Gem5NpuEngine::kTensor);
+  const Gem5NpuTask dependent =
+      Task(22, 2, UINT64_C(1) << 1, Gem5NpuEngine::kVector);
+  assert(scheduler.Submit(tdma));
+  assert(scheduler.Submit(tensor));
+  assert(scheduler.Submit(dependent));
+
+  Gem5NpuTask first = {};
+  Gem5NpuTask second = {};
+  assert(scheduler.Issue(&first));
+  assert(scheduler.Issue(&second));
+  assert(first.command_id == 0 && second.command_id == 1);
+  assert(scheduler.inflight_count() == 2);
+  Gem5NpuTask blocked = {};
+  assert(!scheduler.Issue(&blocked));
+
+  assert(scheduler.Finish(Completion(second)));
+  assert(!scheduler.Retire(nullptr));
+  assert(scheduler.Finish(Completion(first)));
+  assert(scheduler.Retire(nullptr));
+  assert(scheduler.Retire(nullptr));
+  assert(scheduler.Issue(&blocked) && blocked.command_id == 2);
+}
+
 }  // namespace
 
 int main() {
@@ -110,5 +138,6 @@ int main() {
   TestEngineCreditsAndEpochFence();
   TestCompletionErrorsDoNotSatisfyDependencies();
   TestOutOfOrderCompletionRetiresInOrder();
+  TestIndependentEnginesIssueConcurrently();
   return 0;
 }

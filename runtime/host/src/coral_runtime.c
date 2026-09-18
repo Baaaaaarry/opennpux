@@ -1908,8 +1908,9 @@ opennpux_coral_xgraph_test(
         if (run_result != 0) {
             break;
         }
-        if (opennpux_npu_xgraph_build_schedule(
-                commands, commands_emitted, schedules,
+        if (opennpux_npu_xgraph_build_request_schedule(
+                commands, command_origins, commands_emitted,
+                requests + request_offset, requests_consumed, schedules,
                 command_capacity) != 0) {
             run_errno = errno == 0 ? EIO : errno;
             run_result = -1;
@@ -1956,6 +1957,14 @@ opennpux_coral_xgraph_test(
         header->reserved[OPENNPUX_XGRAPH_SCHEDULE_COUNT] = commands_emitted;
         header->reserved[OPENNPUX_XGRAPH_SCHEDULE_RECORD_SIZE] =
             sizeof(schedules[0]);
+        uint32_t dependency_edges = 0;
+        for (uint32_t index = 0; index < commands_emitted; ++index) {
+            uint64_t mask = schedules[index].dependency_mask;
+            while (mask != 0) {
+                dependency_edges += (uint32_t)(mask & 1U);
+                mask >>= 1;
+            }
+        }
         __sync_synchronize();
         header->state = OPENNPUX_XGRAPH_STATE_READY;
         __sync_synchronize();
@@ -1966,7 +1975,7 @@ opennpux_coral_xgraph_test(
                 " dependency_edges=%" PRIu32 " epochs=%" PRIu32
                 " final=%d\n",
                 batch, requests_consumed, commands_emitted, commands_emitted,
-                commands_emitted - 1, (commands_emitted + 63) / 64,
+                dependency_edges, (commands_emitted + 63) / 64,
                 final_batch);
 
         run_result =

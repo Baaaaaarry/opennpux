@@ -2123,6 +2123,16 @@ print_xgraph_test(struct opennpux_coral_device *dev, uint32_t entry,
            result.completed_requests);
     printf("xgraph_completed_commands=%" PRIu32 "\n",
            result.completed_commands);
+    printf("xgraph_schedule_count=%" PRIu32 "\n", result.schedule_count);
+    printf("xgraph_dependency_edges=%" PRIu32 "\n",
+           result.dependency_edge_count);
+    printf("xgraph_ordering_epochs=%" PRIu32 "\n",
+           result.ordering_epoch_count);
+    printf("xgraph_explicit_schedule_validation=%s\n",
+           result.schedule_count == result.completed_commands &&
+                   result.schedule_count != 0
+               ? "PASS"
+               : "FAIL");
     printf("xgraph_output=");
     for (uint32_t i = 0; i < result.output_count &&
                          i < OPENNPUX_CORAL_GENERIC_TEST_OUTPUT_COUNT; ++i) {

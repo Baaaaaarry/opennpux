@@ -2008,12 +2008,16 @@ opennpux_coral_xgraph_test(
         ++result->batch_count;
         result->completed_requests += requests_consumed;
         result->completed_commands += commands_emitted;
+        result->schedule_count += commands_emitted;
+        result->dependency_edge_count += dependency_edges;
+        result->ordering_epoch_count += (commands_emitted + 63) / 64;
         final_batch_commands = commands_emitted;
         request_offset += requests_consumed;
         total_commands += commands_emitted;
     }
     if (run_result != 0 || result->completed_requests != request_count ||
-        result->completed_commands != 35 || result->batch_count != 5) {
+        result->completed_commands != 35 || result->schedule_count != 35 ||
+        result->batch_count != 5) {
         opennpux_coral_close_shared_window(&window);
         errno = run_errno == 0 ? EIO : run_errno;
         return -1;

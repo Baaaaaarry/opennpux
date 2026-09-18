@@ -447,6 +447,24 @@ bool Gem5HostFunctionalGraph::Execute(
         stats_.xgraph_commands += xgraph.commands;
         stats_.xgraph_operations += xgraph.operations;
         stats_.xgraph_modeled_cycles += xgraph.modeled_cycles;
+        stats_.xgraph_scheduler_tasks_issued +=
+            xgraph.scheduler_tasks_issued;
+        stats_.xgraph_scheduler_tasks_retired +=
+            xgraph.scheduler_tasks_retired;
+        stats_.xgraph_scheduler_dependency_stalls +=
+            xgraph.scheduler_dependency_stalls;
+        stats_.xgraph_scheduler_epoch_stalls +=
+            xgraph.scheduler_epoch_stalls;
+        stats_.xgraph_scheduler_engine_credit_stalls +=
+            xgraph.scheduler_engine_credit_stalls;
+        stats_.xgraph_scheduler_completion_backpressure_stalls +=
+            xgraph.scheduler_completion_backpressure_stalls;
+        stats_.xgraph_scheduler_max_inflight = std::max(
+            stats_.xgraph_scheduler_max_inflight,
+            xgraph.scheduler_max_inflight);
+        stats_.xgraph_scheduler_max_completion_queue = std::max(
+            stats_.xgraph_scheduler_max_completion_queue,
+            xgraph.scheduler_max_completion_queue);
         if (request->opcode < 32) {
           ++stats_.xgraph_opcodes[request->opcode];
         }

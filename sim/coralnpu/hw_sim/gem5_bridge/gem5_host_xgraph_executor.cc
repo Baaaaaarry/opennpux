@@ -789,6 +789,20 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
       stats->bytes_read += bytes_read;
       stats->bytes_written += bytes_written;
     }
+    const Gem5NpuSchedulerStats& scheduler_stats = scheduler.stats();
+    stats->scheduler_tasks_issued += scheduler_stats.tasks_issued;
+    stats->scheduler_tasks_retired += scheduler_stats.tasks_retired;
+    stats->scheduler_dependency_stalls += scheduler_stats.dependency_stalls;
+    stats->scheduler_epoch_stalls += scheduler_stats.epoch_stalls;
+    stats->scheduler_engine_credit_stalls +=
+        scheduler_stats.engine_credit_stalls;
+    stats->scheduler_completion_backpressure_stalls +=
+        scheduler_stats.completion_backpressure_stalls;
+    stats->scheduler_max_inflight = std::max<uint32_t>(
+        stats->scheduler_max_inflight, scheduler_stats.max_inflight);
+    stats->scheduler_max_completion_queue = std::max<uint32_t>(
+        stats->scheduler_max_completion_queue,
+        scheduler_stats.max_completion_queue);
   }
   return true;
 }

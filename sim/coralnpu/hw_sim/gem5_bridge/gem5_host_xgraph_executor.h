@@ -19,6 +19,14 @@ struct Gem5HostXGraphExecutionStats {
   uint64_t modeled_cycles = 0;
   uint64_t bytes_read = 0;
   uint64_t bytes_written = 0;
+  uint64_t scheduler_tasks_issued = 0;
+  uint64_t scheduler_tasks_retired = 0;
+  uint64_t scheduler_dependency_stalls = 0;
+  uint64_t scheduler_epoch_stalls = 0;
+  uint64_t scheduler_engine_credit_stalls = 0;
+  uint64_t scheduler_completion_backpressure_stalls = 0;
+  uint32_t scheduler_max_inflight = 0;
+  uint32_t scheduler_max_completion_queue = 0;
 };
 
 // Lowers one generic request and executes its XOpenNPUX instruction sequence

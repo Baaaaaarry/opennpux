@@ -84,6 +84,7 @@ void Gem5NpuTaskScheduler::Reset() {
   completions_.Reset();
   pending_count_ = 0;
   inflight_count_ = 0;
+  stats_ = {};
 }
 
 void Gem5NpuTaskScheduler::SetEngineCredits(Gem5NpuEngine engine,
@@ -104,6 +105,7 @@ bool Gem5NpuTaskScheduler::Submit(const Gem5NpuTask& task) {
   entry->task = task;
   entry->state = State::kPending;
   ++pending_count_;
+  ++stats_.tasks_submitted;
   return true;
 }
 
@@ -118,22 +120,43 @@ bool Gem5NpuTaskScheduler::OlderEpochPending(const Gem5NpuTask& task) const {
 }
 
 bool Gem5NpuTaskScheduler::Issue(Gem5NpuTask* task) {
-  if (task == nullptr || completions_.full()) return false;
+  if (task == nullptr) return false;
+  if (completions_.full()) {
+    ++stats_.completion_backpressure_stalls;
+    return false;
+  }
+  bool dependency_blocked = false;
+  bool epoch_blocked = false;
+  bool credit_blocked = false;
   for (Entry& entry : entries_) {
     const size_t engine = EngineIndex(entry.task.engine);
-    if (entry.state != State::kPending ||
-        !scoreboard_.Ready(entry.task.dependency_mask) ||
-        OlderEpochPending(entry.task) ||
-        engine_inflight_[engine] >= engine_credits_[engine]) {
+    if (entry.state != State::kPending) {
+      continue;
+    }
+    if (!scoreboard_.Ready(entry.task.dependency_mask)) {
+      dependency_blocked = true;
+      continue;
+    }
+    if (OlderEpochPending(entry.task)) {
+      epoch_blocked = true;
+      continue;
+    }
+    if (engine_inflight_[engine] >= engine_credits_[engine]) {
+      credit_blocked = true;
       continue;
     }
     entry.state = State::kIssued;
     ++engine_inflight_[engine];
     ++inflight_count_;
     --pending_count_;
+    ++stats_.tasks_issued;
+    stats_.max_inflight = std::max(stats_.max_inflight, inflight_count_);
     *task = entry.task;
     return true;
   }
+  stats_.dependency_stalls += dependency_blocked ? 1 : 0;
+  stats_.epoch_stalls += epoch_blocked ? 1 : 0;
+  stats_.engine_credit_stalls += credit_blocked ? 1 : 0;
   return false;
 }
 
@@ -148,6 +171,8 @@ bool Gem5NpuTaskScheduler::Finish(const Gem5NpuCompletion& completion) {
     const size_t engine = EngineIndex(entry.task.engine);
     --engine_inflight_[engine];
     --inflight_count_;
+    stats_.max_completion_queue =
+        std::max(stats_.max_completion_queue, completions_.size());
     return true;
   }
   return false;
@@ -175,6 +200,7 @@ bool Gem5NpuTaskScheduler::Retire(Gem5NpuCompletion* completion) {
         scoreboard_.Complete(entry.task.command_id);
       }
       entry = {};
+      ++stats_.tasks_retired;
       if (completion != nullptr) *completion = front;
       return true;
     }

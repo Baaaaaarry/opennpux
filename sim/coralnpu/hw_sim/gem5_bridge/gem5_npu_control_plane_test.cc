@@ -129,6 +129,12 @@ void TestIndependentEnginesIssueConcurrently() {
   assert(scheduler.Retire(nullptr));
   assert(scheduler.Retire(nullptr));
   assert(scheduler.Issue(&blocked) && blocked.command_id == 2);
+  assert(scheduler.stats().tasks_submitted == 3);
+  assert(scheduler.stats().tasks_issued == 3);
+  assert(scheduler.stats().tasks_retired == 2);
+  assert(scheduler.stats().dependency_stalls == 1);
+  assert(scheduler.stats().max_inflight == 2);
+  assert(scheduler.stats().max_completion_queue == 2);
 }
 
 }  // namespace

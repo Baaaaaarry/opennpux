@@ -813,6 +813,29 @@ int main(int argc, char** argv) {
     std::printf("host_functional_xgraph_modeled_cycles=%llu\n",
                 static_cast<unsigned long long>(
                     graph.stats().xgraph_modeled_cycles));
+    std::printf("host_functional_xgraph_scheduler_tasks_issued=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().xgraph_scheduler_tasks_issued));
+    std::printf("host_functional_xgraph_scheduler_tasks_retired=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().xgraph_scheduler_tasks_retired));
+    std::printf("host_functional_xgraph_scheduler_dependency_stalls=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().xgraph_scheduler_dependency_stalls));
+    std::printf("host_functional_xgraph_scheduler_epoch_stalls=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().xgraph_scheduler_epoch_stalls));
+    std::printf("host_functional_xgraph_scheduler_engine_credit_stalls=%llu\n",
+                static_cast<unsigned long long>(
+                    graph.stats().xgraph_scheduler_engine_credit_stalls));
+    std::printf(
+        "host_functional_xgraph_scheduler_completion_backpressure_stalls=%llu\n",
+        static_cast<unsigned long long>(
+            graph.stats().xgraph_scheduler_completion_backpressure_stalls));
+    std::printf("host_functional_xgraph_scheduler_max_inflight=%u\n",
+                graph.stats().xgraph_scheduler_max_inflight);
+    std::printf("host_functional_xgraph_scheduler_max_completion_queue=%u\n",
+                graph.stats().xgraph_scheduler_max_completion_queue);
     for (uint32_t opcode = 0; opcode < 32; ++opcode) {
       if (graph.stats().xgraph_opcodes[opcode] != 0) {
         std::printf("host_functional_xgraph_opcode_%u=%llu\n", opcode,

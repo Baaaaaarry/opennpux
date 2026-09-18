@@ -41,6 +41,18 @@ struct Gem5NpuCompletion {
   uint64_t cycles = 0;
 };
 
+struct Gem5NpuSchedulerStats {
+  uint64_t tasks_submitted = 0;
+  uint64_t tasks_issued = 0;
+  uint64_t tasks_retired = 0;
+  uint64_t dependency_stalls = 0;
+  uint64_t epoch_stalls = 0;
+  uint64_t engine_credit_stalls = 0;
+  uint64_t completion_backpressure_stalls = 0;
+  size_t max_inflight = 0;
+  size_t max_completion_queue = 0;
+};
+
 // Tracks retirement, not execution. A dependency becomes visible only after
 // its completion record is committed in program order.
 class Gem5NpuDependencyScoreboard {
@@ -95,6 +107,7 @@ class Gem5NpuTaskScheduler {
   size_t inflight_count() const { return inflight_count_; }
   size_t completion_count() const { return completions_.size(); }
   const Gem5NpuDependencyScoreboard& scoreboard() const { return scoreboard_; }
+  const Gem5NpuSchedulerStats& stats() const { return stats_; }
 
  private:
   enum class State : uint8_t { kEmpty, kPending, kIssued, kFinished };
@@ -113,6 +126,7 @@ class Gem5NpuTaskScheduler {
   Gem5NpuCompletionQueue completions_;
   size_t pending_count_ = 0;
   size_t inflight_count_ = 0;
+  Gem5NpuSchedulerStats stats_{};
 };
 
 #endif  // HW_SIM_GEM5_BRIDGE_GEM5_NPU_CONTROL_PLANE_H_

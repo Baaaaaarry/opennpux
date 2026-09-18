@@ -44,6 +44,14 @@ struct Gem5HostFunctionalGraphStats {
   uint64_t xgraph_commands;
   uint64_t xgraph_operations;
   uint64_t xgraph_modeled_cycles;
+  uint64_t xgraph_scheduler_tasks_issued;
+  uint64_t xgraph_scheduler_tasks_retired;
+  uint64_t xgraph_scheduler_dependency_stalls;
+  uint64_t xgraph_scheduler_epoch_stalls;
+  uint64_t xgraph_scheduler_engine_credit_stalls;
+  uint64_t xgraph_scheduler_completion_backpressure_stalls;
+  uint32_t xgraph_scheduler_max_inflight;
+  uint32_t xgraph_scheduler_max_completion_queue;
   uint64_t xgraph_opcodes[32];
   uint64_t xgraph_fallback_requests;
   uint64_t xgraph_fallback_opcodes[32];

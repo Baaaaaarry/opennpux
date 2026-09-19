@@ -40,5 +40,23 @@ int main() {
   const float* output = reinterpret_cast<const float*>(memory.data() + 32);
   for (size_t index = 0; index < 4; ++index) assert(output[index] == 5.0f);
   assert(adapter.pending_count() == 0);
+
+  adapter.Reset();
+  Gem5TmmaDispatchPacket slow = packet;
+  slow.sequence_id = 8;
+  slow.rd_value = UINT32_C(0x20000020);
+  Gem5TmmaDispatchPacket fast = packet;
+  fast.sequence_id = 9;
+  fast.rd_value = UINT32_C(0x20000020);
+  assert(adapter.Submit(Gem5NpuEngine::kTensor, slow) ==
+         Gem5TmmaSubmitResult::kAccepted);
+  assert(adapter.Submit(Gem5NpuEngine::kTdma, fast) ==
+         Gem5TmmaSubmitResult::kAccepted);
+  assert(adapter.Poll(&memory, UINT32_C(0x20000000), &completion));
+  assert(completion.engine == Gem5NpuEngine::kTdma);
+  assert(completion.execution.sequence_id == 9);
+  assert(adapter.Poll(&memory, UINT32_C(0x20000000), &completion));
+  assert(completion.engine == Gem5NpuEngine::kTensor);
+  assert(completion.execution.sequence_id == 8);
   return 0;
 }

@@ -816,7 +816,9 @@ bool ExecuteCommands(const std::vector<opennpux_xgraph_command>& commands,
         ++retired_count;
         made_retirement_progress = true;
       }
-      if (!made_retirement_progress) return false;
+      // Out-of-order completions may wait in the completion queue until an
+      // older sequence finishes. Completing work is still forward progress.
+      if (!made_retirement_progress && issued.empty()) return false;
     }
     const Gem5NpuSchedulerStats& scheduler_stats = scheduler.stats();
     stats->scheduler_tasks_issued += scheduler_stats.tasks_issued;

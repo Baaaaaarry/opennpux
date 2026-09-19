@@ -82,21 +82,26 @@ four operations only:
 - `pending_count()` exposes outstanding work for drain and fence handling.
 
 `Gem5NpuFunctionalEngineAdapter` implements this interface with the existing
-C++ functional coprocessor. A Verilator/RTL adapter must implement the same
-contract with ready/valid task submission and a completion channel. Neither
-implementation owns graph dependency policy; the shared scheduler remains the
-single source of issue and retirement decisions.
+C++ functional coprocessor. Pending operations carry an engine-class latency,
+and `Poll()` returns the earliest engine completion rather than submission
+order. This deliberately exercises out-of-order completion while preserving
+the existing functional kernels. A Verilator/RTL adapter must implement the
+same contract with ready/valid task submission and a completion channel.
+Neither implementation owns graph dependency policy; the shared scheduler
+remains the single source of issue and retirement decisions.
 
 ## Current boundary
 
 The C++ control-plane model validates scheduling semantics and functional
 execution. The Host XGraph executor issues the complete ready set before it
 collects completions, so independent engine classes create observable in-flight
-and completion-queue occupancy. Engine kernels still execute synchronously and
-modeled cycles do not yet account for overlap. The Coral guest instruction
-stream also remains program ordered. RTL integration must therefore replace
-engine timing and the guest-side scheduler behind the same schedule/command
-ABI, then demonstrate:
+and completion-queue occupancy. Different engine latencies create deterministic
+out-of-order completion, which the completion queue converts back to in-order
+retirement. These latencies validate event ordering only: they are not RTL
+performance estimates, and reported kernel cycles do not yet account for
+overlap. The Coral guest instruction stream also remains program ordered. RTL
+integration must therefore replace engine timing and the guest-side scheduler
+behind the same schedule/command ABI, then demonstrate:
 
 1. Concurrent issue of independent commands to different engines.
 2. Correct RAW/WAR/WAW and epoch blocking.

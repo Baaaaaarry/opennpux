@@ -59,12 +59,47 @@ void TestEngineCreditsAndEpochFence() {
   assert(scheduler.inflight_count() == 2);
   Gem5NpuTask blocked = {};
   assert(!scheduler.Issue(&blocked));
+  assert(scheduler.stats().epoch_stalls == 1);
 
   assert(scheduler.Finish(Completion(first)));
   assert(scheduler.Retire(nullptr));
   assert(scheduler.Finish(Completion(second)));
   assert(scheduler.Retire(nullptr));
   assert(scheduler.Issue(&blocked) && blocked.ordering_epoch == 1);
+}
+
+void TestEngineCreditBackpressure() {
+  Gem5NpuTaskScheduler scheduler;
+  scheduler.Reset();
+  assert(scheduler.Submit(Task(30, 0, 0, Gem5NpuEngine::kTensor)));
+  assert(scheduler.Submit(Task(31, 1, 0, Gem5NpuEngine::kTensor)));
+  Gem5NpuTask issued = {};
+  assert(scheduler.Issue(&issued));
+  assert(!scheduler.Issue(&issued));
+  assert(scheduler.stats().engine_credit_stalls == 1);
+}
+
+void TestCompletionQueueBackpressure() {
+  Gem5NpuTaskScheduler scheduler;
+  scheduler.Reset();
+  scheduler.SetEngineCredits(Gem5NpuEngine::kVector, 32);
+  for (uint32_t index = 0; index < 17; ++index) {
+    assert(scheduler.Submit(
+        Task(100 + index, index, 0, Gem5NpuEngine::kVector)));
+  }
+  for (uint32_t index = 0; index < 16; ++index) {
+    Gem5NpuTask issued = {};
+    assert(scheduler.Issue(&issued));
+    assert(scheduler.Finish(Completion(issued)));
+  }
+  assert(scheduler.completion_count() == Gem5NpuCompletionQueue::kCapacity);
+  Gem5NpuTask blocked = {};
+  assert(!scheduler.Issue(&blocked));
+  assert(scheduler.stats().completion_backpressure_stalls == 1);
+
+  Gem5NpuCompletion retired = {};
+  assert(scheduler.Retire(&retired));
+  assert(scheduler.Issue(&blocked));
 }
 
 void TestCompletionErrorsDoNotSatisfyDependencies() {
@@ -142,6 +177,8 @@ void TestIndependentEnginesIssueConcurrently() {
 int main() {
   TestDependencyAndRetirement();
   TestEngineCreditsAndEpochFence();
+  TestEngineCreditBackpressure();
+  TestCompletionQueueBackpressure();
   TestCompletionErrorsDoNotSatisfyDependencies();
   TestOutOfOrderCompletionRetiresInOrder();
   TestIndependentEnginesIssueConcurrently();

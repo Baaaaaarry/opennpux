@@ -36,13 +36,21 @@ class Gem5NpuFunctionalEngineAdapter final : public Gem5NpuEngineAdapter {
       Gem5NpuEngine engine, const Gem5TmmaDispatchPacket& packet) override;
   bool Poll(std::vector<uint8_t>* memory, uint32_t memory_base,
             Gem5NpuEngineCompletion* completion) override;
-  size_t pending_count() const override { return pending_count_; }
+ size_t pending_count() const override { return pending_count_; }
 
  private:
-  Gem5XOpenNpuFunctionalCoprocessor coprocessor_;
-  std::array<Gem5NpuEngine, Gem5XOpenNpuFunctionalCoprocessor::kQueueCapacity>
-      engines_{};
-  size_t head_ = 0;
+  struct Pending {
+    Gem5NpuEngine engine = Gem5NpuEngine::kControl;
+    Gem5TmmaDispatchPacket packet{};
+    uint64_t ready_cycle = 0;
+    bool valid = false;
+  };
+
+  static uint64_t EngineLatency(Gem5NpuEngine engine);
+
+  std::array<Pending, Gem5XOpenNpuFunctionalCoprocessor::kQueueCapacity>
+      pending_{};
+  uint64_t current_cycle_ = 0;
   size_t pending_count_ = 0;
 };
 
